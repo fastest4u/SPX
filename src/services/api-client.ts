@@ -58,19 +58,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isApiResponse(value: unknown): value is ApiResponse {
+function numberOrDefault(value: unknown, defaultValue: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : defaultValue;
+}
+
+function normalizeApiResponse(value: unknown): ApiResponse | null {
   if (!isRecord(value) || !isRecord(value.data)) {
-    return false;
+    return null;
   }
 
-  return (
-    typeof value.retcode === "number" &&
-    typeof value.message === "string" &&
-    typeof value.data.pageno === "number" &&
-    typeof value.data.count === "number" &&
-    typeof value.data.total === "number" &&
-    Array.isArray(value.data.list)
-  );
+  if (typeof value.retcode !== "number" || typeof value.message !== "string" || !Array.isArray(value.data.list)) {
+    return null;
+  }
+
+  return {
+    retcode: value.retcode,
+    message: value.message,
+    data: {
+      pageno: numberOrDefault(value.data.pageno, env.BIDDING_PAGE_NO),
+      count: numberOrDefault(value.data.count, value.data.list.length),
+      total: numberOrDefault(value.data.total, value.data.list.length),
+      list: value.data.list as ApiResponse["data"]["list"],
+    },
+  };
 }
 
 function isBookingOverviewResponse(value: unknown): value is BookingOverviewResponse {
@@ -86,19 +96,33 @@ function isBookingOverviewResponse(value: unknown): value is BookingOverviewResp
   );
 }
 
-function isBookingRequestListResponse(value: unknown): value is BookingRequestListResponse {
+function normalizeBookingRequestListResponse(value: unknown): BookingRequestListResponse | null {
   if (!isRecord(value) || !isRecord(value.data)) {
-    return false;
+    return null;
   }
 
-  return (
-    typeof value.retcode === "number" &&
-    typeof value.message === "string" &&
-    typeof value.data.pageno === "number" &&
-    typeof value.data.count === "number" &&
-    typeof value.data.total === "number" &&
-    Array.isArray(value.data.request_list)
-  );
+  if (typeof value.retcode !== "number" || typeof value.message !== "string" || !Array.isArray(value.data.request_list)) {
+    return null;
+  }
+
+  return {
+    retcode: value.retcode,
+    message: value.message,
+    data: {
+      pageno: numberOrDefault(value.data.pageno, 1),
+      count: numberOrDefault(value.data.count, value.data.request_list.length),
+      total: numberOrDefault(value.data.total, value.data.request_list.length),
+      request_list: value.data.request_list as BookingRequestListResponse["data"]["request_list"],
+    },
+  };
+}
+
+function getRetcode(value: unknown): number | null {
+  return isRecord(value) && typeof value.retcode === "number" ? value.retcode : null;
+}
+
+function getMessage(value: unknown): string {
+  return isRecord(value) && typeof value.message === "string" ? value.message : "";
 }
 
 function buildHeaders(): Record<string, string> {
@@ -162,7 +186,21 @@ export class ApiClient {
       }
 
       const data: unknown = await response.json();
-      if (!isApiResponse(data)) {
+      const apiResponse = normalizeApiResponse(data);
+      const retcode = getRetcode(data);
+
+      if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
+        return {
+          success: false,
+          latencyMs,
+          httpStatus: response.status,
+          error: `Session expired (retcode=${retcode}): ${getMessage(data)}`,
+          timestamp: new Date(),
+          requestNumber,
+        };
+      }
+
+      if (!apiResponse) {
         return {
           success: false,
           latencyMs,
@@ -173,12 +211,12 @@ export class ApiClient {
         };
       }
 
-      if (SESSION_EXPIRED_CODES.has(data.retcode)) {
+      if (SESSION_EXPIRED_CODES.has(apiResponse.retcode)) {
         return {
           success: false,
           latencyMs,
           httpStatus: response.status,
-          error: `Session expired (retcode=${data.retcode}): ${data.message}`,
+          error: `Session expired (retcode=${apiResponse.retcode}): ${apiResponse.message}`,
           timestamp: new Date(),
           requestNumber,
         };
@@ -186,7 +224,7 @@ export class ApiClient {
 
       return {
         success: true,
-        data,
+        data: apiResponse,
         latencyMs,
         httpStatus: response.status,
         timestamp: new Date(),
@@ -266,7 +304,7 @@ export class ApiClient {
 
       if (!response.ok) return null;
       const data: unknown = await response.json();
-      return isBookingRequestListResponse(data) ? data : null;
+      return normalizeBookingRequestListResponse(data);
     } catch (err) {
       logger.warn("booking-request-list-failed", { bookingId, pageNo, error: err instanceof Error ? err.message : String(err) });
       return null;

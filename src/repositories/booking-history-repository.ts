@@ -1,6 +1,7 @@
 import { getDb } from "../db/client.js";
 import { spxBookingHistory } from "../db/schema.js";
-import { and, desc, asc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, asc, eq, ilike, or } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 export interface BookingHistoryRecord {
   requestId: number;
@@ -41,7 +42,7 @@ export async function insertBookingHistory(record: BookingHistoryRecord): Promis
   return { action: affectedRows > 0 ? "inserted" : "skipped" };
 }
 
-export async function getBookingHistory(query: BookingHistoryQuery | number = 100): Promise<any[]> {
+export async function getBookingHistory(query: BookingHistoryQuery | number = 100): Promise<Array<typeof spxBookingHistory.$inferSelect>> {
   const db = await getDb();
   if (typeof query === "number") {
     const rows = await db.select().from(spxBookingHistory).orderBy(desc(spxBookingHistory.id)).limit(query);
@@ -49,14 +50,15 @@ export async function getBookingHistory(query: BookingHistoryQuery | number = 10
   }
 
   const limit = query.limit ?? 200;
-  const filters = [] as any[];
+  const filters: SQL[] = [];
   if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
   if (query.origin) filters.push(ilike(spxBookingHistory.origin, `%${query.origin}%`));
   if (query.destination) filters.push(ilike(spxBookingHistory.destination, `%${query.destination}%`));
   if (query.vehicleType) filters.push(ilike(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
   if (query.search) {
     const term = `%${query.search}%`;
-    filters.push(or(ilike(spxBookingHistory.route, term), ilike(spxBookingHistory.origin, term), ilike(spxBookingHistory.destination, term), ilike(spxBookingHistory.vehicleType, term), ilike(spxBookingHistory.bookingName, term), ilike(spxBookingHistory.agencyName, term)));
+    const searchFilter = or(ilike(spxBookingHistory.route, term), ilike(spxBookingHistory.origin, term), ilike(spxBookingHistory.destination, term), ilike(spxBookingHistory.vehicleType, term), ilike(spxBookingHistory.bookingName, term), ilike(spxBookingHistory.agencyName, term));
+    if (searchFilter) filters.push(searchFilter);
   }
 
   const orderBy = query.sortBy === "request_id"

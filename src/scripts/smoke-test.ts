@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   const assetsPath = resolve(process.cwd(), "dist/public/dashboard.js");
   const assetContent = await readFile(assetsPath, "utf8");
-  if (!assetContent.includes("window.logout")) {
+  if (!assetContent.includes("DOMContentLoaded") || !assetContent.includes("METRICS_URL")) {
     throw new Error("dashboard.js asset is missing expected content");
   }
 

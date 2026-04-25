@@ -105,6 +105,20 @@ function sendApiError(reply: FastifyReply, statusCode: number, message: string, 
   reply.code(statusCode).send({ error: { code, message, ...(details === undefined ? {} : { details }) } });
 }
 
+function getErrorStatusCode(error: unknown): number {
+  if (typeof error === "object" && error !== null && "statusCode" in error) {
+    const statusCode = (error as { statusCode?: unknown }).statusCode;
+    if (typeof statusCode === "number" && statusCode >= 400) {
+      return statusCode;
+    }
+  }
+  return 500;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function requireRole(required: UserRole) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const user = req.user as AuthUser | undefined;
@@ -131,7 +145,7 @@ export async function startHttpServer(port: number): Promise<void> {
   await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
   await app.register(fastifyStatic, { root: publicAssetsDir, prefix: "/assets/", maxAge: "1h", immutable: false });
 
-  app.decorate("authenticate", async function (req: FastifyRequest, reply: FastifyReply) {
+  async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
       await req.jwtVerify({ onlyCookie: true });
       const user = req.user as Partial<AuthUser> & { role?: unknown };
@@ -139,7 +153,9 @@ export async function startHttpServer(port: number): Promise<void> {
     } catch {
       return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
     }
-  });
+  }
+
+  app.decorate("authenticate", authenticateRequest);
 
   app.decorate("requireRole", requireRole);
 
@@ -160,29 +176,30 @@ export async function startHttpServer(port: number): Promise<void> {
     logger.info("http-request", { method: request.method, url: request.url, ip: request.ip });
   });
 
-  app.setErrorHandler((error, _request, reply) => {
-    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-    if (statusCode >= 500) logger.error(error); else logger.warn("request-error", { message: error.message, statusCode });
+  app.setErrorHandler((error: unknown, _request, reply) => {
+    const statusCode = getErrorStatusCode(error);
+    const message = getErrorMessage(error);
+    if (statusCode >= 500) logger.error(error instanceof Error ? error : new Error(message)); else logger.warn("request-error", { message, statusCode });
     if (reply.sent) return;
-    sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : error.message, "REQUEST_ERROR");
+    sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, "REQUEST_ERROR");
   });
 
   await app.register(authController, { prefix: "/api" });
   await app.register(dashboardController);
 
   await app.register(async (apiScope) => {
-    apiScope.addHook("preHandler", (apiScope as any).authenticate);
+    apiScope.addHook("preHandler", authenticateRequest);
     await apiScope.register(historyController, { prefix: "/history" });
     await apiScope.register(reportController, { prefix: "/reports" });
 
     await apiScope.register(async (editorScope) => {
-      editorScope.addHook("preHandler", (apiScope as any).requireRole("editor"));
+      editorScope.addHook("preHandler", requireRole("editor"));
       await editorScope.register(rulesController, { prefix: "/rules" });
       await editorScope.register(notifyController, { prefix: "/notifications" });
     });
 
     await apiScope.register(async (adminScope) => {
-      adminScope.addHook("preHandler", (apiScope as any).requireRole("admin"));
+      adminScope.addHook("preHandler", requireRole("admin"));
       await adminScope.register(usersController, { prefix: "/users" });
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });

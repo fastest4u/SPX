@@ -10,6 +10,7 @@ tags:
 ## Local run
 ```bash
 npm install
+npm run typecheck
 npm run build
 npm start
 ```
@@ -46,3 +47,4 @@ docker compose up --build
 - keep `notify-rules.json` and `.env` under controlled write access
 - set `HTTP_ALLOWED_ORIGINS` when accessing the dashboard from a non-localhost domain
 - use `restart: unless-stopped`, PM2, systemd, or an orchestrator because settings save intentionally exits the process
+- use `npm run build` for release verification because it includes TypeScript typecheck

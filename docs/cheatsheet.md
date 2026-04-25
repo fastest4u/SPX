@@ -10,6 +10,7 @@ tags:
 ## Quick start
 ```bash
 npm install
+npm run typecheck
 npm run build
 npm start
 ```
@@ -64,4 +65,5 @@ docker compose up --build
 - settings save exits the process
 - notification rules are file-based and single-instance oriented
 - dashboard requires MySQL when `HTTP_ENABLED=true`
+- settings secrets are redacted on read
 - secrets should stay in `.env` or a secret manager

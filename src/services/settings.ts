@@ -3,6 +3,18 @@ import { resolve } from "node:path";
 
 const envFilePath = resolve(process.cwd(), ".env");
 
+export const SETTINGS_KEYS = [
+  "API_URL",
+  "COOKIE",
+  "DEVICE_ID",
+  "LINE_NOTIFY_TOKEN",
+  "DISCORD_WEBHOOK_URL",
+  "POLL_INTERVAL_MS",
+] as const;
+
+export type SettingsKey = typeof SETTINGS_KEYS[number];
+export type EnvSettings = Partial<Record<SettingsKey, string>>;
+
 export function readEnvFile(): Record<string, string> {
   const settings: Record<string, string> = {};
   if (!existsSync(envFilePath)) return settings;
@@ -29,7 +41,7 @@ export function readEnvFile(): Record<string, string> {
   return settings;
 }
 
-export function writeEnvFile(newSettings: Record<string, string>): void {
+export function writeEnvFile(newSettings: EnvSettings): void {
   const currentSettings = readEnvFile();
   const mergedSettings = { ...currentSettings, ...newSettings };
   

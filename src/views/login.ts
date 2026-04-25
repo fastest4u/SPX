@@ -21,12 +21,12 @@ export function buildLoginHtml(): string {
     </div>
     <form method="post" action="/api/login">
       <div class="mb-3">
-        <label class="form-label text-secondary">Username</label>
-        <input class="form-control form-control-lg" name="username" autocomplete="username" required>
+        <label class="form-label text-secondary" for="login-username">Username</label>
+        <input class="form-control form-control-lg" id="login-username" name="username" autocomplete="username" required>
       </div>
       <div class="mb-4">
-        <label class="form-label text-secondary">Password</label>
-        <input class="form-control form-control-lg" type="password" name="password" autocomplete="current-password" required>
+        <label class="form-label text-secondary" for="login-password">Password</label>
+        <input class="form-control form-control-lg" id="login-password" type="password" name="password" autocomplete="current-password" required>
       </div>
       <button class="btn btn-primary btn-lg w-100 fw-semibold" type="submit">เข้าสู่ระบบ</button>
     </form>

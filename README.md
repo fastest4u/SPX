@@ -132,6 +132,7 @@ npm run build
 ```
 
 คำสั่งนี้จะ
+- ตรวจ TypeScript ด้วย `tsc --noEmit`
 - bundle TypeScript ไปที่ `dist/`
 - copy static assets ไปที่ `dist/public/`
 
@@ -218,6 +219,7 @@ http://localhost:3000
 - `notify-rules.json` เป็นไฟล์ state ของ rules engine และเหมาะกับ single-instance
 - dashboard ต้องใช้ MySQL เมื่อเปิด `HTTP_ENABLED=true` แม้ `SAVE_TO_DB=false`
 - settings ที่บันทึกผ่าน dashboard จะเขียนค่าลง `.env` และ trigger restart ผ่าน `process.exit(0)`
+- settings API จะแสดงค่า secret แบบ masked และไม่เขียนทับค่าเดิมถ้าส่ง masked value กลับมา
 - ถ้าใช้งาน production หลาย instance ควรย้าย state สำคัญบางส่วนไป DB หรือ secret store
 
 ---

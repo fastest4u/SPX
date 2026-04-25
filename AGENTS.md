@@ -7,7 +7,7 @@
 
 ## Commands
 - `npm ci` installs locked dependencies.
-- `npm run build` is the main local verification; it runs `esbuild` to bundle and minify `src/app.ts` into a single `dist/app.js` file, keeping dependencies external.
+- `npm run build` is the main local verification; it runs `tsc --noEmit`, then `esbuild` to bundle and minify `src/app.ts` into a single `dist/app.js` file, keeping dependencies external.
 - `npm run dev -- 10` runs `src/app.ts` via `ts-node` with an optional polling interval in seconds.
 - `npm start -- 10` runs `dist/app.js`; run `npm run build` first if `dist/` may be stale.
 - `npm run db:generate` builds, then rewrites `migrations/001_create_booking_requests.sql` from `src/db/migration-sql.ts`.

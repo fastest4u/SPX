@@ -18,10 +18,12 @@ tags:
 - saving settings writes to `.env`
 - process exits after save
 - requires a process manager or container restart policy
+- API responses redact secret values; leave masked values unchanged to keep existing secrets
 
 ## 3) Notification rules are file-based
 - `notify-rules.json` is useful for single-instance setups
 - writes are atomic, but concurrent writes from multiple app instances are still risky
+- dashboard updates/deletes rules by stable rule `id`, not table row index
 - DB-backed rules are better for scale
 
 ## 4) Dashboard depends on MySQL

@@ -4,7 +4,8 @@
   "description": "Real-time polling for Agency Booking Bidding List (MVC TypeScript)",
   "main": "dist/app.js",
   "scripts": {
-    "build": "rimraf dist && esbuild src/app.ts src/scripts/generate-migration.ts src/scripts/db-migrate.ts src/scripts/db-test.ts src/scripts/smoke-test.ts --bundle --platform=node --target=node18 --minify --outdir=dist --packages=external && node scripts/copy-public.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck --silent && rimraf dist && esbuild src/app.ts src/scripts/generate-migration.ts src/scripts/db-migrate.ts src/scripts/db-test.ts src/scripts/smoke-test.ts --bundle --platform=node --target=node18 --minify --outdir=dist --packages=external && node scripts/copy-public.mjs",
     "start": "node dist/app.js",
     "dev": "ts-node src/app.ts",
     "watch": "tsc --watch",

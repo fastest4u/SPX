@@ -14,19 +14,18 @@ function hasNotificationTarget(): boolean {
   return Boolean(env.LINE_NOTIFY_TOKEN || env.DISCORD_WEBHOOK_URL);
 }
 
-function dedupeRuleIndexes(matches: Array<{ ruleIndex: number }>): number[] {
-  return [...new Set(matches.map((match) => match.ruleIndex))];
+function dedupeRuleIds(matches: Array<{ ruleId: string }>): string[] {
+  return [...new Set(matches.map((match) => match.ruleId))];
 }
 
-function textField(trip: TripLike, primaryKey: string, fallbackKey: string): string {
-  const value = trip[primaryKey] ?? trip[fallbackKey];
+function textValue(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "-";
 }
 
 function tripLine(trip: TripLike): string {
-  const origin = textField(trip, "origin", "ต้นทาง");
-  const destination = textField(trip, "destination", "ปลายทาง");
-  const vehicleType = textField(trip, "vehicle_type", "ประเภทรถ");
+  const origin = textValue(trip.origin ?? trip["ต้นทาง"]);
+  const destination = textValue(trip.destination ?? trip["ปลายทาง"]);
+  const vehicleType = textValue(trip.vehicle_type ?? trip["ประเภทรถ"]);
   const requestId = typeof trip.request_id === "number" ? trip.request_id : "-";
   return `request_id=${requestId} ${origin} -> ${destination} (${vehicleType})`;
 }
@@ -143,7 +142,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
     const channelResults: NotificationSendResult[] = [];
-    const fulfilledRuleIndexes: number[] = [];
+    const fulfilledRuleIds: string[] = [];
 
     if (!forceTest && env.NOTIFY_MODE === "each") {
       for (const match of matches) {
@@ -151,7 +150,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
         const sendResult = await sendNotificationMessage(`${title}: ${match.ruleName}`, message);
         channelResults.push(...sendResult.results);
         if (sendResult.sent) {
-          fulfilledRuleIndexes.push(match.ruleIndex);
+          fulfilledRuleIds.push(match.ruleId);
         }
       }
     } else {
@@ -159,12 +158,12 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
       const sendResult = await sendNotificationMessage(title, message);
       channelResults.push(...sendResult.results);
       if (sendResult.sent) {
-        fulfilledRuleIndexes.push(...dedupeRuleIndexes(matches));
+        fulfilledRuleIds.push(...dedupeRuleIds(matches));
       }
     }
 
-    if (fulfilledRuleIndexes.length > 0) {
-      markRulesFulfilled(fulfilledRuleIndexes);
+    if (fulfilledRuleIds.length > 0) {
+      markRulesFulfilled(fulfilledRuleIds);
     }
 
     return { matches, sent: channelResults.some((result) => result.ok), channels: channelResults };

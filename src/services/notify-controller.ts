@@ -3,6 +3,15 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { sendNotificationMessage } from "./notifier.js";
 
+interface NotificationBody {
+  title?: string;
+  message?: string;
+  channels?: {
+    line?: boolean;
+    discord?: boolean;
+  };
+}
+
 function redact(value: string, visible = 4): string {
   if (!value) return "";
   if (value.length <= visible * 2) return "*".repeat(Math.max(4, value.length));
@@ -10,8 +19,8 @@ function redact(value: string, visible = 4): string {
 }
 
 export const notifyController: FastifyPluginAsync = async (app) => {
-  app.post("/preview", async (req: any) => {
-    const body = req.body as { title?: string; message?: string };
+  app.post<{ Body: NotificationBody }>("/preview", async (req) => {
+    const body = req.body ?? {};
     return {
       ok: true,
       preview: {
@@ -25,8 +34,8 @@ export const notifyController: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.post("/test", async (req: any, reply) => {
-    const body = req.body as { title?: string; message?: string };
+  app.post<{ Body: NotificationBody }>("/test", async (req, reply) => {
+    const body = req.body ?? {};
     const title = body?.title ?? "SPX Notification Test";
     const message = body?.message ?? "Test notification from SPX Bidding Poller.";
 

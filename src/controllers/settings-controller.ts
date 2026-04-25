@@ -1,10 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
-import { readEnvFile, writeEnvFile } from "../services/settings.js";
+import type { AuthUser } from "../services/authz.js";
+import { readEnvFile, writeEnvFile, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
+import { logger } from "../utils/logger.js";
+
+const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_NOTIFY_TOKEN", "DISCORD_WEBHOOK_URL"]);
+const REDACTED_PREFIX = "********";
 
 const settingsSchema = {
   type: "object",
-  additionalProperties: true,
+  additionalProperties: false,
   properties: {
     API_URL: { type: "string" },
     COOKIE: { type: "string" },
@@ -15,29 +20,56 @@ const settingsSchema = {
   },
 } as const;
 
+function currentUser(req: { user?: unknown }): AuthUser {
+  return req.user as AuthUser;
+}
+
+function redactSecret(value: string | undefined): string {
+  if (!value) return "";
+  return `${REDACTED_PREFIX}${value.slice(-4)}`;
+}
+
+function isRedactedSecret(value: string): boolean {
+  return value.startsWith(REDACTED_PREFIX);
+}
+
+function readPublicSettings(): EnvSettings {
+  const envVars = readEnvFile();
+  return {
+    API_URL: envVars.API_URL || "",
+    COOKIE: redactSecret(envVars.COOKIE),
+    DEVICE_ID: envVars.DEVICE_ID || "",
+    LINE_NOTIFY_TOKEN: redactSecret(envVars.LINE_NOTIFY_TOKEN),
+    DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
+    POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
+  };
+}
+
+function writableSettings(body: Partial<Record<SettingsKey, string>>): EnvSettings {
+  const result: EnvSettings = {};
+  for (const [key, value] of Object.entries(body) as Array<[SettingsKey, string | undefined]>) {
+    if (typeof value !== "string") continue;
+    if (SECRET_KEYS.has(key) && isRedactedSecret(value)) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
 export const settingsController: FastifyPluginAsync = async (app) => {
   app.get("/", async () => {
-    const envVars = readEnvFile();
-    return {
-      API_URL: envVars.API_URL || "",
-      COOKIE: envVars.COOKIE || "",
-      DEVICE_ID: envVars.DEVICE_ID || "",
-      LINE_NOTIFY_TOKEN: envVars.LINE_NOTIFY_TOKEN || "",
-      DISCORD_WEBHOOK_URL: envVars.DISCORD_WEBHOOK_URL || "",
-      POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
-    };
+    return readPublicSettings();
   });
 
   app.post(
     "/",
     { schema: { body: settingsSchema } },
-    async (req: any, reply) => {
-      const data = req.body as Record<string, string>;
+    async (req, reply) => {
+      const data = writableSettings(req.body as Partial<Record<SettingsKey, string>>);
       writeEnvFile(data);
-      await insertAuditLog(req.user.username, "Update Settings", "Updated .env configuration (Server Restarted)");
+      await insertAuditLog(currentUser(req).username, "Update Settings", "Updated .env configuration (Server Restarted)");
 
       setTimeout(() => {
-        console.log("Settings updated via API. Triggering immediate restart...");
+        logger.info("settings-updated-restarting");
         process.exit(0);
       }, 1000);
 

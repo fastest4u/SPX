@@ -2,10 +2,23 @@ import type { FastifyPluginAsync } from "fastify";
 import { getUserByUsername, verifyPassword } from "../repositories/user-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { env } from "../config/env.js";
+import type { AuthUser } from "../services/authz.js";
+
+interface LoginBody {
+  username?: unknown;
+  password?: unknown;
+}
+
+function isAuthUser(value: unknown): value is AuthUser {
+  return typeof value === "object"
+    && value !== null
+    && "username" in value
+    && typeof (value as { username?: unknown }).username === "string";
+}
 
 export const authController: FastifyPluginAsync = async (app) => {
-  app.post("/login", async (req, reply) => {
-    const { username, password } = req.body as any;
+  app.post<{ Body: LoginBody }>("/login", async (req, reply) => {
+    const { username, password } = req.body;
 
     if (typeof username !== "string" || typeof password !== "string" || username.trim() === "" || password.trim() === "") {
       return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "Username and password are required" } });
@@ -31,12 +44,14 @@ export const authController: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  app.post("/logout", async (req: any, reply) => {
+  app.post("/logout", async (req, reply) => {
     const token = req.cookies.token;
     if (token) {
       try {
-        const decoded: any = await req.jwtVerify({ onlyCookie: true });
-        await insertAuditLog(decoded.username, "Logout", "User logged out");
+        const decoded = await req.jwtVerify({ onlyCookie: true });
+        if (isAuthUser(decoded)) {
+          await insertAuditLog(decoded.username, "Logout", "User logged out");
+        }
       } catch {
         // ignore invalid token on logout
       }

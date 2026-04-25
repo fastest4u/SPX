@@ -1,6 +1,7 @@
 import { getDb } from "../db/client.js";
 import { auditLogs } from "../db/schema.js";
 import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 
 type AuditQuery = {
   limit?: number;
@@ -23,12 +24,13 @@ export async function getAuditLogs(query: AuditQuery | number = 100) {
   }
 
   const limit = query.limit ?? 200;
-  const filters = [] as any[];
+  const filters: SQL[] = [];
   if (query.username) filters.push(eq(auditLogs.username, query.username));
   if (query.action) filters.push(eq(auditLogs.action, query.action));
   if (query.search) {
     const term = `%${query.search}%`;
-    filters.push(or(ilike(auditLogs.username, term), ilike(auditLogs.action, term), ilike(auditLogs.details, term)));
+    const searchFilter = or(ilike(auditLogs.username, term), ilike(auditLogs.action, term), ilike(auditLogs.details, term));
+    if (searchFilter) filters.push(searchFilter);
   }
 
   const orderBy = query.sortBy === "id"

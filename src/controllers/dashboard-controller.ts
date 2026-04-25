@@ -8,8 +8,8 @@ import { getPool } from "../db/client.js";
 export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
     try {
-      if (!(req as any).cookies.token) throw new Error("No token");
-      await (req as any).jwtVerify({ onlyCookie: true });
+      if (!req.cookies.token) throw new Error("No token");
+      await req.jwtVerify({ onlyCookie: true });
       reply.type("text/html; charset=utf-8").send(buildDashboardHtml());
     } catch {
       reply.type("text/html; charset=utf-8").send(buildLoginHtml());

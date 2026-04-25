@@ -36,13 +36,13 @@ export const reportController: FastifyPluginAsync = async (app) => {
     const rows = await getBookingHistory(1000);
     const header = ["request_id", "booking_id", "origin", "destination", "vehicle_type", "standby_datetime", "created_at"];
     const body = rows.map((row) => [
-      row.request_id,
-      row.booking_id,
+      row.requestId,
+      row.bookingId,
       row.origin,
       row.destination,
-      row.vehicle_type,
-      row.standby_datetime,
-      row.created_at,
+      row.vehicleType,
+      row.standbyDateTime,
+      row.createdAt,
     ]);
 
     reply
@@ -54,7 +54,7 @@ export const reportController: FastifyPluginAsync = async (app) => {
   app.get("/audit.csv", async (_req, reply) => {
     const rows = await getAuditLogs(1000);
     const header = ["id", "username", "action", "details", "created_at"];
-    const body = rows.map((row) => [row.id, row.username, row.action, row.details, row.created_at]);
+    const body = rows.map((row) => [row.id, row.username, row.action, row.details, row.createdAt]);
 
     reply
       .header("Content-Type", "text/csv; charset=utf-8")

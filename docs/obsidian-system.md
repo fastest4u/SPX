@@ -61,6 +61,7 @@ tags:
 - Rules file:
   - `notify-rules.json`
 - Behaviour:
+  - each rule has a stable `id`; API updates/deletes rules by id instead of array index
   - rules are matched against trips
   - extracted trip fields support both English aliases and Thai field names
   - matching rules can be auto-marked fulfilled
@@ -109,6 +110,7 @@ tags:
 - Smoke test script
 - Graceful shutdown for worker and HTTP server
 - Atomic writes for `.env` and `notify-rules.json`
+- Settings reads redact secrets in API responses; unchanged masked values do not overwrite `.env`
 
 ## Important env vars
 
@@ -147,6 +149,7 @@ tags:
 ## Commands
 
 ```bash
+npm run typecheck
 npm run build
 npm start
 npm run smoke:test
