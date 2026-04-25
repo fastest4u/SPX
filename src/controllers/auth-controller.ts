@@ -59,4 +59,41 @@ export const authController: FastifyPluginAsync = async (app) => {
     reply.clearCookie("token", { path: "/" });
     return { ok: true };
   });
+
+  /** Refresh JWT token — extends session without re-entering credentials */
+  app.post("/refresh", async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+      const user = req.user as AuthUser;
+
+      const token = await reply.jwtSign(
+        { username: user.username, id: user.id, role: user.role },
+        { expiresIn: "1d" }
+      );
+
+      reply.setCookie("token", token, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "strict",
+        secure: env.NODE_ENV === "production",
+        signed: true,
+        maxAge: 86400,
+      });
+
+      return { ok: true };
+    } catch {
+      return reply.code(401).send({ error: { code: "TOKEN_EXPIRED", message: "Token expired. Please login again." } });
+    }
+  });
+
+  /** Get current user info */
+  app.get("/me", async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+      const user = req.user as AuthUser;
+      return { ok: true, user: { id: user.id, username: user.username, role: user.role } };
+    } catch {
+      return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } });
+    }
+  });
 };

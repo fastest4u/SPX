@@ -39,3 +39,22 @@ export const auditLogs = mysqlTable("audit_logs", {
   details: varchar("details", { length: 1000 }),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const metricsSnapshots = mysqlTable("metrics_snapshots", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  uptime: int("uptime").notNull(),
+  totalRequests: int("total_requests").notNull().default(0),
+  successCount: int("success_count").notNull().default(0),
+  errorCount: int("error_count").notNull().default(0),
+  successRate: varchar("success_rate", { length: 10 }).notNull().default("0"),
+  latencyAvg: int("latency_avg").notNull().default(0),
+  latencyP95: int("latency_p95").notNull().default(0),
+  latencyP99: int("latency_p99").notNull().default(0),
+  totalRecordsSeen: int("total_records_seen").notNull().default(0),
+  changesDetected: int("changes_detected").notNull().default(0),
+  tripsInserted: int("trips_inserted").notNull().default(0),
+  tripsSkipped: int("trips_skipped").notNull().default(0),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  createdAtIdx: index("metrics_created_at_idx").on(table.createdAt),
+}));

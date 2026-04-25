@@ -18,6 +18,15 @@ function uniquePositiveIntegers(values: unknown): number[] {
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
 }
 
+/** Singleton API client shared across accept requests */
+let sharedApiClient: ApiClient | null = null;
+function getApiClient(): ApiClient {
+  if (!sharedApiClient) {
+    sharedApiClient = new ApiClient();
+  }
+  return sharedApiClient;
+}
+
 const acceptSchema = {
   type: "object",
   additionalProperties: false,
@@ -39,7 +48,7 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     }
 
     const validBookingId: number = bookingId;
-    const apiClient = new ApiClient();
+    const apiClient = getApiClient();
     const result = await apiClient.acceptBookingRequests(validBookingId, requestIds);
     const actor = currentUser(req).username;
 

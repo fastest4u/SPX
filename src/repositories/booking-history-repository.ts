@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { spxBookingHistory } from "../db/schema.js";
-import { and, desc, asc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, asc, eq, like, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 export interface BookingHistoryRecord {
@@ -52,12 +52,12 @@ export async function getBookingHistory(query: BookingHistoryQuery | number = 10
   const limit = query.limit ?? 200;
   const filters: SQL[] = [];
   if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
-  if (query.origin) filters.push(ilike(spxBookingHistory.origin, `%${query.origin}%`));
-  if (query.destination) filters.push(ilike(spxBookingHistory.destination, `%${query.destination}%`));
-  if (query.vehicleType) filters.push(ilike(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
+  if (query.origin) filters.push(like(spxBookingHistory.origin, `%${query.origin}%`));
+  if (query.destination) filters.push(like(spxBookingHistory.destination, `%${query.destination}%`));
+  if (query.vehicleType) filters.push(like(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
   if (query.search) {
     const term = `%${query.search}%`;
-    const searchFilter = or(ilike(spxBookingHistory.route, term), ilike(spxBookingHistory.origin, term), ilike(spxBookingHistory.destination, term), ilike(spxBookingHistory.vehicleType, term), ilike(spxBookingHistory.bookingName, term), ilike(spxBookingHistory.agencyName, term));
+    const searchFilter = or(like(spxBookingHistory.route, term), like(spxBookingHistory.origin, term), like(spxBookingHistory.destination, term), like(spxBookingHistory.vehicleType, term), like(spxBookingHistory.bookingName, term), like(spxBookingHistory.agencyName, term));
     if (searchFilter) filters.push(searchFilter);
   }
 

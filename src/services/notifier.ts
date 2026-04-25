@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { metrics } from "./metrics.js";
 import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, markRulesAutoAccepted, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import type { ApiClient } from "./api-client.js";
 
@@ -249,13 +250,20 @@ export async function acceptAndNotifyMatchedRules(
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
 
-  // Call accept API per booking
+  // Call accept API per booking — with 1 retry on failure
   for (const [bookingId, entry] of byBooking) {
     const requestIds = [...entry.requestIds];
 
     logger.info("auto-accept-calling", { bookingId, requestIds });
 
-    const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+    let result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+
+    // Retry once on failure after 2 seconds
+    if (!result.ok) {
+      logger.warn("auto-accept-retry", { bookingId, requestIds, error: result.error });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+    }
 
     if (result.ok) {
       logger.info("auto-accept-success", { bookingId, requestIds, httpStatus: result.httpStatus });
@@ -268,6 +276,10 @@ export async function acceptAndNotifyMatchedRules(
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
     }
   }
+
+  // Record auto-accept metrics
+  for (const _a of accepted) metrics.recordAutoAccept(true);
+  for (const _f of failed) metrics.recordAutoAccept(false);
 
   // Mark rules as auto_accepted (regardless of accept success, to avoid retry loops)
   const fulfilledRuleIds = autoAcceptMatches.map((m) => m.ruleId);
@@ -299,4 +311,25 @@ export async function acceptAndNotifyMatchedRules(
   }
 
   return { autoAcceptMatches, accepted, failed, notified };
+}
+
+/** Send a critical alert when SPX session cookie expires */
+export async function sendSessionExpiryNotification(errorMessage: string): Promise<void> {
+  if (!hasNotificationTarget()) return;
+
+  const title = "🔴 SPX Session หมดอายุ";
+  const message = [
+    "**ระบบตรวจพบว่า Session Cookie ของ SPX หมดอายุแล้ว**",
+    "",
+    `Error: ${errorMessage}`,
+    "",
+    "⚠️ ระบบจะไม่สามารถ poll ข้อมูลหรือ accept งานได้จนกว่าจะอัปเดต cookie",
+    "",
+    "🔧 วิธีแก้:",
+    "1. เข้า SPX Agency Portal แล้ว copy cookie ใหม่",
+    "2. อัปเดตค่า COOKIE ผ่าน Settings UI หรือแก้ไขไฟล์ .env",
+    "3. ระบบจะ restart และเริ่มทำงานใหม่อัตโนมัติ",
+  ].join("\n");
+
+  await sendNotificationMessage(title, message);
 }

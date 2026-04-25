@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { randomUUID } from "node:crypto";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyJwt from "@fastify/jwt";
@@ -23,6 +24,8 @@ let app: FastifyInstance | null = null;
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 120;
+const RATE_LIMIT_EDITOR = 180;
+const RATE_LIMIT_ADMIN = 300;
 const AUTH_RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_BUCKET_CLEANUP_INTERVAL_MS = 60_000;
 const MAX_RATE_LIMIT_BUCKETS = 10_000;
@@ -163,6 +166,10 @@ export async function startHttpServer(port: number): Promise<void> {
   app.addHook("onRequest", async (request, reply) => {
     applySecurityHeaders(reply);
 
+    // Add unique request ID for tracing
+    const requestId = randomUUID();
+    reply.header("X-Request-Id", requestId);
+
     const limit = request.url.startsWith("/api/login") ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
     const rateLimit = checkRateLimit(getClientKey(request), limit);
 
@@ -174,7 +181,7 @@ export async function startHttpServer(port: number): Promise<void> {
       return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED", { retryAfterMs: Math.max(0, rateLimit.resetAt - Date.now()) });
     }
 
-    logger.info("http-request", { method: request.method, url: request.url, ip: request.ip });
+    logger.info("http-request", { method: request.method, url: request.url, ip: request.ip, requestId });
   });
 
   app.setErrorHandler((error: unknown, _request, reply) => {
@@ -195,6 +202,13 @@ export async function startHttpServer(port: number): Promise<void> {
 
     await apiScope.register(async (editorScope) => {
       editorScope.addHook("preHandler", requireRole("editor"));
+      // Editors get higher rate limit
+      editorScope.addHook("onRequest", async (request, reply) => {
+        const rateLimit = checkRateLimit(`role:editor:${getClientKey(request)}`, RATE_LIMIT_EDITOR);
+        if (!rateLimit.allowed) {
+          return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
+        }
+      });
       await editorScope.register(rulesController, { prefix: "/rules" });
       await editorScope.register(notifyController, { prefix: "/notifications" });
       await editorScope.register(biddingController, { prefix: "/bidding" });
@@ -202,6 +216,13 @@ export async function startHttpServer(port: number): Promise<void> {
 
     await apiScope.register(async (adminScope) => {
       adminScope.addHook("preHandler", requireRole("admin"));
+      // Admins get highest rate limit
+      adminScope.addHook("onRequest", async (request, reply) => {
+        const rateLimit = checkRateLimit(`role:admin:${getClientKey(request)}`, RATE_LIMIT_ADMIN);
+        if (!rateLimit.allowed) {
+          return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
+        }
+      });
       await adminScope.register(usersController, { prefix: "/users" });
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });

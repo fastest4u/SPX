@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { auditLogs } from "../db/schema.js";
-import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, like, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 type AuditQuery = {
@@ -29,7 +29,7 @@ export async function getAuditLogs(query: AuditQuery | number = 100) {
   if (query.action) filters.push(eq(auditLogs.action, query.action));
   if (query.search) {
     const term = `%${query.search}%`;
-    const searchFilter = or(ilike(auditLogs.username, term), ilike(auditLogs.action, term), ilike(auditLogs.details, term));
+    const searchFilter = or(like(auditLogs.username, term), like(auditLogs.action, term), like(auditLogs.details, term));
     if (searchFilter) filters.push(searchFilter);
   }
 

@@ -3,9 +3,10 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { saveBookingRequest } from "../services/db-service.js";
-import { notifyMatchedRules, acceptAndNotifyMatchedRules } from "../services/notifier.js";
+import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
+import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import {
   logger,
   formatHeader,
@@ -15,6 +16,7 @@ import {
 } from "../utils/logger.js";
 import { extractAllRequestListTrips, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
+import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import type { PollingStats } from "../models/types.js";
 
 const MAX_BOOKING_CONCURRENCY = 3;
@@ -28,6 +30,9 @@ export class Poller {
   private activeTick: Promise<void> | null = null;
   private requestCount = 0;
   private stopped = false;
+  private metricsTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSessionAlertTime = 0;
+  private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
 
   constructor(intervalSec?: number) {
     this.apiClient = new ApiClient();
@@ -60,6 +65,16 @@ export class Poller {
 
     if (env.HTTP_ENABLED) {
       await startHttpServer(env.HTTP_PORT);
+    }
+
+    // Start periodic metrics persistence (every 5 minutes)
+    if (env.SAVE_TO_DB) {
+      try {
+        await ensureMetricsTable();
+        this.metricsTimer = setInterval(() => void this.persistMetrics(), 5 * 60_000);
+      } catch (err) {
+        logger.warn("metrics-persistence-init-failed", { error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     if (process.stdout.isTTY) {
@@ -110,8 +125,15 @@ export class Poller {
 
     if (!result.success) {
       this.stats.errorCount++;
-      metrics.recordPoll(result.latencyMs, false, "error", null);
-      logger.error("poll-failed", { latencyMs: result.latencyMs, httpStatus: result.httpStatus, error: result.error });
+      const classified = classifyPollingError(result.httpStatus, result.error);
+      metrics.recordPoll(result.latencyMs, false, classified.category, null);
+      logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
+
+      // Alert on session expiry — send notification once
+      if (classified.category === "session_expired") {
+        metrics.recordSessionWarning();
+        await this.sendSessionExpiryAlert(classified.message);
+      }
       return;
     }
 
@@ -191,6 +213,13 @@ export class Poller {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    if (this.metricsTimer) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+    }
+
+    // Persist final metrics snapshot before shutdown
+    await this.persistMetrics();
 
     if (this.activeTick) {
       await this.activeTick.catch(() => undefined);
@@ -212,5 +241,32 @@ export class Poller {
     }
 
     process.exit(exitCode);
+  }
+
+  private async persistMetrics(): Promise<void> {
+    if (!env.SAVE_TO_DB) return;
+    try {
+      const snap = metrics.snapshot();
+      await insertMetricsSnapshot(snap);
+      logger.info("metrics-persisted", { uptime: snap.uptime, totalRequests: snap.polling.totalRequests });
+    } catch (err) {
+      logger.warn("metrics-persist-failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** Send session expiry alert via Discord/LINE — throttled to once per 10 minutes */
+  private async sendSessionExpiryAlert(errorMessage: string): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastSessionAlertTime < Poller.SESSION_ALERT_THROTTLE_MS) {
+      return; // Already alerted recently
+    }
+    this.lastSessionAlertTime = now;
+
+    try {
+      await sendSessionExpiryNotification(errorMessage);
+      logger.warn("session-expiry-alert-sent", { errorMessage });
+    } catch (err) {
+      logger.error("session-expiry-alert-failed", err instanceof Error ? err : new Error(String(err)));
+    }
   }
 }
