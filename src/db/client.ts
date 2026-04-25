@@ -1,0 +1,167 @@
+import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
+import { env } from "../config/env.js";
+import * as schema from "./schema.js";
+
+function createPool() {
+  if (!env.DB_HOST || !env.DB_USERNAME || !env.DB_PASSWORD || !env.DB_NAME) {
+    throw new Error("Missing DB configuration in .env");
+  }
+
+  return mysql.createPool({
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    user: env.DB_USERNAME,
+    password: env.DB_PASSWORD,
+    database: env.DB_NAME,
+    charset: "utf8mb4",
+    connectionLimit: 10,
+    waitForConnections: true,
+    queueLimit: 0,
+  });
+}
+
+function createDb() {
+  return drizzle(getPool(), { schema, mode: "default" });
+}
+
+let poolInstance: ReturnType<typeof createPool> | null = null;
+let dbInstance: ReturnType<typeof createDb> | null = null;
+let initialized = false;
+let initializationPromise: Promise<void> | null = null;
+let dashboardTablesInitialized = false;
+let dashboardTablesInitializationPromise: Promise<void> | null = null;
+
+export function getPool(): ReturnType<typeof createPool> {
+  if (poolInstance) {
+    return poolInstance;
+  }
+
+  poolInstance = createPool();
+
+  return poolInstance;
+}
+
+export function getDb(): ReturnType<typeof createDb> {
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  dbInstance = createDb();
+  return dbInstance;
+}
+
+export async function closePool(): Promise<void> {
+  if (!poolInstance) {
+    return;
+  }
+
+  const pool = poolInstance;
+  poolInstance = null;
+  dbInstance = null;
+  initialized = false;
+  initializationPromise = null;
+  dashboardTablesInitialized = false;
+  dashboardTablesInitializationPromise = null;
+  await pool.end();
+}
+
+export async function ensureSpxBookingHistoryTable(): Promise<void> {
+  if (initialized) {
+    return;
+  }
+
+  if (initializationPromise) {
+    await initializationPromise;
+    return;
+  }
+
+  initializationPromise = createSpxBookingHistoryTable();
+
+  try {
+    await initializationPromise;
+    initialized = true;
+  } finally {
+    if (!initialized) {
+      initializationPromise = null;
+    }
+  }
+}
+
+export async function ensureDashboardTables(): Promise<void> {
+  if (dashboardTablesInitialized) {
+    return;
+  }
+
+  if (dashboardTablesInitializationPromise) {
+    await dashboardTablesInitializationPromise;
+    return;
+  }
+
+  dashboardTablesInitializationPromise = createDashboardTables();
+
+  try {
+    await dashboardTablesInitializationPromise;
+    dashboardTablesInitialized = true;
+  } finally {
+    if (!dashboardTablesInitialized) {
+      dashboardTablesInitializationPromise = null;
+    }
+  }
+}
+
+async function createSpxBookingHistoryTable(): Promise<void> {
+  const pool = getPool();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS spx_booking_history (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      request_id BIGINT UNSIGNED NOT NULL,
+      booking_id BIGINT UNSIGNED NULL,
+      booking_name VARCHAR(255) NULL,
+      agency_name VARCHAR(255) NULL,
+      route VARCHAR(255) NOT NULL,
+      origin VARCHAR(255) NULL,
+      destination VARCHAR(255) NULL,
+      cost_type VARCHAR(50) NULL,
+      trip_type VARCHAR(50) NULL,
+      shift_type VARCHAR(50) NULL,
+      vehicle_type VARCHAR(50) NULL,
+      standby_datetime VARCHAR(50) NULL,
+      acceptance_status INT NULL,
+      assignment_status INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY request_id_idx (request_id),
+      KEY booking_id_idx (booking_id),
+      KEY created_at_idx (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+}
+
+async function createDashboardTables(): Promise<void> {
+  const pool = getPool();
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  const [roleColumnRows] = await pool.query("SHOW COLUMNS FROM users LIKE 'role'");
+  if ((roleColumnRows as unknown[]).length === 0) {
+    await pool.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer' AFTER password_hash");
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50) NOT NULL,
+      action VARCHAR(100) NOT NULL,
+      details VARCHAR(1000) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+}
