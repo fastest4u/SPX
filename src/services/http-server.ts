@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyJwt from "@fastify/jwt";
 import fastifyStatic from "@fastify/static";
+import fastifyFormbody from "@fastify/formbody";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "./authz.js";
@@ -148,6 +149,7 @@ export async function startHttpServer(port: number): Promise<void> {
   await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
   await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
   await app.register(fastifyStatic, { root: publicAssetsDir, prefix: "/assets/", maxAge: "1h", immutable: false });
+  await app.register(fastifyFormbody);
 
   async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {

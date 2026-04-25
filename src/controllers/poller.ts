@@ -60,7 +60,7 @@ export class Poller {
     if (env.NOTIFY_ENABLED) features.push(`NOTIFY(${env.NOTIFY_MODE})`);
     if (env.HTTP_ENABLED) features.push(`HTTP(:${env.HTTP_PORT})`);
     if (env.AUTO_ACCEPT_ENABLED) features.push("AUTO_ACCEPT");
-    if (features.length > 0) {
+    if (features.length > 0 && !env.HTTP_ENABLED) {
       logger.info("poller-features", { features });
     }
 
@@ -78,7 +78,7 @@ export class Poller {
       }
     }
 
-    if (process.stdout.isTTY) {
+    if (process.stdout.isTTY && !env.HTTP_ENABLED) {
       logger.info("interactive-console-detected", { tty: true });
     }
 
@@ -120,7 +120,7 @@ export class Poller {
     const reqNum = this.requestCount;
     this.stats.totalRequests++;
 
-    process.stdout.write(`${formatRequestLine(reqNum)}\n`);
+    if (!env.HTTP_ENABLED) process.stdout.write(`${formatRequestLine(reqNum)}\n`);
 
     const result = await this.apiClient.fetch(reqNum);
 
@@ -148,7 +148,7 @@ export class Poller {
 
     metrics.recordPoll(result.latencyMs, true, status, change.recordCount);
 
-    process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
+    if (!env.HTTP_ENABLED) process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
 
     // Broadcast live metrics to SSE clients
     sseBroadcaster.broadcast({
@@ -157,7 +157,7 @@ export class Poller {
     });
 
     const summary = this.dataProcessor.extractSummary(result.data);
-    if (summary) {
+    if (summary && !env.HTTP_ENABLED) {
       logger.info("poll-summary", summary);
     }
 
@@ -183,14 +183,16 @@ export class Poller {
 
         for (const trips of chunkResults) {
           for (const trip of trips) {
-            if (env.FETCH_DETAILS) {
+            if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
               console.log("\n" + formatTripInfo(trip));
             }
 
             if (env.SAVE_TO_DB) {
               const dbResult = await saveBookingRequest(trip);
               metrics.recordTrip(dbResult.action);
-              logger.info("db-save", { action: dbResult.action, message: dbResult.message, requestId: trip.request_id });
+              if (!env.HTTP_ENABLED || dbResult.action !== "skipped") {
+                logger.info("db-save", { action: dbResult.action, message: dbResult.message, requestId: trip.request_id });
+              }
             }
 
             allTrips.push(trip);
@@ -258,7 +260,9 @@ export class Poller {
     try {
       const snap = metrics.snapshot();
       await insertMetricsSnapshot(snap);
-      logger.info("metrics-persisted", { uptime: snap.uptime, totalRequests: snap.polling.totalRequests });
+      if (!env.HTTP_ENABLED) {
+        logger.info("metrics-persisted", { uptime: snap.uptime, totalRequests: snap.polling.totalRequests });
+      }
     } catch (err) {
       logger.warn("metrics-persist-failed", { error: err instanceof Error ? err.message : String(err) });
     }
@@ -274,7 +278,9 @@ export class Poller {
 
     try {
       await sendSessionExpiryNotification(errorMessage);
-      logger.warn("session-expiry-alert-sent", { errorMessage });
+      if (!env.HTTP_ENABLED) {
+        logger.warn("session-expiry-alert-sent", { errorMessage });
+      }
     } catch (err) {
       logger.error("session-expiry-alert-failed", err instanceof Error ? err : new Error(String(err)));
     }
