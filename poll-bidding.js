@@ -17,7 +17,7 @@ const HEADERS = {
   "accept-language": "th,en;q=0.9",
   "app": "Agency Portal",
   "content-type": "application/json;charset=UTF-8",
-  "device-id": "7342ce6cb4d0fdc351a485d472f77d73",
+  "device-id": "YOUR_DEVICE_ID_HERE",
   "priority": "u=1, i",
   "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
   "sec-ch-ua-mobile": "?0",
@@ -25,7 +25,7 @@ const HEADERS = {
   "sec-fetch-dest": "empty",
   "sec-fetch-mode": "cors",
   "sec-fetch-site": "same-origin",
-  "cookie": "fms_user_id=213007; fms_user_skey=luS7Jr1SoV8fUSwcoMRILHmQUk4Pg9N9OdjVexQVry6v37Xn5EIbbwsP3FgXTZAH; fms_display_name=PWL; fms_user_agency_id=442; spx_st=4; spx_cid=TH; spx_uid=213007; spx_uk=luS7Jr1SoV8fUSwcoMRILHmQUk4Pg9N9OdjVexQVry6v37Xn5EIbbwsP3FgXTZAH; spx_dn=PWL; spx_agid=442; ssc_user_role=-; spx-admin-lang=th; spx-admin-device-id=7342ce6cb4d0fdc351a485d472f77d73",
+  "cookie": "YOUR_COOKIE_HERE",
   "Referer": "https://logistics.myagencyservice.in.th/"
 };
 
