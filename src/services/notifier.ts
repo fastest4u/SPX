@@ -278,8 +278,8 @@ export async function acceptAndNotifyMatchedRules(
   }
 
   // Record auto-accept metrics
-  for (const _a of accepted) metrics.recordAutoAccept(true);
-  for (const _f of failed) metrics.recordAutoAccept(false);
+  for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
+  for (let i = 0; i < failed.length; i++) metrics.recordAutoAccept(false);
 
   // Mark rules as auto_accepted (regardless of accept success, to avoid retry loops)
   const fulfilledRuleIds = autoAcceptMatches.map((m) => m.ruleId);

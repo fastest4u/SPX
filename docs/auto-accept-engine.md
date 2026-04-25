@@ -117,7 +117,7 @@ Error: retcode -1 (session expired)
 ## Limitations
 
 > [!warning] ข้อจำกัดปัจจุบัน
-> - ❌ ไม่มี retry เมื่อ accept ล้มเหลว (mark failed ทันที)
+> - ✅ มี retry 1 ครั้ง (delay 2s) เมื่อ accept ล้มเหลว
 > - ❌ ไม่มี scheduling (เปิด/ปิดตามเวลา)
 > - ❌ ไม่มี scoring (accept ทุก trip ที่ตรง ไม่เลือก)
 > - ⚠️ ถ้า SPX session cookie หมดอายุ → accept จะ fail ทั้งหมด
