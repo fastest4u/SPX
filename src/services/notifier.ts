@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { matchRules, markRulesFulfilled, type RuleMatch, type TripLike } from "./notify-rules.js";
+import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, markRulesAutoAccepted, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import type { ApiClient } from "./api-client.js";
 
 type NotificationChannel = "line" | "discord";
 
@@ -171,4 +172,131 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     logger.error("notification-failed", error instanceof Error ? error : new Error(String(error)));
     return { matches, sent: false, error: true };
   }
+}
+
+// ── Auto-accept + Notify flow ──────────────────────────────────────────
+
+interface AcceptedTrip {
+  trip: TripLike;
+  bookingId: number;
+  requestId: number;
+}
+
+interface AutoAcceptResult {
+  autoAcceptMatches: RuleTripMatch[];
+  accepted: AcceptedTrip[];
+  failed: Array<{ bookingId: number; requestIds: number[]; error: string }>;
+  notified: boolean;
+}
+
+function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
+  const lines = accepted.slice(0, 10).map((item) => {
+    const origin = textValue(item.trip.origin ?? item.trip["ต้นทาง"]);
+    const destination = textValue(item.trip.destination ?? item.trip["ปลายทาง"]);
+    const vehicleType = textValue(item.trip.vehicle_type ?? item.trip["ประเภทรถ"]);
+    return `- request_id=${item.requestId} ${origin} -> ${destination} (${vehicleType})`;
+  });
+
+  return [
+    `✅ Auto-accepted ${accepted.length} request(s):`,
+    ...lines,
+    accepted.length > 10 ? `  ...and ${accepted.length - 10} more` : "",
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Auto-accept matched rules then notify on success.
+ * Flow: Match auto_accept rules → call Accept API → notify only if accept succeeded.
+ */
+export async function acceptAndNotifyMatchedRules(
+  trips: TripLike[],
+  apiClient: ApiClient
+): Promise<AutoAcceptResult> {
+  const autoAcceptMatches = matchAutoAcceptRuleTrips(trips);
+
+  if (autoAcceptMatches.length === 0) {
+    return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
+  }
+
+  logger.info("auto-accept-matched", {
+    ruleCount: autoAcceptMatches.length,
+    totalTrips: autoAcceptMatches.reduce((sum, m) => sum + m.matchedCount, 0),
+  });
+
+  // Group all matched trips by booking_id for batched accept calls
+  const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[] }>();
+
+  for (const match of autoAcceptMatches) {
+    for (const trip of match.trips) {
+      const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
+      const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
+
+      if (bookingId === undefined || requestId === undefined) {
+        logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
+        continue;
+      }
+
+      let entry = byBooking.get(bookingId);
+      if (!entry) {
+        entry = { requestIds: new Set(), trips: [] };
+        byBooking.set(bookingId, entry);
+      }
+      entry.requestIds.add(requestId);
+      entry.trips.push(trip);
+    }
+  }
+
+  const accepted: AcceptedTrip[] = [];
+  const failed: AutoAcceptResult["failed"] = [];
+
+  // Call accept API per booking
+  for (const [bookingId, entry] of byBooking) {
+    const requestIds = [...entry.requestIds];
+
+    logger.info("auto-accept-calling", { bookingId, requestIds });
+
+    const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+
+    if (result.ok) {
+      logger.info("auto-accept-success", { bookingId, requestIds, httpStatus: result.httpStatus });
+      for (const trip of entry.trips) {
+        const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
+        accepted.push({ trip, bookingId, requestId });
+      }
+    } else {
+      logger.error("auto-accept-failed", { bookingId, requestIds, error: result.error, httpStatus: result.httpStatus });
+      failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
+    }
+  }
+
+  // Mark rules as auto_accepted (regardless of accept success, to avoid retry loops)
+  const fulfilledRuleIds = autoAcceptMatches.map((m) => m.ruleId);
+  markRulesAutoAccepted(fulfilledRuleIds);
+  markRulesFulfilled(fulfilledRuleIds);
+
+  // Notify only if at least one request was accepted successfully
+  let notified = false;
+
+  if (accepted.length > 0 && hasNotificationTarget()) {
+    const title = "🚛 SPX Auto-Accept สำเร็จ";
+    const message = buildAcceptNotificationMessage(accepted);
+
+    const sendResult = await sendNotificationMessage(title, message);
+    notified = sendResult.sent;
+
+    if (notified) {
+      logger.info("auto-accept-notified", { acceptedCount: accepted.length });
+    }
+  }
+
+  // Notify about failures too (if any)
+  if (failed.length > 0 && hasNotificationTarget()) {
+    const failTitle = "⚠️ SPX Auto-Accept ล้มเหลว";
+    const failLines = failed.map((f) => `- booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}] error: ${f.error}`);
+    const failMessage = truncate(failLines.join("\n"), 4000);
+
+    await sendNotificationMessage(failTitle, failMessage);
+  }
+
+  return { autoAcceptMatches, accepted, failed, notified };
 }

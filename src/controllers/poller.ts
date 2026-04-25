@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { saveBookingRequest } from "../services/db-service.js";
-import { notifyMatchedRules } from "../services/notifier.js";
+import { notifyMatchedRules, acceptAndNotifyMatchedRules } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -53,6 +53,7 @@ export class Poller {
     if (env.SAVE_TO_DB) features.push("SAVE_TO_DB");
     if (env.NOTIFY_ENABLED) features.push(`NOTIFY(${env.NOTIFY_MODE})`);
     if (env.HTTP_ENABLED) features.push(`HTTP(:${env.HTTP_PORT})`);
+    if (env.AUTO_ACCEPT_ENABLED) features.push("AUTO_ACCEPT");
     if (features.length > 0) {
       logger.info("poller-features", { features });
     }
@@ -130,7 +131,7 @@ export class Poller {
       logger.info("poll-summary", summary);
     }
 
-    if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) && result.data.data?.list) {
+    if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
       const allTrips: ExtractedTripInfo[] = [];
       const bookings = [...result.data.data.list];
 
@@ -167,6 +168,12 @@ export class Poller {
         }
       }
 
+      // Auto-accept first (accept → notify on success)
+      if (env.AUTO_ACCEPT_ENABLED && allTrips.length > 0) {
+        await acceptAndNotifyMatchedRules(allTrips, this.apiClient);
+      }
+
+      // Regular notify for non-auto-accept rules
       if (env.NOTIFY_ENABLED && allTrips.length > 0) {
         await notifyMatchedRules(allTrips);
       }

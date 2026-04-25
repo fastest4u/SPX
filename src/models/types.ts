@@ -13,6 +13,18 @@ export interface BookingRequestListRequest {
   count: number;
 }
 
+export interface AcceptBookingRequest {
+  booking_id: number;
+  accept_all: boolean;
+  request_id_list: number[];
+}
+
+export interface AcceptBookingResponse {
+  retcode: number;
+  message: string;
+  data?: unknown;
+}
+
 // API Response
 export interface ApiResponse {
   retcode: number;

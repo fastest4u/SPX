@@ -1,6 +1,8 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import type {
+  AcceptBookingRequest,
+  AcceptBookingResponse,
   ApiResponse,
   BiddingRequest,
   BookingOverviewResponse,
@@ -149,6 +151,7 @@ export class ApiClient {
   private body: BiddingRequest;
   private readonly overviewBaseUrl: string;
   private readonly requestListUrl: string;
+  private readonly acceptUrl: string;
 
   constructor() {
     this.headers = buildHeaders();
@@ -160,6 +163,7 @@ export class ApiClient {
     };
     this.overviewBaseUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/booking_overview");
     this.requestListUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/request/list");
+    this.acceptUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept");
   }
 
   async fetch(requestNumber: number): Promise<PollingResult> {
@@ -282,6 +286,54 @@ export class ApiClient {
         request_list: requests,
       },
     };
+  }
+
+  async acceptBookingRequests(bookingId: number, requestIds: number[]): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
+    const body: AcceptBookingRequest = {
+      booking_id: bookingId,
+      accept_all: false,
+      request_id_list: requestIds,
+    };
+
+    try {
+      const response = await fetchWithRetry(this.acceptUrl, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify(body),
+      }, `booking-accept:${bookingId}`);
+
+      const rawText = await response.text();
+      let parsed: unknown = null;
+      if (rawText.trim()) {
+        try {
+          parsed = JSON.parse(rawText) as unknown;
+        } catch {
+          return { ok: false, httpStatus: response.status, response: null, error: `Unexpected accept response: ${rawText.slice(0, 200)}` };
+        }
+      }
+
+      const retcode = getRetcode(parsed);
+      const message = getMessage(parsed);
+      const normalized: AcceptBookingResponse | null = retcode === null
+        ? null
+        : { retcode, message, data: isRecord(parsed) ? parsed.data : undefined };
+
+      if (!response.ok) {
+        return { ok: false, httpStatus: response.status, response: normalized, error: `HTTP ${response.status}: ${rawText.slice(0, 200)}` };
+      }
+
+      if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
+        return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}` };
+      }
+
+      if (retcode !== null && retcode !== 0) {
+        return { ok: false, httpStatus: response.status, response: normalized, error: message || `Accept failed with retcode ${retcode}` };
+      }
+
+      return { ok: true, httpStatus: response.status, response: normalized };
+    } catch (err) {
+      return { ok: false, httpStatus: 0, response: null, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   private async fetchBookingRequestListPage(
