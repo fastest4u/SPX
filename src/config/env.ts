@@ -111,6 +111,7 @@ export const env = {
   NOTIFY_DESTINATIONS: parseCommaSeparated(process.env.NOTIFY_DESTINATIONS),
   NOTIFY_VEHICLE_TYPES: parseCommaSeparated(process.env.NOTIFY_VEHICLE_TYPES),
   NOTIFY_MIN_TRIPS: readIntegerEnv("NOTIFY_MIN_TRIPS", 1),
+  AUTO_ACCEPT_ENABLED: process.env.AUTO_ACCEPT_ENABLED === "true",
   HTTP_ENABLED: process.env.HTTP_ENABLED === "true",
   HTTP_PORT: readIntegerEnv("HTTP_PORT", 3000),
   HTTP_ALLOWED_ORIGINS: parseCommaSeparated(process.env.HTTP_ALLOWED_ORIGINS),
@@ -125,7 +126,7 @@ export const env = {
 export function validateRuntimeConfig(): void {
   const missing: string[] = [];
   const invalid: string[] = [];
-  const usesDatabase = env.SAVE_TO_DB || env.HTTP_ENABLED;
+  const usesDatabase = env.SAVE_TO_DB || env.HTTP_ENABLED || env.AUTO_ACCEPT_ENABLED;
 
   if (!env.API_URL) missing.push("API_URL");
   if (!env.COOKIE) missing.push("COOKIE");
@@ -145,6 +146,7 @@ export function validateRuntimeConfig(): void {
   if (!isBooleanString(process.env.FETCH_DETAILS)) invalid.push("FETCH_DETAILS must be true or false");
   if (!isBooleanString(process.env.SAVE_TO_DB)) invalid.push("SAVE_TO_DB must be true or false");
   if (!isBooleanString(process.env.NOTIFY_ENABLED)) invalid.push("NOTIFY_ENABLED must be true or false");
+  if (!isBooleanString(process.env.AUTO_ACCEPT_ENABLED)) invalid.push("AUTO_ACCEPT_ENABLED must be true or false");
   if (!isBooleanString(process.env.HTTP_ENABLED)) invalid.push("HTTP_ENABLED must be true or false");
   if (!isBooleanString(process.env.REQUEST_TAB_PENDING_CONFIRMATION)) invalid.push("REQUEST_TAB_PENDING_CONFIRMATION must be true or false");
 

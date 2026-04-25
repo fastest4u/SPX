@@ -10,6 +10,7 @@ export interface TripLike {
   "ปลายทาง"?: unknown;
   "ประเภทรถ"?: unknown;
   request_id?: unknown;
+  booking_id?: unknown;
 }
 
 export interface NotifyRule {
@@ -21,6 +22,8 @@ export interface NotifyRule {
   need: number;
   enabled: boolean;
   fulfilled: boolean;
+  auto_accept: boolean;
+  auto_accepted: boolean;
 }
 
 export interface NotifyRuleInput {
@@ -31,6 +34,8 @@ export interface NotifyRuleInput {
   need?: number;
   enabled?: boolean;
   fulfilled?: boolean;
+  auto_accept?: boolean;
+  auto_accepted?: boolean;
 }
 
 export type NotifyRulePatch = Partial<NotifyRuleInput>;
@@ -39,6 +44,11 @@ export interface RuleMatch {
   ruleId: string;
   ruleName: string;
   matchedCount: number;
+}
+
+export interface RuleTripMatch extends RuleMatch {
+  trips: TripLike[];
+  need: number;
 }
 
 const RULES_FILE = resolve(process.cwd(), "notify-rules.json");
@@ -92,6 +102,8 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
       need: Math.max(1, need),
       enabled: candidate.enabled !== false,
       fulfilled: candidate.fulfilled === true,
+      auto_accept: candidate.auto_accept === true,
+      auto_accepted: candidate.auto_accepted === true,
     }];
   });
 }
@@ -156,24 +168,48 @@ function matchesAny(haystack: string, needles: string[]): boolean {
 }
 
 export function matchRules(trips: TripLike[]): RuleMatch[] {
-  const rules = readRules();
-  const matches: RuleMatch[] = [];
+  return matchRuleTrips(trips).map(({ ruleId, ruleName, matchedCount }) => ({ ruleId, ruleName, matchedCount }));
+}
 
-  for (const [index, rule] of rules.entries()) {
+function ruleMatchesTrips(rule: NotifyRule, trips: TripLike[]): TripLike[] {
+  return trips.filter((trip) => {
+    const origin = normalize(trip.origin ?? trip["ต้นทาง"]);
+    const destination = normalize(trip.destination ?? trip["ปลายทาง"]);
+    const vehicleType = normalize(trip.vehicle_type ?? trip["ประเภทรถ"]);
+
+    return matchesAny(origin, rule.origins)
+      && matchesAny(destination, rule.destinations)
+      && matchesAny(vehicleType, rule.vehicle_types);
+  });
+}
+
+export function matchRuleTrips(trips: TripLike[]): RuleTripMatch[] {
+  const rules = readRules();
+  const matches: RuleTripMatch[] = [];
+
+  for (const rule of rules) {
     if (!rule.enabled || rule.fulfilled) continue;
 
-    const matchedTrips = trips.filter((trip) => {
-      const origin = normalize(trip.origin ?? trip["ต้นทาง"]);
-      const destination = normalize(trip.destination ?? trip["ปลายทาง"]);
-      const vehicleType = normalize(trip.vehicle_type ?? trip["ประเภทรถ"]);
-
-      return matchesAny(origin, rule.origins)
-        && matchesAny(destination, rule.destinations)
-        && matchesAny(vehicleType, rule.vehicle_types);
-    });
+    const matchedTrips = ruleMatchesTrips(rule, trips);
 
     if (matchedTrips.length >= Math.max(1, rule.need)) {
-      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length });
+      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
+    }
+  }
+
+  return matches;
+}
+
+export function matchAutoAcceptRuleTrips(trips: TripLike[]): RuleTripMatch[] {
+  const rules = readRules();
+  const matches: RuleTripMatch[] = [];
+
+  for (const rule of rules) {
+    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.auto_accepted) continue;
+
+    const matchedTrips = ruleMatchesTrips(rule, trips);
+    if (matchedTrips.length >= Math.max(1, rule.need)) {
+      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
     }
   }
 
@@ -190,6 +226,24 @@ export function markRulesFulfilled(ruleIds: string[]): void {
   for (const rule of rules) {
     if (!ids.has(rule.id) || rule.fulfilled) continue;
     rule.fulfilled = true;
+    changed = true;
+  }
+
+  if (changed) {
+    writeRules(rules);
+  }
+}
+
+export function markRulesAutoAccepted(ruleIds: string[]): void {
+  if (ruleIds.length === 0) return;
+
+  const rules = readRules();
+  let changed = false;
+  const ids = new Set(ruleIds);
+
+  for (const rule of rules) {
+    if (!ids.has(rule.id) || rule.auto_accepted) continue;
+    rule.auto_accepted = true;
     changed = true;
   }
 

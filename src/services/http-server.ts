@@ -16,6 +16,7 @@ import { historyController } from "../controllers/history-controller.js";
 import { auditController } from "../controllers/audit-controller.js";
 import { dashboardController } from "../controllers/dashboard-controller.js";
 import { reportController } from "../controllers/report-controller.js";
+import { biddingController } from "../controllers/bidding-controller.js";
 import { notifyController } from "./notify-controller.js";
 
 let app: FastifyInstance | null = null;
@@ -196,6 +197,7 @@ export async function startHttpServer(port: number): Promise<void> {
       editorScope.addHook("preHandler", requireRole("editor"));
       await editorScope.register(rulesController, { prefix: "/rules" });
       await editorScope.register(notifyController, { prefix: "/notifications" });
+      await editorScope.register(biddingController, { prefix: "/bidding" });
     });
 
     await apiScope.register(async (adminScope) => {
