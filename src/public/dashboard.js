@@ -1,12 +1,22 @@
 const API = `${window.location.origin}/api`;
 const METRICS_URL = `${window.location.origin}/metrics`;
+const EVENTS_URL = `${window.location.origin}/events`;
 const MIN_PASSWORD_LENGTH = 12;
+const CHART_MAX_POINTS = 60;
+const SSE_RECONNECT_MS = 5000;
+const FALLBACK_POLL_MS = 30000;
 
 let rulesDt;
 let historyDt;
 let auditDt;
 let usersDt;
 let pendingDeleteRuleId = null;
+let pendingAcceptBookingId = null;
+let pendingAcceptRequestIds = null;
+let latencyChart = null;
+let successChart = null;
+let eventSource = null;
+let sseReconnectTimer = null;
 
 function escapeHtml(value) {
   return String(value ?? "-").replace(/[&<>'"]/g, (char) => ({
@@ -155,6 +165,13 @@ function renderRuleActions(row) {
   ].join("");
 }
 
+function renderAcceptAction(row) {
+  if (!row.bookingId || !row.requestId) return '<span class="text-muted">—</span>';
+  const bid = escapeAttribute(row.bookingId);
+  const rid = escapeAttribute(row.requestId);
+  return `<button type="button" class="btn btn-sm btn-outline-success" data-action="accept-job" data-booking-id="${bid}" data-request-id="${rid}">รับงาน</button>`;
+}
+
 function initTables() {
   rulesDt = $("#rulesTable").DataTable({
     responsive: true,
@@ -183,6 +200,7 @@ function initTables() {
       { data: "vehicleType", render: escapeHtml },
       { data: "standbyDateTime", render: escapeHtml },
       { data: "createdAt", render: (value) => value ? new Date(value).toLocaleString("th-TH") : "-" },
+      { data: null, orderable: false, render: renderAcceptAction },
     ],
   });
 
@@ -218,7 +236,9 @@ async function loadMetrics() {
   try {
     const res = await fetch(METRICS_URL);
     if (!res.ok) throw new Error("Failed");
-    renderMetrics(await res.json());
+    const data = await res.json();
+    renderMetrics(data);
+    pushChartData(data);
   } catch {
     showToast("ไม่สามารถโหลด metrics ได้", true);
   }
@@ -422,8 +442,178 @@ async function loadSettings() {
 }
 
 async function logout() {
+  if (eventSource) { eventSource.close(); eventSource = null; }
   await fetch(`${API}/logout`, { method: "POST" });
   window.location.reload();
+}
+
+// --- SSE Connection ---
+function setSseStatus(state) {
+  const dot = document.getElementById("sse-dot");
+  const label = document.getElementById("sse-label");
+  if (!dot || !label) return;
+  dot.className = `sse-dot ${state}`;
+  if (state === "connected") label.textContent = "live";
+  else if (state === "connecting") label.textContent = "connecting...";
+  else label.textContent = "offline";
+}
+
+function connectSse() {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+
+  setSseStatus("connecting");
+  eventSource = new EventSource(EVENTS_URL);
+
+  eventSource.onopen = () => setSseStatus("connected");
+
+  eventSource.addEventListener("metrics", (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      renderMetrics(data);
+      pushChartData(data);
+    } catch { /* ignore parse errors */ }
+  });
+
+  eventSource.onerror = () => {
+    setSseStatus("disconnected");
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    sseReconnectTimer = setTimeout(connectSse, SSE_RECONNECT_MS);
+  };
+}
+
+// --- Chart.js ---
+function createCharts() {
+  if (typeof Chart === "undefined") return;
+
+  const gridColor = "rgba(148,163,184,0.1)";
+  const tickColor = "#94a3b8";
+  const commonScales = { x: { display: true, grid: { color: gridColor }, ticks: { color: tickColor, maxTicksLimit: 8, font: { size: 10 } } } };
+
+  const latencyCtx = document.getElementById("chart-latency");
+  if (latencyCtx) {
+    latencyChart = new Chart(latencyCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "p95", data: [], borderColor: "#7dd3fc", backgroundColor: "rgba(125,211,252,0.08)", borderWidth: 2, tension: 0.3, fill: true, pointRadius: 0 },
+          { label: "avg", data: [], borderColor: "#a78bfa", backgroundColor: "rgba(167,139,250,0.08)", borderWidth: 2, tension: 0.3, fill: true, pointRadius: 0 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: { legend: { labels: { color: tickColor, boxWidth: 12, font: { size: 11 } } } },
+        scales: { ...commonScales, y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor, font: { size: 10 } } } },
+      },
+    });
+  }
+
+  const successCtx = document.getElementById("chart-success");
+  if (successCtx) {
+    successChart = new Chart(successCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Success %", data: [], borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 2, tension: 0.3, fill: true, pointRadius: 0 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: { legend: { labels: { color: tickColor, boxWidth: 12, font: { size: 11 } } } },
+        scales: { ...commonScales, y: { min: 0, max: 100, grid: { color: gridColor }, ticks: { color: tickColor, callback: (v) => `${v}%`, font: { size: 10 } } } },
+      },
+    });
+  }
+}
+
+function pushChartData(metrics) {
+  if (!latencyChart || !successChart || !metrics) return;
+  const timeLabel = metrics.lastPoll?.timestamp ? new Date(metrics.lastPoll.timestamp).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  // Latency chart
+  latencyChart.data.labels.push(timeLabel);
+  latencyChart.data.datasets[0].data.push(metrics.polling?.latency?.p95 ?? 0);
+  latencyChart.data.datasets[1].data.push(metrics.polling?.latency?.avg ?? 0);
+  if (latencyChart.data.labels.length > CHART_MAX_POINTS) {
+    latencyChart.data.labels.shift();
+    latencyChart.data.datasets[0].data.shift();
+    latencyChart.data.datasets[1].data.shift();
+  }
+  latencyChart.update("none");
+
+  // Success chart
+  successChart.data.labels.push(timeLabel);
+  successChart.data.datasets[0].data.push(metrics.polling?.successRate ?? 0);
+  if (successChart.data.labels.length > CHART_MAX_POINTS) {
+    successChart.data.labels.shift();
+    successChart.data.datasets[0].data.shift();
+  }
+  successChart.update("none");
+}
+
+async function loadMetricsHistory() {
+  try {
+    const res = await fetch(`${METRICS_URL}/history?limit=60`);
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) return;
+
+    const sorted = rows.reverse();
+    for (const row of sorted) {
+      const label = row.createdAt ? new Date(row.createdAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+      if (latencyChart) {
+        latencyChart.data.labels.push(label);
+        latencyChart.data.datasets[0].data.push(row.latencyP95 ?? 0);
+        latencyChart.data.datasets[1].data.push(row.latencyAvg ?? 0);
+      }
+      if (successChart) {
+        successChart.data.labels.push(label);
+        successChart.data.datasets[0].data.push(Number(row.successRate) || 0);
+      }
+    }
+    if (latencyChart) latencyChart.update("none");
+    if (successChart) successChart.update("none");
+  } catch { /* ignore */ }
+}
+
+// --- Accept Job ---
+function openAcceptConfirm(bookingId, requestId) {
+  pendingAcceptBookingId = Number(bookingId);
+  pendingAcceptRequestIds = [Number(requestId)];
+  const preview = document.getElementById("accept-preview");
+  if (preview) preview.textContent = JSON.stringify({ bookingId: pendingAcceptBookingId, requestIds: pendingAcceptRequestIds }, null, 2);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("confirmAcceptModal")).show();
+}
+
+async function confirmAcceptJob() {
+  if (!pendingAcceptBookingId || !pendingAcceptRequestIds) return;
+  try {
+    const res = await fetch(`${API}/bidding/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingId: pendingAcceptBookingId, requestIds: pendingAcceptRequestIds, confirm: true }),
+    });
+    const result = await res.json();
+    if (res.ok && result.ok) {
+      showToast("รับงานสำเร็จ");
+      historyDt?.ajax.reload(null, false);
+      auditDt?.ajax.reload(null, false);
+    } else {
+      showToast(result?.error?.message || "รับงานไม่สำเร็จ", true);
+    }
+  } catch {
+    showToast("เกิดข้อผิดพลาดในการรับงาน", true);
+  } finally {
+    pendingAcceptBookingId = null;
+    pendingAcceptRequestIds = null;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("confirmAcceptModal")).hide();
+  }
 }
 
 function bindEvents() {
@@ -442,6 +632,8 @@ function bindEvents() {
   document.getElementById("notification-test-button")?.addEventListener("click", testNotification);
   document.getElementById("settingsForm")?.addEventListener("submit", saveSettings);
 
+  document.getElementById("confirm-accept-button")?.addEventListener("click", confirmAcceptJob);
+
   document.addEventListener("click", (event) => {
     const target = event.target.closest("[data-action]");
     if (!target) return;
@@ -455,6 +647,7 @@ function bindEvents() {
     }
     if (action === "delete-rule") requestDeleteRule(target.dataset.ruleId);
     if (action === "change-password") openChangePassword(target.dataset.userId);
+    if (action === "accept-job") openAcceptConfirm(target.dataset.bookingId, target.dataset.requestId);
   });
 
   document.querySelectorAll("[data-report-path]").forEach((button) => {
@@ -465,7 +658,11 @@ function bindEvents() {
 document.addEventListener("DOMContentLoaded", () => {
   initTables();
   bindEvents();
+  createCharts();
   loadMetrics();
+  loadMetricsHistory();
   loadSettings();
-  setInterval(loadMetrics, 30000);
+  connectSse();
+  // Fallback polling if SSE is not available
+  setInterval(loadMetrics, FALLBACK_POLL_MS);
 });

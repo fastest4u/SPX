@@ -17,6 +17,7 @@ import {
 import { extractAllRequestListTrips, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
+import { sseBroadcaster } from "../services/sse.js";
 import type { PollingStats } from "../models/types.js";
 
 const MAX_BOOKING_CONCURRENCY = 3;
@@ -127,6 +128,7 @@ export class Poller {
       this.stats.errorCount++;
       const classified = classifyPollingError(result.httpStatus, result.error);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
+      sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
 
       // Alert on session expiry — send notification once
@@ -147,6 +149,12 @@ export class Poller {
     metrics.recordPoll(result.latencyMs, true, status, change.recordCount);
 
     process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
+
+    // Broadcast live metrics to SSE clients
+    sseBroadcaster.broadcast({
+      event: "metrics",
+      data: metrics.snapshot(),
+    });
 
     const summary = this.dataProcessor.extractSummary(result.data);
     if (summary) {
@@ -226,6 +234,8 @@ export class Poller {
     }
 
     formatFooter(this.stats);
+
+    sseBroadcaster.closeAll();
 
     try {
       await stopHttpServer();

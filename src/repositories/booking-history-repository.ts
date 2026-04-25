@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { spxBookingHistory } from "../db/schema.js";
-import { and, desc, asc, eq, like, or } from "drizzle-orm";
+import { and, count, desc, asc, eq, like, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 export interface BookingHistoryRecord {
@@ -20,8 +20,7 @@ export interface BookingHistoryRecord {
   assignmentStatus?: number;
 }
 
-type BookingHistoryQuery = {
-  limit?: number;
+export type HistoryFilterQuery = {
   search?: string;
   bookingId?: number;
   origin?: string;
@@ -30,6 +29,30 @@ type BookingHistoryQuery = {
   sortBy?: "created_at" | "request_id";
   sortDir?: "asc" | "desc";
 };
+
+type BookingHistoryQuery = HistoryFilterQuery & { limit?: number };
+
+type PaginatedHistoryQuery = HistoryFilterQuery & { page?: number; pageSize?: number };
+
+function buildHistoryFilters(query: HistoryFilterQuery): SQL | undefined {
+  const filters: SQL[] = [];
+  if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
+  if (query.origin) filters.push(like(spxBookingHistory.origin, `%${query.origin}%`));
+  if (query.destination) filters.push(like(spxBookingHistory.destination, `%${query.destination}%`));
+  if (query.vehicleType) filters.push(like(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
+  if (query.search) {
+    const term = `%${query.search}%`;
+    const searchFilter = or(like(spxBookingHistory.route, term), like(spxBookingHistory.origin, term), like(spxBookingHistory.destination, term), like(spxBookingHistory.vehicleType, term), like(spxBookingHistory.bookingName, term), like(spxBookingHistory.agencyName, term));
+    if (searchFilter) filters.push(searchFilter);
+  }
+  return filters.length > 0 ? and(...filters) : undefined;
+}
+
+function buildHistoryOrderBy(query: HistoryFilterQuery) {
+  return query.sortBy === "request_id"
+    ? (query.sortDir === "asc" ? asc(spxBookingHistory.requestId) : desc(spxBookingHistory.requestId))
+    : (query.sortDir === "asc" ? asc(spxBookingHistory.createdAt) : desc(spxBookingHistory.createdAt));
+}
 
 export async function insertBookingHistory(record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
   const pool = (await import("../db/client.js")).getPool();
@@ -50,21 +73,42 @@ export async function getBookingHistory(query: BookingHistoryQuery | number = 10
   }
 
   const limit = query.limit ?? 200;
-  const filters: SQL[] = [];
-  if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
-  if (query.origin) filters.push(like(spxBookingHistory.origin, `%${query.origin}%`));
-  if (query.destination) filters.push(like(spxBookingHistory.destination, `%${query.destination}%`));
-  if (query.vehicleType) filters.push(like(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
-  if (query.search) {
-    const term = `%${query.search}%`;
-    const searchFilter = or(like(spxBookingHistory.route, term), like(spxBookingHistory.origin, term), like(spxBookingHistory.destination, term), like(spxBookingHistory.vehicleType, term), like(spxBookingHistory.bookingName, term), like(spxBookingHistory.agencyName, term));
-    if (searchFilter) filters.push(searchFilter);
-  }
+  const whereClause = buildHistoryFilters(query);
+  const orderBy = buildHistoryOrderBy(query);
 
-  const orderBy = query.sortBy === "request_id"
-    ? (query.sortDir === "asc" ? asc(spxBookingHistory.requestId) : desc(spxBookingHistory.requestId))
-    : (query.sortDir === "asc" ? asc(spxBookingHistory.createdAt) : desc(spxBookingHistory.createdAt));
-
-  const rows = await db.select().from(spxBookingHistory).where(filters.length > 0 ? and(...filters) : undefined).orderBy(orderBy).limit(limit);
+  const rows = await db.select().from(spxBookingHistory).where(whereClause).orderBy(orderBy).limit(limit);
   return rows;
+}
+
+export type PaginatedBookingHistory = {
+  rows: Array<typeof spxBookingHistory.$inferSelect>;
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+export async function getBookingHistoryPaginated(query: PaginatedHistoryQuery): Promise<PaginatedBookingHistory> {
+  const db = await getDb();
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+
+  const whereClause = buildHistoryFilters(query);
+  const orderBy = buildHistoryOrderBy(query);
+
+  const [rows, [countResult]] = await Promise.all([
+    db.select().from(spxBookingHistory).where(whereClause).orderBy(orderBy).limit(pageSize).offset(offset),
+    db.select({ total: count() }).from(spxBookingHistory).where(whereClause),
+  ]);
+
+  const total = countResult?.total ?? 0;
+
+  return {
+    rows,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
 }

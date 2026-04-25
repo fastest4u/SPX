@@ -1,57 +1,128 @@
 ---
+title: Node.js Best Practices
 tags:
+  - obsidian
+  - spx
   - nodejs
   - best-practices
-  - spx
+aliases:
+  - Node.js Patterns
+  - TypeScript Conventions
 ---
 
 # SPX Node.js Best Practices
 
 ## Runtime Boundaries
-- Startup validates required API env vars, numeric env vars, URL syntax, and the expected bidding-list API path before polling starts.
-- The CLI polling interval is seconds: `npm run dev -- 10`. `POLL_INTERVAL_MS` remains milliseconds.
-- External API payloads are checked in `ApiClient` before they enter the polling and DB layers.
-- Saved `request_id` values come from `booking/bidding/request/list`, not `booking_overview.vehicle_driver_info`.
-- Do not copy `.env` values into docs, logs, commits, or examples.
+
+> [!important] Startup Validation
+> - ตรวจ required API env vars, numeric values, URL syntax ก่อน polling
+> - CLI interval เป็น ==วินาที== (`npm run dev -- 10`) แต่ `POLL_INTERVAL_MS` เป็น ==มิลลิวินาที==
+> - External API payloads ถูกตรวจใน `ApiClient` ก่อนเข้า polling/DB layers
+> - `request_id` มาจาก `booking/bidding/request/list` ไม่ใช่ `booking_overview`
+
+> [!danger] Security
+> ห้าม copy `.env` values ลง docs, logs, commits, หรือ examples
 
 ## Async Polling
-- `Poller` uses a one-shot `setTimeout` scheduled after each tick completes, not `setInterval`, so slow API/detail/DB work cannot overlap the next polling round.
-- Keep detail fetching intentionally sequential unless rate limits and DB write behavior are known; `Promise.all` over every booking could amplify API load.
-- Top-level startup errors are caught in `src/app.ts` and printed without a stack trace by default.
-- `Poller.stop()` waits for the active tick, stops the HTTP server, then closes the MySQL pool, so SIGINT/SIGTERM does not interrupt an in-flight DB write.
+
+- `Poller` ใช้ one-shot `setTimeout` หลัง tick จบ → ไม่ใช้ `setInterval`
+- ป้องกัน slow API/DB work ไม่ให้ overlap tick ถัดไป
+- Detail fetching ใช้ `Promise.all` จำกัด 3 concurrent max
+
+```mermaid
+sequenceDiagram
+  participant P as Poller
+  participant T as setTimeout
+  
+  P->>P: tick() — fetch, process, save, notify
+  P->>T: schedule next tick (interval ms)
+  Note over T: Wait for interval...
+  T->>P: tick() — next round
+```
+
+> [!tip] Error Isolation
+> Top-level startup errors ถูก catch ใน `src/app.ts` → print โดยไม่มี stack trace
+> `Poller.stop()` wait active tick → stop HTTP → close MySQL → safe exit
 
 ## API Resilience
-- All API calls use `fetchWithRetry()` with exponential backoff (3 retries, base delay 1s, jitter).
-- Session expiry is detected from API retcodes (401, 403, -1, 10001, 10002) and reported as polling errors.
-- The `setCookie()` method on `ApiClient` allows runtime cookie rotation without restarting the process.
+
+| Feature | Implementation |
+|---------|---------------|
+| Retry | `fetchWithRetry()` — 3 retries, exponential backoff (1s, 2s, 4s) |
+| Jitter | Random delay เพิ่มเข้า base delay |
+| Session detection | retcodes 401, 403, -1, 10001, 10002 → `session_expired` |
+| Cookie rotation | `setCookie()` allows runtime update without restart |
+| Session alerts | Discord/LINE notification เมื่อ session expired (throttle 10 min) |
+
+ดู [[error-handling]] สำหรับ error classification details
 
 ## Backend Worker Layers
-- This project is a polling worker with an optional lightweight HTTP server for health/metrics.
-- `src/controllers/poller.ts` orchestrates the worker loop, metrics recording, and request flow.
-- `src/services/` owns API integration, notifications, metrics, and business decisions such as duplicate handling.
-- `src/repositories/` owns direct database writes and should stay free of polling/API logic.
+
+> [!note] Layer Responsibilities
+> - **Controller** (`poller.ts`) — orchestrate flow, ไม่ทำ business logic เอง
+> - **Services** (`services/`) — API integration, notifications, metrics, business decisions
+> - **Repositories** (`repositories/`) — direct DB access, ==ห้ามมี polling/API logic==
+> - **Utils** (`utils/`) — logging, hashing, error classification
 
 ## Notifications
-- `notify-rules.json` at project root defines stateful search orders (rules). Each rule specifies `origins`, `destinations`, `vehicle_types`, `need` (truck count), `enabled`, and `fulfilled`.
-- `notify-rules.ts` loads rules (re-reads file every 30s), matches ALL trips from the SPX API against active rules, and auto-fulfills rules when `need` is met.
-- `notifier.ts` sends Discord rich embeds and LINE plain text when rules are fulfilled. Discord uses the webhook embed API for clean formatting.
-- Notification failures are logged as warnings, never crash the polling loop.
-- Users can add/remove/edit/reset rules by editing `notify-rules.json` — no restart needed.
+
+- `notify-rules.json` define stateful rules (origins, destinations, vehicle_types, need)
+- `notify-rules.ts` re-reads file ทุก 30s → match ALL trips → auto-fulfill
+- `notifier.ts` sends Discord embeds + LINE text
+- Notification failures → log warning, ==ไม่ crash polling loop==
+- Users แก้ไข rules ได้โดยไม่ต้อง restart
+
+ดู [[notification-system]] สำหรับ rule lifecycle
+
+## Auto-Accept
+
+- Rules ที่มี `auto_accept: true` → เรียก SPX API accept จริง
+- Retry 1 ครั้ง (delay 2s) เมื่อ fail
+- Metrics track: attempts / success / failure
+- ==Accept แล้วยกเลิกไม่ได้==
+
+ดู [[auto-accept-engine]] สำหรับ flow diagram
 
 ## Observability
-- `metrics.ts` tracks latency percentiles (p50/p95/p99), success rate, trip insert/skip counts.
-- `http-server.ts` exposes the Web UI, `/health`, `/metrics`, and `/api/rules` using **Fastify**.
+
+| Component | Tracks |
+|-----------|--------|
+| `metrics.ts` | Latency p50/p95/p99, success rate, trip counts |
+| `metrics.ts` | Session health (consecutive errors, isHealthy) |
+| `metrics.ts` | Auto-accept stats (attempts, success, failure) |
+| `error-classifier.ts` | 6 error categories with retryable flag |
+| `metrics-repository.ts` | Persist snapshots ทุก 5 นาที + before shutdown |
+| `client.ts` | DB pool stats (total, idle, acquired, queued) |
+
+ดู [[error-handling]] สำหรับ structured log format
 
 ## Database Writes
-- `saveBookingRequest()` uses INSERT IGNORE — records are written once when a job first appears and never updated.
-- `ensureSpxBookingHistoryTable()` shares one initialization promise so concurrent saves do not duplicate startup DDL work.
-- `closePool()` is the single MySQL shutdown path for scripts and the long-running poller.
-- Keep `src/db/schema.ts`, `src/db/migration-sql.ts`, and `migrations/*.sql` aligned for schema changes.
+
+- `saveBookingRequest()` ใช้ `INSERT IGNORE` — write-once, never update
+- `ensureSpxBookingHistoryTable()` share initialization promise → ป้องกัน duplicate DDL
+- `closePool()` เป็น single shutdown path สำหรับทุก component
+- Schema changes ต้อง sync 4 ที่: ดู [[mysql-best-practices#Schema Sources (ต้อง sync)]]
+
+## TypeScript Conventions
+
+> [!warning] Module Resolution
+> โปรเจกต์ใช้ `moduleResolution: "NodeNext"`
+> Import local files ==ต้องมี `.js` suffix== เสมอ:
+> ```typescript
+> import { env } from "../config/env.js";
+> import { logger } from "../utils/logger.js";
+> ```
 
 ## Verification
-- Use `npm run build` as the default local check; it runs strict TypeScript and emits `dist/`.
-- Use `npm run db:test` or `npm run flow:test` only when real API auth, network access, and MySQL are available. They can insert rows into `spx_booking_history`.
 
-## Follow-Up Ideas
-- Add focused unit tests for env parsing, API response guards, and duplicate-key handling if this project gets a test script.
-- Add request timeouts with `AbortController` if the live API sometimes hangs longer than the polling interval.
+```bash
+npm run build        # Strict TypeScript + esbuild bundle
+npm run db:test      # Live integration test (needs real API + MySQL)
+npm run flow:test    # Full flow: migrate + test
+```
+
+## ดูเพิ่มเติม
+- [[backend-worker-patterns]] — Layer architecture
+- [[architecture]] — System overview
+- [[error-handling]] — Error classification
+- [[mysql-best-practices]] — Database patterns

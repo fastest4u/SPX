@@ -1,174 +1,156 @@
 ---
+title: SPX System Notes
 tags:
   - obsidian
   - spx
   - documentation
   - system-design
+aliases:
+  - System Overview
+  - ภาพรวมระบบ SPX
 ---
 
 # SPX System Notes
 
-## One-line summary
-`SPX Bidding Poller` คือระบบ polling แบบอัตโนมัติสำหรับดึง bidding list จาก SPX, บันทึกลง MySQL, ส่ง notification ตาม rules, และมี web dashboard สำหรับจัดการระบบ
+## One-Line Summary
 
-## Current architecture
+> [!abstract] TL;DR
+> `SPX Bidding Poller` คือระบบ polling แบบอัตโนมัติสำหรับดึง bidding list จาก SPX, วิเคราะห์ข้อมูล, รับงานอัตโนมัติ, บันทึกลง MySQL, ส่ง notification ตาม rules, และมี web dashboard สำหรับบริหารจัดการ
 
-### 1) Polling worker
-- Entry point: `src/app.ts`
-- Main orchestrator: `src/controllers/poller.ts`
-- Responsibilities:
-  - validate runtime env
-  - start polling loop
-  - call SPX API
-  - detect data changes
-  - fetch booking request details when enabled
-  - save to DB when enabled
-  - send notifications when enabled
-  - record metrics
-  - handle graceful shutdown
+## Current Architecture
 
-### 2) Web dashboard
-- HTTP server: `src/services/http-server.ts`
-- Dashboard controller: `src/controllers/dashboard-controller.ts`
-- Login controller: `src/controllers/auth-controller.ts`
-- Static assets:
-  - HTML template: `src/views/dashboard.ts`
-  - JS bundle-like static file: `src/public/dashboard.js`
-- Serves:
-  - `/health`
-  - `/ready`
-  - `/metrics`
-  - `/assets/*`
-  - `/api/*`
+### 1) Polling Worker
 
-### 3) Database layer
-- MySQL client: `src/db/client.ts`
-- Repositories:
-  - `src/repositories/user-repository.ts`
-  - `src/repositories/booking-history-repository.ts`
-  - `src/repositories/audit-repository.ts`
-- Storage style:
+- **Entry point:** `src/app.ts`
+- **Orchestrator:** `src/controllers/poller.ts`
+- **Responsibilities:**
+  - Validate runtime env
+  - Start polling loop (one-shot `setTimeout` per tick)
+  - Call SPX API with retry + exponential backoff
+  - Detect data changes via ==FNV-1a hash==
+  - Fetch booking request details when enabled
+  - Save to DB when enabled (`INSERT IGNORE`)
+  - Match rules → auto-accept / notify
+  - Classify errors → session expiry alerts
+  - Record metrics + persist to DB every 5 min
+  - Handle graceful shutdown
+
+### 2) Web Dashboard
+
+- **HTTP server:** `src/services/http-server.ts` (Fastify 5)
+- **Controllers:** ดู [[api-routes]] สำหรับ route map ครบ
+- **Auth:** Cookie-based JWT via `@fastify/jwt`
+- **Serves:** `/health`, `/ready`, `/metrics`, `/metrics/history`, `/assets/*`, `/api/*`
+
+### 3) Database Layer
+
+- **Client:** `src/db/client.ts` — MySQL pool + Drizzle + pool stats
+- **Tables:** ดู [[database-schema]] สำหรับ schema ครบ 4 ตาราง
+- **Style:**
   - Drizzle ORM + `mysql2`
-  - runtime table creation for `spx_booking_history`
-  - runtime table creation/repair for dashboard tables `users` and `audit_logs`
-  - `request_id` is unique for booking history records
-  - DB env is required when `SAVE_TO_DB=true` or `HTTP_ENABLED=true`
+  - Runtime table auto-creation (safety net)
+  - `request_id` unique — `INSERT IGNORE` semantics
+  - DB required when `SAVE_TO_DB=true` หรือ `HTTP_ENABLED=true`
 
 ### 4) Notifications
-- Rules engine: `src/services/notify-rules.ts`
-- Notification orchestrator: `src/services/notifier.ts`
-- Notification API controller: `src/services/notify-controller.ts`
-- Rules file:
-  - `notify-rules.json`
-- Behaviour:
-  - each rule has a stable `id`; API updates/deletes rules by id instead of array index
-  - rules are matched against trips
-  - extracted trip fields support both English aliases and Thai field names
-  - matching rules can be auto-marked fulfilled
-  - Discord webhook and LINE Notify are sent through real HTTP requests
-  - `NOTIFY_MODE=batch` sends one grouped message; `NOTIFY_MODE=each` sends one message per matched rule
-  - rules are marked fulfilled only after at least one notification channel succeeds
 
-### 5) Observability
-- Metrics collector: `src/services/metrics.ts`
-- Logger: `src/utils/logger.ts`
-- Exposed via dashboard and `/metrics`
-- `/ready` checks MySQL and returns HTTP 503 when DB is unavailable
+- **Rule engine:** `src/services/notify-rules.ts`
+- **Notifier:** `src/services/notifier.ts`
+- **Rules file:** `notify-rules.json`
 
-### 6) Access control
-- Auth: cookie-based JWT via `@fastify/jwt` and signed cookies
-- Roles: `viewer`, `editor`, `admin`
-- Viewer: authenticated read access to history and reports
-- Public monitoring endpoints: `/health`, `/ready`, `/metrics`
-- Editor: manage rules and notification test endpoints
-- Admin: manage users, settings, and audit logs
+> [!tip] Rule Matching
+> - Rule มี stable `id` — API update/delete by id
+> - Trips support ทั้ง English และ Thai field names
+> - `NOTIFY_MODE=batch` → รวมข้อความ | `each` → แยกต่อ rule
+> - Rules ถูก mark fulfilled หลัง notification สำเร็จ
 
-## Runtime flow
+ดู [[notification-system]] สำหรับรายละเอียด rule lifecycle
 
-1. `src/app.ts` reads CLI interval and validates env
+### 5) Auto-Accept Engine
+
+- Match trips กับ rules ที่มี `auto_accept: true`
+- เรียก SPX API ส่ง accept request จริง
+- Retry 1 ครั้ง (delay 2s) เมื่อ fail
+- Track metrics: attempts / success / failure
+
+> [!danger] Accept แล้วยกเลิกไม่ได้
+> Auto-accept ส่ง API จริงไปยัง SPX Portal
+
+ดู [[auto-accept-engine]] สำหรับ flow diagram
+
+### 6) Observability
+
+| Component | File | หน้าที่ |
+|-----------|------|---------|
+| Metrics | `src/services/metrics.ts` | Latency percentiles, success rate, session health |
+| Error Classifier | `src/utils/error-classifier.ts` | จำแนก error 6 categories |
+| Logger | `src/utils/logger.ts` | Structured JSON logging |
+| Pool Stats | `src/db/client.ts` | DB connection pool monitoring |
+| Persistence | `src/repositories/metrics-repository.ts` | Persist snapshots ทุก 5 นาที |
+
+- `/health` แสดง session health, pool status, auto-accept stats
+- `/ready` ตรวจ 3 จุด: DB connectivity, pool saturation, session health
+- `/metrics/history` ดึง persistent snapshots ย้อนหลัง
+
+ดู [[error-handling]] สำหรับ error classification
+
+### 7) Access Control
+
+| Role | สิทธิ์ |
+|------|-------|
+| **viewer** | Read history, reports |
+| **editor** | Manage rules, notifications, accept bookings |
+| **admin** | Manage users, settings, audit logs |
+| *public* | `/health`, `/ready`, `/metrics` |
+
+- Auth: cookie-based JWT + signed cookies
+- Rate limiting: role-based (120/180/300 req/min)
+- Request tracing: `X-Request-Id` UUID header
+
+## Runtime Flow (Summary)
+
+1. `src/app.ts` reads CLI interval → validates env
 2. `Poller.start()` begins worker loop
-3. Each tick:
-   - fetch bidding list
-   - detect change status
-   - optionally fetch booking request list per booking
-   - optionally save trips to MySQL
-   - optionally match notification rules and send Discord/LINE notifications
-4. HTTP dashboard is available when `HTTP_ENABLED=true`
-5. SIGINT/SIGTERM triggers graceful shutdown
+3. Each tick: fetch → classify errors → detect change → details → save → accept → notify
+4. HTTP dashboard available when `HTTP_ENABLED=true`
+5. Metrics persisted every 5 min + before shutdown
+6. `SIGINT`/`SIGTERM` triggers graceful shutdown
 
-## Production hardening already in place
-- Security headers
-- Rate limiting with expired bucket cleanup
-- Cookie-based JWT auth for dashboard
-- Role-based authorization for sensitive API groups
-- `/health` and `/ready` endpoints
-- DB-backed readiness check
-- Configurable CORS allowlist via `HTTP_ALLOWED_ORIGINS`
-- Dockerfile with healthcheck
-- docker-compose support
-- Static asset serving from `dist/public`
-- Smoke test script
-- Graceful shutdown for worker and HTTP server
-- Atomic writes for `.env` and `notify-rules.json`
-- Settings reads redact secrets in API responses; unchanged masked values do not overwrite `.env`
+ดู [[runtime-flow]] สำหรับ sequence diagrams
 
-## Important env vars
+## Production Hardening %%Phase 3%%
 
-### Required base vars
-- `API_URL`
-- `COOKIE`
-- `DEVICE_ID`
-- `APP_NAME`
-- `REFERER`
-
-### Worker controls
-- `POLL_INTERVAL_MS`
-- `FETCH_DETAILS`
-- `SAVE_TO_DB`
-- `NOTIFY_ENABLED`
-- `NOTIFY_MODE`
-
-### DB
-- `DB_HOST`
-- `DB_PORT`
-- `DB_USERNAME`
-- `DB_PASSWORD`
-- `DB_NAME`
-- Required when `SAVE_TO_DB=true` or `HTTP_ENABLED=true`
-
-### Dashboard auth
-- `HTTP_ENABLED`
-- `HTTP_PORT`
-- `HTTP_ALLOWED_ORIGINS`
-- `JWT_SECRET`
-- `COOKIE_SECRET`
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-- `ADMIN_ROLE`
+- [x] Security headers (CSP, X-Frame-Options, etc.)
+- [x] Role-based rate limiting with bucket cleanup
+- [x] Cookie-based JWT auth
+- [x] RBAC for API routes
+- [x] `/health` + `/ready` + `/metrics` endpoints
+- [x] DB pool monitoring + saturation detection
+- [x] Session expiry alerts (Discord/LINE, 10-min throttle)
+- [x] Auto-accept retry (1 retry, 2s delay)
+- [x] Metrics persistence (every 5 min + shutdown)
+- [x] Request ID tracing (`X-Request-Id`)
+- [x] Docker + healthcheck + smoke test
+- [x] Graceful shutdown chain
+- [x] Atomic writes for `.env` and `notify-rules.json`
+- [x] Settings redact secrets in API responses
 
 ## Commands
 
 ```bash
-npm run typecheck
-npm run build
-npm start
-npm run smoke:test
-npm run db:migrate
-npm run db:test
-npm run flow:start
+npm run build         # typecheck + bundle
+npm run dev -- 10     # dev mode (10s)
+npm start -- 10       # production (10s)
+npm run db:migrate    # apply migrations
+npm run db:test       # live integration test
+npm run flow:start    # migrate + build + start
+npm run smoke:test    # deploy verification
 ```
 
-## Deployment notes
-- `Dockerfile` uses multi-stage build and healthcheck against `/ready`
-- `docker-compose.yml` is available for local production-like runs
-- `src/public/dashboard.js` must be copied into `dist/public/` during build
-- `smoke:test` expects the app to already be listening on `http://127.0.0.1:3000`
-- Run `npm run db:migrate` before production startup; runtime `CREATE TABLE IF NOT EXISTS` is a safety net, not the migration source of truth
-- Set `HTTP_ALLOWED_ORIGINS` for non-localhost browser clients, using comma-separated full origins such as `https://ops.example.com`
-
-## Key cautions
-- Do not treat `notify-rules.json` as multi-writer safe if multiple app instances write it at the same time
-- `rate limit` is in-memory only and resets on restart
-- `settings` UI writes `.env` and exits the process, so a process manager is required for auto-restart
-- Dashboard requires MySQL even when `SAVE_TO_DB=false`, because users and audit logs live in DB
-- Keep `.env` secrets out of notes and commits
+## ดูเพิ่มเติม
+- [[architecture]] — Component diagram + data path
+- [[runtime-flow]] — Sequence diagrams
+- [[env-reference]] — Environment variables
+- [[api-routes]] — HTTP API reference
+- [[deployment]] — Production setup guide
+- [[cheatsheet]] — Quick reference
