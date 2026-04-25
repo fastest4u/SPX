@@ -1,5 +1,7 @@
 /** Lightweight polling metrics collector — no external dependencies */
 
+import { getPoolStats, type PoolStats } from "../db/client.js";
+
 export interface LatencyBucket {
   count: number;
   sum: number;
@@ -37,6 +39,17 @@ export interface MetricsSnapshot {
     recordCount: number | null;
     status: string | null;
   };
+  database: PoolStats | null;
+  session: {
+    consecutiveErrors: number;
+    lastSessionWarning: string | null;
+    isHealthy: boolean;
+  };
+  autoAccept: {
+    totalAttempts: number;
+    successCount: number;
+    failureCount: number;
+  };
 }
 
 const MAX_LATENCY_SAMPLES = 1000;
@@ -55,13 +68,20 @@ export class MetricsCollector {
   private lastPollLatency: number | null = null;
   private lastPollRecordCount: number | null = null;
   private lastPollStatus: string | null = null;
+  private consecutiveErrors = 0;
+  private lastSessionWarning: Date | null = null;
+  private autoAcceptAttempts = 0;
+  private autoAcceptSuccess = 0;
+  private autoAcceptFailures = 0;
 
   recordPoll(latencyMs: number, success: boolean, status: string, recordCount: number | null): void {
     this.totalRequests++;
     if (success) {
       this.successCount++;
+      this.consecutiveErrors = 0;
     } else {
       this.errorCount++;
+      this.consecutiveErrors++;
     }
 
     this.latencies.push(latencyMs);
@@ -88,6 +108,19 @@ export class MetricsCollector {
       this.tripsInserted++;
     } else if (action === "skipped") {
       this.tripsSkipped++;
+    }
+  }
+
+  recordSessionWarning(): void {
+    this.lastSessionWarning = new Date();
+  }
+
+  recordAutoAccept(success: boolean): void {
+    this.autoAcceptAttempts++;
+    if (success) {
+      this.autoAcceptSuccess++;
+    } else {
+      this.autoAcceptFailures++;
     }
   }
 
@@ -125,6 +158,17 @@ export class MetricsCollector {
         latencyMs: this.lastPollLatency,
         recordCount: this.lastPollRecordCount,
         status: this.lastPollStatus,
+      },
+      database: getPoolStats(),
+      session: {
+        consecutiveErrors: this.consecutiveErrors,
+        lastSessionWarning: this.lastSessionWarning?.toISOString() ?? null,
+        isHealthy: this.consecutiveErrors < 5,
+      },
+      autoAccept: {
+        totalAttempts: this.autoAcceptAttempts,
+        successCount: this.autoAcceptSuccess,
+        failureCount: this.autoAcceptFailures,
       },
     };
   }

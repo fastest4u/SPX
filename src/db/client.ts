@@ -51,6 +51,32 @@ export function getDb(): ReturnType<typeof createDb> {
   return dbInstance;
 }
 
+export interface PoolStats {
+  totalConnections: number;
+  idleConnections: number;
+  acquiredConnections: number;
+  queuedRequests: number;
+  connectionLimit: number;
+}
+
+/** Get current connection pool statistics for health monitoring */
+export function getPoolStats(): PoolStats | null {
+  if (!poolInstance) return null;
+  // mysql2 pool internals are not typed but available at runtime
+  const pool = poolInstance.pool as unknown as Record<string, unknown>;
+  const all = Array.isArray(pool._allConnections) ? pool._allConnections.length : 0;
+  const free = Array.isArray(pool._freeConnections) ? pool._freeConnections.length : 0;
+  const queue = Array.isArray(pool._connectionQueue) ? pool._connectionQueue.length : 0;
+  const config = pool.config as Record<string, unknown> | undefined;
+  return {
+    totalConnections: all,
+    idleConnections: free,
+    acquiredConnections: all - free,
+    queuedRequests: queue,
+    connectionLimit: typeof config?.connectionLimit === "number" ? config.connectionLimit : 10,
+  };
+}
+
 export async function closePool(): Promise<void> {
   if (!poolInstance) {
     return;
