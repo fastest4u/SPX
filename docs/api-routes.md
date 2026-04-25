@@ -68,7 +68,8 @@ aliases:
 ## Security Features
 
 > [!important] Security Stack
-> - **Rate Limiting**: 120 req/min per IP (10 req/min for `/api/login`)
+> - **Rate Limiting**: Role-based — viewer=120, editor=180, admin=300 req/min (10 for `/api/login`)
+> - **Request Tracing**: `X-Request-Id` UUID header ทุก request
 > - **JWT**: 1-day expiry, httpOnly cookie, signed, SameSite=strict
 > - **Security Headers**: X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy
 > - **CORS**: Localhost always allowed + configurable `HTTP_ALLOWED_ORIGINS`
@@ -91,6 +92,8 @@ POST /api/bidding/accept
 > - ทุกการ accept ถูก log ลง audit ทั้ง success และ failure
 > - ใช้ singleton `ApiClient` เพื่อ share headers/cookies
 
+ดู [[auto-accept-engine]] สำหรับ auto-accept flow
+
 ## History Query Parameters
 
 ```
@@ -107,3 +110,9 @@ GET /api/history?limit=200&search=NERC&origin=กรุงเทพ&destination=
 | `vehicleType` | string | — | Filter ประเภทรถ (LIKE) |
 | `sortBy` | enum | `created_at` | `created_at` \| `request_id` |
 | `sortDir` | enum | `desc` | `asc` \| `desc` |
+
+## ดูเพิ่มเติม
+- [[architecture]] — ตำแหน่งของ HTTP server ในระบบ
+- [[auto-accept-engine]] — Auto-accept flow
+- [[database-schema]] — Tables ที่ API query
+- [[production-cautions]] — ข้อควรระวังเรื่อง public endpoints

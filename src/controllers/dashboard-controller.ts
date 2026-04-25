@@ -5,6 +5,7 @@ import { metrics } from "../services/metrics.js";
 import { env } from "../config/env.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
+import { sseBroadcaster } from "../services/sse.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
@@ -73,6 +74,17 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/metrics", async () => metrics.snapshot());
+
+  app.get("/events", async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+    } catch {
+      return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } });
+    }
+    // Hijack the raw response for SSE streaming
+    reply.hijack();
+    sseBroadcaster.addClient(reply.raw);
+  });
 
   app.get<{ Querystring: { limit?: number } }>("/metrics/history", {
     schema: {
