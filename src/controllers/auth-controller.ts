@@ -41,6 +41,11 @@ export const authController: FastifyPluginAsync = async (app) => {
     });
 
     await insertAuditLog(user.username, "Login", "User logged in");
+
+    const isFormPost = req.headers["content-type"]?.includes("application/x-www-form-urlencoded");
+    if (isFormPost) {
+      return reply.redirect("/");
+    }
     return { ok: true };
   });
 

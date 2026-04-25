@@ -1,3 +1,5 @@
+import { env } from "../config/env.js";
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -63,7 +65,9 @@ export const logger = {
 
 export function formatHeader(title: string, url: string, intervalSec: number): void {
   console.log(title);
-  logger.info("polling-started", { url, intervalSec, startedAt: now() });
+  if (!env.HTTP_ENABLED) {
+    logger.info("polling-started", { url, intervalSec, startedAt: now() });
+  }
 }
 
 export function formatFooter(stats: { totalRequests: number; errorCount: number }): void {
