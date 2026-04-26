@@ -47,7 +47,7 @@ aliases:
 > 3. รับงาน (accept) อัตโนมัติตามเงื่อนไข
 > 4. แจ้งเตือนผ่าน Discord / LINE
 > 5. บันทึกประวัติลง MySQL
-> 6. ให้ Web Dashboard สำหรับบริหารจัดการ
+> 6. ให้ **React SPA Web Dashboard** สำหรับบริหารจัดการ
 
 ## 🏗️ Tech Stack
 
@@ -56,18 +56,24 @@ aliases:
 | Language | TypeScript (strict, `NodeNext`) |
 | Runtime | Node.js 18+ |
 | Web Framework | Fastify 5 |
+| Frontend | React 19 + TanStack Router + TanStack Query |
+| UI Library | shadcn/ui + Tailwind CSS v4 |
+| Charts | Recharts |
 | ORM | Drizzle (mysql2) |
 | Database | MySQL (InnoDB, `utf8mb4_0900_ai_ci`) |
-| Bundler | esbuild (minified, external packages) |
+| Backend Bundler | esbuild (minified, external packages) |
+| Frontend Bundler | Vite 6 |
 | Auth | JWT Cookie + bcrypt |
 | Notifications | LINE Notify API + Discord Webhook |
+| Dev Tools | concurrently (run backend+frontend together) |
 
 ## 📊 สถิติโปรเจกต์
 
-- **Source files:** ~40 files
-- **Lines of code:** ~3,500 lines TypeScript
-- **Bundle size:** ~88KB (minified)
-- **Dependencies:** 7 runtime + 5 dev
+- **Source files:** ~50 files
+- **Lines of code:** ~4,000 lines TypeScript + React
+- **Backend bundle:** ~88KB (minified)
+- **Frontend bundle:** ~440KB (gzipped)
+- **Dependencies:** 15 runtime + 12 dev
 
 ## Notes
 - เอกสารนี้เน้นให้เข้าใจระบบเร็ว

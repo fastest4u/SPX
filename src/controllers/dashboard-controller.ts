@@ -1,6 +1,4 @@
 import type { FastifyPluginAsync } from "fastify";
-import { buildDashboardHtml } from "../views/dashboard.js";
-import { buildLoginHtml } from "../views/login.js";
 import { metrics } from "../services/metrics.js";
 import { env } from "../config/env.js";
 import { getPool, getPoolStats } from "../db/client.js";
@@ -8,16 +6,6 @@ import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js
 import { sseBroadcaster } from "../services/sse.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
-  app.get("/", async (req, reply) => {
-    try {
-      if (!req.cookies.token) throw new Error("No token");
-      await req.jwtVerify({ onlyCookie: true });
-      reply.type("text/html; charset=utf-8").send(buildDashboardHtml());
-    } catch {
-      reply.type("text/html; charset=utf-8").send(buildLoginHtml());
-    }
-  });
-
   app.get("/health", async () => {
     const snap = metrics.snapshot();
     const errorRate = snap.polling.totalRequests > 0

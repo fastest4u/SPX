@@ -4,7 +4,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   const btn = document.getElementById("login-btn");
   const username = document.getElementById("login-username").value.trim();
   const password = document.getElementById("login-password").value;
-  errorEl.classList.add("d-none");
+  errorEl.classList.add("hidden");
   btn.disabled = true;
   btn.textContent = "กำลังเข้าสู่ระบบ...";
   try {
@@ -19,10 +19,10 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       return;
     }
     errorEl.textContent = data.error?.message || "เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
-    errorEl.classList.remove("d-none");
+    errorEl.classList.remove("hidden");
   } catch {
     errorEl.textContent = "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้";
-    errorEl.classList.remove("d-none");
+    errorEl.classList.remove("hidden");
   } finally {
     btn.disabled = false;
     btn.textContent = "เข้าสู่ระบบ";
