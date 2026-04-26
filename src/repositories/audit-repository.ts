@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { auditLogs } from "../db/schema.js";
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 type AuditQuery = {
@@ -14,7 +14,7 @@ type AuditQuery = {
 
 export async function insertAuditLog(username: string, action: string, details?: string) {
   const db = await getDb();
-  await db.insert(auditLogs).values({ username, action, details: details?.substring(0, 1000) });
+  await db.insert(auditLogs).values({ username, action, details: details?.substring(0, 1000), createdAt: sql`UTC_TIMESTAMP()` });
 }
 
 export async function getAuditLogs(query: AuditQuery | number = 100) {

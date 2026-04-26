@@ -59,7 +59,7 @@ export async function insertBookingHistory(record: BookingHistoryRecord): Promis
   const cols = ["request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
   const values = [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
   const placeholders = cols.map(() => "?").join(", ");
-  const query = `INSERT IGNORE INTO spx_booking_history (${cols.join(", ")}) VALUES (${placeholders})`;
+  const query = `INSERT IGNORE INTO spx_booking_history (${cols.join(", ")}, created_at) VALUES (${placeholders}, UTC_TIMESTAMP())`;
   const [result] = await pool!.query(query, values);
   const affectedRows = (result as { affectedRows: number }).affectedRows;
   return { action: affectedRows > 0 ? "inserted" : "skipped" };

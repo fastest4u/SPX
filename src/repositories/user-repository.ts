@@ -1,6 +1,6 @@
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { users } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import type { UserRole } from "../services/authz.js";
 
@@ -16,7 +16,7 @@ export async function createAdminUserIfNotExists(username = "admin", password = 
   const admin = await getUserByUsername(username);
   if (!admin) {
     const passwordHash = await bcrypt.hash(password, 10);
-    await db.insert(users).values({ username, passwordHash, role });
+    await db.insert(users).values({ username, passwordHash, role, createdAt: sql`UTC_TIMESTAMP()` });
   }
 }
 
@@ -32,7 +32,7 @@ export async function getAllUsers() {
 export async function createUser(username: string, passwordPlain: string, role: UserRole = "user") {
   const db = await getDb();
   const passwordHash = await bcrypt.hash(passwordPlain, 10);
-  await db.insert(users).values({ username, passwordHash, role });
+  await db.insert(users).values({ username, passwordHash, role, createdAt: sql`UTC_TIMESTAMP()` });
 }
 
 export async function updateUserPassword(id: number, newPasswordPlain: string) {
