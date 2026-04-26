@@ -136,6 +136,6 @@ export const usersController: FastifyPluginAsync = async (app) => {
 
     await deleteUser(id);
     await insertAuditLog(currentUser(req).username, "Delete User", `Deleted user ID: ${id}`);
-    return sendSuccess(reply, null, "User deleted successfully", 204);
+    return sendSuccess(reply, null, "User deleted successfully");
   });
 };

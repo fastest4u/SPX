@@ -6,7 +6,6 @@ import type {
   RulePatch,
   BookingHistory,
   HistoryFilterQuery,
-  PaginatedHistory,
   AuditLog,
   AuditQuery,
   User,
