@@ -35,10 +35,14 @@ const defaultFormData: RuleInput = {
 export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState<RuleInput>(defaultFormData)
+  const [originsText, setOriginsText] = useState('')
+  const [destinationsText, setDestinationsText] = useState('')
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setFormData(defaultFormData)
+      setOriginsText('')
+      setDestinationsText('')
     }
     onOpenChange(open)
   }
@@ -52,6 +56,8 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       onOpenChange(false)
       setFormData(defaultFormData)
+      setOriginsText('')
+      setDestinationsText('')
     },
     onError: (error: Error) => {
       toast.error('สร้างไม่สำเร็จ', {
@@ -66,11 +72,11 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       toast.error('กรุณากรอกชื่อรายการ')
       return
     }
-    createMutation.mutate(formData)
-  }
-
-  const updateArrayField = (field: keyof RuleInput, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: splitCsv(value) }))
+    createMutation.mutate({
+      ...formData,
+      origins: splitCsv(originsText),
+      destinations: splitCsv(destinationsText),
+    })
   }
 
   return (
@@ -112,8 +118,8 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
               <Label htmlFor="create-origins">ต้นทาง (คั่นด้วยลูกน้ำ)</Label>
               <Input
                 id="create-origins"
-                value={formData.origins.join(', ')}
-                onChange={e => updateArrayField('origins', e.target.value)}
+                value={originsText}
+                onChange={e => setOriginsText(e.target.value)}
                 placeholder="เช่น NERC-C, สุวรรณภูมิ"
                 className="bg-slate-900/50 border-white/10"
               />
@@ -124,8 +130,8 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
               <Label htmlFor="create-destinations">ปลายทาง (คั่นด้วยลูกน้ำ)</Label>
               <Input
                 id="create-destinations"
-                value={formData.destinations.join(', ')}
-                onChange={e => updateArrayField('destinations', e.target.value)}
+                value={destinationsText}
+                onChange={e => setDestinationsText(e.target.value)}
                 placeholder="เช่น สุวรรณภูมิ, ดอนเมือง"
                 className="bg-slate-900/50 border-white/10"
               />

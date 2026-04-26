@@ -27,11 +27,15 @@ interface EditRuleDialogProps {
 export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps) {
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState<RulePatch>({})
+  const [originsText, setOriginsText] = useState('')
+  const [destinationsText, setDestinationsText] = useState('')
 
   // Reset form when rule changes
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setFormData({})
+      setOriginsText('')
+      setDestinationsText('')
     } else if (rule) {
       setFormData({
         name: rule.name,
@@ -41,6 +45,8 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
         need: rule.need,
         enabled: rule.enabled,
       })
+      setOriginsText(rule.origins.join(', '))
+      setDestinationsText(rule.destinations.join(', '))
     }
     onOpenChange(open)
   }
@@ -57,6 +63,8 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       onOpenChange(false)
       setFormData({})
+      setOriginsText('')
+      setDestinationsText('')
     },
     onError: (error: Error) => {
       toast.error('อัปเดตไม่สำเร็จ', {
@@ -67,11 +75,11 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    updateMutation.mutate(formData)
-  }
-
-  const updateArrayField = (field: keyof RulePatch, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: splitCsv(value) }))
+    updateMutation.mutate({
+      ...formData,
+      origins: splitCsv(originsText),
+      destinations: splitCsv(destinationsText),
+    })
   }
 
   if (!rule) return null
@@ -105,8 +113,8 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
               <Label htmlFor="origins">ต้นทาง (คั่นด้วยลูกน้ำ)</Label>
               <Input
                 id="origins"
-                value={(formData.origins ?? rule.origins).join(', ')}
-                onChange={e => updateArrayField('origins', e.target.value)}
+                value={originsText}
+                onChange={e => setOriginsText(e.target.value)}
                 placeholder="เช่น NERC-C, สุวรรณภูมิ"
                 className="bg-slate-900/50 border-white/10"
               />
@@ -117,8 +125,8 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
               <Label htmlFor="destinations">ปลายทาง (คั่นด้วยลูกน้ำ)</Label>
               <Input
                 id="destinations"
-                value={(formData.destinations ?? rule.destinations).join(', ')}
-                onChange={e => updateArrayField('destinations', e.target.value)}
+                value={destinationsText}
+                onChange={e => setDestinationsText(e.target.value)}
                 placeholder="เช่น สุวรรณภูมิ, ดอนเมือง"
                 className="bg-slate-900/50 border-white/10"
               />
