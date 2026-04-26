@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { rulesApi } from '../lib/api'
 import type { NotifyRule, RulePatch } from '../types'
 import { Button } from './ui/button'
+import { splitCsv } from '../lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -70,8 +71,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
   }
 
   const updateArrayField = (field: keyof RulePatch, value: string) => {
-    const arr = value.split(',').map(s => s.trim()).filter(Boolean)
-    setFormData(prev => ({ ...prev, [field]: arr }))
+    setFormData(prev => ({ ...prev, [field]: splitCsv(value) }))
   }
 
   if (!rule) return null

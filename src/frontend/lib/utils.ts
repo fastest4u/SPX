@@ -74,5 +74,5 @@ export function escapeHtml(text: string): string {
 }
 
 export function splitCsv(value: string): string[] {
-  return value.split(',').map((item) => item.trim()).filter(Boolean)
+  return value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean)
 }
