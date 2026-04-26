@@ -29,7 +29,7 @@ export async function getAllUsers() {
   return db.select({ id: users.id, username: users.username, role: users.role, createdAt: users.createdAt }).from(users);
 }
 
-export async function createUser(username: string, passwordPlain: string, role: UserRole = "viewer") {
+export async function createUser(username: string, passwordPlain: string, role: UserRole = "user") {
   const db = await getDb();
   const passwordHash = await bcrypt.hash(passwordPlain, 10);
   await db.insert(users).values({ username, passwordHash, role });

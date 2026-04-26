@@ -6,6 +6,7 @@ import type { MetricsSnapshot } from "../services/metrics.js";
 /** Create the metrics_snapshots table if it does not exist */
 export async function ensureMetricsTable(): Promise<void> {
   const pool = getPool();
+  if (!pool) return; // Skip in memory mode
   await pool.query(`
     CREATE TABLE IF NOT EXISTS metrics_snapshots (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

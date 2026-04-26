@@ -12,6 +12,10 @@ async function main(): Promise<void> {
 
 async function runMigrations(): Promise<void> {
   const pool = getPool();
+  if (!pool) {
+    console.log("Memory mode: skipping MySQL migrations");
+    return;
+  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -27,7 +31,7 @@ async function runMigrations(): Promise<void> {
     .filter((file) => file.endsWith(".sql"))
     .sort((a, b) => a.localeCompare(b));
 
-  const [appliedRowsResult] = await pool.query("SELECT name FROM schema_migrations");
+  const [appliedRowsResult] = await pool!.query("SELECT name FROM schema_migrations");
   const appliedRows = appliedRowsResult as Array<{ name: string }>;
   const applied = new Set(appliedRows.map((row) => row.name));
 
@@ -43,7 +47,7 @@ async function runMigrations(): Promise<void> {
       continue;
     }
 
-    const connection = await pool.getConnection();
+    const connection = await pool!.getConnection();
     try {
       await connection.beginTransaction();
       for (const statement of statements) {

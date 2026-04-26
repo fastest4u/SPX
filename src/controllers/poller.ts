@@ -190,9 +190,6 @@ export class Poller {
             if (env.SAVE_TO_DB) {
               const dbResult = await saveBookingRequest(trip);
               metrics.recordTrip(dbResult.action);
-              if (!env.HTTP_ENABLED || dbResult.action !== "skipped") {
-                logger.info("db-save", { action: dbResult.action, message: dbResult.message, requestId: trip.request_id });
-              }
             }
 
             allTrips.push(trip);

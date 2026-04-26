@@ -16,7 +16,8 @@ export function formatDuration(seconds: number): string {
 }
 
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = typeof date === 'string' ? new Date(date.replace(' ', 'T')) : date
+  if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('th-TH', {
     year: 'numeric',
     month: 'short',
@@ -27,7 +28,8 @@ export function formatDate(date: string | Date): string {
 }
 
 export function formatDateTime(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = typeof date === 'string' ? new Date(date.replace(' ', 'T')) : date
+  if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('th-TH', {
     year: 'numeric',
     month: 'short',

@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "editor" | "viewer";
+export type UserRole = "admin" | "user";
 
 export type AuthUser = {
   id: number;
@@ -6,10 +6,10 @@ export type AuthUser = {
   role: UserRole;
 };
 
-const ROLE_ORDER: UserRole[] = ["viewer", "editor", "admin"];
+const ROLE_ORDER: UserRole[] = ["user", "admin"];
 
 export function normalizeRole(value: unknown): UserRole {
-  return value === "admin" || value === "editor" || value === "viewer" ? value : "viewer";
+  return value === "admin" ? "admin" : "user";
 }
 
 export function hasRole(userRole: UserRole, required: UserRole): boolean {

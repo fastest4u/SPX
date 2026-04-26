@@ -1,9 +1,20 @@
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle as drizzleMysql } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
+import type { Pool } from "mysql2/promise";
 import { env } from "../config/env.js";
 import * as schema from "./schema.js";
+import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
 
-function createPool() {
+// Use any for DB type to allow both MySQL and SQLite Drizzle instances
+// This is acceptable since both have the same API surface (select, insert, update, delete)
+type AnyDrizzleDb = any;
+
+function createPool(): Pool | null {
+  // In-memory mode doesn't use mysql2 pool
+  if (env.DB_MODE === "memory") {
+    return null;
+  }
+
   if (!env.DB_HOST || !env.DB_USERNAME || !env.DB_PASSWORD || !env.DB_NAME) {
     throw new Error("Missing DB configuration in .env");
   }
@@ -18,11 +29,17 @@ function createPool() {
     connectionLimit: 10,
     waitForConnections: true,
     queueLimit: 0,
+    timezone: "+07:00",
+    dateStrings: true,
   });
 }
 
-function createDb() {
-  return drizzle(getPool(), { schema, mode: "default" });
+function createDb(): AnyDrizzleDb {
+  if (env.DB_MODE === "memory") {
+    // For memory mode, use SQLite Drizzle
+    return getMemoryDb() as unknown as AnyDrizzleDb;
+  }
+  return drizzleMysql(getPool() as Pool, { schema, mode: "default" });
 }
 
 let poolInstance: ReturnType<typeof createPool> | null = null;
@@ -62,8 +79,20 @@ export interface PoolStats {
 /** Get current connection pool statistics for health monitoring */
 export function getPoolStats(): PoolStats | null {
   if (!poolInstance) return null;
+
+  // Memory pool doesn't have real connection stats
+  if (env.DB_MODE === "memory") {
+    return {
+      totalConnections: 1,
+      idleConnections: 1,
+      acquiredConnections: 0,
+      queuedRequests: 0,
+      connectionLimit: 10,
+    };
+  }
+
   // mysql2 pool internals are not typed but available at runtime
-  const pool = poolInstance.pool as unknown as Record<string, unknown>;
+  const pool = (poolInstance as Pool).pool as unknown as Record<string, unknown>;
   const all = Array.isArray(pool._allConnections) ? pool._allConnections.length : 0;
   const free = Array.isArray(pool._freeConnections) ? pool._freeConnections.length : 0;
   const queue = Array.isArray(pool._connectionQueue) ? pool._connectionQueue.length : 0;
@@ -78,6 +107,16 @@ export function getPoolStats(): PoolStats | null {
 }
 
 export async function closePool(): Promise<void> {
+  if (env.DB_MODE === "memory") {
+    closeMemoryDb();
+    dbInstance = null;
+    initialized = false;
+    initializationPromise = null;
+    dashboardTablesInitialized = false;
+    dashboardTablesInitializationPromise = null;
+    return;
+  }
+
   if (!poolInstance) {
     return;
   }
@@ -138,6 +177,7 @@ export async function ensureDashboardTables(): Promise<void> {
 
 async function createSpxBookingHistoryTable(): Promise<void> {
   const pool = getPool();
+  if (!pool) return; // Skip in memory mode
   await pool.query(`
     CREATE TABLE IF NOT EXISTS spx_booking_history (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -165,6 +205,7 @@ async function createSpxBookingHistoryTable(): Promise<void> {
 
 async function createDashboardTables(): Promise<void> {
   const pool = getPool();
+  if (!pool) return; // Skip in memory mode
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -176,12 +217,12 @@ async function createDashboardTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
 
-  const [roleColumnRows] = await pool.query("SHOW COLUMNS FROM users LIKE 'role'");
+  const [roleColumnRows] = await pool!.query("SHOW COLUMNS FROM users LIKE 'role'");
   if ((roleColumnRows as unknown[]).length === 0) {
-    await pool.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer' AFTER password_hash");
+    await pool!.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer' AFTER password_hash");
   }
 
-  await pool.query(`
+  await pool!.query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(50) NOT NULL,

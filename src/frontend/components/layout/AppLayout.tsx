@@ -1,6 +1,5 @@
 import { Outlet, Link, useRouterState } from '@tanstack/react-router'
 import type { AuthUser } from '../../types'
-import { useAuth } from '../../hooks/useAuth'
 import { cn } from '../../lib/utils'
 import {
   LayoutDashboard,
@@ -19,27 +18,31 @@ import { useState } from 'react'
 
 interface AppLayoutProps {
   user: AuthUser | null
+  onLogout: () => Promise<void>
   children?: React.ReactNode
 }
 
 const navItems = [
   { path: '/', label: 'รายการค้นหา', icon: LayoutDashboard },
   { path: '/history', label: 'ประวัติงาน', icon: History },
-  { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText },
-  { path: '/users', label: 'จัดการผู้ใช้', icon: Users },
-  { path: '/settings', label: 'ตั้งค่า', icon: Settings },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart },
 ]
 
-export function AppLayout({ user, children }: AppLayoutProps) {
-  const { logout } = useAuth()
+const adminNavItems = [
+  { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText },
+  { path: '/users', label: 'จัดการผู้ใช้', icon: Users },
+  { path: '/settings', label: 'ตั้งค่า', icon: Settings },
+]
+
+export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const visibleNavItems = user?.role === 'admin' ? [...navItems, ...adminNavItems] : navItems
 
   const handleLogout = async () => {
-    await logout()
+    await onLogout()
   }
 
   return (
@@ -49,7 +52,7 @@ export function AppLayout({ user, children }: AppLayoutProps) {
         <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Logo */}
           <div className="flex items-center gap-2 font-bold text-white">
-            <span className="h-3 w-3 rounded-full bg-gradient-to-r from-cyan-400 to-violet-500"></span>
+            <span className="h-3 w-3 rounded-full bg-linear-to-r from-cyan-400 to-violet-500"></span>
             <span className="hidden sm:inline">SPX Control Center</span>
             <span className="sm:hidden">SPX</span>
           </div>
@@ -105,7 +108,7 @@ export function AppLayout({ user, children }: AppLayoutProps) {
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-white/10 glass-strong">
             <nav className="flex flex-col p-4 gap-1">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon
                 const isActive = currentPath === item.path
                 return (
