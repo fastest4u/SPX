@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getBookingHistory, getBookingHistoryPaginated } from "../repositories/booking-history-repository.js";
 import type { HistoryFilterQuery } from "../repositories/booking-history-repository.js";
+import { sendSuccess, sendPaginated } from "../utils/response.js";
 
 const filterSchemaProps = {
   search: { type: "string", maxLength: 200 },
@@ -28,9 +29,9 @@ export const historyController: FastifyPluginAsync = async (app) => {
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const query = req.query as HistoryListQuery;
-      return await getBookingHistory({
+      const rows = await getBookingHistory({
         limit: query.limit ?? 200,
         search: query.search,
         bookingId: query.bookingId,
@@ -40,6 +41,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
         sortBy: query.sortBy ?? "created_at",
         sortDir: query.sortDir ?? "desc",
       });
+      return sendSuccess(reply, rows);
     }
   );
 
@@ -57,9 +59,9 @@ export const historyController: FastifyPluginAsync = async (app) => {
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const query = req.query as HistoryFilterQuery & { page?: number; pageSize?: number };
-      return await getBookingHistoryPaginated({
+      const result = await getBookingHistoryPaginated({
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 25,
         search: query.search,
@@ -70,6 +72,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
         sortBy: query.sortBy ?? "created_at",
         sortDir: query.sortDir ?? "desc",
       });
+      return sendPaginated(reply, result.data, result.page, result.pageSize, result.total);
     }
   );
 };

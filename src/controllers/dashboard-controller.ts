@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
+import { sendError } from "../utils/response.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/health", async () => {
@@ -62,7 +63,8 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     const snap = metrics.snapshot();
     checks.session = snap.session.isHealthy ? "ok" : "degraded";
 
-    if (!allOk) reply.code(503);
+    const statusCode = allOk ? 200 : 503;
+    if (!allOk) reply.code(statusCode);
     return { ready: allOk, checks, poolStats };
   });
 
@@ -72,7 +74,7 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     try {
       await req.jwtVerify({ onlyCookie: true });
     } catch {
-      return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } });
+      return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }
     // Hijack the raw response for SSE streaming
     reply.hijack();

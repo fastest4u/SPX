@@ -35,11 +35,13 @@ const adminNavItems = [
   { path: '/settings', label: 'ตั้งค่า', icon: Settings },
 ]
 
+const adminVisibleNavItems = [...navItems, ...adminNavItems]
+
 export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const visibleNavItems = user?.role === 'admin' ? [...navItems, ...adminNavItems] : navItems
+  const visibleNavItems = user?.role === 'admin' ? adminVisibleNavItems : navItems
 
   const handleLogout = async () => {
     await onLogout()
@@ -59,7 +61,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
 
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon
               const isActive = currentPath === item.path
               return (
@@ -97,7 +99,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
               variant="ghost"
               size="icon"
               className="lg:hidden text-muted-foreground hover:text-white"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={() => setMobileMenuOpen((current) => !current)}
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>

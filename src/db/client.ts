@@ -9,6 +9,8 @@ import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
 // This is acceptable since both have the same API surface (select, insert, update, delete)
 type AnyDrizzleDb = any;
 
+const DB_TIMEZONE = "+00:00";
+
 function createPool(): Pool | null {
   // In-memory mode doesn't use mysql2 pool
   if (env.DB_MODE === "memory") {
@@ -19,7 +21,7 @@ function createPool(): Pool | null {
     throw new Error("Missing DB configuration in .env");
   }
 
-  return mysql.createPool({
+  const pool = mysql.createPool({
     host: env.DB_HOST,
     port: env.DB_PORT,
     user: env.DB_USERNAME,
@@ -29,9 +31,15 @@ function createPool(): Pool | null {
     connectionLimit: 10,
     waitForConnections: true,
     queueLimit: 0,
-    timezone: "+07:00",
+    timezone: DB_TIMEZONE,
     dateStrings: true,
   });
+
+  pool.on("connection", (connection) => {
+    connection.query(`SET time_zone = '${DB_TIMEZONE}'`);
+  });
+
+  return pool;
 }
 
 function createDb(): AnyDrizzleDb {

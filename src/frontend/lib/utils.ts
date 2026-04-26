@@ -15,10 +15,30 @@ export function formatDuration(seconds: number): string {
   return `${s}s`
 }
 
+function parseDateInput(date: string | Date): Date {
+  if (date instanceof Date) return date
+  const cleaned = date.trim()
+  const thaiDateMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/)
+  if (thaiDateMatch) {
+    const [, day, month, year, hour = '0', minute = '0', second = '0'] = thaiDateMatch
+    const gregorianYear = Number(year) > 2400 ? Number(year) - 543 : Number(year)
+    return new Date(
+      `${gregorianYear.toString().padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}+07:00`
+    )
+  }
+  // ISO string with timezone info
+  if (cleaned.endsWith('Z') || cleaned.match(/T.*[+-]\d{2}:?\d{2}$/)) {
+    return new Date(cleaned)
+  }
+  // MySQL DATETIME has no timezone marker; treat it as Bangkok wall time.
+  return new Date(`${cleaned.replace(' ', 'T')}+07:00`)
+}
+
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date.replace(' ', 'T')) : date
+  const d = parseDateInput(date)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -28,9 +48,10 @@ export function formatDate(date: string | Date): string {
 }
 
 export function formatDateTime(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date.replace(' ', 'T')) : date
+  const d = parseDateInput(date)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
     year: 'numeric',
     month: 'short',
     day: 'numeric',

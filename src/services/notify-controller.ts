@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { sendNotificationMessage } from "./notifier.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 interface NotificationBody {
   title?: string;
@@ -19,10 +20,9 @@ function redact(value: string, visible = 4): string {
 }
 
 export const notifyController: FastifyPluginAsync = async (app) => {
-  app.post<{ Body: NotificationBody }>("/preview", async (req) => {
+  app.post<{ Body: NotificationBody }>("/preview", async (req, reply) => {
     const body = req.body ?? {};
-    return {
-      ok: true,
+    return sendSuccess(reply, {
       preview: {
         title: body?.title ?? "SPX Notification Preview",
         message: body?.message ?? "นี่คือข้อความตัวอย่างสำหรับตรวจสอบรูปแบบแจ้งเตือน",
@@ -31,7 +31,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
           discord: Boolean(env.DISCORD_WEBHOOK_URL),
         },
       },
-    };
+    });
   });
 
   app.post<{ Body: NotificationBody }>("/test", async (req, reply) => {
@@ -40,7 +40,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
     const message = body?.message ?? "Test notification from SPX Bidding Poller.";
 
     if (!env.LINE_NOTIFY_TOKEN && !env.DISCORD_WEBHOOK_URL) {
-      return reply.code(400).send({ error: { code: "NOT_CONFIGURED", message: "No notification target is configured" } });
+      return sendError(reply, 400, "NOT_CONFIGURED", "No notification target is configured");
     }
 
     logger.info("notification-test-requested", {
@@ -52,14 +52,13 @@ export const notifyController: FastifyPluginAsync = async (app) => {
 
     const result = await sendNotificationMessage(title, message);
 
-    return {
-      ok: result.sent,
+    return sendSuccess(reply, {
       sent: {
         line: result.results.some((item) => item.channel === "line" && item.ok),
         discord: result.results.some((item) => item.channel === "discord" && item.ok),
       },
       channels: result.results,
       message,
-    };
+    }, result.sent ? "Notification sent successfully" : "Notification failed");
   });
 };

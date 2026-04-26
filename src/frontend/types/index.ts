@@ -1,3 +1,33 @@
+// Standard API Response Types
+export interface ApiSuccessResponse<T> {
+  status: 'success';
+  message?: string;
+  data: T;
+}
+
+export interface ApiErrorResponse {
+  status: 'error';
+  error_code: string;
+  message: string;
+  details?: unknown;
+}
+
+export interface PaginationMeta {
+  current_page: number;
+  per_page: number;
+  total_items: number;
+  total_pages: number;
+}
+
+export interface ApiPaginatedResponse<T> {
+  status: 'success';
+  message?: string;
+  data: T[];
+  meta: PaginationMeta;
+}
+
+export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
+
 // Auth Types
 export interface AuthUser {
   id: number;
@@ -6,20 +36,7 @@ export interface AuthUser {
 }
 
 export interface LoginResponse {
-  ok: boolean;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
-
-export interface MeResponse {
-  ok: boolean;
-  user?: AuthUser;
-  error?: {
-    code: string;
-    message: string;
-  };
+  token: string;
 }
 
 // Rule Types
@@ -84,10 +101,7 @@ export interface HistoryFilterQuery {
 
 export interface PaginatedHistory {
   data: BookingHistory[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
+  meta: PaginationMeta;
 }
 
 // Audit Types

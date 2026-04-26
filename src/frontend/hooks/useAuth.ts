@@ -10,7 +10,7 @@ export function useAuth(options?: { enabled?: boolean }) {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
-  const { data: authData, isLoading: isChecking } = useQuery({
+  const { data: rawUser, isLoading: isChecking } = useQuery<AuthUser>({
     queryKey: [AUTH_KEY],
     queryFn: authApi.me,
     retry: false,
@@ -21,7 +21,7 @@ export function useAuth(options?: { enabled?: boolean }) {
     enabled,
   })
 
-  const user: AuthUser | null = authData?.ok ? (authData.user ?? null) : null
+  const user: AuthUser | null = rawUser ?? null
   const isAuthenticated = !!user
   const isLoading = enabled ? isChecking : false
 

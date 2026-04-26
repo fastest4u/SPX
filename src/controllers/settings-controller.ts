@@ -3,6 +3,7 @@ import type { AuthUser } from "../services/authz.js";
 import { readEnvFile, writeEnvFile, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { logger } from "../utils/logger.js";
+import { sendSuccess } from "../utils/response.js";
 
 const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_NOTIFY_TOKEN", "DISCORD_WEBHOOK_URL"]);
 const REDACTED_PREFIX = "********";
@@ -56,8 +57,8 @@ function writableSettings(body: Partial<Record<SettingsKey, string>>): EnvSettin
 }
 
 export const settingsController: FastifyPluginAsync = async (app) => {
-  app.get("/", async () => {
-    return readPublicSettings();
+  app.get("/", async (req, reply) => {
+    return sendSuccess(reply, readPublicSettings());
   });
 
   app.post(
@@ -73,7 +74,7 @@ export const settingsController: FastifyPluginAsync = async (app) => {
         process.exit(0);
       }, 1000);
 
-      return { ok: true, message: "Settings saved. Server is restarting..." };
+      return sendSuccess(reply, null, "Settings saved. Server is restarting...");
     }
   );
 };

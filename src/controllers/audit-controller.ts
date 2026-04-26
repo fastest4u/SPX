@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getAuditLogs } from "../repositories/audit-repository.js";
+import { sendSuccess } from "../utils/response.js";
 
 export const auditController: FastifyPluginAsync = async (app) => {
   app.get(
@@ -19,7 +20,7 @@ export const auditController: FastifyPluginAsync = async (app) => {
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const query = req.query as {
         limit?: number;
         search?: string;
@@ -28,7 +29,7 @@ export const auditController: FastifyPluginAsync = async (app) => {
         sortBy?: "created_at" | "id";
         sortDir?: "asc" | "desc";
       };
-      return await getAuditLogs({
+      const logs = await getAuditLogs({
         limit: query.limit ?? 200,
         search: query.search,
         username: query.username,
@@ -36,6 +37,7 @@ export const auditController: FastifyPluginAsync = async (app) => {
         sortBy: query.sortBy ?? "created_at",
         sortDir: query.sortDir ?? "desc",
       });
+      return sendSuccess(reply, logs);
     }
   );
 };

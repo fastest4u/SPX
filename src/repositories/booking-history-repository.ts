@@ -81,7 +81,7 @@ export async function getBookingHistory(query: BookingHistoryQuery | number = 10
 }
 
 export type PaginatedBookingHistory = {
-  rows: Array<typeof spxBookingHistory.$inferSelect>;
+  data: Array<typeof spxBookingHistory.$inferSelect>;
   total: number;
   page: number;
   pageSize: number;
@@ -97,7 +97,7 @@ export async function getBookingHistoryPaginated(query: PaginatedHistoryQuery): 
   const whereClause = buildHistoryFilters(query);
   const orderBy = buildHistoryOrderBy(query);
 
-  const [rows, [countResult]] = await Promise.all([
+  const [data, [countResult]] = await Promise.all([
     db.select().from(spxBookingHistory).where(whereClause).orderBy(orderBy).limit(pageSize).offset(offset),
     db.select({ total: count() }).from(spxBookingHistory).where(whereClause),
   ]);
@@ -105,7 +105,7 @@ export async function getBookingHistoryPaginated(query: PaginatedHistoryQuery): 
   const total = countResult?.total ?? 0;
 
   return {
-    rows,
+    data,
     total,
     page,
     pageSize,

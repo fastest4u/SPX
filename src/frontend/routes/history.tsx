@@ -38,8 +38,8 @@ function HistoryComponent() {
   })
 
   const history = result?.data || []
-  const total = result?.total || 0
-  const totalPages = result?.totalPages || 0
+  const total = result?.meta?.total_items || 0
+  const totalPages = result?.meta?.total_pages || 0
 
   const handleReset = () => {
     setSearch('')
@@ -169,7 +169,7 @@ function HistoryComponent() {
                         <td className="text-muted-foreground">{item.origin}</td>
                         <td className="text-muted-foreground">{item.destination}</td>
                         <td className="hidden text-muted-foreground lg:table-cell">{item.vehicleType}</td>
-                        <td className="text-muted-foreground">{item.standbyDateTime}</td>
+                        <td className="text-muted-foreground">{formatDateTime(item.standbyDateTime)}</td>
                         <td className="text-muted-foreground">{formatDateTime(item.createdAt)}</td>
                         <td>
                           <AcceptButton item={item} />
@@ -311,7 +311,7 @@ function HistoryMobileCard({ item }: { item: BookingHistory }) {
         </div>
         <div>
           <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">เวลาสแตนบาย</div>
-          <div className="mt-1 text-slate-200">{item.standbyDateTime || '—'}</div>
+          <div className="mt-1 text-slate-200">{formatDateTime(item.standbyDateTime) || '—'}</div>
         </div>
         <div>
           <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">บันทึกเมื่อ</div>
