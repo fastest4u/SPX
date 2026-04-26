@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY tsconfig.json ./
+COPY tsconfig.frontend-check.json ./
 COPY tsconfig.frontend.json ./
 COPY vite.config.ts ./
 COPY index.html ./
