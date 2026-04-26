@@ -34,7 +34,15 @@ const MAX_RATE_LIMIT_BUCKETS = 10_000;
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 let lastBucketCleanup = 0;
 const publicAssetsDir = resolve(process.cwd(), "dist/public");
-const spaIndexHtml = resolve(publicAssetsDir, "index.html");
+const spaIndexHtmlPath = resolve(publicAssetsDir, "index.html");
+let spaIndexHtmlCache: string | null = null;
+
+function getSpaIndexHtml(): string {
+  if (!spaIndexHtmlCache) {
+    spaIndexHtmlCache = readFileSync(spaIndexHtmlPath, "utf-8");
+  }
+  return spaIndexHtmlCache;
+}
 
 function isAllowedCorsOrigin(origin: string): boolean {
   if (env.HTTP_ALLOWED_ORIGINS.includes(origin)) {
@@ -105,7 +113,7 @@ function applySecurityHeaders(reply: FastifyReply): void {
   reply.header("X-Frame-Options", "DENY");
   reply.header("Referrer-Policy", "same-origin");
   reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' https://code.jquery.com https://cdn.jsdelivr.net; connect-src 'self' https:;");
+  reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:;");
 }
 
 function sendApiError(reply: FastifyReply, statusCode: number, message: string, code: string, details?: unknown): void {
@@ -251,7 +259,7 @@ export async function startHttpServer(port: number): Promise<void> {
       return reply.callNotFound();
     }
     // Serve SPA index.html for client-side routes like /history, /users, etc.
-    reply.type("text/html; charset=utf-8").send(readFileSync(spaIndexHtml, "utf-8"));
+    reply.type("text/html; charset=utf-8").send(getSpaIndexHtml());
   });
 
   await app.listen({ port, host: "0.0.0.0" });

@@ -67,21 +67,22 @@ async function main(): Promise<void> {
     await assertOk(`${baseUrl}/ready`, "/ready");
     await assertOk(`${baseUrl}/health`, "/health");
 
-    const assetsPath = resolve(process.cwd(), "dist/public/dashboard.js");
-    const assetContent = await readFile(assetsPath, "utf8");
-    if (!assetContent.includes("DOMContentLoaded") || !assetContent.includes("METRICS_URL")) {
-      throw new Error("dashboard.js asset is missing expected content");
+    const indexHtmlPath = resolve(process.cwd(), "dist/public/index.html");
+    const indexContent = await readFile(indexHtmlPath, "utf8");
+    if (!indexContent.includes("root") || !indexContent.includes("SPX")) {
+      throw new Error("index.html asset is missing expected content");
     }
 
-    const assetRes = await fetch(`${baseUrl}/assets/dashboard.js`, { redirect: "manual" });
-    if (!assetRes.ok) {
-      throw new Error(`/assets/dashboard.js failed with status ${assetRes.status}`);
+    // Verify SPA catch-all serves index.html for client-side routes
+    const spaRes = await fetch(`${baseUrl}/history`, { redirect: "manual" });
+    if (!spaRes.ok) {
+      throw new Error(`SPA catch-all /history failed with status ${spaRes.status}`);
     }
 
     console.log(JSON.stringify({
       ready: true,
       health: true,
-      asset: true,
+      spaIndex: true,
       baseUrl,
     }, null, 2));
   } finally {

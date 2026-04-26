@@ -55,7 +55,7 @@ SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก==
 | Router | `src/frontend/routes/*.tsx` | 7 pages: Dashboard, History, Audit, Users, Settings, Notifications, Reports |
 | UI Components | `src/frontend/components/ui/*.tsx` | shadcn/ui: Button, Card, Input, Table |
 | Layout | `src/frontend/components/layout/AppLayout.tsx` | Sidebar, header, navigation |
-| API Client | `src/frontend/lib/api.ts` | Axios instance with auth interceptors |
+| API Client | `src/frontend/lib/api.ts` | Typed fetch wrapper with auth handling |
 | Auth Hook | `src/frontend/hooks/useAuth.ts` | Login/logout/auth state |
 | SSE Hook | `src/frontend/hooks/useSse.ts` | Real-time metrics updates |
 | Styles | `src/frontend/index.css` | Tailwind CSS v4 with custom theme |
