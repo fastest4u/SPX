@@ -3,6 +3,7 @@ import { getUserByUsername, verifyPassword } from "../repositories/user-reposito
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { env } from "../config/env.js";
 import type { AuthUser } from "../services/authz.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 interface LoginBody {
   username?: unknown;
@@ -21,12 +22,12 @@ export const authController: FastifyPluginAsync = async (app) => {
     const { username, password } = req.body;
 
     if (typeof username !== "string" || typeof password !== "string" || username.trim() === "" || password.trim() === "") {
-      return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "Username and password are required" } });
+      return sendError(reply, 400, "VALIDATION_ERROR", "Username and password are required");
     }
 
     const user = await getUserByUsername(username);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      return reply.code(401).send({ error: { code: "INVALID_CREDENTIALS", message: "Invalid username or password" } });
+      return sendError(reply, 401, "INVALID_CREDENTIALS", "Invalid username or password");
     }
 
     const token = await reply.jwtSign({ username: user.username, id: user.id, role: user.role }, { expiresIn: "1d" });
@@ -46,7 +47,7 @@ export const authController: FastifyPluginAsync = async (app) => {
     if (isFormPost) {
       return reply.redirect("/");
     }
-    return { ok: true };
+    return sendSuccess(reply, { token }, "Login successful", 200);
   });
 
   app.post("/logout", async (req, reply) => {
@@ -62,7 +63,7 @@ export const authController: FastifyPluginAsync = async (app) => {
       }
     }
     reply.clearCookie("token", { path: "/" });
-    return { ok: true };
+    return sendSuccess(reply, null, "Logout successful");
   });
 
   /** Refresh JWT token — extends session without re-entering credentials */
@@ -85,9 +86,9 @@ export const authController: FastifyPluginAsync = async (app) => {
         maxAge: 86400,
       });
 
-      return { ok: true };
+      return sendSuccess(reply, null, "Token refreshed");
     } catch {
-      return reply.code(401).send({ error: { code: "TOKEN_EXPIRED", message: "Token expired. Please login again." } });
+      return sendError(reply, 401, "TOKEN_EXPIRED", "Token expired. Please login again.");
     }
   });
 
@@ -96,9 +97,9 @@ export const authController: FastifyPluginAsync = async (app) => {
     try {
       await req.jwtVerify({ onlyCookie: true });
       const user = req.user as AuthUser;
-      return { ok: true, user: { id: user.id, username: user.username, role: user.role } };
+      return sendSuccess(reply, { id: user.id, username: user.username, role: user.role });
     } catch {
-      return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } });
+      return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }
   });
 };

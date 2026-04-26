@@ -1,6 +1,6 @@
 import type {
   LoginResponse,
-  MeResponse,
+  AuthUser,
   NotifyRule,
   RuleInput,
   RulePatch,
@@ -22,7 +22,9 @@ import type {
   AcceptBookingResponse,
   NotificationPreview,
   NotificationTestResult,
-  ApiError,
+  ApiErrorResponse,
+  ApiSuccessResponse,
+  ApiPaginatedResponse,
 } from '../types'
 
 const API_BASE = '/api'
@@ -30,15 +32,19 @@ const API_BASE = '/api'
 /** Flag to prevent multiple simultaneous 401 redirects */
 let isRedirectingToLogin = false
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+async function fetchRaw<T>(url: string, options?: RequestInit): Promise<ApiSuccessResponse<T>> {
+  const headers = new Headers(options?.headers)
+  if (options?.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const response = await fetch(url, {
     ...options,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   })
+
+  const data = await response.json().catch(() => ({ status: 'error', error_code: 'PARSE_ERROR', message: 'Failed to parse response' })) as ApiSuccessResponse<T> | ApiErrorResponse
 
   // Global 401 handler — redirect to login immediately, don't retry
   if (response.status === 401) {
@@ -49,19 +55,29 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       window.location.replace('/login')
     }
 
-    const data = await response.json().catch(() => ({ error: { code: 'UNAUTHORIZED', message: 'Session expired' } }))
-    const error = (data as ApiError).error || { code: 'UNAUTHORIZED', message: 'Session expired' }
-    throw new AuthError(`${error.code}: ${error.message}`)
+    const errorData = data as ApiErrorResponse
+    throw new AuthError(`${errorData.error_code}: ${errorData.message}`)
   }
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    const error = (data as ApiError).error || { code: 'UNKNOWN', message: 'Unknown error' }
-    throw new Error(`${error.code}: ${error.message}`)
+  if (!response.ok || data.status === 'error') {
+    const errorData = data as ApiErrorResponse
+    throw new Error(`${errorData.error_code}: ${errorData.message}`)
   }
 
-  return data as T
+  return data as ApiSuccessResponse<T>
+}
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetchRaw<T>(url, options)
+  return response.data
+}
+
+async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<ApiPaginatedResponse<T>> {
+  const response = await fetchRaw<T[]>(url, options)
+  if (!('meta' in response)) {
+    throw new Error('Expected paginated response but got regular success response')
+  }
+  return response as unknown as ApiPaginatedResponse<T>
 }
 
 /** Custom error class for auth failures — TanStack Query should NOT retry these */
@@ -80,20 +96,20 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     }),
 
-  logout: (): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/logout`, {
+  logout: (): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/logout`, {
       method: 'POST',
       body: JSON.stringify({}),
     }),
 
-  refresh: (): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/refresh`, {
+  refresh: (): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/refresh`, {
       method: 'POST',
       body: JSON.stringify({}),
     }),
 
-  me: (): Promise<MeResponse> =>
-    fetchJson<MeResponse>(`${API_BASE}/me`),
+  me: (): Promise<AuthUser> =>
+    fetchJson<AuthUser>(`${API_BASE}/me`),
 }
 
 // Rules API
@@ -104,20 +120,20 @@ export const rulesApi = {
   get: (id: string): Promise<NotifyRule> =>
     fetchJson<NotifyRule>(`${API_BASE}/rules/${id}`),
 
-  create: (rule: RuleInput): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/rules`, {
+  create: (rule: RuleInput): Promise<NotifyRule> =>
+    fetchJson<NotifyRule>(`${API_BASE}/rules`, {
       method: 'POST',
       body: JSON.stringify(rule),
     }),
 
-  update: (id: string, patch: RulePatch): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/rules/${id}`, {
+  update: (id: string, patch: RulePatch): Promise<NotifyRule> =>
+    fetchJson<NotifyRule>(`${API_BASE}/rules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),
 
-  delete: (id: string): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/rules/${id}`, {
+  delete: (id: string): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/rules/${id}`, {
       method: 'DELETE',
     }),
 }
@@ -138,7 +154,7 @@ export const historyApi = {
     return fetchJson<BookingHistory[]>(`${API_BASE}/history${query ? `?${query}` : ''}`)
   },
 
-  paginated: (params?: HistoryFilterQuery): Promise<PaginatedHistory> => {
+  paginated: (params?: HistoryFilterQuery): Promise<ApiPaginatedResponse<BookingHistory>> => {
     const queryParams = new URLSearchParams()
     if (params?.page) queryParams.set('page', String(params.page))
     if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
@@ -150,7 +166,7 @@ export const historyApi = {
     if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
 
     const query = queryParams.toString()
-    return fetchJson<PaginatedHistory>(`${API_BASE}/history/paginated${query ? `?${query}` : ''}`)
+    return fetchPaginated<BookingHistory>(`${API_BASE}/history/paginated${query ? `?${query}` : ''}`)
   },
 }
 
@@ -175,26 +191,26 @@ export const usersApi = {
   list: (): Promise<User[]> =>
     fetchJson<User[]>(`${API_BASE}/users`),
 
-  create: (user: CreateUserInput): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/users`, {
+  create: (user: CreateUserInput): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/users`, {
       method: 'POST',
       body: JSON.stringify(user),
     }),
 
-  updatePassword: (id: number, password: string): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/users/${id}/password`, {
+  updatePassword: (id: number, password: string): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/users/${id}/password`, {
       method: 'PUT',
       body: JSON.stringify({ password } as PasswordInput),
     }),
 
-  updateRole: (id: number, role: 'user' | 'admin'): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/users/${id}/role`, {
+  updateRole: (id: number, role: 'user' | 'admin'): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/users/${id}/role`, {
       method: 'PUT',
       body: JSON.stringify({ role } as RoleInput),
     }),
 
-  delete: (id: number): Promise<{ ok: boolean }> =>
-    fetchJson<{ ok: boolean }>(`${API_BASE}/users/${id}`, {
+  delete: (id: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/users/${id}`, {
       method: 'DELETE',
     }),
 }
@@ -204,8 +220,8 @@ export const settingsApi = {
   get: (): Promise<EnvSettings> =>
     fetchJson<EnvSettings>(`${API_BASE}/settings`),
 
-  update: (settings: EnvSettings): Promise<{ ok: boolean; message?: string }> =>
-    fetchJson<{ ok: boolean; message?: string }>(`${API_BASE}/settings`, {
+  update: (settings: EnvSettings): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/settings`, {
       method: 'POST',
       body: JSON.stringify(settings),
     }),

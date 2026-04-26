@@ -3,6 +3,8 @@ import { useAuth } from '../hooks/useAuth'
 import { AppLayout } from '../components/layout/AppLayout'
 import { Toaster } from 'sonner'
 
+const ADMIN_ONLY_PATHS = new Set(['/users', '/settings', '/audit'])
+
 export const rootRoute = createRootRoute({
   component: RootComponent,
 })
@@ -37,7 +39,7 @@ function RootComponent() {
     return <Navigate to="/" />
   }
 
-  if (isAuthenticated && user?.role !== 'admin' && ['/users', '/settings', '/audit'].includes(currentPath)) {
+  if (isAuthenticated && user?.role !== 'admin' && ADMIN_ONLY_PATHS.has(currentPath)) {
     return <Navigate to="/" />
   }
 

@@ -4,15 +4,16 @@ import { env } from "../config/env.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
-  app.get("/health", async () => {
+  app.get("/health", async (req, reply) => {
     const snap = metrics.snapshot();
     const errorRate = snap.polling.totalRequests > 0
       ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
       : 0;
 
-    return {
+    return sendSuccess(reply, {
       status: snap.session.isHealthy ? "ok" : "degraded",
       uptime: snap.uptime,
       startedAt: snap.startedAt,
@@ -25,7 +26,7 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       },
       database: snap.database,
       autoAccept: snap.autoAccept,
-    };
+    });
   });
 
   app.get("/ready", async (_req, reply) => {
@@ -62,17 +63,17 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     const snap = metrics.snapshot();
     checks.session = snap.session.isHealthy ? "ok" : "degraded";
 
-    if (!allOk) reply.code(503);
-    return { ready: allOk, checks, poolStats };
+    const statusCode = allOk ? 200 : 503;
+    return sendSuccess(reply, { ready: allOk, checks, poolStats }, allOk ? undefined : "Service unavailable", statusCode);
   });
 
-  app.get("/metrics", async () => metrics.snapshot());
+  app.get("/metrics", async (req, reply) => sendSuccess(reply, metrics.snapshot()));
 
   app.get("/events", async (req, reply) => {
     try {
       await req.jwtVerify({ onlyCookie: true });
     } catch {
-      return reply.code(401).send({ error: { code: "UNAUTHORIZED", message: "Not authenticated" } });
+      return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }
     // Hijack the raw response for SSE streaming
     reply.hijack();
@@ -86,12 +87,13 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
         properties: { limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
     try {
       const limit = (req.query as { limit?: number }).limit ?? 100;
-      return await getRecentMetricsSnapshots(limit);
+      const history = await getRecentMetricsSnapshots(limit);
+      return sendSuccess(reply, history);
     } catch {
-      return [];
+      return sendSuccess(reply, []);
     }
   });
 };

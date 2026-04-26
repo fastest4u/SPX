@@ -13,6 +13,7 @@ import {
 } from './ui/dialog'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
+import { VehicleTypeMultiSelect } from './VehicleTypeMultiSelect'
 import { toast } from 'sonner'
 import { Loader2, Plus } from 'lucide-react'
 
@@ -132,13 +133,11 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
 
             {/* Vehicle Types */}
             <div className="grid gap-2">
-              <Label htmlFor="create-vehicle_types">ประเภทรถ (คั่นด้วยลูกน้ำ)</Label>
-              <Input
+              <Label htmlFor="create-vehicle_types">ประเภทรถ</Label>
+              <VehicleTypeMultiSelect
                 id="create-vehicle_types"
-                value={formData.vehicle_types.join(', ')}
-                onChange={e => updateArrayField('vehicle_types', e.target.value)}
-                placeholder="เช่น 4ล้อ, 6ล้อ"
-                className="bg-slate-900/50 border-white/10"
+                value={formData.vehicle_types}
+                onChange={vehicleTypes => setFormData(prev => ({ ...prev, vehicle_types: vehicleTypes }))}
               />
             </div>
 

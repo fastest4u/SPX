@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
 import { createRule, deleteRule, readRules, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -55,31 +56,34 @@ const ruleSchema = {
 } as const;
 
 export const rulesController: FastifyPluginAsync = async (app) => {
-  app.get("/", async () => readRules());
+  app.get("/", async (req, reply) => {
+    const rules = readRules();
+    return sendSuccess(reply, rules);
+  });
 
-  app.post<{ Body: Partial<NotifyRuleInput> }>("/", { schema: { body: ruleSchema } }, async (req) => {
+  app.post<{ Body: Partial<NotifyRuleInput> }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
     const newRule = createRule(toRuleInput(req.body));
     await insertAuditLog(currentUser(req).username, "Add Rule", `Added rule: ${newRule.name}`);
-    return { ok: true };
+    return sendSuccess(reply, newRule, "Rule created successfully", 201);
   });
 
   app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
     const updated = updateRule(req.params.id, toRulePatch(req.body));
-    if (!updated) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "Not found" } });
+    if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(currentUser(req).username, "Update Rule", `Updated rule: ${updated.name}`);
-    return { ok: true };
+    return sendSuccess(reply, updated, "Rule updated successfully");
   });
 
   app.get<{ Params: RuleParams }>("/:id", async (req, reply) => {
     const rule = readRules().find((item) => item.id === req.params.id);
-    if (!rule) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "Not found" } });
-    return rule;
+    if (!rule) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    return sendSuccess(reply, rule);
   });
 
   app.delete<{ Params: RuleParams }>("/:id", async (req, reply) => {
     const deleted = deleteRule(req.params.id);
-    if (!deleted) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "Not found" } });
+    if (!deleted) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(currentUser(req).username, "Delete Rule", `Deleted rule: ${deleted.name}`);
-    return { ok: true };
+    return sendSuccess(reply, null, "Rule deleted successfully", 204);
   });
 };

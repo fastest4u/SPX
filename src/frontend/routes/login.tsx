@@ -31,10 +31,8 @@ function LoginComponent() {
     }
 
     try {
-      const result = await login(username.trim(), password)
-      if (result.ok) {
-        void navigate({ to: '/' })
-      }
+      await login(username.trim(), password)
+      void navigate({ to: '/' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'เข้าสู่ระบบไม่สำเร็จ'
       // Clean up the error message if it starts with a code like "INVALID_CREDENTIALS: "

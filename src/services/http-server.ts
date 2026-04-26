@@ -9,6 +9,7 @@ import fastifyFormbody from "@fastify/formbody";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "./authz.js";
+import { sendError } from "../utils/response.js";
 import { resolve } from "node:path";
 
 import { authController } from "../controllers/auth-controller.js";
@@ -117,7 +118,7 @@ function applySecurityHeaders(reply: FastifyReply): void {
 }
 
 function sendApiError(reply: FastifyReply, statusCode: number, message: string, code: string, details?: unknown): void {
-  reply.code(statusCode).send({ error: { code, message, ...(details === undefined ? {} : { details }) } });
+  sendError(reply, statusCode, code, message, details);
 }
 
 function getErrorStatusCode(error: unknown): number {
@@ -219,7 +220,8 @@ export async function startHttpServer(port: number): Promise<void> {
     const message = getErrorMessage(error);
     if (statusCode >= 500) logger.error(error instanceof Error ? error : new Error(message)); else logger.warn("request-error", { message, statusCode });
     if (reply.sent) return;
-    sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, "REQUEST_ERROR");
+    const errorCode = statusCode >= 500 ? "INTERNAL_SERVER_ERROR" : "REQUEST_ERROR";
+    sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, errorCode);
   });
 
   await app.register(authController, { prefix: "/api" });

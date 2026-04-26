@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { ApiClient } from "../services/api-client.js";
 import type { AuthUser } from "../services/authz.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 interface AcceptBody {
   bookingId?: number;
@@ -44,7 +45,7 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     const requestIds = uniquePositiveIntegers(req.body.requestIds);
 
     if (!Number.isInteger(bookingId) || bookingId === undefined || bookingId <= 0 || requestIds.length === 0 || req.body.confirm !== true) {
-      return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "bookingId, requestIds, and confirm=true are required" } });
+      return sendError(reply, 400, "VALIDATION_ERROR", "bookingId, requestIds, and confirm=true are required");
     }
 
     const validBookingId: number = bookingId;
@@ -59,20 +60,20 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     );
 
     if (!result.ok) {
-      return reply.code(result.httpStatus >= 400 ? result.httpStatus : 502).send({
-        error: {
-          code: "ACCEPT_FAILED",
-          message: result.error || result.response?.message || "Accept request failed",
-          details: result.response,
-        },
-      });
+      const statusCode = result.httpStatus >= 400 ? result.httpStatus : 502;
+      return sendError(
+        reply,
+        statusCode,
+        "ACCEPT_FAILED",
+        result.error || result.response?.message || "Accept request failed",
+        result.response
+      );
     }
 
-    return {
-      ok: true,
+    return sendSuccess(reply, {
       bookingId,
       requestIds,
       response: result.response,
-    };
+    }, "Booking accepted successfully");
   });
 };
