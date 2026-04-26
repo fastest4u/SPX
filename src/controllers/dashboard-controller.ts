@@ -34,8 +34,13 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
 
     // Check 1: Database connectivity
     try {
-      await getPool().query("SELECT 1");
-      checks.database = "ok";
+      const pool = getPool();
+      if (pool) {
+        await pool.query("SELECT 1");
+        checks.database = "ok";
+      } else {
+        checks.database = "memory";
+      }
     } catch {
       checks.database = "error";
       allOk = false;

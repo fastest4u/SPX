@@ -51,7 +51,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
           type: "object",
           properties: {
             page: { type: "integer", minimum: 1, default: 1 },
-            pageSize: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+            pageSize: { type: "integer", minimum: 1, maximum: 200, default: 25 },
             ...filterSchemaProps,
           },
         },
@@ -61,7 +61,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
       const query = req.query as HistoryFilterQuery & { page?: number; pageSize?: number };
       return await getBookingHistoryPaginated({
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 50,
+        pageSize: query.pageSize ?? 25,
         search: query.search,
         bookingId: query.bookingId,
         origin: query.origin,

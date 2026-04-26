@@ -2,7 +2,7 @@
 export interface AuthUser {
   id: number;
   username: string;
-  role: 'viewer' | 'editor' | 'admin';
+  role: 'user' | 'admin';
 }
 
 export interface LoginResponse {
@@ -112,14 +112,14 @@ export interface AuditQuery {
 export interface User {
   id: number;
   username: string;
-  role: 'viewer' | 'editor' | 'admin';
+  role: 'user' | 'admin';
   createdAt: string;
 }
 
 export interface CreateUserInput {
   username: string;
   password: string;
-  role?: 'viewer' | 'editor' | 'admin';
+  role?: 'user' | 'admin';
 }
 
 export interface PasswordInput {
@@ -127,7 +127,7 @@ export interface PasswordInput {
 }
 
 export interface RoleInput {
-  role: 'viewer' | 'editor' | 'admin';
+  role: 'user' | 'admin';
 }
 
 // Settings Types

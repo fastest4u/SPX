@@ -97,6 +97,7 @@ export const env = {
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",
   REQUEST_CTIME_START: readIntegerEnv("REQUEST_CTIME_START", 1776358800),
+  DB_MODE: (process.env.DB_MODE || "mysql") as "mysql" | "memory",
   DB_HOST: process.env.DB_HOST,
   DB_PORT: readIntegerEnv("DB_PORT", 3306),
   DB_USERNAME: process.env.DB_USERNAME,
@@ -120,7 +121,7 @@ export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
   ADMIN_USERNAME: process.env.ADMIN_USERNAME || "admin",
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "",
-  ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "editor" | "viewer",
+  ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "user",
 } as const;
 
 export function validateRuntimeConfig(): void {
@@ -153,7 +154,7 @@ export function validateRuntimeConfig(): void {
   const listError = validateList("NOTIFY_ORIGINS", env.NOTIFY_ORIGINS) ?? validateList("NOTIFY_DESTINATIONS", env.NOTIFY_DESTINATIONS) ?? validateList("NOTIFY_VEHICLE_TYPES", env.NOTIFY_VEHICLE_TYPES);
   if (listError) invalid.push(listError);
 
-  if (usesDatabase) {
+  if (usesDatabase && env.DB_MODE !== "memory") {
     if (!env.DB_HOST) missing.push("DB_HOST");
     if (!env.DB_USERNAME) missing.push("DB_USERNAME");
     if (!env.DB_PASSWORD) missing.push("DB_PASSWORD");
@@ -176,7 +177,7 @@ export function validateRuntimeConfig(): void {
     if (!env.COOKIE_SECRET || !isValidJwtSecret(env.COOKIE_SECRET)) invalid.push("COOKIE_SECRET must be set and at least 32 characters long when HTTP_ENABLED=true");
     if (!isStrongPassword(env.ADMIN_PASSWORD)) invalid.push("ADMIN_PASSWORD must be set and at least 12 characters long when HTTP_ENABLED=true");
     if (!env.ADMIN_USERNAME || env.ADMIN_USERNAME.trim().length < 3) invalid.push("ADMIN_USERNAME must be at least 3 characters long");
-    if (env.ADMIN_ROLE !== "admin" && env.ADMIN_ROLE !== "editor" && env.ADMIN_ROLE !== "viewer") invalid.push("ADMIN_ROLE must be admin, editor, or viewer");
+    if (env.ADMIN_ROLE !== "admin" && env.ADMIN_ROLE !== "user") invalid.push("ADMIN_ROLE must be admin or user");
   }
 
   if (missing.length > 0) throw new Error(`Missing required .env values: ${missing.join(", ")}`);

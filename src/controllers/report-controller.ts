@@ -54,7 +54,7 @@ export const reportController: FastifyPluginAsync = async (app) => {
   app.get("/audit.csv", async (_req, reply) => {
     const rows = await getAuditLogs(1000);
     const header = ["id", "username", "action", "details", "created_at"];
-    const body = rows.map((row) => [row.id, row.username, row.action, row.details, row.createdAt]);
+    const body = rows.map((row: typeof rows[0]) => [row.id, row.username, row.action, row.details, row.createdAt]);
 
     reply
       .header("Content-Type", "text/csv; charset=utf-8")

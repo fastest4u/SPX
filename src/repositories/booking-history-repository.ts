@@ -60,7 +60,7 @@ export async function insertBookingHistory(record: BookingHistoryRecord): Promis
   const values = [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
   const placeholders = cols.map(() => "?").join(", ");
   const query = `INSERT IGNORE INTO spx_booking_history (${cols.join(", ")}) VALUES (${placeholders})`;
-  const [result] = await pool.query(query, values);
+  const [result] = await pool!.query(query, values);
   const affectedRows = (result as { affectedRows: number }).affectedRows;
   return { action: affectedRows > 0 ? "inserted" : "skipped" };
 }
@@ -91,7 +91,7 @@ export type PaginatedBookingHistory = {
 export async function getBookingHistoryPaginated(query: PaginatedHistoryQuery): Promise<PaginatedBookingHistory> {
   const db = await getDb();
   const page = Math.max(1, query.page ?? 1);
-  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 50));
+  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 25));
   const offset = (page - 1) * pageSize;
 
   const whereClause = buildHistoryFilters(query);

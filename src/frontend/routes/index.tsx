@@ -5,9 +5,13 @@ import { rulesApi, metricsApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import { Plus, Search } from 'lucide-react'
+import { CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
 import { formatDuration } from '../lib/utils'
+import { useState, type ComponentType } from 'react'
 import type { NotifyRule } from '../types'
+import { EditRuleDialog } from '../components/EditRuleDialog'
+import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
+import { CreateRuleDialog } from '../components/CreateRuleDialog'
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -16,6 +20,8 @@ export const Route = createRoute({
 })
 
 function DashboardComponent() {
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
   const { data: rules = [] } = useQuery({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
@@ -34,39 +40,72 @@ function DashboardComponent() {
   const disabledRules = rules.filter((r) => !r.enabled).length
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
+      <div className="glass reveal-up grid gap-4 rounded-[2rem] border-white/10 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">
+            <Radio className="h-3.5 w-3.5" />
+            Live Operations
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl lg:text-4xl">
+            รายการค้นหาและสถานะระบบ
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
+            ควบคุม rule ค้นหางาน ตรวจสุขภาพ polling และติดตามผลแบบ real-time จากหน้าจอเดียว
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-80 lg:grid-cols-1">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Session</div>
+            <div className={`mt-2 flex items-center gap-2 text-lg font-black ${metrics?.session?.isHealthy ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {metrics?.session?.isHealthy ? <SignalHigh className="h-5 w-5" /> : <WifiOff className="h-5 w-5" />}
+              {metrics?.session?.isHealthy ? 'Healthy' : 'Degraded'}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Active Rules</div>
+            <div className="mt-2 text-2xl font-black text-cyan-200">{activeRules}</div>
+          </div>
+        </div>
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           title="Active Rules"
           value={activeRules}
           color="cyan"
+          icon={Target}
         />
         <KpiCard
           title="Fulfilled"
           value={fulfilledRules}
           color="emerald"
+          icon={CheckCircle2}
         />
         <KpiCard
           title="Disabled"
           value={disabledRules}
           color="slate"
+          icon={PauseCircle}
         />
         <KpiCard
           title="Status"
           value={metrics?.session?.isHealthy ? 'Healthy' : 'Degraded'}
           color={metrics?.session?.isHealthy ? 'emerald' : 'amber'}
           subtitle={`${metrics?.session?.consecutiveErrors || 0} consecutive errors`}
+          icon={metrics?.session?.isHealthy ? SignalHigh : WifiOff}
         />
         <KpiCard
           title="Uptime"
           value={formatDuration(metrics?.uptime || 0)}
           color="blue"
+          icon={Clock3}
         />
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           title="Success Rate"
           value={`${metrics?.polling?.successRate || 0}%`}
@@ -90,45 +129,60 @@ function DashboardComponent() {
 
       {/* Rules Section */}
       <Card className="glass border-white/10">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-white">รายการค้นหา</CardTitle>
             <p className="text-sm text-muted-foreground">
               จัดการ rule และดูสถานะได้ทันที
             </p>
           </div>
-          <Button className="bg-cyan-500 hover:bg-cyan-600">
+          <Button
+            className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:from-emerald-300 hover:to-cyan-300 sm:w-auto"
+            onClick={() => setCreateDialogOpen(true)}
+          >
             <Plus className="h-4 w-4 mr-2" />
             เพิ่มรายการ
           </Button>
+
+          <CreateRuleDialog
+            open={createDialogOpen}
+            onOpenChange={setCreateDialogOpen}
+          />
         </CardHeader>
         <CardContent>
           {rules.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
+            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
               <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>ไม่มีรายการค้นหา</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10 text-left text-sm text-muted-foreground">
-                    <th className="pb-3 font-medium">สถานะ</th>
-                    <th className="pb-3 font-medium">ชื่อรายการ</th>
-                    <th className="pb-3 font-medium hidden md:table-cell">ต้นทาง</th>
-                    <th className="pb-3 font-medium hidden md:table-cell">ปลายทาง</th>
-                    <th className="pb-3 font-medium hidden lg:table-cell">ประเภทรถ</th>
-                    <th className="pb-3 font-medium">ต้องการ</th>
-                    <th className="pb-3 font-medium">จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rules.map((rule) => (
-                    <RuleRow key={rule.id} rule={rule} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="grid gap-3 md:hidden">
+                {rules.map((rule) => (
+                  <RuleCard key={rule.id} rule={rule} />
+                ))}
+              </div>
+              <div className="data-scroll hidden md:block">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>สถานะ</th>
+                      <th>ชื่อรายการ</th>
+                      <th>ต้นทาง</th>
+                      <th>ปลายทาง</th>
+                      <th className="hidden lg:table-cell">ประเภทรถ</th>
+                      <th>ต้องการ</th>
+                      <th>จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rules.map((rule) => (
+                      <RuleRow key={rule.id} rule={rule} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -141,27 +195,35 @@ function KpiCard({
   value,
   color,
   subtitle,
+  icon: Icon,
 }: {
   title: string
   value: string | number
   color: 'cyan' | 'emerald' | 'slate' | 'amber' | 'blue'
   subtitle?: string
+  icon: ComponentType<{ className?: string }>
 }) {
   const colorClasses = {
-    cyan: 'text-cyan-400 border-cyan-400/20 bg-cyan-400/10',
-    emerald: 'text-emerald-400 border-emerald-400/20 bg-emerald-400/10',
-    slate: 'text-slate-400 border-slate-400/20 bg-slate-400/10',
-    amber: 'text-amber-400 border-amber-400/20 bg-amber-400/10',
-    blue: 'text-blue-400 border-blue-400/20 bg-blue-400/10',
+    cyan: { text: 'text-cyan-300', surface: 'border-cyan-300/20 bg-cyan-300/10' },
+    emerald: { text: 'text-emerald-300', surface: 'border-emerald-300/20 bg-emerald-300/10' },
+    slate: { text: 'text-slate-300', surface: 'border-slate-300/20 bg-slate-300/10' },
+    amber: { text: 'text-amber-300', surface: 'border-amber-300/20 bg-amber-300/10' },
+    blue: { text: 'text-blue-300', surface: 'border-blue-300/20 bg-blue-300/10' },
   }
+  const classes = colorClasses[color]
 
   return (
-    <Card className="glass border-white/10">
-      <CardContent className="p-4">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-          {title}
+    <Card className="glass border-white/10 transition-transform duration-200 hover:-translate-y-0.5">
+      <CardContent className="p-4 sm:p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            {title}
+          </div>
+          <div className={`rounded-2xl border p-2 ${classes.surface}`}>
+            <Icon className={`h-4 w-4 ${classes.text}`} />
+          </div>
         </div>
-        <div className={`text-2xl font-bold ${colorClasses[color].split(' ')[0]}`}>
+        <div className={`text-2xl font-black tracking-tight sm:text-3xl ${classes.text}`}>
           {value}
         </div>
         {subtitle && (
@@ -184,18 +246,18 @@ function MetricCard({
   subtitle?: string
 }) {
   const colorClasses = {
-    cyan: 'text-cyan-400',
-    emerald: 'text-emerald-400',
-    blue: 'text-blue-400',
+    cyan: 'text-cyan-300',
+    emerald: 'text-emerald-300',
+    blue: 'text-blue-300',
   }
 
   return (
     <Card className="glass border-white/10">
-      <CardContent className="p-4">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
+      <CardContent className="p-4 sm:p-5">
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
           {title}
         </div>
-        <div className={`text-xl font-bold ${colorClasses[color]}`}>{value}</div>
+        <div className={`text-2xl font-black tracking-tight ${colorClasses[color]}`}>{value}</div>
         {subtitle && (
           <div className="text-xs text-muted-foreground mt-1">{subtitle}</div>
         )}
@@ -215,52 +277,144 @@ function SSEStatusCard({ status }: { status: 'connecting' | 'connected' | 'disco
 
   return (
     <Card className="glass border-white/10">
-      <CardContent className="p-4 flex items-center gap-3">
-        <div className={`w-3 h-3 rounded-full ${config.dot} ${status === 'connecting' ? 'animate-pulse' : ''}`} />
+      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+        <div className={`h-3 w-3 rounded-full ${config.dot} ${status === 'connecting' ? 'animate-pulse' : ''}`} />
         <div>
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">SSE Status</div>
-          <div className={`font-medium ${config.color}`}>{config.label}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">SSE Status</div>
+          <div className={`text-lg font-black ${config.color}`}>{config.label}</div>
         </div>
       </CardContent>
     </Card>
   )
 }
 
-function RuleRow({ rule }: { rule: NotifyRule }) {
-  const getStatusBadge = () => {
-    if (!rule.enabled) {
-      return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-500/20 bg-slate-500/10 text-slate-400">ปิดอยู่</span>
-    }
-    if (rule.fulfilled) {
-      return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-emerald-400/20 bg-emerald-400/10 text-emerald-400">ครบแล้ว</span>
-    }
-    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-cyan-400/20 bg-cyan-400/10 text-cyan-400">กำลังค้นหา</span>
+function getStatusBadge(rule: NotifyRule) {
+  if (!rule.enabled) {
+    return <span className="status-pill border-slate-400/20 bg-slate-400/10 text-slate-300">ปิดอยู่</span>
   }
+  if (rule.fulfilled) {
+    return <span className="status-pill border-emerald-300/20 bg-emerald-300/10 text-emerald-300">ครบแล้ว</span>
+  }
+  return <span className="status-pill border-cyan-300/20 bg-cyan-300/10 text-cyan-300">กำลังค้นหา</span>
+}
+
+function RuleActions({
+  onEdit,
+  onDelete,
+}: {
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-10 px-3 text-xs whitespace-nowrap"
+        onClick={onEdit}
+      >
+        แก้ไข
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-10 px-3 text-xs text-red-300 hover:text-red-200 whitespace-nowrap"
+        onClick={onDelete}
+      >
+        ลบ
+      </Button>
+    </div>
+  )
+}
+
+function RuleCard({ rule }: { rule: NotifyRule }) {
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   return (
-    <tr className="border-b border-white/5 hover:bg-white/5 transition-colors">
-      <td className="py-3">{getStatusBadge()}</td>
-      <td className="py-3 text-white font-medium">{rule.name}</td>
-      <td className="py-3 text-muted-foreground hidden md:table-cell">
-        {rule.origins.join(', ') || '—'}
-      </td>
-      <td className="py-3 text-muted-foreground hidden md:table-cell">
-        {rule.destinations.join(', ') || '—'}
-      </td>
-      <td className="py-3 text-muted-foreground hidden lg:table-cell">
-        {rule.vehicle_types.join(', ') || '—'}
-      </td>
-      <td className="py-3 text-muted-foreground">{rule.need} คัน</td>
-      <td className="py-3">
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" className="h-8 text-xs">
-            แก้ไข
-          </Button>
-          <Button variant="ghost" size="sm" className="h-8 text-xs text-red-400 hover:text-red-300">
-            ลบ
-          </Button>
+    <div className="mobile-record">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="mb-2">{getStatusBadge(rule)}</div>
+          <div className="text-base font-black text-white">{rule.name}</div>
         </div>
-      </td>
-    </tr>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-right">
+          <div className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">Need</div>
+          <div className="text-lg font-black text-cyan-200">{rule.need}</div>
+        </div>
+      </div>
+      <div className="grid gap-3 text-sm">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</div>
+          <div className="mt-1 text-slate-200">{rule.origins.join(', ') || '—'}</div>
+        </div>
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ปลายทาง</div>
+          <div className="mt-1 text-slate-200">{rule.destinations.join(', ') || '—'}</div>
+        </div>
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</div>
+          <div className="mt-1 text-slate-200">{rule.vehicle_types.join(', ') || '—'}</div>
+        </div>
+      </div>
+      <div className="mt-4 border-t border-white/10 pt-4">
+        <RuleActions
+          onEdit={() => setEditDialogOpen(true)}
+          onDelete={() => setDeleteDialogOpen(true)}
+        />
+      </div>
+
+      <EditRuleDialog
+        rule={rule}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
+      <DeleteConfirmDialog
+        rule={rule}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      />
+    </div>
+  )
+}
+
+function RuleRow({ rule }: { rule: NotifyRule }) {
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
+  return (
+    <>
+      <tr>
+        <td>{getStatusBadge(rule)}</td>
+        <td className="font-semibold text-white">{rule.name}</td>
+        <td className="text-muted-foreground">
+          {rule.origins.join(', ') || '—'}
+        </td>
+        <td className="text-muted-foreground">
+          {rule.destinations.join(', ') || '—'}
+        </td>
+        <td className="hidden text-muted-foreground lg:table-cell">
+          {rule.vehicle_types.join(', ') || '—'}
+        </td>
+        <td className="text-muted-foreground">{rule.need} คัน</td>
+        <td>
+          <RuleActions
+            onEdit={() => setEditDialogOpen(true)}
+            onDelete={() => setDeleteDialogOpen(true)}
+          />
+        </td>
+      </tr>
+
+      <EditRuleDialog
+        rule={rule}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+      />
+      <DeleteConfirmDialog
+        rule={rule}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      />
+    </>
   )
 }

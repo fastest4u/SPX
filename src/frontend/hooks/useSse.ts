@@ -9,7 +9,9 @@ interface SseState {
   error: Error | null
 }
 
-const SSE_RECONNECT_MS = 5000
+const SSE_INITIAL_RECONNECT_MS = 5000
+const SSE_MAX_RECONNECT_MS = 60_000
+const SSE_MAX_RETRIES = 10
 
 export function useSse(url: string, enabled: boolean = true) {
   const [state, setState] = useState<SseState>({
@@ -20,9 +22,20 @@ export function useSse(url: string, enabled: boolean = true) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
+  const retriesRef = useRef(0)
 
   const connect = useCallback(() => {
     if (!enabled || !isMountedRef.current) return
+
+    // Stop reconnecting after max retries
+    if (retriesRef.current >= SSE_MAX_RETRIES) {
+      setState((prev: SseState) => ({
+        ...prev,
+        status: 'disconnected',
+        error: new Error('Max SSE reconnection attempts reached'),
+      }))
+      return
+    }
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
@@ -30,11 +43,14 @@ export function useSse(url: string, enabled: boolean = true) {
 
     setState((prev: SseState) => ({ ...prev, status: 'connecting' }))
 
-    const es = new EventSource(url)
+    // withCredentials: true ensures cookies (JWT) are sent with the SSE request
+    const es = new EventSource(url, { withCredentials: true })
     eventSourceRef.current = es
 
     es.onopen = () => {
       if (!isMountedRef.current) return
+      // Reset retry counter on successful connection
+      retriesRef.current = 0
       setState((prev: SseState) => ({ ...prev, status: 'connected', error: null }))
     }
 
@@ -50,14 +66,33 @@ export function useSse(url: string, enabled: boolean = true) {
 
     es.onerror = () => {
       if (!isMountedRef.current) return
-      setState((prev: SseState) => ({ ...prev, status: 'disconnected' }))
 
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
         eventSourceRef.current = null
       }
 
-      // Schedule reconnect
+      retriesRef.current += 1
+
+      // If we've exceeded max retries, give up
+      if (retriesRef.current >= SSE_MAX_RETRIES) {
+        setState((prev: SseState) => ({
+          ...prev,
+          status: 'disconnected',
+          error: new Error('Max SSE reconnection attempts reached'),
+        }))
+        return
+      }
+
+      setState((prev: SseState) => ({ ...prev, status: 'disconnected' }))
+
+      // Exponential backoff: 5s, 10s, 20s, 40s, 60s (capped)
+      const backoffMs = Math.min(
+        SSE_INITIAL_RECONNECT_MS * Math.pow(2, retriesRef.current - 1),
+        SSE_MAX_RECONNECT_MS,
+      )
+
+      // Schedule reconnect with backoff
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
       }
@@ -65,7 +100,7 @@ export function useSse(url: string, enabled: boolean = true) {
         if (isMountedRef.current && enabled) {
           connect()
         }
-      }, SSE_RECONNECT_MS)
+      }, backoffMs)
     }
   }, [url, enabled])
 
@@ -82,6 +117,7 @@ export function useSse(url: string, enabled: boolean = true) {
 
   useEffect(() => {
     isMountedRef.current = true
+    retriesRef.current = 0
 
     if (enabled) {
       connect()
@@ -94,6 +130,7 @@ export function useSse(url: string, enabled: boolean = true) {
   }, [connect, disconnect, enabled])
 
   const reconnect = useCallback(() => {
+    retriesRef.current = 0
     disconnect()
     connect()
   }, [connect, disconnect])

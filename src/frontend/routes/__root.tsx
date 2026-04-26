@@ -10,9 +10,10 @@ export const rootRoute = createRootRoute({
 export const Route = rootRoute
 
 function RootComponent() {
-  const { isAuthenticated, isLoading, user } = useAuth()
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
+  const shouldCheckAuth = currentPath !== '/login'
+  const { isAuthenticated, isLoading, user, logout } = useAuth({ enabled: shouldCheckAuth })
 
   // Show loading state
   if (isLoading) {
@@ -36,6 +37,10 @@ function RootComponent() {
     return <Navigate to="/" />
   }
 
+  if (isAuthenticated && user?.role !== 'admin' && ['/users', '/settings', '/audit'].includes(currentPath)) {
+    return <Navigate to="/" />
+  }
+
   // Login page without layout
   if (currentPath === '/login') {
     return (
@@ -48,7 +53,7 @@ function RootComponent() {
 
   // Protected pages with layout
   return (
-    <AppLayout user={user}>
+    <AppLayout user={user} onLogout={logout}>
       <Outlet />
     </AppLayout>
   )

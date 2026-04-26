@@ -1,35 +1,37 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { authApi } from '../lib/api'
 import type { AuthUser } from '../types'
 
 const AUTH_KEY = 'auth'
 
-export function useAuth() {
+export function useAuth(options?: { enabled?: boolean }) {
   const queryClient = useQueryClient()
-  const [isInitialized, setIsInitialized] = useState(false)
+  const enabled = options?.enabled ?? true
 
   const { data: authData, isLoading: isChecking } = useQuery({
     queryKey: [AUTH_KEY],
     queryFn: authApi.me,
     retry: false,
     refetchOnWindowFocus: false,
-    enabled: isInitialized,
+    // Keep cached auth data for 2 minutes to prevent race conditions
+    // between login success and query invalidation
+    staleTime: 2 * 60 * 1000,
+    enabled,
   })
-
-  useEffect(() => {
-    setIsInitialized(true)
-  }, [])
 
   const user: AuthUser | null = authData?.ok ? (authData.user ?? null) : null
   const isAuthenticated = !!user
-  const isLoading = isChecking || !isInitialized
+  const isLoading = enabled ? isChecking : false
 
   const loginMutation = useMutation({
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       authApi.login(username, password),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [AUTH_KEY] })
+      // Immediately refetch auth state to get user info
+      // Use refetch instead of invalidate to avoid race conditions
+      void queryClient.refetchQueries({ queryKey: [AUTH_KEY] })
     },
   })
 
@@ -64,12 +66,15 @@ export function useAuth() {
 
 export function useRequireAuth(redirectTo: string = '/login') {
   const { isAuthenticated, isLoading } = useAuth()
-  
+  const navigate = useNavigate()
+
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      window.location.href = redirectTo
+      // Use router navigation instead of window.location.replace
+      // to avoid full page reload loops
+      void navigate({ to: redirectTo })
     }
-  }, [isAuthenticated, isLoading, redirectTo])
+  }, [isAuthenticated, isLoading, redirectTo, navigate])
 
   return { isAuthenticated, isLoading }
 }

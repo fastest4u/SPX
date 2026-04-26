@@ -32,7 +32,7 @@ function currentUser(req: { user?: unknown }): AuthUser {
 }
 
 function isUserRole(value: unknown): value is UserRole {
-  return value === "viewer" || value === "editor" || value === "admin";
+  return value === "user" || value === "admin";
 }
 
 const createUserSchema = {
@@ -42,7 +42,7 @@ const createUserSchema = {
   properties: {
     username: { type: "string", minLength: 1, maxLength: 64 },
     password: { type: "string", minLength: MIN_USER_PASSWORD_LENGTH, maxLength: 256 },
-    role: { type: "string", enum: ["viewer", "editor", "admin"] },
+    role: { type: "string", enum: ["user", "admin"] },
   },
 } as const;
 
@@ -68,7 +68,7 @@ const roleSchema = {
   additionalProperties: false,
   required: ["role"],
   properties: {
-    role: { type: "string", enum: ["viewer", "editor", "admin"] },
+    role: { type: "string", enum: ["user", "admin"] },
   },
 } as const;
 
@@ -87,7 +87,7 @@ export const usersController: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      await createUser(username.trim(), password, role ?? "viewer");
+      await createUser(username.trim(), password, role ?? "user");
       await insertAuditLog(currentUser(req).username, "Add User", `Created user: ${username}`);
       return { ok: true };
     } catch {

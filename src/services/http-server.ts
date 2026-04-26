@@ -26,7 +26,7 @@ let app: FastifyInstance | null = null;
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 120;
-const RATE_LIMIT_EDITOR = 180;
+const RATE_LIMIT_USER = 180;
 const RATE_LIMIT_ADMIN = 300;
 const AUTH_RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_BUCKET_CLEANUP_INTERVAL_MS = 60_000;
@@ -189,6 +189,13 @@ export async function startHttpServer(port: number): Promise<void> {
     reply.header("X-Request-Id", requestId);
     (request as FastifyRequest & { startTime?: number }).startTime = Date.now();
 
+    const isApiRequest = request.url.startsWith("/api/");
+    const isSpaAssetRequest = request.url === "/" || request.url === "/login" || request.url.startsWith("/assets/") || request.url === "/favicon.ico" || request.url === "/vite.svg";
+
+    if (!isApiRequest || isSpaAssetRequest) {
+      return;
+    }
+
     const limit = request.url.startsWith("/api/login") ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
     const rateLimit = checkRateLimit(getClientKey(request), limit);
 
@@ -223,18 +230,17 @@ export async function startHttpServer(port: number): Promise<void> {
     await apiScope.register(historyController, { prefix: "/history" });
     await apiScope.register(reportController, { prefix: "/reports" });
 
-    await apiScope.register(async (editorScope) => {
-      editorScope.addHook("preHandler", requireRole("editor"));
-      // Editors get higher rate limit
-      editorScope.addHook("onRequest", async (request, reply) => {
-        const rateLimit = checkRateLimit(`role:editor:${getClientKey(request)}`, RATE_LIMIT_EDITOR);
+    await apiScope.register(async (userScope) => {
+      userScope.addHook("preHandler", requireRole("user"));
+      userScope.addHook("onRequest", async (request, reply) => {
+        const rateLimit = checkRateLimit(`role:user:${getClientKey(request)}`, RATE_LIMIT_USER);
         if (!rateLimit.allowed) {
           return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
         }
       });
-      await editorScope.register(rulesController, { prefix: "/rules" });
-      await editorScope.register(notifyController, { prefix: "/notifications" });
-      await editorScope.register(biddingController, { prefix: "/bidding" });
+      await userScope.register(rulesController, { prefix: "/rules" });
+      await userScope.register(notifyController, { prefix: "/notifications" });
+      await userScope.register(biddingController, { prefix: "/bidding" });
     });
 
     await apiScope.register(async (adminScope) => {
