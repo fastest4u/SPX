@@ -2,10 +2,14 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file:
       - .env
+    volumes:
+      - ./.env:/app/.env
+      - ./notify-rules.json:/app/notify-rules.json
     restart: unless-stopped
+    command: ["sh", "-c", "node dist/scripts/db-migrate.js && node dist/app.js"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s

@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyJwt from "@fastify/jwt";
@@ -33,6 +34,15 @@ const MAX_RATE_LIMIT_BUCKETS = 10_000;
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 let lastBucketCleanup = 0;
 const publicAssetsDir = resolve(process.cwd(), "dist/public");
+const spaIndexHtmlPath = resolve(publicAssetsDir, "index.html");
+let spaIndexHtmlCache: string | null = null;
+
+function getSpaIndexHtml(): string {
+  if (!spaIndexHtmlCache) {
+    spaIndexHtmlCache = readFileSync(spaIndexHtmlPath, "utf-8");
+  }
+  return spaIndexHtmlCache;
+}
 
 function isAllowedCorsOrigin(origin: string): boolean {
   if (env.HTTP_ALLOWED_ORIGINS.includes(origin)) {
@@ -103,7 +113,7 @@ function applySecurityHeaders(reply: FastifyReply): void {
   reply.header("X-Frame-Options", "DENY");
   reply.header("Referrer-Policy", "same-origin");
   reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' https://code.jquery.com https://cdn.jsdelivr.net; connect-src 'self' https:;");
+  reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:;");
 }
 
 function sendApiError(reply: FastifyReply, statusCode: number, message: string, code: string, details?: unknown): void {
@@ -148,7 +158,14 @@ export async function startHttpServer(port: number): Promise<void> {
   });
   await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
   await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
-  await app.register(fastifyStatic, { root: publicAssetsDir, prefix: "/assets/", maxAge: "1h", immutable: false });
+  // Serve SPA static files - explicit file paths only (no wildcard)
+  await app.register(fastifyStatic, { 
+    root: publicAssetsDir, 
+    prefix: "/", 
+    maxAge: "1h", 
+    immutable: false,
+    wildcard: false,
+  });
   await app.register(fastifyFormbody);
 
   async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -168,9 +185,9 @@ export async function startHttpServer(port: number): Promise<void> {
   app.addHook("onRequest", async (request, reply) => {
     applySecurityHeaders(reply);
 
-    // Add unique request ID for tracing
     const requestId = randomUUID();
     reply.header("X-Request-Id", requestId);
+    (request as FastifyRequest & { startTime?: number }).startTime = Date.now();
 
     const limit = request.url.startsWith("/api/login") ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
     const rateLimit = checkRateLimit(getClientKey(request), limit);
@@ -182,8 +199,12 @@ export async function startHttpServer(port: number): Promise<void> {
     if (!rateLimit.allowed) {
       return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED", { retryAfterMs: Math.max(0, rateLimit.resetAt - Date.now()) });
     }
+  });
 
-    logger.info("http-request", { method: request.method, url: request.url, ip: request.ip, requestId });
+  app.addHook("onResponse", async (request, reply) => {
+    const startTime = (request as FastifyRequest & { startTime?: number }).startTime;
+    const durationMs = typeof startTime === "number" ? Date.now() - startTime : 0;
+    logger.info(`${request.method} ${request.url} ${reply.statusCode} ${durationMs}ms`);
   });
 
   app.setErrorHandler((error: unknown, _request, reply) => {
@@ -230,6 +251,16 @@ export async function startHttpServer(port: number): Promise<void> {
       await adminScope.register(auditController, { prefix: "/audit-logs" });
     });
   }, { prefix: "/api" });
+
+  // SPA catch-all: serve index.html for non-API routes (must be registered after API routes)
+  app.get("/*", async (req, reply) => {
+    // Skip API routes and root static files
+    if (req.url.startsWith("/api/") || req.url.startsWith("/assets/") || req.url.startsWith("/vite.svg") || req.url.startsWith("/metrics") || req.url.startsWith("/health") || req.url.startsWith("/ready") || req.url.startsWith("/events")) {
+      return reply.callNotFound();
+    }
+    // Serve SPA index.html for client-side routes like /history, /users, etc.
+    reply.type("text/html; charset=utf-8").send(getSpaIndexHtml());
+  });
 
   await app.listen({ port, host: "0.0.0.0" });
   logger.info("http-server-started", { url: `http://localhost:${port}` });

@@ -29,22 +29,36 @@ SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก==
 | Metrics | `src/services/metrics.ts` | Latency percentiles, success rate |
 | Error Classifier | `src/utils/error-classifier.ts` | จำแนก error เป็น 6 categories |
 
-### 2) Web Dashboard (Optional — `HTTP_ENABLED=true`)
+### 2) Web Dashboard — React SPA (`HTTP_ENABLED=true`)
 
 | Component | File | หน้าที่ |
 |-----------|------|--------|
-| HTTP Server | `src/services/http-server.ts` | Fastify + CORS + JWT + Rate Limit |
-| Auth Controller | `src/controllers/auth-controller.ts` | Login/Logout/Refresh/Me |
-| Dashboard Controller | `src/controllers/dashboard-controller.ts` | HTML rendering + health + metrics |
-| Rules Controller | `src/controllers/rules-controller.ts` | CRUD notification rules |
-| History Controller | `src/controllers/history-controller.ts` | Query booking history |
-| Users Controller | `src/controllers/users-controller.ts` | User management (admin) |
-| Settings Controller | `src/controllers/settings-controller.ts` | .env settings via UI |
-| Audit Controller | `src/controllers/audit-controller.ts` | Audit log viewer |
-| Report Controller | `src/controllers/report-controller.ts` | CSV export |
-| Bidding Controller | `src/controllers/bidding-controller.ts` | Manual booking accept |
-| Notify Controller | `src/services/notify-controller.ts` | Notification preview/test |
+| HTTP Server | `src/services/http-server.ts` | Fastify + CORS + JWT + Rate Limit + SPA serving |
+| Auth Controller | `src/controllers/auth-controller.ts` | Login/Logout/Refresh/Me API |
+| Dashboard Controller | `src/controllers/dashboard-controller.ts` | Health + metrics + events API |
+| Rules Controller | `src/controllers/rules-controller.ts` | CRUD notification rules API |
+| History Controller | `src/controllers/history-controller.ts` | Query booking history API |
+| Users Controller | `src/controllers/users-controller.ts` | User management API (admin) |
+| Settings Controller | `src/controllers/settings-controller.ts` | .env settings via API |
+| Audit Controller | `src/controllers/audit-controller.ts` | Audit log API |
+| Report Controller | `src/controllers/report-controller.ts` | CSV export API |
+| Bidding Controller | `src/controllers/bidding-controller.ts` | Manual booking accept API |
+| Notify Controller | `src/services/notify-controller.ts` | Notification preview/test API |
 | Authz | `src/services/authz.ts` | RBAC: `viewer` < `editor` < `admin` |
+
+#### React SPA Frontend (`src/frontend/`)
+
+| Component | File | หน้าที่ |
+|-----------|------|--------|
+| Entry Point | `src/frontend/main.tsx` | React 19 entry, QueryClient, Router |
+| Root Layout | `src/frontend/routes/__root.tsx` | App shell, auth check, sidebar |
+| Router | `src/frontend/routes/*.tsx` | 7 pages: Dashboard, History, Audit, Users, Settings, Notifications, Reports |
+| UI Components | `src/frontend/components/ui/*.tsx` | shadcn/ui: Button, Card, Input, Table |
+| Layout | `src/frontend/components/layout/AppLayout.tsx` | Sidebar, header, navigation |
+| API Client | `src/frontend/lib/api.ts` | Typed fetch wrapper with auth handling |
+| Auth Hook | `src/frontend/hooks/useAuth.ts` | Login/logout/auth state |
+| SSE Hook | `src/frontend/hooks/useSse.ts` | Real-time metrics updates |
+| Styles | `src/frontend/index.css` | Tailwind CSS v4 with custom theme |
 
 ## Architecture Diagram
 

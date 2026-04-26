@@ -16,9 +16,13 @@ aliases:
 
 ```bash
 npm install
-npm run build       # typecheck + bundle
+npm run build       # backend (esbuild) + frontend (vite) → dist/
 npm start -- 10     # start with 10s interval
 ```
+
+> [!note] Frontend Build
+> `npm run build` จะสร้างทั้ง backend (`dist/app.js`) และ frontend (`dist/public/index.html` + assets)
+> Backend จะ serve SPA จาก `dist/public/` โดยอัตโนมัติเมื่อ `HTTP_ENABLED=true`
 
 > [!important] Database Migrations
 > ถ้า `HTTP_ENABLED=true` หรือ `SAVE_TO_DB=true` ต้อง run migration ก่อน startup:
@@ -30,7 +34,14 @@ npm start -- 10     # start with 10s interval
 ## Development Mode
 
 ```bash
-npm run dev -- 10   # ts-node + 10s interval
+# Backend only (ts-node)
+npm run dev:backend -- 10
+
+# Frontend only (Vite dev server with proxy)
+npm run dev:frontend
+
+# Both backend + frontend (concurrently)
+npm run dev
 ```
 
 ## Smoke Test
@@ -66,16 +77,32 @@ docker compose up --build
 - [ ] Secrets ต้องอยู่ใน `.env` หรือ secret manager เท่านั้น
 - [ ] Monitor `/health`, `/ready`, `/metrics` ผ่าน Uptime Kuma หรือ Datadog
 - [ ] `notify-rules.json` ต้องมี controlled write access
-- [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck)
+- [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck + frontend build)
+- [ ] ตรวจว่า `dist/public/` มี `index.html` และ assets ครบ
 
 ## Process Manager
 
 > [!tip] ทำไมต้องมี process manager?
-> Settings UI เขียน `.env` แล้ว ==exit process ทันที== เพื่อ reload config
+> Settings API เขียน `.env` แล้ว ==exit process ทันที== เพื่อ reload config
 > ต้องมี auto-restart mechanism:
 > - Docker: `restart: unless-stopped`
 > - PM2: `pm2 start dist/app.js --name spx`
 > - systemd: `Restart=always`
+
+## Frontend Build Output
+
+```
+dist/
+├── app.js              # Backend bundle
+├── scripts/            # CLI scripts
+└── public/             # SPA static files
+    ├── index.html      # React SPA entry
+    └── assets/         # JS/CSS chunks (hashed)
+        ├── index-xxx.js
+        └── index-xxx.css
+```
+
+Backend serve ไฟล์เหล่านี้ผ่าน `@fastify/static` + catch-all route สำหรับ client-side routing
 
 ## ดูเพิ่มเติม
 - [[env-reference]] — ตัวแปร environment ทั้งหมด
