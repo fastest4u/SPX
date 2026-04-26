@@ -4,16 +4,16 @@ import { env } from "../config/env.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
-import { sendSuccess, sendError } from "../utils/response.js";
+import { sendError } from "../utils/response.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
-  app.get("/health", async (req, reply) => {
+  app.get("/health", async () => {
     const snap = metrics.snapshot();
     const errorRate = snap.polling.totalRequests > 0
       ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
       : 0;
 
-    return sendSuccess(reply, {
+    return {
       status: snap.session.isHealthy ? "ok" : "degraded",
       uptime: snap.uptime,
       startedAt: snap.startedAt,
@@ -26,7 +26,7 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       },
       database: snap.database,
       autoAccept: snap.autoAccept,
-    });
+    };
   });
 
   app.get("/ready", async (_req, reply) => {
@@ -64,10 +64,11 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     checks.session = snap.session.isHealthy ? "ok" : "degraded";
 
     const statusCode = allOk ? 200 : 503;
-    return sendSuccess(reply, { ready: allOk, checks, poolStats }, allOk ? undefined : "Service unavailable", statusCode);
+    if (!allOk) reply.code(statusCode);
+    return { ready: allOk, checks, poolStats };
   });
 
-  app.get("/metrics", async (req, reply) => sendSuccess(reply, metrics.snapshot()));
+  app.get("/metrics", async () => metrics.snapshot());
 
   app.get("/events", async (req, reply) => {
     try {
@@ -87,13 +88,12 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
         properties: { limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } },
       },
     },
-  }, async (req, reply) => {
+  }, async (req) => {
     try {
       const limit = (req.query as { limit?: number }).limit ?? 100;
-      const history = await getRecentMetricsSnapshots(limit);
-      return sendSuccess(reply, history);
+      return await getRecentMetricsSnapshots(limit);
     } catch {
-      return sendSuccess(reply, []);
+      return [];
     }
   });
 };

@@ -71,6 +71,22 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return response.data
 }
 
+async function fetchPlain<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: options?.headers,
+  })
+  const data = await response.json().catch(() => null) as T | ApiErrorResponse | null
+  if (!response.ok) {
+    if (data && typeof data === 'object' && 'status' in data && data.status === 'error') {
+      throw new Error(`${data.error_code}: ${data.message}`)
+    }
+    throw new Error(`REQUEST_ERROR: ${response.statusText || 'Request failed'}`)
+  }
+  return data as T
+}
+
 async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<ApiPaginatedResponse<T>> {
   const response = await fetchRaw<T[]>(url, options)
   if (!('meta' in response)) {
@@ -229,19 +245,19 @@ export const settingsApi = {
 // Metrics API
 export const metricsApi = {
   snapshot: (): Promise<MetricsSnapshot> =>
-    fetchJson<MetricsSnapshot>('/metrics'),
+    fetchPlain<MetricsSnapshot>('/metrics'),
 
   history: (limit?: number): Promise<MetricsHistoryRow[]> =>
-    fetchJson<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
+    fetchPlain<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
 }
 
 // Health/Ready API
 export const healthApi = {
   health: (): Promise<HealthResponse> =>
-    fetchJson<HealthResponse>('/health'),
+    fetchPlain<HealthResponse>('/health'),
 
   ready: (): Promise<ReadyResponse> =>
-    fetchJson<ReadyResponse>('/ready'),
+    fetchPlain<ReadyResponse>('/ready'),
 }
 
 // Bidding API
