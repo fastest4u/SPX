@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "id": "rule_nerc_c_suvarnabhumi_4w",
+    "name": "NERC-C → สุวรรณภูมิ 4ล้อ",
+    "origins": [
+      "NERC-C"
+    ],
+    "destinations": [
+      "สุวรรณภูมิ"
+    ],
+    "vehicle_types": [
+      "4ล้อ"
+    ],
+    "need": 1,
+    "enabled": true,
+    "fulfilled": true
+  }
+]
