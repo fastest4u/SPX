@@ -91,7 +91,11 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent
+        className="sm:max-w-[500px]"
+        onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>แก้ไขรายการค้นหา</DialogTitle>

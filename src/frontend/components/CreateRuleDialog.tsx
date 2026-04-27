@@ -82,7 +82,11 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent
+        className="sm:max-w-[500px]"
+        onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <div className="flex items-center gap-3">
