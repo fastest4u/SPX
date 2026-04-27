@@ -230,28 +230,40 @@ export async function acceptAndNotifyMatchedRules(
 
   // Select only up to the requested need per rule, then group by booking_id
   const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[] }>();
-  const selectedTrips = new Map<number, TripLike>();
+  const selectedRequests = new Map<number, { trip: TripLike; bookingId: number }>();
 
   for (const match of autoAcceptMatches) {
     const limit = Math.max(1, match.need);
-    for (const trip of match.trips.slice(0, limit)) {
+    const selected = match.trips.slice(0, limit);
+
+    if (match.trips.length > limit) {
+      logger.info("auto-accept-truncated", {
+        ruleId: match.ruleId,
+        ruleName: match.ruleName,
+        matchedCount: match.matchedCount,
+        selectedCount: selected.length,
+        limit,
+      });
+    }
+
+    for (const trip of selected) {
       const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
-      if (requestId === undefined) {
-        logger.warn("auto-accept-skip-trip", { reason: "missing request_id", trip });
+      const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
+
+      if (bookingId === undefined || requestId === undefined) {
+        logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
         continue;
       }
-      if (!selectedTrips.has(requestId)) {
-        selectedTrips.set(requestId, trip);
+
+      if (!selectedRequests.has(requestId)) {
+        selectedRequests.set(requestId, { trip, bookingId });
       }
     }
   }
 
-  for (const trip of selectedTrips.values()) {
-    const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
+  for (const { trip, bookingId } of selectedRequests.values()) {
     const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
-
-    if (bookingId === undefined || requestId === undefined) {
-      logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
+    if (requestId === undefined) {
       continue;
     }
 

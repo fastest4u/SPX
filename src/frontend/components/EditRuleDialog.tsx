@@ -49,7 +49,6 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
         vehicle_types: rule.vehicle_types,
         need: rule.need,
         enabled: rule.enabled,
-        fulfilled: false,
         auto_accept: rule.auto_accept,
       })
       setOriginsText(rule.origins.join(', '))
