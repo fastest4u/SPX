@@ -4,7 +4,7 @@ dist
 data
 logs
 .agents
-
+notify-rules.json
 
 
 
