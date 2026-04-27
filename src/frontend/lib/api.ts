@@ -71,6 +71,14 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return response.data
 }
 
+async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<ApiPaginatedResponse<T>> {
+  const response = await fetchRaw<T[]>(url, options)
+  if (!('meta' in response)) {
+    throw new Error('Expected paginated response but got regular success response')
+  }
+  return response as unknown as ApiPaginatedResponse<T>
+}
+
 async function fetchPlain<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
@@ -85,14 +93,6 @@ async function fetchPlain<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(`REQUEST_ERROR: ${response.statusText || 'Request failed'}`)
   }
   return data as T
-}
-
-async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<ApiPaginatedResponse<T>> {
-  const response = await fetchRaw<T[]>(url, options)
-  if (!('meta' in response)) {
-    throw new Error('Expected paginated response but got regular success response')
-  }
-  return response as unknown as ApiPaginatedResponse<T>
 }
 
 /** Custom error class for auth failures — TanStack Query should NOT retry these */
