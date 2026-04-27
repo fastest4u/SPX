@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 
   validateRuntimeConfig();
 
-  if (env.HTTP_ENABLED || env.SAVE_TO_DB) {
+  if (env.HTTP_ENABLED || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED) {
     await migrateJsonToDb();
   }
 
