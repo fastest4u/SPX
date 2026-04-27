@@ -74,5 +74,10 @@ export function escapeHtml(text: string): string {
 }
 
 export function splitCsv(value: string): string[] {
-  return value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean)
+  return value
+    .normalize('NFKC')
+    .replace(/[\p{White_Space}]+/gu, ' ')
+    .split(/[,，\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }

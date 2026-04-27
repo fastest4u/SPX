@@ -84,6 +84,6 @@ export const rulesController: FastifyPluginAsync = async (app) => {
     const deleted = deleteRule(req.params.id);
     if (!deleted) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(currentUser(req).username, "Delete Rule", `Deleted rule: ${deleted.name}`);
-    return sendSuccess(reply, null, "Rule deleted successfully");
+    return sendSuccess(reply, null, "Rule deleted successfully", 204);
   });
 };

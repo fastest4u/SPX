@@ -36,7 +36,15 @@ export interface AuthUser {
 }
 
 export interface LoginResponse {
-  token: string;
+  status: 'success';
+  message?: string;
+  data: { token: string } | null;
+}
+
+export interface MeResponse {
+  status: 'success';
+  message?: string;
+  data: AuthUser;
 }
 
 // Rule Types
@@ -100,6 +108,8 @@ export interface HistoryFilterQuery {
 }
 
 export interface PaginatedHistory {
+  status: 'success';
+  message?: string;
   data: BookingHistory[];
   meta: PaginationMeta;
 }
