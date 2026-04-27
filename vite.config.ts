@@ -17,6 +17,9 @@ export default defineConfig({
     react(),
   ],
   server: {
+    watch: {
+      ignored: ['**/.agents/**', '**/dist/**'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
