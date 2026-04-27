@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "id": "86caa949-9dd2-45f5-905a-28cecf60dd9d",
+    "name": "AGUAI-A - บางกรวย",
+    "origins": [
+      "AGUAI-A - บางกรวย"
+    ],
+    "destinations": [
+      "SOCE"
+    ],
+    "vehicle_types": [
+      "4WJ-4ล้อจัมโบ้"
+    ],
+    "need": 1,
+    "enabled": true,
+    "fulfilled": false,
+    "auto_accept": true,
+    "auto_accepted": false
+  },
+  {
+    "id": "10ea3cf9-fd33-4ebe-9367-554e065ae9e1",
+    "name": "NERC-B-NERC-C",
+    "origins": [
+      "NERC-B"
+    ],
+    "destinations": [
+      "NERC-C"
+    ],
+    "vehicle_types": [
+      "4WH-4ล้อ"
+    ],
+    "need": 1,
+    "enabled": true,
+    "fulfilled": true,
+    "auto_accept": false,
+    "auto_accepted": false
+  },
+  {
+    "id": "c2c25c68-e6d1-4c3e-bbd1-77d72dfcd276",
+    "name": "NERC-C",
+    "origins": [
+      "NERC-C"
+    ],
+    "destinations": [
+      "SOCE"
+    ],
+    "vehicle_types": [
+      "6WH-6ล้อ[7.2m]"
+    ],
+    "need": 1,
+    "enabled": true,
+    "fulfilled": true,
+    "auto_accept": false,
+    "auto_accepted": false
+  }
+]
