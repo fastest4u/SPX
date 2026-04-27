@@ -1,6 +1,7 @@
 import { closePool, getPool } from "../db/client.js";
 
 const TABLES_TO_DROP = [
+  "notify_rules",
   "metrics_snapshots",
   "audit_logs", 
   "users",
