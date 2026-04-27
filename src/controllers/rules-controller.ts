@@ -25,6 +25,7 @@ function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
     need: typeof body.need === "number" && body.need >= 1 ? body.need : 1,
     enabled: body.enabled ?? true,
     fulfilled: body.fulfilled ?? false,
+    auto_accept: body.auto_accept ?? false,
   };
 }
 
@@ -37,6 +38,7 @@ function toRulePatch(body: Partial<NotifyRuleInput>): NotifyRulePatch {
   if (typeof body.need === "number" && body.need >= 1) patch.need = body.need;
   if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
   if (typeof body.fulfilled === "boolean") patch.fulfilled = body.fulfilled;
+  if (typeof body.auto_accept === "boolean") patch.auto_accept = body.auto_accept;
   return patch;
 }
 
@@ -52,6 +54,7 @@ const ruleSchema = {
     need: { type: "integer", minimum: 1 },
     enabled: { type: "boolean" },
     fulfilled: { type: "boolean" },
+    auto_accept: { type: "boolean" },
   },
 } as const;
 
