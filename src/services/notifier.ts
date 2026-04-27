@@ -24,14 +24,6 @@ function textValue(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "-";
 }
 
-function tripLine(trip: TripLike): string {
-  const origin = textValue(trip.origin ?? trip["ต้นทาง"]);
-  const destination = textValue(trip.destination ?? trip["ปลายทาง"]);
-  const vehicleType = textValue(trip.vehicle_type ?? trip["ประเภทรถ"]);
-  const requestId = typeof trip.request_id === "number" ? trip.request_id : "-";
-  return `request_id=${requestId} ${origin} -> ${destination} (${vehicleType})`;
-}
-
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength - 3)}...`;
@@ -42,15 +34,27 @@ function buildNotificationMessage(matches: RuleMatch[], trips: TripLike[], force
     return "Test notification from SPX Bidding Poller.";
   }
 
-  const rules = matches.map((match) => `- ${match.ruleName}: ${match.matchedCount} matched trip(s)`).join("\n");
-  const samples = trips.slice(0, 5).map((trip) => `- ${tripLine(trip)}`).join("\n");
+  const primaryMatch = matches[0];
+  const sampleTrip = trips[0];
+  const matchedCount = matches.reduce((sum, match) => sum + match.matchedCount, 0);
+
+  const sampleLines = sampleTrip
+    ? [
+        `request_id: ${typeof sampleTrip.request_id === "number" ? sampleTrip.request_id : "-"}`,
+        `เส้นทาง: ${textValue(sampleTrip.origin ?? sampleTrip["ต้นทาง"])} → ${textValue(sampleTrip.destination ?? sampleTrip["ปลายทาง"])}`,
+        `ประเภทรถ: ${textValue(sampleTrip.vehicle_type ?? sampleTrip["ประเภทรถ"])}`,
+      ]
+    : ["- none"];
 
   return [
-    "Matched notification rules:",
-    rules || "- none",
+    "SPX แจ้งเตือนงานที่ตรงเงื่อนไข",
+    `พบ ${matchedCount} งานที่ตรง rule`,
     "",
-    `Total trips in current poll: ${trips.length}`,
-    samples ? `Sample trips:\n${samples}` : "Sample trips: none",
+    "Matched rule",
+    primaryMatch ? primaryMatch.ruleName : "- none",
+    "",
+    "ตัวอย่างงานที่ match",
+    ...sampleLines,
   ].join("\n");
 }
 
@@ -140,7 +144,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
 
   try {
     const forceTest = Boolean(options?.forceTest);
-    const title = forceTest ? "SPX Notification Test" : "SPX Bidding Rule Matched";
+    const title = forceTest ? "SPX Notification Test" : "SPX แจ้งเตือนงานที่ตรงเงื่อนไข";
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
     const channelResults: NotificationSendResult[] = [];
@@ -224,27 +228,52 @@ export async function acceptAndNotifyMatchedRules(
     totalTrips: autoAcceptMatches.reduce((sum, m) => sum + m.matchedCount, 0),
   });
 
-  // Group all matched trips by booking_id for batched accept calls
+  // Select only up to the requested need per rule, then group by booking_id
   const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[] }>();
+  const selectedRequests = new Map<number, { trip: TripLike; bookingId: number }>();
 
   for (const match of autoAcceptMatches) {
-    for (const trip of match.trips) {
-      const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
+    const limit = Math.max(1, match.need);
+    const selected = match.trips.slice(0, limit);
+
+    if (match.trips.length > limit) {
+      logger.info("auto-accept-truncated", {
+        ruleId: match.ruleId,
+        ruleName: match.ruleName,
+        matchedCount: match.matchedCount,
+        selectedCount: selected.length,
+        limit,
+      });
+    }
+
+    for (const trip of selected) {
       const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
+      const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
 
       if (bookingId === undefined || requestId === undefined) {
         logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
         continue;
       }
 
-      let entry = byBooking.get(bookingId);
-      if (!entry) {
-        entry = { requestIds: new Set(), trips: [] };
-        byBooking.set(bookingId, entry);
+      if (!selectedRequests.has(requestId)) {
+        selectedRequests.set(requestId, { trip, bookingId });
       }
-      entry.requestIds.add(requestId);
-      entry.trips.push(trip);
     }
+  }
+
+  for (const { trip, bookingId } of selectedRequests.values()) {
+    const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
+    if (requestId === undefined) {
+      continue;
+    }
+
+    let entry = byBooking.get(bookingId);
+    if (!entry) {
+      entry = { requestIds: new Set(), trips: [] };
+      byBooking.set(bookingId, entry);
+    }
+    entry.requestIds.add(requestId);
+    entry.trips.push(trip);
   }
 
   const accepted: AcceptedTrip[] = [];
