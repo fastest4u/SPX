@@ -6,24 +6,30 @@ import type { AuthUser } from "../services/authz.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 interface LoginBody {
-  username?: unknown;
-  password?: unknown;
+  username: string;
+  password: string;
 }
+
+const loginSchema = {
+  type: "object" as const,
+  additionalProperties: false,
+  required: ["username", "password"],
+  properties: {
+    username: { type: "string" as const, minLength: 1, maxLength: 64 },
+    password: { type: "string" as const, minLength: 1, maxLength: 256 },
+  },
+};
 
 function isAuthUser(value: unknown): value is AuthUser {
   return typeof value === "object"
     && value !== null
     && "username" in value
-    && typeof (value as { username?: unknown }).username === "string";
+    && typeof (value as Record<string, unknown>).username === "string";
 }
 
 export const authController: FastifyPluginAsync = async (app) => {
-  app.post<{ Body: LoginBody }>("/login", async (req, reply) => {
+  app.post<{ Body: LoginBody }>("/login", { schema: { body: loginSchema } }, async (req, reply) => {
     const { username, password } = req.body;
-
-    if (typeof username !== "string" || typeof password !== "string" || username.trim() === "" || password.trim() === "") {
-      return sendError(reply, 400, "VALIDATION_ERROR", "Username and password are required");
-    }
 
     const user = await getUserByUsername(username);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
