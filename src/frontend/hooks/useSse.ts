@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { MetricsSnapshot } from '../types'
+import type { MetricsSnapshot, NotifyRule } from '../types'
 
 type SseStatus = 'connecting' | 'connected' | 'disconnected'
 
 interface SseState {
   status: SseStatus
   data: MetricsSnapshot | null
+  rules: NotifyRule[] | null
   error: Error | null
 }
 
@@ -17,6 +18,7 @@ export function useSse(url: string, enabled: boolean = true) {
   const [state, setState] = useState<SseState>({
     status: 'connecting',
     data: null,
+    rules: null,
     error: null,
   })
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -61,6 +63,16 @@ export function useSse(url: string, enabled: boolean = true) {
         setState((prev: SseState) => ({ ...prev, data }))
       } catch (error) {
         console.error('Failed to parse SSE metrics data:', error)
+      }
+    })
+
+    es.addEventListener('rules', (event) => {
+      if (!isMountedRef.current) return
+      try {
+        const rules = JSON.parse(event.data) as NotifyRule[]
+        setState((prev: SseState) => ({ ...prev, rules }))
+      } catch (error) {
+        console.error('Failed to parse SSE rules data:', error)
       }
     })
 

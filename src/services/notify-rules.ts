@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { sseBroadcaster } from "./sse.js";
 
 export interface TripLike {
   origin?: string;
@@ -122,8 +123,10 @@ export function readRules(): NotifyRule[] {
 
 function writeRules(rules: NotifyRule[]): void {
   const tempFile = `${RULES_FILE}.tmp`;
-  writeFileSync(tempFile, `${JSON.stringify(normalizeRules(rules), null, 2)}\n`, "utf8");
+  const normalizedRules = normalizeRules(rules);
+  writeFileSync(tempFile, `${JSON.stringify(normalizedRules, null, 2)}\n`, "utf8");
   renameSync(tempFile, RULES_FILE);
+  sseBroadcaster.broadcast({ event: "rules", data: normalizedRules });
 }
 
 export function createRule(input: NotifyRuleInput): NotifyRule {

@@ -1,5 +1,5 @@
 import { createRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rootRoute } from './__root'
 import { rulesApi, metricsApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
 import { formatDuration } from '../lib/utils'
-import { useState, type ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import type { NotifyRule } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
@@ -20,12 +20,12 @@ export const Route = createRoute({
 })
 
 function DashboardComponent() {
+  const queryClient = useQueryClient()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   const { data: rules = [] } = useQuery({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
-    refetchInterval: 5000,
   })
 
   const { data: initialMetrics } = useQuery({
@@ -33,8 +33,14 @@ function DashboardComponent() {
     queryFn: metricsApi.snapshot,
   })
 
-  const { status: sseStatus, data: sseMetrics } = useSse('/events')
+  const { status: sseStatus, data: sseMetrics, rules: sseRules } = useSse('/events')
   const metrics = sseMetrics || initialMetrics
+
+  useEffect(() => {
+    if (sseRules) {
+      queryClient.setQueryData(['rules'], sseRules)
+    }
+  }, [queryClient, sseRules])
 
   const activeRules = rules.filter((r) => r.enabled && !r.fulfilled).length
   const fulfilledRules = rules.filter((r) => r.fulfilled).length
