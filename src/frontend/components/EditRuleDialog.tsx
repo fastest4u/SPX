@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { rulesApi } from '../lib/api'
 import type { NotifyRule, RulePatch } from '../types'
@@ -36,7 +36,12 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
       setFormData({})
       setOriginsText('')
       setDestinationsText('')
-    } else if (rule) {
+    }
+    onOpenChange(open)
+  }
+
+  useEffect(() => {
+    if (open && rule) {
       setFormData({
         name: rule.name,
         origins: rule.origins,
@@ -44,12 +49,13 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
         vehicle_types: rule.vehicle_types,
         need: rule.need,
         enabled: rule.enabled,
+        fulfilled: false,
+        auto_accept: rule.auto_accept,
       })
       setOriginsText(rule.origins.join(', '))
       setDestinationsText(rule.destinations.join(', '))
     }
-    onOpenChange(open)
-  }
+  }, [open, rule])
 
   const updateMutation = useMutation({
     mutationFn: (data: RulePatch) => {
@@ -168,6 +174,19 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 เปิดใช้งานรายการนี้
               </Label>
             </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="auto_accept"
+                checked={formData.auto_accept ?? rule.auto_accept}
+                onChange={e => setFormData(prev => ({ ...prev, auto_accept: e.target.checked }))}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
+              />
+              <Label htmlFor="auto_accept" className="cursor-pointer">
+                รับงานอัตโนมัติเมื่อ match
+              </Label>
+            </div>
           </div>
 
           <DialogFooter className="gap-2">
@@ -183,7 +202,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
             <Button
               type="submit"
               disabled={updateMutation.isPending}
-              className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500"
+              className="bg-linear-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500"
             >
               {updateMutation.isPending ? (
                 <>

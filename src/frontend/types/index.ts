@@ -57,6 +57,8 @@ export interface NotifyRule {
   need: number;
   enabled: boolean;
   fulfilled: boolean;
+  auto_accept: boolean;
+  auto_accepted: boolean;
 }
 
 export interface RuleInput {
@@ -66,6 +68,7 @@ export interface RuleInput {
   vehicle_types: string[];
   need: number;
   enabled?: boolean;
+  auto_accept?: boolean;
 }
 
 export interface RulePatch {
@@ -76,6 +79,7 @@ export interface RulePatch {
   need?: number;
   enabled?: boolean;
   fulfilled?: boolean;
+  auto_accept?: boolean;
 }
 
 // History/Booking Types
