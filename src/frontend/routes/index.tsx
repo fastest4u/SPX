@@ -25,6 +25,7 @@ function DashboardComponent() {
   const { data: rules = [] } = useQuery({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
+    refetchInterval: 5000,
   })
 
   const { data: initialMetrics } = useQuery({
