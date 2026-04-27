@@ -39,18 +39,23 @@ function truncate(value: string, maxLength: number): string {
 
 function buildNotificationMessage(matches: RuleMatch[], trips: TripLike[], forceTest: boolean): string {
   if (forceTest && matches.length === 0) {
-    return "Test notification from SPX Bidding Poller.";
+    return "🟦 SPX Notification Test\n\nPreview only — no rules were matched.";
   }
 
-  const rules = matches.map((match) => `- ${match.ruleName}: ${match.matchedCount} matched trip(s)`).join("\n");
-  const samples = trips.slice(0, 5).map((trip) => `- ${tripLine(trip)}`).join("\n");
+  const totalMatchedTrips = matches.reduce((sum, match) => sum + match.matchedCount, 0);
+  const matchedRuleLines = matches.map((match) => `• ${match.ruleName} — ${match.matchedCount} งาน`);
+  const sampleLines = trips.slice(0, 5).map((trip) => `• ${tripLine(trip)}`);
 
   return [
-    "Matched notification rules:",
-    rules || "- none",
+    forceTest ? "🟦 SPX Notification Test" : "🚛 SPX Bidding Rule Matched",
     "",
-    `Total trips in current poll: ${trips.length}`,
-    samples ? `Sample trips:\n${samples}` : "Sample trips: none",
+    `พบ ${totalMatchedTrips} งานที่ตรง rule`,
+    "",
+    "Matched rules",
+    matchedRuleLines.length > 0 ? matchedRuleLines.join("\n") : "• none",
+    "",
+    "ตัวอย่างงานที่ match",
+    sampleLines.length > 0 ? sampleLines.join("\n") : "• none",
   ].join("\n");
 }
 
@@ -140,7 +145,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
 
   try {
     const forceTest = Boolean(options?.forceTest);
-    const title = forceTest ? "SPX Notification Test" : "SPX Bidding Rule Matched";
+    const title = forceTest ? "🟦 SPX Notification Test" : "🚛 SPX Bidding Rule Matched";
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
     const channelResults: NotificationSendResult[] = [];
@@ -191,17 +196,22 @@ interface AutoAcceptResult {
 }
 
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
+  const total = accepted.length;
   const lines = accepted.slice(0, 10).map((item) => {
     const origin = textValue(item.trip.origin ?? item.trip["ต้นทาง"]);
     const destination = textValue(item.trip.destination ?? item.trip["ปลายทาง"]);
     const vehicleType = textValue(item.trip.vehicle_type ?? item.trip["ประเภทรถ"]);
-    return `- request_id=${item.requestId} ${origin} -> ${destination} (${vehicleType})`;
+    return `• request_id=${item.requestId} ${origin} → ${destination} (${vehicleType})`;
   });
 
   return [
-    `✅ Auto-accepted ${accepted.length} request(s):`,
+    "✅ SPX Auto-Accept สำเร็จ",
+    "",
+    `รับงานสำเร็จ ${total} รายการ`,
+    "",
+    "รายการที่รับได้",
     ...lines,
-    accepted.length > 10 ? `  ...and ${accepted.length - 10} more` : "",
+    total > 10 ? `• และอีก ${total - 10} รายการ` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -290,7 +300,7 @@ export async function acceptAndNotifyMatchedRules(
   let notified = false;
 
   if (accepted.length > 0 && hasNotificationTarget()) {
-    const title = "🚛 SPX Auto-Accept สำเร็จ";
+    const title = "✅ SPX Auto-Accept สำเร็จ";
     const message = buildAcceptNotificationMessage(accepted);
 
     const sendResult = await sendNotificationMessage(title, message);
