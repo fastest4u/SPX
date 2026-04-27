@@ -22,6 +22,8 @@ export const Route = createRoute({
 function DashboardComponent() {
   const queryClient = useQueryClient()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editingRule, setEditingRule] = useState<NotifyRule | null>(null)
+  const [deletingRule, setDeletingRule] = useState<NotifyRule | null>(null)
 
   const { data: rules = [] } = useQuery({
     queryKey: ['rules'],
@@ -166,7 +168,12 @@ function DashboardComponent() {
             <>
               <div className="grid gap-3 md:hidden">
                 {rules.map((rule) => (
-                  <RuleCard key={rule.id} rule={rule} />
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    onEdit={() => setEditingRule(rule)}
+                    onDelete={() => setDeletingRule(rule)}
+                  />
                 ))}
               </div>
               <div className="data-scroll hidden md:block">
@@ -184,7 +191,12 @@ function DashboardComponent() {
                   </thead>
                   <tbody>
                     {rules.map((rule) => (
-                      <RuleRow key={rule.id} rule={rule} />
+                      <RuleRow
+                        key={rule.id}
+                        rule={rule}
+                        onEdit={() => setEditingRule(rule)}
+                        onDelete={() => setDeletingRule(rule)}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -193,6 +205,20 @@ function DashboardComponent() {
           )}
         </CardContent>
       </Card>
+      <EditRuleDialog
+        rule={editingRule}
+        open={editingRule !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingRule(null)
+        }}
+      />
+      <DeleteConfirmDialog
+        rule={deletingRule}
+        open={deletingRule !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingRule(null)
+        }}
+      />
     </div>
   )
 }
@@ -334,10 +360,15 @@ function RuleActions({
   )
 }
 
-function RuleCard({ rule }: { rule: NotifyRule }) {
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
+function RuleCard({
+  rule,
+  onEdit,
+  onDelete,
+}: {
+  rule: NotifyRule
+  onEdit: () => void
+  onDelete: () => void
+}) {
   return (
     <div className="mobile-record">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -366,62 +397,43 @@ function RuleCard({ rule }: { rule: NotifyRule }) {
       </div>
       <div className="mt-4 border-t border-white/10 pt-4">
         <RuleActions
-          onEdit={() => setEditDialogOpen(true)}
-          onDelete={() => setDeleteDialogOpen(true)}
+          onEdit={onEdit}
+          onDelete={onDelete}
         />
       </div>
-
-      <EditRuleDialog
-        rule={rule}
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-      />
-      <DeleteConfirmDialog
-        rule={rule}
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-      />
     </div>
   )
 }
 
-function RuleRow({ rule }: { rule: NotifyRule }) {
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-
+function RuleRow({
+  rule,
+  onEdit,
+  onDelete,
+}: {
+  rule: NotifyRule
+  onEdit: () => void
+  onDelete: () => void
+}) {
   return (
-    <>
-      <tr>
-        <td>{getStatusBadge(rule)}</td>
-        <td className="font-semibold text-white">{rule.name}</td>
-        <td className="text-muted-foreground">
-          {rule.origins.join(', ') || '—'}
-        </td>
-        <td className="text-muted-foreground">
-          {rule.destinations.join(', ') || '—'}
-        </td>
-        <td className="hidden text-muted-foreground lg:table-cell">
-          {rule.vehicle_types.join(', ') || '—'}
-        </td>
-        <td className="text-muted-foreground">{rule.need} คัน</td>
-        <td>
-          <RuleActions
-            onEdit={() => setEditDialogOpen(true)}
-            onDelete={() => setDeleteDialogOpen(true)}
-          />
-        </td>
-      </tr>
-
-      <EditRuleDialog
-        rule={rule}
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-      />
-      <DeleteConfirmDialog
-        rule={rule}
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-      />
-    </>
+    <tr>
+      <td>{getStatusBadge(rule)}</td>
+      <td className="font-semibold text-white">{rule.name}</td>
+      <td className="text-muted-foreground">
+        {rule.origins.join(', ') || '—'}
+      </td>
+      <td className="text-muted-foreground">
+        {rule.destinations.join(', ') || '—'}
+      </td>
+      <td className="hidden text-muted-foreground lg:table-cell">
+        {rule.vehicle_types.join(', ') || '—'}
+      </td>
+      <td className="text-muted-foreground">{rule.need} คัน</td>
+      <td>
+        <RuleActions
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      </td>
+    </tr>
   )
 }
