@@ -79,20 +79,40 @@ async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<Ap
   return response as unknown as ApiPaginatedResponse<T>
 }
 
-async function fetchPlain<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: options?.headers,
-  })
-  const data = await response.json().catch(() => null) as T | ApiErrorResponse | null
-  if (!response.ok) {
-    if (data && typeof data === 'object' && 'status' in data && data.status === 'error') {
-      throw new Error(`${data.error_code}: ${data.message}`)
+async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): Promise<T> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers: options?.headers,
+      })
+      const data = await response.json().catch(() => null) as T | ApiErrorResponse | null
+      if (!response.ok) {
+        if (response.status >= 500 && attempt < retries - 1) {
+          const delayMs = 250 * 2 ** attempt
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          continue
+        }
+        if (data && typeof data === 'object' && 'status' in data && data.status === 'error') {
+          throw new Error(`${data.error_code}: ${data.message}`)
+        }
+        throw new Error(`REQUEST_ERROR: ${response.statusText || 'Request failed'}`)
+      }
+      return data as T
+    } catch (error) {
+      lastError = error
+      if (attempt < retries - 1) {
+        const delayMs = 250 * 2 ** attempt
+        await new Promise(resolve => setTimeout(resolve, delayMs))
+        continue
+      }
     }
-    throw new Error(`REQUEST_ERROR: ${response.statusText || 'Request failed'}`)
   }
-  return data as T
+
+  throw lastError instanceof Error ? lastError : new Error('REQUEST_ERROR: Request failed')
 }
 
 /** Custom error class for auth failures — TanStack Query should NOT retry these */
