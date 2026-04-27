@@ -25,6 +25,7 @@ const SHIFT_TYPE_MAP: Record<number, string> = {
 function formatDate(unixTimestamp: number): string {
   const date = new Date(unixTimestamp * 1000);
   return date.toLocaleDateString("th-TH", {
+    timeZone: "Asia/Bangkok",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
