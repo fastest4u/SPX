@@ -1,6 +1,7 @@
 import { validateRuntimeConfig, env } from "./config/env.js";
 import { Poller } from "./controllers/poller.js";
 import { createAdminUserIfNotExists } from "./repositories/user-repository.js";
+import { migrateJsonToDb } from "./services/notify-rules.js";
 
 function parseIntervalArg(value: string | undefined): number | undefined {
   if (value === undefined) {
@@ -19,6 +20,10 @@ async function main(): Promise<void> {
   const intervalSec = parseIntervalArg(process.argv[2]);
 
   validateRuntimeConfig();
+
+  if (env.HTTP_ENABLED || env.SAVE_TO_DB) {
+    await migrateJsonToDb();
+  }
 
   if (env.HTTP_ENABLED) {
     await createAdminUserIfNotExists(env.ADMIN_USERNAME, env.ADMIN_PASSWORD, env.ADMIN_ROLE);

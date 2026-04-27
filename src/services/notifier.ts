@@ -124,7 +124,7 @@ export async function sendNotificationMessage(title: string, message: string): P
 }
 
 export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?: boolean; forceTest?: boolean }) {
-  const matches = matchRules(trips);
+  const matches = await matchRules(trips);
   if (options?.dryRun) {
     return { matches, sent: false, dryRun: true };
   }
@@ -169,7 +169,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     }
 
     if (fulfilledRuleIds.length > 0) {
-      markRulesFulfilled(fulfilledRuleIds);
+      await markRulesFulfilled(fulfilledRuleIds);
     }
 
     return { matches, sent: channelResults.some((result) => result.ok), channels: channelResults };
@@ -217,7 +217,7 @@ export async function acceptAndNotifyMatchedRules(
   trips: TripLike[],
   apiClient: ApiClient
 ): Promise<AutoAcceptResult> {
-  const autoAcceptMatches = matchAutoAcceptRuleTrips(trips);
+  const autoAcceptMatches = await matchAutoAcceptRuleTrips(trips);
 
   if (autoAcceptMatches.length === 0) {
     return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
@@ -312,8 +312,8 @@ export async function acceptAndNotifyMatchedRules(
 
   // Mark rules as auto_accepted (regardless of accept success, to avoid retry loops)
   const fulfilledRuleIds = autoAcceptMatches.map((m) => m.ruleId);
-  markRulesAutoAccepted(fulfilledRuleIds);
-  markRulesFulfilled(fulfilledRuleIds);
+  await markRulesAutoAccepted(fulfilledRuleIds);
+  await markRulesFulfilled(fulfilledRuleIds);
 
   // Notify only if at least one request was accepted successfully
   let notified = false;

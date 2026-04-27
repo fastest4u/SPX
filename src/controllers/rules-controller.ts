@@ -60,31 +60,32 @@ const ruleSchema = {
 
 export const rulesController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
-    const rules = readRules();
+    const rules = await readRules();
     return sendSuccess(reply, rules);
   });
 
   app.post<{ Body: Partial<NotifyRuleInput> }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
-    const newRule = createRule(toRuleInput(req.body));
+    const newRule = await createRule(toRuleInput(req.body));
     await insertAuditLog(currentUser(req).username, "Add Rule", `Added rule: ${newRule.name}`);
     return sendSuccess(reply, newRule, "Rule created successfully", 201);
   });
 
   app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
-    const updated = updateRule(req.params.id, toRulePatch(req.body));
+    const updated = await updateRule(req.params.id, toRulePatch(req.body));
     if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(currentUser(req).username, "Update Rule", `Updated rule: ${updated.name}`);
     return sendSuccess(reply, updated, "Rule updated successfully");
   });
 
   app.get<{ Params: RuleParams }>("/:id", async (req, reply) => {
-    const rule = readRules().find((item) => item.id === req.params.id);
+    const rules = await readRules();
+    const rule = rules.find((item) => item.id === req.params.id);
     if (!rule) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     return sendSuccess(reply, rule);
   });
 
   app.delete<{ Params: RuleParams }>("/:id", async (req, reply) => {
-    const deleted = deleteRule(req.params.id);
+    const deleted = await deleteRule(req.params.id);
     if (!deleted) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(currentUser(req).username, "Delete Rule", `Deleted rule: ${deleted.name}`);
     return sendSuccess(reply, null, "Rule deleted successfully", 204);

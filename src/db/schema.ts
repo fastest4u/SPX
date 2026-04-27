@@ -40,6 +40,21 @@ export const auditLogs = mysqlTable("audit_logs", {
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const notifyRules = mysqlTable("notify_rules", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  origins: varchar("origins", { length: 4000 }).notNull().default("[]"),
+  destinations: varchar("destinations", { length: 4000 }).notNull().default("[]"),
+  vehicleTypes: varchar("vehicle_types", { length: 4000 }).notNull().default("[]"),
+  need: int("need").notNull().default(1),
+  enabled: int("enabled").notNull().default(1),
+  fulfilled: int("fulfilled").notNull().default(0),
+  autoAccept: int("auto_accept").notNull().default(0),
+  autoAccepted: int("auto_accepted").notNull().default(0),
+  createdAt: datetime("created_at").notNull().default(sql`(UTC_TIMESTAMP())`),
+  updatedAt: datetime("updated_at").notNull().default(sql`(UTC_TIMESTAMP())`),
+});
+
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   uptime: int("uptime").notNull(),
