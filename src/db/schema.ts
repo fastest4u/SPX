@@ -51,8 +51,8 @@ export const notifyRules = mysqlTable("notify_rules", {
   fulfilled: int("fulfilled").notNull().default(0),
   autoAccept: int("auto_accept").notNull().default(0),
   autoAccepted: int("auto_accepted").notNull().default(0),
-  createdAt: datetime("created_at").notNull().default(sql`(UTC_TIMESTAMP())`),
-  updatedAt: datetime("updated_at").notNull().default(sql`(UTC_TIMESTAMP())`),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
