@@ -334,10 +334,19 @@ export async function acceptAndNotifyMatchedRules(
   for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
   for (let i = 0; i < failed.length; i++) metrics.recordAutoAccept(false);
 
-  // Mark rules as auto_accepted (regardless of accept success, to avoid retry loops)
-  const fulfilledRuleIds = autoAcceptMatches.map((m) => m.ruleId);
-  await markRulesAutoAccepted(fulfilledRuleIds);
-  await markRulesFulfilled(fulfilledRuleIds);
+  // Track which rules had failures
+  const failedRuleIds = new Set(failed.map((f) => {
+    const booking = byBooking.get(f.bookingId);
+    return booking?.ruleId ?? "";
+  }).filter(Boolean));
+
+  // Mark rules — only fulfilled/auto_accepted if no failures
+  const allRuleIds = autoAcceptMatches.map((m) => m.ruleId);
+  const successRuleIds = allRuleIds.filter((id) => !failedRuleIds.has(id));
+  if (successRuleIds.length > 0) {
+    await markRulesAutoAccepted(successRuleIds);
+    await markRulesFulfilled(successRuleIds);
+  }
 
   // Notify only if at least one request was accepted successfully
   let notified = false;
