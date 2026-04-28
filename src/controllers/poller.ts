@@ -181,6 +181,8 @@ export class Poller {
           });
         }));
 
+        const chunkTrips: ExtractedTripInfo[] = [];
+
         for (const trips of chunkResults) {
           for (const trip of trips) {
             if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
@@ -192,17 +194,18 @@ export class Poller {
               metrics.recordTrip(dbResult.action);
             }
 
+            chunkTrips.push(trip);
             allTrips.push(trip);
           }
         }
+
+        // Auto-accept immediately after each chunk to reduce race condition window
+        if (env.AUTO_ACCEPT_ENABLED && chunkTrips.length > 0) {
+          await acceptAndNotifyMatchedRules(chunkTrips, this.apiClient);
+        }
       }
 
-      // Auto-accept first (accept → notify on success)
-      if (env.AUTO_ACCEPT_ENABLED && allTrips.length > 0) {
-        await acceptAndNotifyMatchedRules(allTrips, this.apiClient);
-      }
-
-      // Regular notify for non-auto-accept rules
+      // Regular notify for all trips at the end
       if (env.NOTIFY_ENABLED && allTrips.length > 0) {
         await notifyMatchedRules(allTrips);
       }
