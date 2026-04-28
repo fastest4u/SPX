@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, markRulesAutoAccepted, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
 
 type NotificationChannel = "line" | "discord";
@@ -229,8 +230,8 @@ export async function acceptAndNotifyMatchedRules(
   });
 
   // Select only up to the requested need per rule, then group by booking_id
-  const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[] }>();
-  const selectedRequests = new Map<number, { trip: TripLike; bookingId: number }>();
+  const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[]; ruleId: string; ruleName: string }>();
+  const selectedRequests = new Map<number, { trip: TripLike; bookingId: number; ruleId: string; ruleName: string }>();
 
   for (const match of autoAcceptMatches) {
     const limit = Math.max(1, match.need);
@@ -256,12 +257,12 @@ export async function acceptAndNotifyMatchedRules(
       }
 
       if (!selectedRequests.has(requestId)) {
-        selectedRequests.set(requestId, { trip, bookingId });
+        selectedRequests.set(requestId, { trip, bookingId, ruleId: match.ruleId, ruleName: match.ruleName });
       }
     }
   }
 
-  for (const { trip, bookingId } of selectedRequests.values()) {
+  for (const { trip, bookingId, ruleId, ruleName } of selectedRequests.values()) {
     const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
     if (requestId === undefined) {
       continue;
@@ -269,7 +270,7 @@ export async function acceptAndNotifyMatchedRules(
 
     let entry = byBooking.get(bookingId);
     if (!entry) {
-      entry = { requestIds: new Set(), trips: [] };
+      entry = { requestIds: new Set(), trips: [], ruleId, ruleName };
       byBooking.set(bookingId, entry);
     }
     entry.requestIds.add(requestId);
@@ -300,9 +301,32 @@ export async function acceptAndNotifyMatchedRules(
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
         accepted.push({ trip, bookingId, requestId });
       }
+      await insertAutoAcceptHistory({
+        ruleId: entry.ruleId,
+        ruleName: entry.ruleName,
+        bookingId,
+        requestIds,
+        acceptedCount: requestIds.length,
+        origin: textValue(entry.trips[0]?.origin ?? entry.trips[0]?.["ต้นทาง"]),
+        destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
+        vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
+        status: "success",
+      });
     } else {
       logger.error("auto-accept-failed", { bookingId, requestIds, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
+      await insertAutoAcceptHistory({
+        ruleId: entry.ruleId,
+        ruleName: entry.ruleName,
+        bookingId,
+        requestIds,
+        acceptedCount: 0,
+        origin: textValue(entry.trips[0]?.origin ?? entry.trips[0]?.["ต้นทาง"]),
+        destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
+        vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
+        status: "failed",
+        errorMessage: result.error,
+      });
     }
   }
 

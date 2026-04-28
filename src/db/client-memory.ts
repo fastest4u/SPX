@@ -129,6 +129,21 @@ function initSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS auto_accept_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id TEXT NOT NULL,
+      rule_name TEXT NOT NULL,
+      booking_id INTEGER NOT NULL,
+      request_ids TEXT NOT NULL,
+      accepted_count INTEGER NOT NULL DEFAULT 0,
+      origin TEXT NOT NULL DEFAULT '',
+      destination TEXT NOT NULL DEFAULT '',
+      vehicle_type TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'success',
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 

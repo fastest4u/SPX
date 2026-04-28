@@ -55,6 +55,24 @@ export const notifyRules = mysqlTable("notify_rules", {
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const autoAcceptHistory = mysqlTable("auto_accept_history", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  ruleId: varchar("rule_id", { length: 255 }).notNull(),
+  ruleName: varchar("rule_name", { length: 128 }).notNull(),
+  bookingId: bigint("booking_id", { mode: "number", unsigned: true }).notNull(),
+  requestIds: varchar("request_ids", { length: 2000 }).notNull(),
+  acceptedCount: int("accepted_count").notNull().default(0),
+  origin: varchar("origin", { length: 255 }).notNull().default(""),
+  destination: varchar("destination", { length: 255 }).notNull().default(""),
+  vehicleType: varchar("vehicle_type", { length: 50 }).notNull().default(""),
+  status: varchar("status", { length: 20 }).notNull().default("success"),
+  errorMessage: varchar("error_message", { length: 1000 }),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  createdAtIdx: index("aah_created_at_idx").on(table.createdAt),
+  ruleIdIdx: index("aah_rule_id_idx").on(table.ruleId),
+}));
+
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   uptime: int("uptime").notNull(),
