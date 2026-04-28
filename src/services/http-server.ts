@@ -169,6 +169,16 @@ export async function startHttpServer(port: number): Promise<void> {
   });
   await app.register(fastifyFormbody);
 
+  // Graceful shutdown: close DB pool when Fastify closes
+  app.addHook("onClose", async () => {
+    const { closePool } = await import("../db/client.js");
+    try {
+      await closePool();
+    } catch {
+      // Pool may already be closed
+    }
+  });
+
   async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
       await req.jwtVerify({ onlyCookie: true });

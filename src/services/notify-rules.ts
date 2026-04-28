@@ -418,13 +418,11 @@ export async function migrateJsonToDb(): Promise<void> {
 
     if (rules.length === 0) return;
 
-    for (const rule of rules) {
-      await db.insert(notifyRulesTable).values({
-        ...ruleToDbRow(rule),
-        createdAt: sql`UTC_TIMESTAMP()`,
-        updatedAt: sql`UTC_TIMESTAMP()`,
-      });
-    }
+    await db.insert(notifyRulesTable).values(rules.map((rule) => ({
+      ...ruleToDbRow(rule),
+      createdAt: sql`UTC_TIMESTAMP()`,
+      updatedAt: sql`UTC_TIMESTAMP()`,
+    })));
 
     logger.info("notify-rules-migrated", { count: rules.length, source: "notify-rules.json" });
   } catch (err) {
