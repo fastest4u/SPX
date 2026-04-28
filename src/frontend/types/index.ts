@@ -306,3 +306,28 @@ export interface ApiError {
     details?: unknown;
   };
 }
+
+// Auto-Accept History Types
+export interface AutoAcceptHistoryItem {
+  id: number;
+  ruleId: string;
+  ruleName: string;
+  bookingId: number;
+  requestIds: number[];
+  acceptedCount: number;
+  origin: string;
+  destination: string;
+  vehicleType: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface AutoAcceptHistoryQuery {
+  limit?: number;
+  search?: string;
+  ruleName?: string;
+  status?: string;
+  sortBy?: 'created_at' | 'id';
+  sortDir?: 'asc' | 'desc';
+}

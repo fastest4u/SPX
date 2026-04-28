@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   X,
+  Truck,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useState } from 'react'
@@ -31,6 +32,7 @@ const navItems = [
 
 const adminNavItems = [
   { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText },
+  { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck },
   { path: '/users', label: 'จัดการผู้ใช้', icon: Users },
   { path: '/settings', label: 'ตั้งค่า', icon: Settings },
 ]

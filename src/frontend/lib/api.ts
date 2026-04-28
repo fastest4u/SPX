@@ -1,29 +1,33 @@
 import type {
-  LoginResponse,
-  AuthUser,
-  NotifyRule,
-  RuleInput,
-  RulePatch,
-  BookingHistory,
-  HistoryFilterQuery,
-  AuditLog,
-  AuditQuery,
-  User,
-  CreateUserInput,
-  PasswordInput,
-  RoleInput,
-  EnvSettings,
-  MetricsSnapshot,
-  MetricsHistoryRow,
-  HealthResponse,
-  ReadyResponse,
   AcceptBookingInput,
   AcceptBookingResponse,
+  ApiErrorResponse,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+  AuditLog,
+  AuditQuery,
+  AuthUser,
+  AutoAcceptHistoryItem,
+  AutoAcceptHistoryQuery,
+  BookingHistory,
+  CreateUserInput,
+  EnvSettings,
+  HealthResponse,
+  HistoryFilterQuery,
+  LoginResponse,
+  MeResponse,
+  MetricsHistoryRow,
+  MetricsSnapshot,
+  NotifyRule,
   NotificationPreview,
   NotificationTestResult,
-  ApiErrorResponse,
-  ApiSuccessResponse,
-  ApiPaginatedResponse,
+  PaginatedHistory,
+  PasswordInput,
+  ReadyResponse,
+  RoleInput,
+  RuleInput,
+  RulePatch,
+  User,
 } from '../types'
 
 const API_BASE = '/api'
@@ -218,6 +222,22 @@ export const auditApi = {
 
     const query = queryParams.toString()
     return fetchJson<AuditLog[]>(`${API_BASE}/audit-logs${query ? `?${query}` : ''}`)
+  },
+}
+
+// Auto-Accept History API
+export const autoAcceptHistoryApi = {
+  list: (params?: AutoAcceptHistoryQuery): Promise<AutoAcceptHistoryItem[]> => {
+    const queryParams = new URLSearchParams()
+    if (params?.limit) queryParams.set('limit', String(params.limit))
+    if (params?.search) queryParams.set('search', params.search)
+    if (params?.ruleName) queryParams.set('ruleName', params.ruleName)
+    if (params?.status) queryParams.set('status', params.status)
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
+    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
+
+    const query = queryParams.toString()
+    return fetchJson<AutoAcceptHistoryItem[]>(`${API_BASE}/auto-accept-history${query ? `?${query}` : ''}`)
   },
 }
 
