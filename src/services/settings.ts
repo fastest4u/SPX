@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const envFilePath = resolve(process.cwd(), ".env");
@@ -52,5 +52,15 @@ export function writeEnvFile(newSettings: EnvSettings): void {
   
   const tempFile = `${envFilePath}.tmp`;
   writeFileSync(tempFile, content.trim(), "utf8");
-  renameSync(tempFile, envFilePath);
+  try {
+    renameSync(tempFile, envFilePath);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EBUSY") {
+      writeFileSync(envFilePath, content.trim(), "utf8");
+      try { unlinkSync(tempFile); } catch { /* cleanup */ }
+    } else {
+      throw err;
+    }
+  }
 }
