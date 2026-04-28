@@ -190,6 +190,21 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 รับงานอัตโนมัติเมื่อ match
               </Label>
             </div>
+
+            {rule.fulfilled && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="fulfilled"
+                  checked={formData.fulfilled ?? rule.fulfilled}
+                  onChange={e => setFormData(prev => ({ ...prev, fulfilled: e.target.checked }))}
+                  className="h-4 w-4 rounded border-amber-600 bg-slate-900 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900"
+                />
+                <Label htmlFor="fulfilled" className="cursor-pointer text-amber-300">
+                  ครบแล้ว (ยกเลิกเพื่อให้หาใหม่)
+                </Label>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2">
