@@ -10,6 +10,7 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "./authz.js";
 import { sendError } from "../utils/response.js";
+import { isAppError } from "../utils/errors.js";
 import { resolve } from "node:path";
 
 import { authController } from "../controllers/auth-controller.js";
@@ -227,9 +228,14 @@ export async function startHttpServer(port: number): Promise<void> {
   });
 
   app.setErrorHandler((error: unknown, _request, reply) => {
+    if (isAppError(error)) {
+      return sendApiError(reply, error.statusCode, error.message, error.errorCode, error.details);
+    }
+
     const statusCode = getErrorStatusCode(error);
     const message = getErrorMessage(error);
-    if (statusCode >= 500) logger.error(error instanceof Error ? error : new Error(message)); else logger.warn("request-error", { message, statusCode });
+    if (statusCode >= 500) logger.error(error instanceof Error ? error : new Error(message));
+    else logger.warn("request-error", { message, statusCode });
     if (reply.sent) return;
     const errorCode = statusCode >= 500 ? "INTERNAL_SERVER_ERROR" : "REQUEST_ERROR";
     sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, errorCode);
