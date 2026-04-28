@@ -201,12 +201,12 @@ function AutoAcceptMobileCard({ item }: { item: AutoAcceptHistoryItem }) {
             <div className="mt-1 text-slate-200">{item.vehicleType || '—'}</div>
           </div>
         </div>
-        {item.errorMessage && (
+        {item.errorMessage ? (
           <div>
             <div className="text-xs font-bold uppercase tracking-[0.14em] text-red-400">Error</div>
             <div className="mt-1 break-words text-sm text-red-300">{item.errorMessage}</div>
           </div>
-        )}
+        ) : null}
         <div>
           <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">เวลา</div>
           <div className="mt-1 text-slate-200">{formatDateTime(item.createdAt)}</div>

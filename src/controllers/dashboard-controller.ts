@@ -13,8 +13,11 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
       : 0;
 
+    const isHealthy = snap.session.isHealthy;
+    const statusCode = isHealthy ? 200 : 503;
+
     return sendSuccess(reply, {
-      status: snap.session.isHealthy ? "ok" : "degraded",
+      status: isHealthy ? "ok" : "degraded",
       uptime: snap.uptime,
       startedAt: snap.startedAt,
       lastPoll: snap.lastPoll.timestamp,
@@ -26,7 +29,7 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       },
       database: snap.database,
       autoAccept: snap.autoAccept,
-    });
+    }, undefined, statusCode);
   });
 
   app.get("/ready", async (_req, reply) => {

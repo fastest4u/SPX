@@ -1,239 +1,183 @@
 # SPX Bidding Poller
 
-`SPX Bidding Poller` เป็นระบบ polling แบบอัตโนมัติสำหรับดึงข้อมูล `Agency Booking Bidding List` จาก SPX พร้อม web dashboard สำหรับจัดการ rules, users, settings, history, audit logs, notifications และ reports
+ระบบ polling อัตโนมัติสำหรับดึง `Agency Booking Bidding List` จาก SPX พร้อม Web Dashboard สำหรับจัดการ rules, auto-accept, users, settings, history และ notifications
 
-## ภาพรวมระบบ
+## ภาพรวม
 
-ระบบนี้ทำงาน 2 ส่วนหลัก
-
-- **Polling service**
-  - ดึงข้อมูล bidding list ตามรอบเวลา
-  - ตรวจสอบการเปลี่ยนแปลงของข้อมูล
-  - ดึง booking request details เพิ่มเมื่อเปิดใช้งาน
-  - บันทึกข้อมูลลง MySQL เมื่อเปิด `SAVE_TO_DB`
-  - ส่ง notification เมื่อเปิด `NOTIFY_ENABLED`
-
-- **Web dashboard**
-  - Login ด้วย cookie-based JWT
-  - จัดการ rules, users, settings, history, audit logs, notifications, และ reports
-  - แสดง metrics และ health/ready endpoints
-
----
-
-## ฟีเจอร์หลัก
-
-- **Real-time polling**
-  - ตั้ง polling interval ได้ผ่าน `.env` หรือ CLI
-- **Notification rules**
-  - รองรับการ match rules จาก `notify-rules.json`
-  - มีสถานะ `enabled` และ `fulfilled`
-- **Web dashboard**
-  - ใช้ Fastify + JWT + signed cookies
-  - มีหน้า dashboard และ login แยกกัน
-- **Database storage**
-  - ใช้ MySQL 8+ และ Drizzle ORM
-  - สร้างตาราง `spx_booking_history` อัตโนมัติถ้ายังไม่มี
-- **Production hardening**
-  - มี security headers
-  - มี rate limit แบบ in-memory
-  - มี role-based access control สำหรับ API สำคัญ
-  - มี graceful shutdown
-  - มี `/health` และ DB-backed `/ready`
-  - มี Dockerfile และ docker-compose
-  - มี smoke test สำหรับตรวจ deployment
-
----
+- **Polling**: ดึง bidding list ตามรอบเวลา, ตรวจสอบ変化, ดึง request details, บันทึก DB, auto-accept, แจ้งเตือน
+- **Dashboard**: React SPA + Fastify API, JWT auth, SSE real-time, admin/user RBAC
 
 ## Tech Stack
 
-- **Runtime:** Node.js 18+
-- **Backend:** Fastify, TypeScript
-- **Database:** MySQL, Drizzle ORM, mysql2
-- **Auth:** @fastify/jwt, @fastify/cookie
-- **Static assets:** @fastify/static
-- **Build:** esbuild
-- **UI:** Bootstrap 5, DataTables, vanilla JS
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Node.js 18+ |
+| Backend | Fastify + TypeScript |
+| Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode) |
+| Auth | @fastify/jwt, @fastify/cookie |
+| Frontend | React 18 + TanStack Router + TanStack Query + Tailwind CSS |
+| Build | esbuild + Vite |
+| Deploy | Docker Compose, auto-deploy via git push |
 
----
+## ฟีเจอร์
 
-## โครงสร้างสำคัญใน codebase
+- **Real-time polling** — configurable interval
+- **Notify rules** — dual storage (DB in production, JSON file in dev)
+- **Auto-accept** — รับงานอัตโนมัติตาม rule + แจ้งเตือน + บันทึกประวัติ
+- **Auto-accept history** — ตาราง `auto_accept_history` ดูย้อนหลังผ่าน Web UI
+- **SSE real-time** — push metrics + rules ไป browser แบบリアルタイム
+- **Web dashboard** — React SPA, JWT cookie auth, admin/user RBAC, rate limiting
+- **Security** — security headers, CORS, rate limit, password strength
+- **Graceful shutdown** — Fastify `onClose` hook, clean DB pool close
+- **DB tools** — migration, generate, reset, smoke test
 
-- `src/app.ts` — entrypoint ของแอป
-- `src/controllers/poller.ts` — orchestration ของ polling loop
-- `src/services/http-server.ts` — web server และ route registration
-- `src/views/dashboard.ts` — HTML ของ dashboard
-- `src/public/dashboard.js` — JavaScript ฝั่ง dashboard
-- `src/config/env.ts` — อ่านและ validate config
-- `src/db/client.ts` — MySQL pool และ Drizzle client
-- `src/services/metrics.ts` — metrics collector
-- `src/services/notifier.ts` — notification orchestration
-- `src/services/notify-rules.ts` — rules engine สำหรับ notification
-- `src/scripts/smoke-test.ts` — smoke test สำหรับ production deployment
+## โครงสร้าง
 
----
+```
+src/
+├── app.ts                    # entrypoint
+├── config/env.ts             # .env loader + validator
+├── controllers/              # Fastify route handlers
+│   ├── poller.ts             # polling loop + SSE broadcast
+│   ├── rules-controller.ts   # notify rules CRUD
+│   ├── auto-accept-history-controller.ts
+│   ├── auth-controller.ts, users-controller.ts, settings-controller.ts
+│   ├── dashboard-controller.ts, history-controller.ts
+│   ├── audit-controller.ts, report-controller.ts, bidding-controller.ts
+├── services/
+│   ├── http-server.ts        # Fastify setup, CORS, rate limit, RBAC, onClose
+│   ├── api-client.ts         # SPX API client, retry, multi-page fetch
+│   ├── db-service.ts         # booking INSERT IGNORE
+│   ├── notify-rules.ts       # dual-mode rule engine (DB/file)
+│   ├── notifier.ts           # Discord/LINE notification, auto-accept flow
+│   ├── metrics.ts            # polling metrics collector
+│   ├── sse.ts                # SSE broadcaster singleton
+│   ├── notify-controller.ts  # notification preview API
+├── db/
+│   ├── schema.ts             # Drizzle schema (MySQL)
+│   ├── client.ts             # MySQL pool + Drizzle + runtime table creation
+│   ├── client-memory.ts      # SQLite in-memory mirror
+│   ├── migration-sql.ts      # SQL statement exports
+├── repositories/
+│   ├── booking-history-repository.ts, audit-repository.ts
+│   ├── user-repository.ts, metrics-repository.ts
+│   ├── auto-accept-repository.ts
+├── frontend/
+│   ├── main.tsx              # React entry
+│   ├── routes/               # TanStack Router pages
+│   ├── components/           # shared UI components + layout
+│   ├── hooks/                # useAuth, useSse
+│   ├── lib/                  # API client, utils
+│   ├── types/                # TypeScript types
+├── scripts/                  # db-migrate, db-reset, db-test, smoke-test
+migrations/                   # SQL migration files
+```
 
 ## การติดตั้ง
 
-1. ติดตั้ง dependencies
-
 ```bash
 npm install
+cp .env.example .env   # แก้ค่าให้ตรงกับ environment
 ```
 
-2. สร้างไฟล์ `.env`
-
-- คัดลอกจากไฟล์ตัวอย่างถ้ามี
-- หรือสร้างใหม่ตาม environment ที่ต้องใช้
-
----
-
-## ตัวอย่างค่า `.env`
-
-```env
-API_URL=https://example.com/booking/bidding/list
-COOKIE=your-cookie-value
-DEVICE_ID=your-device-id
-APP_NAME=SPX
-REFERER=https://example.com/
-POLL_INTERVAL_MS=30000
-FETCH_DETAILS=false
-SAVE_TO_DB=false
-NOTIFY_ENABLED=false
-HTTP_ENABLED=true
-HTTP_PORT=3000
-HTTP_ALLOWED_ORIGINS=https://your-dashboard-domain.example
-JWT_SECRET=change-this-to-a-long-secret
-COOKIE_SECRET=change-this-to-a-long-secret
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=very-strong-password
-ADMIN_ROLE=admin
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USERNAME=root
-DB_PASSWORD=password
-DB_NAME=spx
-LINE_NOTIFY_TOKEN=
-DISCORD_WEBHOOK_URL=
-NOTIFY_MODE=batch
-NOTIFY_MIN_TRIPS=1
-NOTIFY_ORIGINS=
-NOTIFY_DESTINATIONS=
-NOTIFY_VEHICLE_TYPES=
-```
-
----
-
-## คำสั่งใช้งาน
-
-### Build
+## คำสั่ง
 
 ```bash
-npm run build
+npm run dev -- 10     # run via ts-node (polling interval 10s)
+npm run build          # typecheck + esbuild + vite
+npm start -- 10        # run dist/app.js
+npm run db:generate    # generate migration SQL
+npm run db:migrate     # apply migrations
+npm run db:test        # integration test
+npm run flow:start     # migrate + build + start
 ```
 
-คำสั่งนี้จะ
-- ตรวจ TypeScript ด้วย `tsc --noEmit`
-- bundle TypeScript ไปที่ `dist/`
-- copy static assets ไปที่ `dist/public/`
+## Environment Variables
 
-### Run
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_URL` | yes | — | Bidding list endpoint |
+| `COOKIE` | yes | — | SPX session cookie |
+| `DEVICE_ID` | yes | — | SPX device ID |
+| `APP_NAME` | yes | — | SPX app name |
+| `REFERER` | yes | — | SPX referer URL |
+| `POLL_INTERVAL_MS` | no | 30000 | Polling interval in ms |
+| `NODE_ENV` | no | development | `production` activates DB rule storage |
+| `SAVE_TO_DB` | no | false | Save bookings to MySQL |
+| `FETCH_DETAILS` | no | false | Fetch request details per booking |
+| `HTTP_ENABLED` | no | false | Start Web UI + API |
+| `HTTP_PORT` | no | 3000 | Web server port |
+| `HTTP_ALLOWED_ORIGINS` | no | — | Extra CORS origins |
+| `JWT_SECRET` | yes* | — | JWT signing secret (≥32 chars) |
+| `COOKIE_SECRET` | yes* | — | Cookie signing secret (≥32 chars) |
+| `ADMIN_USERNAME` | yes* | admin | Default admin username |
+| `ADMIN_PASSWORD` | yes* | — | Default admin password (≥12 chars) |
+| `ADMIN_ROLE` | no | admin | `admin` or `user` |
+| `DB_HOST` | yes* | — | MySQL host |
+| `DB_PORT` | no | 3306 | MySQL port |
+| `DB_USERNAME` | yes* | — | MySQL user |
+| `DB_PASSWORD` | yes* | — | MySQL password |
+| `DB_NAME` | yes* | — | MySQL database |
+| `DB_MODE` | no | mysql | `mysql` or `memory` (SQLite) |
+| `NOTIFY_ENABLED` | no | false | Enable Discord/LINE notifications |
+| `NOTIFY_MODE` | no | batch | `batch` or `each` |
+| `LINE_NOTIFY_TOKEN` | no | — | LINE Notify token |
+| `DISCORD_WEBHOOK_URL` | no | — | Discord webhook URL |
+| `AUTO_ACCEPT_ENABLED` | no | false | Auto-accept matching requests |
+| `BIDDING_PAGE_NO` | no | 1 | API page start |
+| `BIDDING_PAGE_COUNT` | no | 100 | Items per page |
+| `REQUEST_CTIME_START` | no | 1776358800 | Unix timestamp filter |
 
-```bash
-npm start
-```
-
-### Smoke test
-
-```bash
-npm run smoke:test
-```
-
-> หมายเหตุ: ต้องมีแอปรันอยู่ที่ `http://127.0.0.1:3000` ก่อน
-
-### Database tools
-
-```bash
-npm run db:generate
-npm run db:migrate
-npm run db:test
-```
-
-### Flow helpers
-
-```bash
-npm run flow:test
-npm run flow:start
-```
-
----
+\* Required when `HTTP_ENABLED=true`, `SAVE_TO_DB=true`, or `AUTO_ACCEPT_ENABLED=true`
 
 ## Docker
 
-### Build image
-
-```bash
-docker build -t spx-bidding-poller .
-```
-
-### Run with docker compose
-
 ```bash
 docker compose up --build
 ```
 
-Docker image มี healthcheck ที่ตรวจ endpoint `/ready`
+- Container runs `db-migrate.js` before `app.js`
+- Health check: `GET /ready` every 30s
+- `notify-rules.json` created at build time, mounted as volume
+- Production server: `root@45.83.207.139`, auto-deploy via git push
 
----
+## Web Dashboard
 
-## Web dashboard
-
-เมื่อเปิด `HTTP_ENABLED=true` ระบบจะเปิด dashboard ที่
-
-```text
+```
 http://localhost:3000
 ```
 
-### หน้าหลักใน dashboard
+| หน้า | Path | Access |
+|------|------|--------|
+| Dashboard | `/` | user+ |
+| ประวัติงาน | `/history` | user+ |
+| แจ้งเตือน | `/notifications` | user+ |
+| รายงาน | `/reports` | user+ |
+| ประวัติการใช้งาน | `/audit` | admin |
+| ประวัติรับงานอัตโนมัติ | `/auto-accept-history` | admin |
+| จัดการผู้ใช้ | `/users` | admin |
+| ตั้งค่า | `/settings` | admin |
 
-- รายการค้นหาทั้งหมด
-- ประวัติงานใน DB
-- ประวัติการใช้งาน
-- จัดการผู้ใช้งาน
-- ตั้งค่าระบบ
-- แจ้งเตือน
-- รายงาน
+## API Endpoints
 
----
-
-## Health endpoints
-
-- `GET /health` — health check ขั้นพื้นฐาน
-- `GET /ready` — readiness สำหรับ deployment และ smoke test
-- `GET /metrics` — snapshot metrics ของ polling
-
----
-
-## หมายเหตุด้าน production
-
-- การ rate limit ตอนนี้ยังเป็นแบบ in-memory
-- `notify-rules.json` เป็นไฟล์ state ของ rules engine และเหมาะกับ single-instance
-- dashboard ต้องใช้ MySQL เมื่อเปิด `HTTP_ENABLED=true` แม้ `SAVE_TO_DB=false`
-- settings ที่บันทึกผ่าน dashboard จะเขียนค่าลง `.env` และ trigger restart ผ่าน `process.exit(0)`
-- settings API จะแสดงค่า secret แบบ masked และไม่เขียนทับค่าเดิมถ้าส่ง masked value กลับมา
-- ถ้าใช้งาน production หลาย instance ควรย้าย state สำคัญบางส่วนไป DB หรือ secret store
-
----
-
-## คำสั่งเริ่มต้นแบบแนะนำ
-
-```bash
-npm install
-npm run build
-npm start
-```
-
-หรือถ้าใช้ Docker
-
-```bash
-docker compose up --build
-```
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/health` | no | Health check |
+| GET | `/ready` | no | Readiness (DB pool check) |
+| GET | `/metrics` | no | Polling metrics snapshot |
+| GET | `/events` | JWT | SSE stream (rules + metrics) |
+| POST | `/api/login` | no | Login |
+| POST | `/api/logout` | JWT | Logout |
+| POST | `/api/refresh` | JWT | Refresh token |
+| GET | `/api/me` | JWT | Current user |
+| GET/POST | `/api/rules` | user+ | Rules CRUD |
+| PUT/DELETE | `/api/rules/:id` | user+ | Rule update/delete |
+| GET | `/api/history` | user+ | Booking history |
+| GET | `/api/notifications/*` | user+ | Notification preview/test |
+| GET | `/api/bidding/*` | user+ | Bidding list |
+| GET | `/api/reports/*` | user+ | Reports |
+| GET | `/api/audit-logs` | admin | Audit trail |
+| GET | `/api/auto-accept-history` | admin | Auto-accept history |
+| GET/POST | `/api/users` | admin | User management |
+| PUT | `/api/users/:id/*` | admin | Update user |
+| GET/PUT | `/api/settings` | admin | Env settings |

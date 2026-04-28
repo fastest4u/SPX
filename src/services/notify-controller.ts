@@ -20,7 +20,25 @@ function redact(value: string, visible = 4): string {
 }
 
 export const notifyController: FastifyPluginAsync = async (app) => {
-  app.post<{ Body: NotificationBody }>("/preview", async (req, reply) => {
+  app.post<{ Body: NotificationBody }>("/preview", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string", maxLength: 200 },
+          message: { type: "string", maxLength: 4000 },
+          channels: {
+            type: "object",
+            properties: {
+              line: { type: "boolean" },
+              discord: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+  }, async (req, reply) => {
     const body = req.body ?? {};
     return sendSuccess(reply, {
       preview: {
@@ -34,7 +52,25 @@ export const notifyController: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post<{ Body: NotificationBody }>("/test", async (req, reply) => {
+  app.post<{ Body: NotificationBody }>("/test", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string", maxLength: 200 },
+          message: { type: "string", maxLength: 4000 },
+          channels: {
+            type: "object",
+            properties: {
+              line: { type: "boolean" },
+              discord: { type: "boolean" },
+            },
+          },
+        },
+      },
+    },
+  }, async (req, reply) => {
     const body = req.body ?? {};
     const title = body?.title ?? "SPX Notification Test";
     const message = body?.message ?? "Test notification from SPX Bidding Poller.";

@@ -44,9 +44,15 @@ function DashboardComponent() {
     }
   }, [queryClient, sseRules])
 
-  const activeRules = rules.filter((r) => r.enabled && !r.fulfilled).length
-  const fulfilledRules = rules.filter((r) => r.fulfilled).length
-  const disabledRules = rules.filter((r) => !r.enabled).length
+  const { activeRules, fulfilledRules, disabledRules } = rules.reduce(
+    (acc, r) => {
+      if (r.enabled && !r.fulfilled) acc.activeRules++
+      else if (r.fulfilled) acc.fulfilledRules++
+      else if (!r.enabled) acc.disabledRules++
+      return acc
+    },
+    { activeRules: 0, fulfilledRules: 0, disabledRules: 0 }
+  )
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -259,9 +265,9 @@ function KpiCard({
         <div className={`text-2xl font-black tracking-tight sm:text-3xl ${classes.text}`}>
           {value}
         </div>
-        {subtitle && (
+        {subtitle ? (
           <div className="text-xs text-muted-foreground mt-1">{subtitle}</div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -291,9 +297,9 @@ function MetricCard({
           {title}
         </div>
         <div className={`text-2xl font-black tracking-tight ${colorClasses[color]}`}>{value}</div>
-        {subtitle && (
+        {subtitle ? (
           <div className="text-xs text-muted-foreground mt-1">{subtitle}</div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   )
