@@ -1,4 +1,4 @@
-import { createRoute } from '@tanstack/react-router'
+import { createRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rootRoute } from './__root'
 import { rulesApi, metricsApi } from '../lib/api'
@@ -108,7 +108,7 @@ function DashboardComponent() {
             </div>
           </div>
           <Button asChild variant="outline" className="border-red-300/40 text-red-50 hover:bg-red-400/10">
-            <a href="/settings">ไปที่ Settings</a>
+            <Link to="/settings">ไปที่ Settings</Link>
           </Button>
         </div>
       ) : null}
