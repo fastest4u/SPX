@@ -280,21 +280,20 @@ export async function acceptAndNotifyMatchedRules(
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
 
-  // Call accept API per booking — with 1 retry on failure
-  for (const [bookingId, entry] of byBooking) {
+  // Call accept API for all matched bookings at once. fetchWithRetry already
+  // handles transient HTTP failures; retrying business failures only delays
+  // the next booking and loses the bidding race.
+  const acceptResults = await Promise.all([...byBooking].map(async ([bookingId, entry]) => {
     const requestIds = [...entry.requestIds];
 
     logger.info("auto-accept-calling", { bookingId, requestIds });
 
-    let result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+    const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
 
-    // Retry once on failure after 2 seconds
-    if (!result.ok) {
-      logger.warn("auto-accept-retry", { bookingId, requestIds, error: result.error });
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      result = await apiClient.acceptBookingRequests(bookingId, requestIds);
-    }
+    return { bookingId, entry, requestIds, result };
+  }));
 
+  for (const { bookingId, entry, requestIds, result } of acceptResults) {
     if (result.ok) {
       logger.info("auto-accept-success", { bookingId, requestIds, httpStatus: result.httpStatus });
       for (const trip of entry.trips) {
@@ -376,8 +375,10 @@ export async function acceptAndNotifyMatchedRules(
 }
 
 /** Send a critical alert when SPX session cookie expires */
-export async function sendSessionExpiryNotification(errorMessage: string): Promise<void> {
-  if (!hasNotificationTarget()) return;
+export async function sendSessionExpiryNotification(errorMessage: string): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
+  if (!hasNotificationTarget()) {
+    return { sent: false, skipped: true, results: [] };
+  }
 
   const title = "🔴 SPX Session หมดอายุ";
   const message = [
@@ -393,5 +394,5 @@ export async function sendSessionExpiryNotification(errorMessage: string): Promi
     "3. ระบบจะ restart และเริ่มทำงานใหม่อัตโนมัติ",
   ].join("\n");
 
-  await sendNotificationMessage(title, message);
+  return sendNotificationMessage(title, message);
 }

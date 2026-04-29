@@ -181,27 +181,24 @@ export class Poller {
           });
         }));
 
-        const chunkTrips: ExtractedTripInfo[] = [];
-
-        for (const trips of chunkResults) {
-          for (const trip of trips) {
-            if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
-              console.log("\n" + formatTripInfo(trip));
-            }
-
-            if (env.SAVE_TO_DB) {
-              const dbResult = await saveBookingRequest(trip);
-              metrics.recordTrip(dbResult.action);
-            }
-
-            chunkTrips.push(trip);
-            allTrips.push(trip);
-          }
-        }
+        const chunkTrips = chunkResults.flat();
 
         // Auto-accept immediately after each chunk to reduce race condition window
         if (env.AUTO_ACCEPT_ENABLED && chunkTrips.length > 0) {
           await acceptAndNotifyMatchedRules(chunkTrips, this.apiClient);
+        }
+
+        for (const trip of chunkTrips) {
+          if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
+            console.log("\n" + formatTripInfo(trip));
+          }
+
+          if (env.SAVE_TO_DB) {
+            const dbResult = await saveBookingRequest(trip);
+            metrics.recordTrip(dbResult.action);
+          }
+
+          allTrips.push(trip);
         }
       }
 
@@ -276,11 +273,29 @@ export class Poller {
     }
     this.lastSessionAlertTime = now;
 
+    sseBroadcaster.broadcast({
+      event: "session-expired",
+      data: {
+        message: errorMessage,
+        timestamp: new Date(now).toISOString(),
+      },
+    });
+
     try {
-      await sendSessionExpiryNotification(errorMessage);
-      if (!env.HTTP_ENABLED) {
-        logger.warn("session-expiry-alert-sent", { errorMessage });
+      const result = await sendSessionExpiryNotification(errorMessage);
+      if (result.sent) {
+        logger.warn("session-expiry-alert-sent", {
+          channels: result.results.filter((channel) => channel.ok).map((channel) => channel.channel),
+          errorMessage,
+        });
+        return;
       }
+
+      logger.warn("session-expiry-alert-not-sent", {
+        reason: result.skipped ? "no-notification-target" : "all-notification-channels-failed",
+        channels: result.results,
+        errorMessage,
+      });
     } catch (err) {
       logger.error("session-expiry-alert-failed", err instanceof Error ? err : new Error(String(err)));
     }

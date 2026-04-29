@@ -5,7 +5,7 @@ import { rulesApi, metricsApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import { CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
 import { formatDuration } from '../lib/utils'
 import { useEffect, useState, type ComponentType } from 'react'
 import type { NotifyRule } from '../types'
@@ -37,6 +37,7 @@ function DashboardComponent() {
 
   const { status: sseStatus, data: sseMetrics, rules: sseRules } = useSse('/events')
   const metrics = sseMetrics || initialMetrics
+  const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
 
   useEffect(() => {
     if (sseRules) {
@@ -83,6 +84,23 @@ function DashboardComponent() {
           </div>
         </div>
       </div>
+
+      {hasSessionExpired ? (
+        <div className="reveal-up flex flex-col gap-3 rounded-[1.5rem] border border-red-400/30 bg-red-500/10 p-4 text-red-50 shadow-[0_0_30px_-18px_rgba(248,113,113,0.9)] sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
+            <div>
+              <p className="font-bold">SPX session หมดอายุ</p>
+              <p className="mt-1 text-sm text-red-100/80">
+                ระบบกำลังได้รับ 401 จาก SPX API ต้องอัปเดต COOKIE ใหม่ใน Settings ก่อนถึงจะ poll และ auto-accept ได้
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" className="border-red-300/40 text-red-50 hover:bg-red-400/10">
+            <a href="/settings">ไปที่ Settings</a>
+          </Button>
+        </div>
+      ) : null}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
