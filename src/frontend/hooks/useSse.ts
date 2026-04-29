@@ -7,7 +7,13 @@ interface SseState {
   status: SseStatus
   data: MetricsSnapshot | null
   rules: NotifyRule[] | null
+  sessionAlert: SessionExpiredEvent | null
   error: Error | null
+}
+
+interface SessionExpiredEvent {
+  message: string
+  timestamp: string
 }
 
 const SSE_INITIAL_RECONNECT_MS = 5000
@@ -19,6 +25,7 @@ export function useSse(url: string, enabled: boolean = true) {
     status: 'connecting',
     data: null,
     rules: null,
+    sessionAlert: null,
     error: null,
   })
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -73,6 +80,16 @@ export function useSse(url: string, enabled: boolean = true) {
         setState((prev: SseState) => ({ ...prev, rules }))
       } catch (error) {
         console.error('Failed to parse SSE rules data:', error)
+      }
+    })
+
+    es.addEventListener('session-expired', (event) => {
+      if (!isMountedRef.current) return
+      try {
+        const sessionAlert = JSON.parse(event.data) as SessionExpiredEvent
+        setState((prev: SseState) => ({ ...prev, sessionAlert }))
+      } catch (error) {
+        console.error('Failed to parse SSE session-expired data:', error)
       }
     })
 
