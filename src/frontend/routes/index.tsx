@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { AlertTriangle, CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
 import { formatDuration } from '../lib/utils'
 import { useEffect, useState, type ComponentType } from 'react'
+import { toast } from 'sonner'
 import type { NotifyRule } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
@@ -35,15 +36,25 @@ function DashboardComponent() {
     queryFn: metricsApi.snapshot,
   })
 
-  const { status: sseStatus, data: sseMetrics, rules: sseRules } = useSse('/events')
+  const { status: sseStatus, data: sseMetrics, rules: sseRules, sessionAlert } = useSse('/events')
   const metrics = sseMetrics || initialMetrics
   const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
+  const sessionAlertTimestamp = sessionAlert?.timestamp
 
   useEffect(() => {
     if (sseRules) {
       queryClient.setQueryData(['rules'], sseRules)
     }
   }, [queryClient, sseRules])
+
+  useEffect(() => {
+    if (!sessionAlertTimestamp) return
+
+    toast.error('SPX session หมดอายุ', {
+      description: 'อัปเดต COOKIE ใหม่ใน Settings เพื่อให้ระบบ poll และ auto-accept กลับมาทำงาน',
+      duration: 20_000,
+    })
+  }, [sessionAlertTimestamp])
 
   const { activeRules, fulfilledRules, disabledRules } = rules.reduce(
     (acc, r) => {

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { toast } from 'sonner'
 import type { MetricsSnapshot, NotifyRule } from '../types'
 
 type SseStatus = 'connecting' | 'connected' | 'disconnected'
@@ -89,10 +88,6 @@ export function useSse(url: string, enabled: boolean = true) {
       try {
         const sessionAlert = JSON.parse(event.data) as SessionExpiredEvent
         setState((prev: SseState) => ({ ...prev, sessionAlert }))
-        toast.error('SPX session หมดอายุ', {
-          description: 'อัปเดต COOKIE ใหม่ใน Settings เพื่อให้ระบบ poll และ auto-accept กลับมาทำงาน',
-          duration: 20_000,
-        })
       } catch (error) {
         console.error('Failed to parse SSE session-expired data:', error)
       }
