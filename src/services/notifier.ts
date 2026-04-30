@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
-import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, markRulesAutoAccepted, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, applyAutoAcceptProgress, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
 
@@ -195,6 +195,26 @@ interface AutoAcceptResult {
   notified: boolean;
 }
 
+const acceptedRequestKeys = new Set<string>();
+const acceptedRequestKeyOrder: string[] = [];
+const MAX_ACCEPTED_REQUEST_KEYS = 5000;
+
+function acceptedRequestKey(ruleId: string, requestId: number): string {
+  return `${ruleId}:${requestId}`;
+}
+
+function rememberAcceptedRequest(ruleId: string, requestId: number): void {
+  const key = acceptedRequestKey(ruleId, requestId);
+  if (acceptedRequestKeys.has(key)) return;
+
+  acceptedRequestKeys.add(key);
+  acceptedRequestKeyOrder.push(key);
+  while (acceptedRequestKeyOrder.length > MAX_ACCEPTED_REQUEST_KEYS) {
+    const oldest = acceptedRequestKeyOrder.shift();
+    if (oldest) acceptedRequestKeys.delete(oldest);
+  }
+}
+
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const lines = accepted.slice(0, 10).map((item) => {
     const origin = textValue(item.trip.origin ?? item.trip["ต้นทาง"]);
@@ -234,10 +254,13 @@ export async function acceptAndNotifyMatchedRules(
   const selectedRequests = new Map<number, { trip: TripLike; bookingId: number; ruleId: string; ruleName: string }>();
 
   for (const match of autoAcceptMatches) {
-    const limit = Math.max(1, match.need);
-    const selected = match.trips.slice(0, limit);
+    const limit = Math.max(0, match.need);
+    const selected = match.trips.filter((trip) => {
+      const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
+      return requestId !== undefined && !acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId));
+    }).slice(0, limit);
 
-    if (match.trips.length > limit) {
+    if (match.trips.length > selected.length) {
       logger.info("auto-accept-truncated", {
         ruleId: match.ruleId,
         ruleName: match.ruleName,
@@ -279,6 +302,7 @@ export async function acceptAndNotifyMatchedRules(
 
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
+  const acceptedProgress: Array<{ ruleId: string; acceptedCount: number }> = [];
 
   // Call accept API for all matched bookings at once. fetchWithRetry already
   // handles transient HTTP failures; retrying business failures only delays
@@ -299,7 +323,11 @@ export async function acceptAndNotifyMatchedRules(
       for (const trip of entry.trips) {
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
         accepted.push({ trip, bookingId, requestId });
+        if (requestId > 0) {
+          rememberAcceptedRequest(entry.ruleId, requestId);
+        }
       }
+      acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: requestIds.length });
       await insertAutoAcceptHistory({
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
@@ -333,19 +361,7 @@ export async function acceptAndNotifyMatchedRules(
   for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
   for (let i = 0; i < failed.length; i++) metrics.recordAutoAccept(false);
 
-  // Track which rules had failures
-  const failedRuleIds = new Set(failed.map((f) => {
-    const booking = byBooking.get(f.bookingId);
-    return booking?.ruleId ?? "";
-  }).filter(Boolean));
-
-  // Mark rules — only fulfilled/auto_accepted if no failures
-  const allRuleIds = autoAcceptMatches.map((m) => m.ruleId);
-  const successRuleIds = allRuleIds.filter((id) => !failedRuleIds.has(id));
-  if (successRuleIds.length > 0) {
-    await markRulesAutoAccepted(successRuleIds);
-    await markRulesFulfilled(successRuleIds);
-  }
+  await applyAutoAcceptProgress(acceptedProgress);
 
   // Notify only if at least one request was accepted successfully
   let notified = false;

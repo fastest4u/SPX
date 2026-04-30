@@ -157,9 +157,18 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
               <Input
                 id="need"
                 type="number"
-                min={1}
+                min={0}
                 value={formData.need ?? rule.need}
-                onChange={e => setFormData(prev => ({ ...prev, need: parseInt(e.target.value) || 1 }))}
+                onChange={e => {
+                  const need = Math.max(0, parseInt(e.target.value) || 0)
+                  setFormData(prev => ({
+                    ...prev,
+                    need,
+                    ...(need > 0
+                      ? { fulfilled: false, auto_accepted: false }
+                      : { fulfilled: true, auto_accepted: true }),
+                  }))
+                }}
                 className="bg-slate-900/50 border-white/10"
               />
             </div>
@@ -197,7 +206,14 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                   type="checkbox"
                   id="fulfilled"
                   checked={formData.fulfilled ?? rule.fulfilled}
-                  onChange={e => setFormData(prev => ({ ...prev, fulfilled: e.target.checked }))}
+                  onChange={e => {
+                    const fulfilled = e.target.checked
+                    setFormData(prev => ({
+                      ...prev,
+                      fulfilled,
+                      ...(fulfilled ? {} : { auto_accepted: false }),
+                    }))
+                  }}
                   className="h-4 w-4 rounded border-amber-600 bg-slate-900 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900"
                 />
                 <Label htmlFor="fulfilled" className="cursor-pointer text-amber-300">

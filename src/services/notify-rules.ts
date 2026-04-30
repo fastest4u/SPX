@@ -112,7 +112,7 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
       origins: toStringArray(candidate.origins),
       destinations: toStringArray(candidate.destinations),
       vehicle_types: toStringArray(candidate.vehicle_types),
-      need: Math.max(1, need),
+      need: Math.max(0, need),
       enabled: candidate.enabled !== false,
       fulfilled: candidate.fulfilled === true,
       auto_accept: candidate.auto_accept === true,
@@ -332,15 +332,60 @@ export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleT
   const matches: RuleTripMatch[] = [];
 
   for (const rule of rules) {
-    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.auto_accepted) continue;
+    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
 
     const matchedTrips = ruleMatchesTrips(rule, trips);
-    if (matchedTrips.length >= Math.max(1, rule.need)) {
+    if (matchedTrips.length > 0) {
       matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
     }
   }
 
   return matches;
+}
+
+export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; acceptedCount: number }>): Promise<void> {
+  const acceptedByRule = new Map<string, number>();
+  for (const update of updates) {
+    if (update.acceptedCount <= 0) continue;
+    acceptedByRule.set(update.ruleId, (acceptedByRule.get(update.ruleId) ?? 0) + update.acceptedCount);
+  }
+  const ruleIds = [...acceptedByRule.keys()];
+  if (ruleIds.length === 0) return;
+
+  if (usesDb()) {
+    await ensureDashboardTables();
+    const db = await getDb();
+    const rows = await db.select().from(notifyRulesTable).where(inArray(notifyRulesTable.id, ruleIds));
+    for (const row of rows) {
+      const rule = dbRowToRule(row);
+      const remainingNeed = Math.max(0, rule.need - (acceptedByRule.get(rule.id) ?? 0));
+      const completed = remainingNeed === 0;
+      await db.update(notifyRulesTable)
+        .set({
+          need: remainingNeed,
+          fulfilled: completed ? 1 : 0,
+          autoAccepted: completed ? 1 : 0,
+          updatedAt: sql`UTC_TIMESTAMP()`,
+        })
+        .where(eq(notifyRulesTable.id, rule.id));
+    }
+    await broadcastAllRules();
+    return;
+  }
+
+  const rules = readRulesFile();
+  let changed = false;
+  for (const rule of rules) {
+    const acceptedCount = acceptedByRule.get(rule.id);
+    if (acceptedCount === undefined) continue;
+    const remainingNeed = Math.max(0, rule.need - acceptedCount);
+    const completed = remainingNeed === 0;
+    rule.need = remainingNeed;
+    rule.fulfilled = completed;
+    rule.auto_accepted = completed;
+    changed = true;
+  }
+  if (changed) writeRulesFile(rules);
 }
 
 export async function markRulesFulfilled(ruleIds: string[]): Promise<void> {
