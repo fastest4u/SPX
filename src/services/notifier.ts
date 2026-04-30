@@ -224,24 +224,27 @@ function rememberAcceptedRequest(ruleId: string, requestId: number): void {
 
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const now = new Date();
-  const thaiDate = now.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+  const thaiDateShort = now.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
   const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-  const lines = accepted.slice(0, 10).map((item) => {
-    const origin = textValue(item.trip.origin ?? item.trip["ต้นทาง"]);
-    const destination = textValue(item.trip.destination ?? item.trip["ปลายทาง"]);
-    const vehicleType = textValue(item.trip.vehicle_type ?? item.trip["ประเภทรถ"]);
-    return `- request_id=${item.requestId} ${origin} -> ${destination} (${vehicleType})`;
-  });
+  const item = accepted[0];
+  const origin = textValue(item.trip["ต้นทาง"] ?? item.trip.origin);
+  const destination = textValue(item.trip["ปลายทาง"] ?? item.trip.destination);
+  const vehicleType = textValue(item.trip["ประเภทรถ"] ?? item.trip.vehicle_type);
+  const standbyDateTime = textValue((item.trip as Record<string, unknown>)["วันที่เวลาสแตนบาย"]);
+  const bookingName = textValue((item.trip as Record<string, unknown>).booking_name);
 
   return [
-    `✅ SPX Auto-Accept สำเร็จ`,
-    `📅 ${thaiDate} เวลา ${timeStr}`,
+    `🛣️ เส้นทาง : ${origin} ➜ ${destination}`,
     ``,
-    `Auto-accepted ${accepted.length} request(s):`,
-    ...lines,
-    accepted.length > 10 ? `  ...and ${accepted.length - 10} more` : "",
-  ].filter(Boolean).join("\n");
+    `🚛 ประเภทรถ : ${vehicleType}`,
+    ``,
+    `📅 เวลาเข้ารับงาน : ${standbyDateTime}`,
+    ``,
+    `📝 Booking : ${bookingName}`,
+    ``,
+    `SPX Bidding Poller•${thaiDateShort} ${timeStr}`,
+  ].join("\n");
 }
 
 /**
@@ -381,7 +384,7 @@ export async function acceptAndNotifyMatchedRules(
   let notified = false;
 
   if (accepted.length > 0 && hasNotificationTarget()) {
-    const title = "🚛 SPX Auto-Accept สำเร็จ";
+    const title = "✅ SPX Auto-Accept สำเร็จ";
     const message = buildAcceptNotificationMessage(accepted);
 
     const sendResult = await sendNotificationMessage(title, message);
