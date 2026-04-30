@@ -223,6 +223,10 @@ function rememberAcceptedRequest(ruleId: string, requestId: number): void {
 }
 
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
+  const now = new Date();
+  const thaiDate = now.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
+
   const lines = accepted.slice(0, 10).map((item) => {
     const origin = textValue(item.trip.origin ?? item.trip["ต้นทาง"]);
     const destination = textValue(item.trip.destination ?? item.trip["ปลายทาง"]);
@@ -231,7 +235,10 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   });
 
   return [
-    `✅ Auto-accepted ${accepted.length} request(s):`,
+    `✅ SPX Auto-Accept สำเร็จ`,
+    `📅 ${thaiDate} เวลา ${timeStr}`,
+    ``,
+    `Auto-accepted ${accepted.length} request(s):`,
     ...lines,
     accepted.length > 10 ? `  ...and ${accepted.length - 10} more` : "",
   ].filter(Boolean).join("\n");
