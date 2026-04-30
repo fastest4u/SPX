@@ -80,6 +80,7 @@ export interface RulePatch {
   enabled?: boolean;
   fulfilled?: boolean;
   auto_accept?: boolean;
+  auto_accepted?: boolean;
 }
 
 // History/Booking Types
