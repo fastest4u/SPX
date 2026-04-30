@@ -94,8 +94,8 @@ function DashboardComponent() {
             <div className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5">
               <MessageSquare className="h-3.5 w-3.5 text-emerald-300" />
               <span className="text-xs font-bold text-emerald-300">{lineQuota.totalUsage}/{lineQuota.limit}</span>
-              <div className="h-1.5 w-12 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-500" style={{ width: `${quotaPercent}%` }} />
+              <div className="h-1.5 w-12 rounded-full bg-white/20 overflow-hidden">
+                <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-500" style={{ width: `${Math.max(2, quotaPercent)}%` }} />
               </div>
             </div>
           ) : null}
@@ -223,11 +223,11 @@ function DashboardComponent() {
 
 function MiniStat({ label, value, color }: { label: string; value: string | number; color: 'cyan' | 'emerald' | 'slate' | 'amber' | 'blue' }) {
   const colorClasses = {
-    cyan: 'border-cyan-300/15 bg-cyan-300/5 text-cyan-300',
-    emerald: 'border-emerald-300/15 bg-emerald-300/5 text-emerald-300',
-    slate: 'border-slate-300/15 bg-slate-300/5 text-slate-300',
-    amber: 'border-amber-300/15 bg-amber-300/5 text-amber-300',
-    blue: 'border-blue-300/15 bg-blue-300/5 text-blue-300',
+    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-300',
+    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300',
+    slate: 'border-slate-300/20 bg-slate-300/10 text-slate-300',
+    amber: 'border-amber-300/20 bg-amber-300/10 text-amber-300',
+    blue: 'border-blue-300/20 bg-blue-300/10 text-blue-300',
   }
 
   return (
