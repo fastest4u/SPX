@@ -5,6 +5,7 @@ import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { fetchLineQuota } from "../services/notifier.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/health", async (req, reply) => {
@@ -98,5 +99,10 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     } catch {
       return sendSuccess(reply, []);
     }
+  });
+
+  app.get("/line-quota", async (_req, reply) => {
+    const quota = await fetchLineQuota();
+    return reply.send(quota);
   });
 };

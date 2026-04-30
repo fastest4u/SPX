@@ -429,3 +429,47 @@ export async function sendSessionExpiryNotification(errorMessage: string): Promi
 
   return sendNotificationMessage(title, message);
 }
+
+let lineQuotaCache: { totalUsage: number; limit: number; type: string; fetchedAt: number } | null = null;
+const LINE_QUOTA_CACHE_MS = 60_000;
+
+export async function fetchLineQuota(): Promise<{ totalUsage: number; limit: number; type: string; enabled: boolean } | null> {
+  if (!env.LINE_CHANNEL_ACCESS_TOKEN) {
+    return null;
+  }
+
+  if (lineQuotaCache && (Date.now() - lineQuotaCache.fetchedAt) < LINE_QUOTA_CACHE_MS) {
+    return { ...lineQuotaCache, enabled: true };
+  }
+
+  try {
+    const [quotaRes, consumptionRes] = await Promise.all([
+      fetch("https://api.line.me/v2/bot/message/quota", {
+        headers: { authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+      }),
+      fetch("https://api.line.me/v2/bot/message/quota/consumption", {
+        headers: { authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+      }),
+    ]);
+
+    let limit = 0;
+    let type = "unknown";
+    if (quotaRes.ok) {
+      const q = await quotaRes.json() as { type?: string; value?: number };
+      type = q.type ?? "unknown";
+      limit = q.value ?? 0;
+    }
+
+    let totalUsage = 0;
+    if (consumptionRes.ok) {
+      const c = await consumptionRes.json() as { totalUsage?: number };
+      totalUsage = c.totalUsage ?? 0;
+    }
+
+    lineQuotaCache = { totalUsage, limit, type, fetchedAt: Date.now() };
+    return { totalUsage, limit, type, enabled: true };
+  } catch (error) {
+    logger.error("line-quota-fetch-failed", error instanceof Error ? error : new Error(String(error)));
+    return lineQuotaCache ? { ...lineQuotaCache, enabled: true } : { totalUsage: 0, limit: 0, type: "unknown", enabled: false };
+  }
+}

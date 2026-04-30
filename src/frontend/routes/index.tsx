@@ -1,7 +1,7 @@
 import { createRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { rootRoute } from './__root'
-import { rulesApi, metricsApi } from '../lib/api'
+import { rulesApi, metricsApi, lineApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -34,6 +34,12 @@ function DashboardComponent() {
   const { data: initialMetrics } = useQuery({
     queryKey: ['metrics'],
     queryFn: metricsApi.snapshot,
+  })
+
+  const { data: lineQuota } = useQuery({
+    queryKey: ['line-quota'],
+    queryFn: lineApi.quota,
+    refetchInterval: 60_000,
   })
 
   const { status: sseStatus, data: sseMetrics, rules: sseRules, sessionAlert } = useSse('/events')
@@ -95,6 +101,29 @@ function DashboardComponent() {
           </div>
         </div>
       </div>
+
+      {lineQuota?.limit ? (
+        <div className="glass reveal-up rounded-[2rem] border-white/10 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <svg aria-hidden="true" className="h-5 w-5 text-green-400" viewBox="0 0 24 24" fill="currentColor"><path d="M4 16c0 0.88 0.39 1.67 1 2.22V20c0 0.55 0.45 1 1 1h1c0.55 0 1-0.45 1-1v-1h8v1c0 0.55 0.45 1 1 1h1c0.55 0 1-0.45 1-1v-1.78c0.61-0.55 1-1.34 1-2.22V6H4v10zM3.14 5h-1.14v2h2V5zM6 5h12v2H6V5zm14 0h-1v2h2V5h-1z"/><path d="M21 4H3c-1.1 0-2 0.9-2 2v10c0 1.1 0.9 2 2 2h18c1.1 0 2-0.9 2-2V6c0-1.1-0.9-2-2-2zm-2 12H5V8h14v8z"/></svg>
+              <span className="text-sm font-bold uppercase tracking-[0.14em] text-white">LINE Messages</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-lg font-black text-emerald-300">{lineQuota.totalUsage} / {lineQuota.limit}</div>
+                <div className="text-xs text-muted-foreground">ข้อความที่ใช้แล้ว / เดือน</div>
+              </div>
+              <div className="h-10 w-24 rounded-full border border-white/10 bg-white/[0.04] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-[width] duration-500"
+                  style={{ width: `${Math.min(100, (lineQuota.totalUsage / lineQuota.limit) * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {hasSessionExpired ? (
         <div className="reveal-up flex flex-col gap-3 rounded-[1.5rem] border border-red-400/30 bg-red-500/10 p-4 text-red-50 shadow-[0_0_30px_-18px_rgba(248,113,113,0.9)] sm:flex-row sm:items-center sm:justify-between">

@@ -17,6 +17,7 @@ import type {
   LoginResponse,
   MeResponse,
   MetricsHistoryRow,
+  LineQuota,
   MetricsSnapshot,
   NotifyRule,
   NotificationPreview,
@@ -289,6 +290,11 @@ export const metricsApi = {
 
   history: (limit?: number): Promise<MetricsHistoryRow[]> =>
     fetchPlain<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
+}
+
+export const lineApi = {
+  quota: (): Promise<LineQuota | null> =>
+    fetchPlain<LineQuota | null>('/line-quota'),
 }
 
 // Health/Ready API

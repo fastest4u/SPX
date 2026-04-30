@@ -170,6 +170,14 @@ export interface EnvSettings {
   POLL_INTERVAL_MS?: string;
 }
 
+// Line Quota
+export interface LineQuota {
+  enabled: boolean;
+  totalUsage: number;
+  limit: number;
+  type: string;
+}
+
 // Metrics Types
 export interface MetricsSnapshot {
   uptime: number;
