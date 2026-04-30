@@ -5,7 +5,7 @@ import { rulesApi, metricsApi, lineApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import { AlertTriangle, CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff, MessageSquare } from 'lucide-react'
 import { formatDuration } from '../lib/utils'
 import { useEffect, useState, type ComponentType } from 'react'
 import { toast } from 'sonner'
@@ -72,9 +72,14 @@ function DashboardComponent() {
     { activeRules: 0, fulfilledRules: 0, disabledRules: 0 }
   )
 
+  const quotaPercent = lineQuota?.limit
+    ? Math.min(100, (lineQuota.totalUsage / lineQuota.limit) * 100)
+    : 0
+
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <div className="glass reveal-up grid gap-4 rounded-[2rem] border-white/10 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+    <div className="space-y-4 sm:space-y-5">
+      {/* Header Hero */}
+      <div className="glass reveal-up grid gap-5 rounded-[2rem] border border-white/10 bg-white/[0.02] p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
         <div>
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-cyan-200">
             <Radio className="h-3.5 w-3.5" />
@@ -83,41 +88,44 @@ function DashboardComponent() {
           <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl lg:text-4xl">
             รายการค้นหาและสถานะระบบ
           </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base">
             ควบคุม rule ค้นหางาน ตรวจสุขภาพ polling และติดตามผลแบบ real-time จากหน้าจอเดียว
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-80 lg:grid-cols-1">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Session</div>
-            <div className={`mt-2 flex items-center gap-2 text-lg font-black ${metrics?.session?.isHealthy ? 'text-emerald-300' : 'text-amber-300'}`}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-72 lg:grid-cols-1">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">Session</div>
+            <div className={`mt-1.5 flex items-center gap-2 text-lg font-black ${metrics?.session?.isHealthy ? 'text-emerald-300' : 'text-amber-300'}`}>
               {metrics?.session?.isHealthy ? <SignalHigh className="h-5 w-5" /> : <WifiOff className="h-5 w-5" />}
               {metrics?.session?.isHealthy ? 'Healthy' : 'Degraded'}
             </div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Active Rules</div>
-            <div className="mt-2 text-2xl font-black text-cyan-200">{activeRules}</div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">Active Rules</div>
+            <div className="mt-1.5 text-2xl font-black text-cyan-200">{activeRules}</div>
           </div>
         </div>
       </div>
 
+      {/* LINE Quota Bar */}
       {lineQuota?.limit ? (
-        <div className="glass reveal-up rounded-[2rem] border-white/10 p-5 sm:p-6">
+        <div className="glass reveal-up rounded-[2rem] border border-white/10 bg-white/[0.02] p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <svg aria-hidden="true" className="h-5 w-5 text-green-400" viewBox="0 0 24 24" fill="currentColor"><path d="M4 16c0 0.88 0.39 1.67 1 2.22V20c0 0.55 0.45 1 1 1h1c0.55 0 1-0.45 1-1v-1h8v1c0 0.55 0.45 1 1 1h1c0.55 0 1-0.45 1-1v-1.78c0.61-0.55 1-1.34 1-2.22V6H4v10zM3.14 5h-1.14v2h2V5zM6 5h12v2H6V5zm14 0h-1v2h2V5h-1z"/><path d="M21 4H3c-1.1 0-2 0.9-2 2v10c0 1.1 0.9 2 2 2h18c1.1 0 2-0.9 2-2V6c0-1.1-0.9-2-2-2zm-2 12H5V8h14v8z"/></svg>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10">
+                <MessageSquare className="h-5 w-5 text-emerald-300" />
+              </div>
               <span className="text-sm font-bold uppercase tracking-[0.14em] text-white">LINE Messages</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="text-right">
-                <div className="text-lg font-black text-emerald-300">{lineQuota.totalUsage} / {lineQuota.limit}</div>
-                <div className="text-xs text-muted-foreground">ข้อความที่ใช้แล้ว / เดือน</div>
+                <div className="text-xl font-black text-emerald-300">{lineQuota.totalUsage} / {lineQuota.limit}</div>
+                <div className="text-[0.65rem] text-muted-foreground">ข้อความที่ใช้แล้ว / เดือน</div>
               </div>
-              <div className="h-10 w-24 rounded-full border border-white/10 bg-white/[0.04] overflow-hidden">
+              <div className="h-8 w-32 rounded-full border border-white/10 bg-white/[0.04] overflow-hidden">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-[width] duration-500"
-                  style={{ width: `${Math.min(100, (lineQuota.totalUsage / lineQuota.limit) * 100)}%` }}
+                  style={{ width: `${quotaPercent}%` }}
                 />
               </div>
             </div>
@@ -125,6 +133,7 @@ function DashboardComponent() {
         </div>
       ) : null}
 
+      {/* Session Expired Alert */}
       {hasSessionExpired ? (
         <div className="reveal-up flex flex-col gap-3 rounded-[1.5rem] border border-red-400/30 bg-red-500/10 p-4 text-red-50 shadow-[0_0_30px_-18px_rgba(248,113,113,0.9)] sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -313,10 +322,10 @@ function KpiCard({
     <Card className="glass border-white/10 transition-transform duration-200 hover:-translate-y-0.5">
       <CardContent className="p-4 sm:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
             {title}
           </div>
-          <div className={`rounded-2xl border p-2 ${classes.surface}`}>
+          <div className={`flex h-9 w-9 items-center justify-center rounded-full border ${classes.surface}`}>
             <Icon className={`h-4 w-4 ${classes.text}`} />
           </div>
         </div>
@@ -351,7 +360,7 @@ function MetricCard({
   return (
     <Card className="glass border-white/10">
       <CardContent className="p-4 sm:p-5">
-        <div className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="mb-2 text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
           {title}
         </div>
         <div className={`text-2xl font-black tracking-tight ${colorClasses[color]}`}>{value}</div>
@@ -377,7 +386,7 @@ function SSEStatusCard({ status }: { status: 'connecting' | 'connected' | 'disco
       <CardContent className="flex items-center gap-3 p-4 sm:p-5">
         <div className={`h-3 w-3 rounded-full ${config.dot} ${status === 'connecting' ? 'animate-pulse' : ''}`} />
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">SSE Status</div>
+          <div className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">SSE Status</div>
           <div className={`text-lg font-black ${config.color}`}>{config.label}</div>
         </div>
       </CardContent>
