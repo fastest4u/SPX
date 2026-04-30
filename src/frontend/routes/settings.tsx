@@ -26,7 +26,8 @@ function SettingsComponent() {
     POLL_INTERVAL_MS: '30000',
     COOKIE: '',
     DEVICE_ID: '',
-    LINE_NOTIFY_TOKEN: '',
+    LINE_CHANNEL_ACCESS_TOKEN: '',
+    LINE_USER_ID: '',
     DISCORD_WEBHOOK_URL: '',
   })
 
@@ -37,7 +38,8 @@ function SettingsComponent() {
         POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
         COOKIE: settings.COOKIE || '',
         DEVICE_ID: settings.DEVICE_ID || '',
-        LINE_NOTIFY_TOKEN: settings.LINE_NOTIFY_TOKEN || '',
+        LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
+        LINE_USER_ID: settings.LINE_USER_ID || '',
         DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
       })
     }
@@ -136,13 +138,24 @@ function SettingsComponent() {
                 <h3 className="mb-4 text-sm font-black uppercase tracking-[0.16em] text-white">Notification Settings</h3>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label htmlFor="settings-line-token" className="text-sm text-muted-foreground">LINE Notify Token</label>
+                    <label htmlFor="settings-line-token" className="text-sm text-muted-foreground">LINE Channel Access Token</label>
                     <Input
                       id="settings-line-token"
-                      value={formData.LINE_NOTIFY_TOKEN}
-                      onChange={(e) => setFormData({ ...formData, LINE_NOTIFY_TOKEN: e.target.value })}
+                      value={formData.LINE_CHANNEL_ACCESS_TOKEN}
+                      onChange={(e) => setFormData({ ...formData, LINE_CHANNEL_ACCESS_TOKEN: e.target.value })}
                       placeholder="********xxxx"
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="settings-line-user-id" className="text-sm text-muted-foreground">LINE User/Group ID</label>
+                    <Input
+                      id="settings-line-user-id"
+                      value={formData.LINE_USER_ID}
+                      onChange={(e) => setFormData({ ...formData, LINE_USER_ID: e.target.value })}
+                      placeholder="Uxxx... หรือ Cxxx..."
+                    />
+                    <p className="text-xs text-muted-foreground/60">เพิ่มบอทเข้ากลุ่มแล้วใช้ Group ID (ขึ้นต้นด้วย C)</p>
                   </div>
 
                   <div className="space-y-2">

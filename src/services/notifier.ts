@@ -14,7 +14,7 @@ type NotificationSendResult = {
 };
 
 function hasNotificationTarget(): boolean {
-  return Boolean(env.LINE_NOTIFY_TOKEN || env.DISCORD_WEBHOOK_URL);
+  return Boolean(env.LINE_CHANNEL_ACCESS_TOKEN || env.DISCORD_WEBHOOK_URL);
 }
 
 function dedupeRuleIds(matches: Array<{ ruleId: string }>): string[] {
@@ -79,20 +79,27 @@ async function sendDiscordNotification(title: string, message: string): Promise<
   }
 }
 
-async function sendLineNotification(title: string, message: string): Promise<void> {
-  const body = new URLSearchParams({ message: `\n${title}\n${truncate(message, 3000)}` });
-  const response = await fetch("https://notify-api.line.me/api/notify", {
+async function sendLineOaMessage(title: string, message: string): Promise<void> {
+  const body = JSON.stringify({
+    to: env.LINE_USER_ID,
+    messages: [{
+      type: "text",
+      text: `${title}\n${truncate(message, 4500)}`,
+    }],
+  });
+
+  const response = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${env.LINE_NOTIFY_TOKEN}`,
-      "content-type": "application/x-www-form-urlencoded",
+      authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      "content-type": "application/json",
     },
     body,
   });
 
   if (!response.ok) {
     const responseBody = await response.text();
-    throw new Error(`LINE Notify failed with HTTP ${response.status}: ${responseBody.slice(0, 200)}`);
+    throw new Error(`LINE OA push failed with HTTP ${response.status}: ${responseBody.slice(0, 200)}`);
   }
 }
 
@@ -110,9 +117,9 @@ export async function sendNotificationMessage(title: string, message: string): P
     }
   }
 
-  if (env.LINE_NOTIFY_TOKEN) {
+  if (env.LINE_CHANNEL_ACCESS_TOKEN) {
     try {
-      await sendLineNotification(title, message);
+      await sendLineOaMessage(title, message);
       results.push({ channel: "line", ok: true });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

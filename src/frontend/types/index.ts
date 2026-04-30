@@ -164,7 +164,8 @@ export interface EnvSettings {
   API_URL?: string;
   COOKIE?: string;
   DEVICE_ID?: string;
-  LINE_NOTIFY_TOKEN?: string;
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
+  LINE_USER_ID?: string;
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
 }

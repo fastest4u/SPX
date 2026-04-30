@@ -5,7 +5,7 @@ import { insertAuditLog } from "../repositories/audit-repository.js";
 import { logger } from "../utils/logger.js";
 import { sendSuccess } from "../utils/response.js";
 
-const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_NOTIFY_TOKEN", "DISCORD_WEBHOOK_URL"]);
+const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_USER_ID", "DISCORD_WEBHOOK_URL"]);
 const REDACTED_PREFIX = "********";
 
 const settingsSchema = {
@@ -15,7 +15,8 @@ const settingsSchema = {
     API_URL: { type: "string" },
     COOKIE: { type: "string" },
     DEVICE_ID: { type: "string" },
-    LINE_NOTIFY_TOKEN: { type: "string" },
+    LINE_CHANNEL_ACCESS_TOKEN: { type: "string" },
+    LINE_USER_ID: { type: "string" },
     DISCORD_WEBHOOK_URL: { type: "string" },
     POLL_INTERVAL_MS: { type: "string" },
   },
@@ -40,7 +41,8 @@ function readPublicSettings(): EnvSettings {
     API_URL: envVars.API_URL || "",
     COOKIE: redactSecret(envVars.COOKIE),
     DEVICE_ID: envVars.DEVICE_ID || "",
-    LINE_NOTIFY_TOKEN: redactSecret(envVars.LINE_NOTIFY_TOKEN),
+    LINE_CHANNEL_ACCESS_TOKEN: redactSecret(envVars.LINE_CHANNEL_ACCESS_TOKEN),
+    LINE_USER_ID: redactSecret(envVars.LINE_USER_ID),
     DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
     POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
   };

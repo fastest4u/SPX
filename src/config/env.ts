@@ -105,7 +105,8 @@ export const env = {
   DB_NAME: process.env.DB_NAME,
   SAVE_TO_DB: process.env.SAVE_TO_DB === "true",
   NOTIFY_ENABLED: process.env.NOTIFY_ENABLED === "true",
-  LINE_NOTIFY_TOKEN: process.env.LINE_NOTIFY_TOKEN || "",
+  LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
+  LINE_USER_ID: process.env.LINE_USER_ID || "",
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
   NOTIFY_MODE: (process.env.NOTIFY_MODE || "batch") as "each" | "batch",
   NOTIFY_ORIGINS: parseCommaSeparated(process.env.NOTIFY_ORIGINS),
@@ -163,7 +164,8 @@ export function validateRuntimeConfig(): void {
   }
 
   if (env.NOTIFY_ENABLED) {
-    if (!env.LINE_NOTIFY_TOKEN && !env.DISCORD_WEBHOOK_URL) invalid.push("NOTIFY_ENABLED=true but neither LINE_NOTIFY_TOKEN nor DISCORD_WEBHOOK_URL is set");
+    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL) invalid.push("NOTIFY_ENABLED=true but neither LINE_CHANNEL_ACCESS_TOKEN nor DISCORD_WEBHOOK_URL is set");
+    if (env.LINE_CHANNEL_ACCESS_TOKEN && !env.LINE_USER_ID) invalid.push("LINE_CHANNEL_ACCESS_TOKEN is set but LINE_USER_ID is not");
     if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
     if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
   }

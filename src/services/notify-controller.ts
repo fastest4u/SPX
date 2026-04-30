@@ -45,7 +45,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
         title: body?.title ?? "SPX Notification Preview",
         message: body?.message ?? "นี่คือข้อความตัวอย่างสำหรับตรวจสอบรูปแบบแจ้งเตือน",
         channels: {
-          line: Boolean(env.LINE_NOTIFY_TOKEN),
+          line: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
           discord: Boolean(env.DISCORD_WEBHOOK_URL),
         },
       },
@@ -75,13 +75,13 @@ export const notifyController: FastifyPluginAsync = async (app) => {
     const title = body?.title ?? "SPX Notification Test";
     const message = body?.message ?? "Test notification from SPX Bidding Poller.";
 
-    if (!env.LINE_NOTIFY_TOKEN && !env.DISCORD_WEBHOOK_URL) {
+    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL) {
       return sendError(reply, 400, "NOT_CONFIGURED", "No notification target is configured");
     }
 
     logger.info("notification-test-requested", {
       title,
-      lineConfigured: Boolean(env.LINE_NOTIFY_TOKEN),
+      lineConfigured: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
       discordConfigured: Boolean(env.DISCORD_WEBHOOK_URL),
       discordWebhook: redact(env.DISCORD_WEBHOOK_URL),
     });
