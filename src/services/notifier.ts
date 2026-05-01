@@ -234,7 +234,15 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const standbyDateTime = textValue((item.trip as Record<string, unknown>)["วันที่เวลาสแตนบาย"]);
   const bookingName = textValue((item.trip as Record<string, unknown>).booking_name);
 
+  const requestLines = accepted.slice(0, 10).map((a, i) => {
+    const reqOrigin = textValue(a.trip["ต้นทาง"] ?? a.trip.origin);
+    const reqDest = textValue(a.trip["ปลายทาง"] ?? a.trip.destination);
+    return `${i + 1}. request_id=${a.requestId} ${reqOrigin} ➜ ${reqDest}`;
+  });
+
   return [
+    `✅ Auto-Accept สำเร็จ ${accepted.length} รายการ`,
+    ``,
     `🛣️ เส้นทาง : ${origin} ➜ ${destination}`,
     ``,
     `🚛 ประเภทรถ : ${vehicleType}`,
@@ -243,8 +251,12 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
     ``,
     `📝 Booking : ${bookingName}`,
     ``,
+    `รายการที่ accept:`,
+    ...requestLines,
+    accepted.length > 10 ? `...และอีก ${accepted.length - 10} รายการ` : "",
+    ``,
     `SPX Bidding Poller•${thaiDateShort} ${timeStr}`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 /**
