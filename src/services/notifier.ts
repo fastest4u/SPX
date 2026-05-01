@@ -231,13 +231,13 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const origin = textValue(item.trip["ต้นทาง"] ?? item.trip.origin);
   const destination = textValue(item.trip["ปลายทาง"] ?? item.trip.destination);
   const vehicleType = textValue(item.trip["ประเภทรถ"] ?? item.trip.vehicle_type);
-  const standbyDateTime = textValue((item.trip as Record<string, unknown>)["วันที่เวลาสแตนบาย"]);
   const bookingName = textValue((item.trip as Record<string, unknown>).booking_name);
 
   const requestLines = accepted.slice(0, 10).map((a, i) => {
     const reqOrigin = textValue(a.trip["ต้นทาง"] ?? a.trip.origin);
     const reqDest = textValue(a.trip["ปลายทาง"] ?? a.trip.destination);
-    return `${i + 1}. request_id=${a.requestId} ${reqOrigin} ➜ ${reqDest}`;
+    const reqTime = textValue((a.trip as Record<string, unknown>)["วันที่เวลาสแตนบาย"]);
+    return `${i + 1}. request_id=${a.requestId} ${reqOrigin} ➜ ${reqDest} (${reqTime})`;
   });
 
   return [
@@ -246,8 +246,6 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
     `🛣️ เส้นทาง : ${origin} ➜ ${destination}`,
     ``,
     `🚛 ประเภทรถ : ${vehicleType}`,
-    ``,
-    `📅 เวลาเข้ารับงาน : ${standbyDateTime}`,
     ``,
     `📝 Booking : ${bookingName}`,
     ``,
