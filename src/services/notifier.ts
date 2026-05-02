@@ -241,7 +241,6 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   });
 
   return [
-    `✅ Auto-Accept สำเร็จ ${accepted.length} รายการ`,
     ``,
     `🛣️ เส้นทาง : ${origin} ➜ ${destination}`,
     ``,
@@ -394,7 +393,7 @@ export async function acceptAndNotifyMatchedRules(
   let notified = false;
 
   if (accepted.length > 0 && hasNotificationTarget()) {
-    const title = "✅ SPX Auto-Accept สำเร็จ";
+    const title = `✅ SPX Auto-Accept สำเร็จ ${accepted.length} รายการ`;
     const message = buildAcceptNotificationMessage(accepted);
 
     const sendResult = await sendNotificationMessage(title, message);
