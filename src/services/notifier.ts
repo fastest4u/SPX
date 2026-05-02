@@ -237,7 +237,7 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
     const reqOrigin = textValue(a.trip["ต้นทาง"] ?? a.trip.origin);
     const reqDest = textValue(a.trip["ปลายทาง"] ?? a.trip.destination);
     const reqTime = textValue((a.trip as Record<string, unknown>)["วันที่เวลาสแตนบาย"]);
-    return `${i + 1}. request_id=${a.requestId} ${reqOrigin} ➜ ${reqDest} (${reqTime})`;
+    return `เส้นทาง ที่ ${i + 1} id=${a.requestId} ${reqOrigin} ➜ ${reqDest} (${reqTime})`;
   });
 
   return [
