@@ -228,8 +228,6 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
 
   const item = accepted[0];
-  const origin = textValue(item.trip["ต้นทาง"] ?? item.trip.origin);
-  const destination = textValue(item.trip["ปลายทาง"] ?? item.trip.destination);
   const vehicleType = textValue(item.trip["ประเภทรถ"] ?? item.trip.vehicle_type);
   const bookingName = textValue((item.trip as Record<string, unknown>).booking_name);
 
@@ -241,8 +239,6 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   });
 
   return [
-    ``,
-    `🛣️ เส้นทาง : ${origin} ➜ ${destination}`,
     ``,
     `รายการที่ accept:`,
     ...requestLines,
