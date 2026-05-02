@@ -165,6 +165,8 @@ export class Poller {
       const allTrips: ExtractedTripInfo[] = [];
       const bookings = [...result.data.data.list];
 
+      const acceptedRequestIds = new Set<number>();
+
       for (let i = 0; i < bookings.length; i += MAX_BOOKING_CONCURRENCY) {
         const chunk = bookings.slice(i, i + MAX_BOOKING_CONCURRENCY);
         const chunkResults = await Promise.all(chunk.map(async (booking) => {
@@ -185,7 +187,10 @@ export class Poller {
 
         // Auto-accept immediately after each chunk to reduce race condition window
         if (env.AUTO_ACCEPT_ENABLED && chunkTrips.length > 0) {
-          await acceptAndNotifyMatchedRules(chunkTrips, this.apiClient);
+          const autoResult = await acceptAndNotifyMatchedRules(chunkTrips, this.apiClient);
+          autoResult.accepted.forEach((a) => {
+            if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
+          });
         }
 
         for (const trip of chunkTrips) {
@@ -202,9 +207,12 @@ export class Poller {
         }
       }
 
-      // Regular notify for all trips at the end
+      // Regular notify for all trips at the end (exclude auto-accepted)
       if (env.NOTIFY_ENABLED && allTrips.length > 0) {
-        await notifyMatchedRules(allTrips);
+        const remainingTrips = allTrips.filter((trip) => !acceptedRequestIds.has(trip.request_id));
+        if (remainingTrips.length > 0) {
+          await notifyMatchedRules(remainingTrips);
+        }
       }
     }
   }
