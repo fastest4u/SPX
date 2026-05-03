@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { formatDateTime } from '../lib/utils'
-import { Hand, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Hand, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, SlidersHorizontal, X } from 'lucide-react'
 import type { BookingHistory } from '../types'
 
 export const Route = createRoute({
@@ -18,21 +18,18 @@ export const Route = createRoute({
 
 function HistoryComponent() {
   const [search, setSearch] = useState('')
-  const [requestId, setRequestId] = useState('')
-  const [bookingId, setBookingId] = useState('')
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [vehicleType, setVehicleType] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
   const { data: result } = useQuery({
-    queryKey: ['history', { search, requestId, bookingId, origin, destination, vehicleType, page, pageSize }],
+    queryKey: ['history', { search, origin, destination, vehicleType, page, pageSize }],
     queryFn: () =>
       historyApi.paginated({
         search: search || undefined,
-        requestId: requestId ? Number(requestId) : undefined,
-        bookingId: bookingId ? Number(bookingId) : undefined,
         origin: origin || undefined,
         destination: destination || undefined,
         vehicleType: vehicleType || undefined,
@@ -45,17 +42,16 @@ function HistoryComponent() {
   const total = result?.meta?.total_items || 0
   const totalPages = result?.meta?.total_pages || 0
 
+  const hasFilters = origin || destination || vehicleType
+
   const handleReset = () => {
     setSearch('')
-    setRequestId('')
-    setBookingId('')
     setOrigin('')
     setDestination('')
     setVehicleType('')
     setPage(1)
   }
 
-  // Calculate page numbers to show
   const getPageNumbers = () => {
     const pages = []
     let start = Math.max(1, page - 2)
@@ -74,97 +70,108 @@ function HistoryComponent() {
   return (
     <div className="space-y-5 sm:space-y-6">
       <Card className="glass border-white/10">
-        <CardHeader>
-          <CardTitle className="text-white">ประวัติงานใน DB</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            ค้นหา / filter / sort รายการย้อนหลัง และรับงานแบบยืนยันด้วยมือ
-          </p>
+        <CardHeader className="gap-4 pb-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-white">ประวัติงานใน DB</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {total > 0 ? `พบ ${total} รายการ` : 'ค้นหางานย้อนหลัง'}
+            </p>
+          </div>
         </CardHeader>
         <CardContent>
-          {/* Filters */}
-          <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto]">
-              <div className="space-y-2">
-                <label htmlFor="history-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ค้นหา</label>
-                <Input
-                  id="history-search"
-                  placeholder="Request, booking, agency"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value)
-                    setPage(1)
-                  }}
-                />
+          {/* Search Bar */}
+          <div className="mb-4 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="ค้นหา Request ID, Booking ID, เส้นทาง, ประเภทรถ..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                }}
+                className="pl-10 pr-10 h-11 text-base"
+              />
+              {search && (
+                <button
+                  onClick={() => { setSearch(''); setPage(1) }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-300' : ''}`}
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Expandable Filters */}
+          {showFilters && (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 animate-in">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="hist-origin" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</label>
+                  <Input
+                    id="hist-origin"
+                    placeholder="เช่น NERC"
+                    value={origin}
+                    onChange={(e) => { setOrigin(e.target.value); setPage(1) }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="hist-dest" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ปลายทาง</label>
+                  <Input
+                    id="hist-dest"
+                    placeholder="เช่น SOCE"
+                    value={destination}
+                    onChange={(e) => { setDestination(e.target.value); setPage(1) }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="hist-veh" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</label>
+                  <Input
+                    id="hist-veh"
+                    placeholder="เช่น 6WH"
+                    value={vehicleType}
+                    onChange={(e) => { setVehicleType(e.target.value); setPage(1) }}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <label htmlFor="history-request-id" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Request ID</label>
-                <Input
-                  id="history-request-id"
-                  type="number"
-                  placeholder="Request ID"
-                  value={requestId}
-                  onChange={(e) => {
-                    setRequestId(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="history-booking-id" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Booking ID</label>
-                <Input
-                  id="history-booking-id"
-                  type="number"
-                  placeholder="Booking ID"
-                  value={bookingId}
-                  onChange={(e) => {
-                    setBookingId(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="history-origin" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</label>
-                <Input
-                  id="history-origin"
-                  placeholder="ต้นทาง"
-                  value={origin}
-                  onChange={(e) => {
-                    setOrigin(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="history-destination" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ปลายทาง</label>
-                <Input
-                  id="history-destination"
-                  placeholder="ปลายทาง"
-                  value={destination}
-                  onChange={(e) => {
-                    setDestination(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="history-vehicle-type" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</label>
-                <Input
-                  id="history-vehicle-type"
-                  placeholder="ประเภทรถ"
-                  value={vehicleType}
-                  onChange={(e) => {
-                    setVehicleType(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
-              <div className="flex items-end">
-                <Button className="w-full lg:w-auto" variant="outline" onClick={handleReset}>
-                  ล้าง
-                </Button>
+              <div className="mt-3 flex justify-end">
+                <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={handleReset}>ล้างทั้งหมด</Button>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Active Filter Chips */}
+          {hasFilters && !showFilters && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {origin && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
+                  ต้นทาง: {origin}
+                  <button onClick={() => { setOrigin(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {destination && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
+                  ปลายทาง: {destination}
+                  <button onClick={() => { setDestination(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {vehicleType && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
+                  รถ: {vehicleType}
+                  <button onClick={() => { setVehicleType(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Table */}
           {history.length === 0 ? (
@@ -196,8 +203,8 @@ function HistoryComponent() {
                   <tbody>
                     {history.map((item) => (
                       <tr key={item.id}>
-                        <td className="text-muted-foreground">{item.requestId}</td>
-                        <td className="text-muted-foreground">{item.bookingId}</td>
+                        <td className="font-mono text-xs text-cyan-300">{item.requestId}</td>
+                        <td className="font-mono text-xs text-muted-foreground">{item.bookingId || '—'}</td>
                         <td className="text-muted-foreground">{item.origin}</td>
                         <td className="text-muted-foreground">{item.destination}</td>
                         <td className="hidden text-muted-foreground lg:table-cell">{item.vehicleType}</td>
@@ -211,8 +218,8 @@ function HistoryComponent() {
                   </tbody>
                 </table>
               </div>
-              
-              {/* Pagination Controls */}
+
+              {/* Pagination */}
               <div className="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white/[0.03] p-3 rounded-xl border border-white/10">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span>แสดง</span>
@@ -231,7 +238,7 @@ function HistoryComponent() {
                   </select>
                   <span>รายการต่อหน้า</span>
                 </div>
-                
+
                 <div className="flex flex-col sm:flex-row items-center gap-4 text-sm text-muted-foreground">
                   <span>
                     {total > 0 ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} จาก ${total} รายการ` : '0 รายการ'}
@@ -255,14 +262,14 @@ function HistoryComponent() {
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    
+
                     {getPageNumbers().map((p) => (
                       <Button
                         key={p}
                         variant={page === p ? "default" : "outline"}
                         className={`h-8 w-8 rounded-md p-0 ${
-                          page === p 
-                            ? 'bg-linear-to-r from-emerald-400 to-cyan-400 text-slate-950 border-transparent font-bold' 
+                          page === p
+                            ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 border-transparent font-bold'
                             : 'bg-transparent border-white/10 text-muted-foreground hover:text-white'
                         }`}
                         onClick={() => setPage(p)}
