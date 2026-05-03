@@ -101,6 +101,7 @@ export interface BookingHistory {
 
 export interface HistoryFilterQuery {
   search?: string;
+  requestId?: number;
   bookingId?: number;
   origin?: string;
   destination?: string;

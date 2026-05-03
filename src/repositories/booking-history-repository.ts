@@ -22,6 +22,7 @@ export interface BookingHistoryRecord {
 
 export type HistoryFilterQuery = {
   search?: string;
+  requestId?: number;
   bookingId?: number;
   origin?: string;
   destination?: string;
@@ -36,13 +37,28 @@ type PaginatedHistoryQuery = HistoryFilterQuery & { page?: number; pageSize?: nu
 
 function buildHistoryFilters(query: HistoryFilterQuery): SQL | undefined {
   const filters: SQL[] = [];
+  if (query.requestId) filters.push(eq(spxBookingHistory.requestId, query.requestId));
   if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
   if (query.origin) filters.push(like(spxBookingHistory.origin, `%${query.origin}%`));
   if (query.destination) filters.push(like(spxBookingHistory.destination, `%${query.destination}%`));
   if (query.vehicleType) filters.push(like(spxBookingHistory.vehicleType, `%${query.vehicleType}%`));
   if (query.search) {
     const term = `%${query.search}%`;
-    const searchFilter = or(like(spxBookingHistory.route, term), like(spxBookingHistory.origin, term), like(spxBookingHistory.destination, term), like(spxBookingHistory.vehicleType, term), like(spxBookingHistory.bookingName, term), like(spxBookingHistory.agencyName, term));
+    const searchNum = Number(query.search);
+    const isNum = Number.isInteger(searchNum) && searchNum > 0;
+    const conditions = [
+      like(spxBookingHistory.route, term),
+      like(spxBookingHistory.origin, term),
+      like(spxBookingHistory.destination, term),
+      like(spxBookingHistory.vehicleType, term),
+      like(spxBookingHistory.bookingName, term),
+      like(spxBookingHistory.agencyName, term),
+    ];
+    if (isNum) {
+      conditions.push(eq(spxBookingHistory.requestId, searchNum));
+      conditions.push(eq(spxBookingHistory.bookingId, searchNum));
+    }
+    const searchFilter = or(...conditions);
     if (searchFilter) filters.push(searchFilter);
   }
   return filters.length > 0 ? and(...filters) : undefined;

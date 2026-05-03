@@ -5,6 +5,7 @@ import { sendSuccess, sendPaginated } from "../utils/response.js";
 
 const filterSchemaProps = {
   search: { type: "string", maxLength: 200 },
+  requestId: { type: "integer", minimum: 1 },
   bookingId: { type: "integer", minimum: 1 },
   origin: { type: "string", maxLength: 255 },
   destination: { type: "string", maxLength: 255 },
@@ -34,6 +35,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
       const rows = await getBookingHistory({
         limit: query.limit ?? 200,
         search: query.search,
+        requestId: query.requestId,
         bookingId: query.bookingId,
         origin: query.origin,
         destination: query.destination,
@@ -65,6 +67,7 @@ export const historyController: FastifyPluginAsync = async (app) => {
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 25,
         search: query.search,
+        requestId: query.requestId,
         bookingId: query.bookingId,
         origin: query.origin,
         destination: query.destination,

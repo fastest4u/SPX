@@ -18,6 +18,8 @@ export const Route = createRoute({
 
 function HistoryComponent() {
   const [search, setSearch] = useState('')
+  const [requestId, setRequestId] = useState('')
+  const [bookingId, setBookingId] = useState('')
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [vehicleType, setVehicleType] = useState('')
@@ -25,10 +27,12 @@ function HistoryComponent() {
   const [pageSize, setPageSize] = useState(25)
 
   const { data: result } = useQuery({
-    queryKey: ['history', { search, origin, destination, vehicleType, page, pageSize }],
+    queryKey: ['history', { search, requestId, bookingId, origin, destination, vehicleType, page, pageSize }],
     queryFn: () =>
       historyApi.paginated({
         search: search || undefined,
+        requestId: requestId ? Number(requestId) : undefined,
+        bookingId: bookingId ? Number(bookingId) : undefined,
         origin: origin || undefined,
         destination: destination || undefined,
         vehicleType: vehicleType || undefined,
@@ -43,6 +47,8 @@ function HistoryComponent() {
 
   const handleReset = () => {
     setSearch('')
+    setRequestId('')
+    setBookingId('')
     setOrigin('')
     setDestination('')
     setVehicleType('')
@@ -86,6 +92,32 @@ function HistoryComponent() {
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value)
+                    setPage(1)
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="history-request-id" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Request ID</label>
+                <Input
+                  id="history-request-id"
+                  type="number"
+                  placeholder="Request ID"
+                  value={requestId}
+                  onChange={(e) => {
+                    setRequestId(e.target.value)
+                    setPage(1)
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="history-booking-id" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Booking ID</label>
+                <Input
+                  id="history-booking-id"
+                  type="number"
+                  placeholder="Booking ID"
+                  value={bookingId}
+                  onChange={(e) => {
+                    setBookingId(e.target.value)
                     setPage(1)
                   }}
                 />
