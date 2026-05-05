@@ -6,6 +6,7 @@ import { autoAcceptHistoryApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
 import { Search, CheckCircle2, XCircle, Truck } from 'lucide-react'
 import type { AutoAcceptHistoryItem } from '../types'
@@ -20,6 +21,60 @@ const STATUS_OPTIONS = [
   { value: '', label: 'ทั้งหมด' },
   { value: 'success', label: 'สำเร็จ' },
   { value: 'failed', label: 'ล้มเหลว' },
+]
+
+const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryItem>[] = [
+  {
+    header: 'ID',
+    render: (item) => <span className="text-muted-foreground">{item.id}</span>,
+  },
+  {
+    header: 'Rule',
+    render: (item) => (
+      <span className="status-pill border-violet-300/20 bg-violet-300/10 text-violet-300">
+        {item.ruleName}
+      </span>
+    ),
+  },
+  {
+    header: 'เส้นทาง',
+    render: (item) => (
+      <span className="text-muted-foreground text-sm">
+        {item.origin} {'\u2192'} {item.destination}
+      </span>
+    ),
+  },
+  {
+    header: 'ประเภทรถ',
+    render: (item) => <span className="text-muted-foreground text-sm">{item.vehicleType || '\u2014'}</span>,
+  },
+  {
+    header: 'งานที่รับ',
+    render: (item) => (
+      <span className="text-muted-foreground">
+        {item.requestIds.length} request{item.requestIds.length > 1 ? 's' : ''}
+      </span>
+    ),
+  },
+  {
+    header: 'สถานะ',
+    render: (item) =>
+      item.status === 'success' ? (
+        <span className="flex items-center gap-1 text-emerald-400">
+          <CheckCircle2 className="h-4 w-4" />
+          {'สำเร็จ'}
+        </span>
+      ) : (
+        <span className="flex items-center gap-1 text-red-400" title={item.errorMessage}>
+          <XCircle className="h-4 w-4" />
+          {'ล้มเหลว'}
+        </span>
+      ),
+  },
+  {
+    header: 'เวลา',
+    render: (item) => <span className="text-muted-foreground text-sm">{formatDateTime(item.createdAt)}</span>,
+  },
 ]
 
 function AutoAcceptHistoryComponent() {
@@ -50,10 +105,10 @@ function AutoAcceptHistoryComponent() {
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
             <Truck className="h-5 w-5 text-cyan-400" />
-            ประวัติการรับงานอัตโนมัติ
+            {'ประวัติการรับงานอัตโนมัติ'}
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            บันทึกการ auto-accept ทุกครั้ง
+            {'บันทึกการ auto-accept ทุกครั้ง'}
           </p>
         </CardHeader>
         <CardContent>
@@ -61,10 +116,10 @@ function AutoAcceptHistoryComponent() {
           <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
               <div className="space-y-2">
-                <label htmlFor="aah-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ค้นหา</label>
+                <label htmlFor="aah-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ค้นหา'}</label>
                 <Input
                   id="aah-search"
-                  placeholder="ค้นหาเส้นทาง, ประเภทรถ"
+                  placeholder={'ค้นหาเส้นทาง, ประเภทรถ'}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -73,13 +128,13 @@ function AutoAcceptHistoryComponent() {
                 <label htmlFor="aah-rule" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Rule</label>
                 <Input
                   id="aah-rule"
-                  placeholder="ชื่อ Rule"
+                  placeholder={'ชื่อ Rule'}
                   value={ruleName}
                   onChange={(e) => setRuleName(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="aah-status" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">สถานะ</label>
+                <label htmlFor="aah-status" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'สถานะ'}</label>
                 <select
                   id="aah-status"
                   value={status}
@@ -95,86 +150,33 @@ function AutoAcceptHistoryComponent() {
               </div>
               <div className="flex items-end">
                 <Button className="w-full lg:w-auto" variant="outline" onClick={handleReset}>
-                  ล้าง
+                  {'ล้าง'}
                 </Button>
               </div>
             </div>
           </div>
 
-          {/* Table */}
-          {items.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
-              <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>ไม่พบประวัติการรับงานอัตโนมัติ</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-3 md:hidden">
-                {items.map((item) => (
-                  <AutoAcceptMobileCard key={item.id} item={item} />
-                ))}
-              </div>
-              <div className="data-scroll hidden md:block">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Rule</th>
-                      <th>เส้นทาง</th>
-                      <th>ประเภทรถ</th>
-                      <th>งานที่รับ</th>
-                      <th>สถานะ</th>
-                      <th>เวลา</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="text-muted-foreground">{item.id}</td>
-                        <td>
-                          <span className="status-pill border-violet-300/20 bg-violet-300/10 text-violet-300">
-                            {item.ruleName}
-                          </span>
-                        </td>
-                        <td className="text-muted-foreground text-sm">
-                          {item.origin} → {item.destination}
-                        </td>
-                        <td className="text-muted-foreground text-sm">{item.vehicleType || '—'}</td>
-                        <td className="text-muted-foreground">
-                          {item.requestIds.length} request
-                          {item.requestIds.length > 1 ? 's' : ''}
-                        </td>
-                        <td>
-                          {item.status === 'success' ? (
-                            <span className="flex items-center gap-1 text-emerald-400">
-                              <CheckCircle2 className="h-4 w-4" />
-                              สำเร็จ
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-red-400" title={item.errorMessage}>
-                              <XCircle className="h-4 w-4" />
-                              ล้มเหลว
-                            </span>
-                          )}
-                        </td>
-                        <td className="text-muted-foreground text-sm">{formatDateTime(item.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+          {/* Data Table */}
+          <DataTable
+            columns={AAH_COLUMNS}
+            data={items}
+            keyField={(item) => item.id}
+            emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
+            emptyMessage={'ไม่พบประวัติการรับงานอัตโนมัติ'}
+            renderMobile={(item) => (
+              <AutoAcceptMobileCardContent item={item} />
+            )}
+          />
         </CardContent>
       </Card>
     </div>
   )
 }
 
-function AutoAcceptMobileCard({ item }: { item: AutoAcceptHistoryItem }) {
+function AutoAcceptMobileCardContent({ item }: { item: AutoAcceptHistoryItem }) {
   const isSuccess = item.status === 'success'
   return (
-    <div className="mobile-record">
+    <>
       <div className="mb-4 flex items-start justify-between gap-3">
         <span className="status-pill border-violet-300/20 bg-violet-300/10 text-violet-300">
           {item.ruleName}
@@ -188,17 +190,17 @@ function AutoAcceptMobileCard({ item }: { item: AutoAcceptHistoryItem }) {
       </div>
       <div className="grid gap-3 text-sm">
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">เส้นทาง</div>
-          <div className="mt-1 font-semibold text-white">{item.origin} → {item.destination}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'เส้นทาง'}</div>
+          <div className="mt-1 font-semibold text-white">{item.origin} {'\u2192'} {item.destination}</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">งานที่รับ</div>
+            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'งานที่รับ'}</div>
             <div className="mt-1 text-slate-200">{item.requestIds.length} requests</div>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</div>
-            <div className="mt-1 text-slate-200">{item.vehicleType || '—'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ประเภทรถ'}</div>
+            <div className="mt-1 text-slate-200">{item.vehicleType || '\u2014'}</div>
           </div>
         </div>
         {item.errorMessage ? (
@@ -208,10 +210,10 @@ function AutoAcceptMobileCard({ item }: { item: AutoAcceptHistoryItem }) {
           </div>
         ) : null}
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">เวลา</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'เวลา'}</div>
           <div className="mt-1 text-slate-200">{formatDateTime(item.createdAt)}</div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
