@@ -29,28 +29,28 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
     render: (item) => item.bookingId || '\u2014',
   },
   {
-    header: '\u0E15\u0E49\u0E19\u0E17\u0E32\u0E07',
+    header: 'ต้นทาง',
     render: (item) => item.origin,
   },
   {
-    header: '\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07',
+    header: 'ปลายทาง',
     render: (item) => item.destination,
   },
   {
-    header: '\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E23\u0E16',
+    header: 'ประเภทรถ',
     className: 'hidden lg:table-cell',
     render: (item) => item.vehicleType,
   },
   {
-    header: '\u0E40\u0E27\u0E25\u0E32\u0E2A\u0E41\u0E15\u0E19\u0E1A\u0E32\u0E22',
+    header: 'เวลาสแตนบาย',
     render: (item) => formatDateTime(item.standbyDateTime),
   },
   {
-    header: '\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E40\u0E21\u0E37\u0E48\u0E2D',
+    header: 'บันทึกเมื่อ',
     render: (item) => formatDateTime(item.createdAt),
   },
   {
-    header: '\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19',
+    header: 'รับงาน',
     render: (item) => <AcceptButton item={item} />,
   },
 ]
@@ -115,9 +115,9 @@ function HistoryComponent() {
       <Card className="glass border-white/10">
         <CardHeader className="gap-4 pb-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle className="text-white">{'\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E43\u0E19 DB'}</CardTitle>
+            <CardTitle className="text-white">ประวัติงานใน DB</CardTitle>
             <p className="text-sm text-muted-foreground">
-              {total > 0 ? `\u0E1E\u0E1A ${total} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23` : '\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E07\u0E32\u0E19\u0E22\u0E49\u0E2D\u0E19\u0E2B\u0E25\u0E31\u0E07'}
+              {total > 0 ? `พบ ${total} รายการ` : 'ค้นหางานย้อนหลัง'}
             </p>
           </div>
         </CardHeader>
@@ -126,28 +126,28 @@ function HistoryComponent() {
           {history.length > 0 && (
             <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-cyan-300">{'\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14'}</div>
+                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-cyan-300">{'รายการทั้งหมด'}</div>
                 <div className="flex items-center gap-1.5 text-lg font-black tracking-tight text-cyan-200">
                   <Hash className="h-4 w-4" />
                   {total}
                 </div>
               </div>
               <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-emerald-300">{'\u0E15\u0E49\u0E19\u0E17\u0E32\u0E07'}</div>
+                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-emerald-300">ต้นทาง</div>
                 <div className="flex items-center gap-1.5 text-lg font-black tracking-tight text-emerald-200">
                   <MapPin className="h-4 w-4" />
                   {uniqueOrigins.length}
                 </div>
               </div>
               <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-amber-300">{'\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07'}</div>
+                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-amber-300">ปลายทาง</div>
                 <div className="flex items-center gap-1.5 text-lg font-black tracking-tight text-amber-200">
                   <MapPin className="h-4 w-4" />
                   {uniqueDests.length}
                 </div>
               </div>
               <div className="rounded-xl border border-violet-300/20 bg-violet-300/10 px-3 py-2">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-violet-300">{'\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E23\u0E16'}</div>
+                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60 text-violet-300">ประเภทรถ</div>
                 <div className="flex items-center gap-1.5 text-lg font-black tracking-tight text-violet-200">
                   <Car className="h-4 w-4" />
                   {uniqueVehicles.length}
@@ -161,7 +161,7 @@ function HistoryComponent() {
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder={'\u0E04\u0E49\u0E19\u0E2B\u0E32 Request ID, Booking ID, \u0E40\u0E2A\u0E49\u0E19\u0E17\u0E32\u0E07, \u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E23\u0E16...'}
+                placeholder={'ค้นหา Request ID, Booking ID, เส้นทาง, ประเภทรถ...'}
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value)
@@ -193,35 +193,35 @@ function HistoryComponent() {
             <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 animate-in">
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="space-y-1.5">
-                  <label htmlFor="hist-origin" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E15\u0E49\u0E19\u0E17\u0E32\u0E07'}</label>
+                  <label htmlFor="hist-origin" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</label>
                   <Input
                     id="hist-origin"
-                    placeholder={'\u0E40\u0E0A\u0E48\u0E19 NERC'}
+                    placeholder={'เช่น NERC'}
                     value={origin}
                     onChange={(e) => { setOrigin(e.target.value); setPage(1) }}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="hist-dest" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07'}</label>
+                  <label htmlFor="hist-dest" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ปลายทาง</label>
                   <Input
                     id="hist-dest"
-                    placeholder={'\u0E40\u0E0A\u0E48\u0E19 SOCE'}
+                    placeholder={'เช่น SOCE'}
                     value={destination}
                     onChange={(e) => { setDestination(e.target.value); setPage(1) }}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="hist-veh" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E23\u0E16'}</label>
+                  <label htmlFor="hist-veh" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</label>
                   <Input
                     id="hist-veh"
-                    placeholder={'\u0E40\u0E0A\u0E48\u0E19 6WH'}
+                    placeholder={'เช่น 6WH'}
                     value={vehicleType}
                     onChange={(e) => { setVehicleType(e.target.value); setPage(1) }}
                   />
                 </div>
               </div>
               <div className="mt-3 flex justify-end">
-                <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={handleReset}>{'\u0E25\u0E49\u0E32\u0E07\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14'}</Button>
+                <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={handleReset}>{'ล้างทั้งหมด'}</Button>
               </div>
             </div>
           )}
@@ -231,19 +231,19 @@ function HistoryComponent() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {origin && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
-                  {'\u0E15\u0E49\u0E19\u0E17\u0E32\u0E07'}: {origin}
+                  ต้นทาง: {origin}
                   <button onClick={() => { setOrigin(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
                 </span>
               )}
               {destination && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
-                  {'\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07'}: {destination}
+                  ปลายทาง: {destination}
                   <button onClick={() => { setDestination(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
                 </span>
               )}
               {vehicleType && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-200">
-                  {'\u0E23\u0E16'}: {vehicleType}
+                  {'รถ'}: {vehicleType}
                   <button onClick={() => { setVehicleType(''); setPage(1) }} className="ml-1 hover:text-white"><X className="h-3 w-3" /></button>
                 </span>
               )}
@@ -256,7 +256,7 @@ function HistoryComponent() {
             data={history}
             keyField={(item) => item.id}
             emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-            emptyMessage={'\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19'}
+            emptyMessage={'ไม่พบประวัติงาน'}
             renderMobile={(item) => (
               <HistoryMobileCardContent item={item} />
             )}
@@ -266,7 +266,7 @@ function HistoryComponent() {
           {history.length > 0 && (
             <div className="mt-4 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white/[0.03] p-3 rounded-xl border border-white/10">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>{'\u0E41\u0E2A\u0E14\u0E07'}</span>
+                <span>{'แสดง'}</span>
                 <select
                   className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-sm text-slate-200 outline-none focus:border-cyan-400"
                   value={pageSize}
@@ -280,12 +280,12 @@ function HistoryComponent() {
                   <option className="bg-slate-900 text-slate-200" value={50}>50</option>
                   <option className="bg-slate-900 text-slate-200" value={100}>100</option>
                 </select>
-                <span>{'\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D\u0E2B\u0E19\u0E49\u0E32'}</span>
+                <span>{'รายการต่อหน้า'}</span>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-4 text-sm text-muted-foreground">
                 <span>
-                  {total > 0 ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} \u0E08\u0E32\u0E01 ${total} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23` : '0 \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23'}
+                  {total > 0 ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)} จาก ${total} รายการ` : '0 รายการ'}
                 </span>
                 <div className="flex items-center gap-1">
                   <Button
@@ -358,7 +358,7 @@ function AcceptButton({ item }: { item: BookingHistory }) {
   return (
     <Button size="sm" variant="outline" className="border-emerald-400/20 text-emerald-300 hover:bg-emerald-400/10">
       <Hand className="h-3 w-3 mr-1" />
-      {'\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19'}
+      รับงาน
     </Button>
   )
 }
@@ -379,24 +379,24 @@ function HistoryMobileCardContent({ item }: { item: BookingHistory }) {
       <div className="grid gap-3 text-sm">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E15\u0E49\u0E19\u0E17\u0E32\u0E07'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</div>
             <div className="mt-1 text-slate-200">{item.origin || '\u2014'}</div>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ปลายทาง</div>
             <div className="mt-1 text-slate-200">{item.destination || '\u2014'}</div>
           </div>
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E23\u0E16'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</div>
           <div className="mt-1 text-slate-200">{item.vehicleType || '\u2014'}</div>
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E40\u0E27\u0E25\u0E32\u0E2A\u0E41\u0E15\u0E19\u0E1A\u0E32\u0E22'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">เวลาสแตนบาย</div>
           <div className="mt-1 text-slate-200">{formatDateTime(item.standbyDateTime) || '\u2014'}</div>
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E40\u0E21\u0E37\u0E48\u0E2D'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">บันทึกเมื่อ</div>
           <div className="mt-1 text-slate-200">{formatDateTime(item.createdAt)}</div>
         </div>
       </div>

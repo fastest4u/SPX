@@ -37,21 +37,19 @@ export function DataTable<T>({
     )
   }
 
-  const mobileRenderer = renderMobile
-
   return (
     <div className={cn('space-y-0', className)}>
-      {mobileRenderer ? (
+      {renderMobile ? (
         <div className="grid gap-3 md:hidden">
           {data.map((item) => (
             <div key={keyField(item)} className="mobile-record">
-              {mobileRenderer(item)}
+              {renderMobile(item)}
             </div>
           ))}
         </div>
       ) : null}
 
-      <div className={cn('data-scroll', mobileRenderer ? 'hidden md:block' : '')}>
+      <div className={cn('data-scroll', renderMobile ? 'hidden md:block' : '')}>
         <table className="data-table" style={{ minWidth }}>
           <thead>
             <tr>

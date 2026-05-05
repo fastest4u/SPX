@@ -31,15 +31,15 @@ const AUDIT_COLUMNS: DataTableColumn<AuditLog>[] = [
     render: (log) => <span className="text-muted-foreground">{log.id}</span>,
   },
   {
-    header: '\u0E1C\u0E39\u0E49\u0E17\u0E33\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23',
+    header: 'ผู้ทำรายการ',
     render: (log) => <UserBadge username={log.username} />,
   },
   {
-    header: '\u0E41\u0E2D\u0E04\u0E0A\u0E31\u0E19',
+    header: 'แอคชัน',
     render: (log) => <span className="text-muted-foreground">{log.action}</span>,
   },
   {
-    header: '\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14',
+    header: 'รายละเอียด',
     render: (log) => (
       <span className="max-w-md truncate text-muted-foreground block">
         {log.details || '\u2014'}
@@ -47,7 +47,7 @@ const AUDIT_COLUMNS: DataTableColumn<AuditLog>[] = [
     ),
   },
   {
-    header: '\u0E40\u0E27\u0E25\u0E32',
+    header: 'เวลา',
     render: (log) => <span className="text-muted-foreground">{formatDateTime(log.createdAt)}</span>,
   },
 ]
@@ -78,9 +78,9 @@ function AuditComponent() {
     <div className="space-y-5 sm:space-y-6">
       <Card className="glass border-white/10">
         <CardHeader>
-          <CardTitle className="text-white">{'\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19'}</CardTitle>
+          <CardTitle className="text-white">{'ประวัติการใช้งาน'}</CardTitle>
           <p className="text-sm text-muted-foreground">
-            {'\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E01\u0E23\u0E2D\u0E07\u0E01\u0E34\u0E08\u0E01\u0E23\u0E23\u0E21\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49'}
+            {'ค้นหาและกรองกิจกรรมผู้ใช้'}
           </p>
         </CardHeader>
         <CardContent>
@@ -88,35 +88,35 @@ function AuditComponent() {
           <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
               <div className="space-y-2">
-                <label htmlFor="audit-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E04\u0E49\u0E19\u0E2B\u0E32'}</label>
+                <label htmlFor="audit-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ค้นหา'}</label>
                 <Input
                   id="audit-search"
-                  placeholder={'\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14'}
+                  placeholder={'ค้นหารายละเอียด'}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="audit-username" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49'}</label>
+                <label htmlFor="audit-username" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ผู้ใช้'}</label>
                 <Input
                   id="audit-username"
-                  placeholder={'\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49'}
+                  placeholder={'ผู้ใช้'}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="audit-action" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E41\u0E2D\u0E04\u0E0A\u0E31\u0E19'}</label>
+                <label htmlFor="audit-action" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'แอคชัน'}</label>
                 <Input
                   id="audit-action"
-                  placeholder={'\u0E41\u0E2D\u0E04\u0E0A\u0E31\u0E19'}
+                  placeholder={'แอคชัน'}
                   value={action}
                   onChange={(e) => setAction(e.target.value)}
                 />
               </div>
               <div className="flex items-end">
                 <Button className="w-full lg:w-auto" variant="outline" onClick={handleReset}>
-                  {'\u0E25\u0E49\u0E32\u0E07'}
+                  {'ล้าง'}
                 </Button>
               </div>
             </div>
@@ -128,7 +128,7 @@ function AuditComponent() {
             data={logs}
             keyField={(log) => log.id}
             emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-            emptyMessage={'\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19'}
+            emptyMessage={'ไม่พบประวัติการใช้งาน'}
             renderMobile={(log) => (
               <AuditMobileCardContent log={log} />
             )}
@@ -150,15 +150,15 @@ function AuditMobileCardContent({ log }: { log: AuditLog }) {
       </div>
       <div className="grid gap-3 text-sm">
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E41\u0E2D\u0E04\u0E0A\u0E31\u0E19'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'แอคชัน'}</div>
           <div className="mt-1 font-semibold text-white">{log.action}</div>
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'รายละเอียด'}</div>
           <div className="mt-1 break-words text-slate-200">{log.details || '\u2014'}</div>
         </div>
         <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'\u0E40\u0E27\u0E25\u0E32'}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'เวลา'}</div>
           <div className="mt-1 text-slate-200">{formatDateTime(log.createdAt)}</div>
         </div>
       </div>
