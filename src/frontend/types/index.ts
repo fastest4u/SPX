@@ -136,6 +136,8 @@ export interface AuditQuery {
   action?: string;
   sortBy?: 'created_at' | 'id';
   sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
 }
 
 // User Types
@@ -341,4 +343,6 @@ export interface AutoAcceptHistoryQuery {
   status?: string;
   sortBy?: 'created_at' | 'id';
   sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
 }

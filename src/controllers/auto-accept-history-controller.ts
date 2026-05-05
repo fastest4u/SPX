@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
-import { sendSuccess } from "../utils/response.js";
+import { getAutoAcceptHistory, getAutoAcceptHistoryPaginated } from "../repositories/auto-accept-repository.js";
+import { sendSuccess, sendPaginated } from "../utils/response.js";
 
 export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
   app.get(
@@ -38,6 +38,47 @@ export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
         sortDir: query.sortDir ?? "desc",
       });
       return sendSuccess(reply, rows);
+    }
+  );
+
+  app.get(
+    "/paginated",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: {
+            page: { type: "integer", minimum: 1, default: 1 },
+            pageSize: { type: "integer", minimum: 1, maximum: 200, default: 25 },
+            search: { type: "string", maxLength: 200 },
+            ruleName: { type: "string", maxLength: 128 },
+            status: { type: "string", enum: ["success", "failed"] },
+            sortBy: { type: "string", enum: ["created_at", "id"] },
+            sortDir: { type: "string", enum: ["asc", "desc"] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const query = req.query as {
+        page?: number;
+        pageSize?: number;
+        search?: string;
+        ruleName?: string;
+        status?: string;
+        sortBy?: "created_at" | "id";
+        sortDir?: "asc" | "desc";
+      };
+      const result = await getAutoAcceptHistoryPaginated({
+        page: query.page ?? 1,
+        pageSize: query.pageSize ?? 25,
+        search: query.search,
+        ruleName: query.ruleName,
+        status: query.status,
+        sortBy: query.sortBy ?? "created_at",
+        sortDir: query.sortDir ?? "desc",
+      });
+      return sendPaginated(reply, result.data, result.page, result.pageSize, result.total);
     }
   );
 };

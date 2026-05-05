@@ -1,6 +1,6 @@
 import { getDb, ensureDashboardTables } from "../db/client.js";
 import { autoAcceptHistory } from "../db/schema.js";
-import { and, asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, count } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
 
@@ -104,4 +104,59 @@ export async function getAutoAcceptHistory(query: AutoAcceptHistoryQuery) {
 
   const rows = await q;
   return rows.map(dbRowToItem);
+}
+
+export type PaginatedAutoAcceptHistory = {
+  data: ReturnType<typeof dbRowToItem>[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+type PaginatedAutoAcceptHistoryQuery = AutoAcceptHistoryQuery & {
+  page?: number;
+  pageSize?: number;
+};
+
+export async function getAutoAcceptHistoryPaginated(query: PaginatedAutoAcceptHistoryQuery): Promise<PaginatedAutoAcceptHistory> {
+  const db = await getDb();
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 25));
+  const offset = (page - 1) * pageSize;
+
+  const filters: SQL[] = [];
+  if (query.ruleName) filters.push(like(autoAcceptHistory.ruleName, `%${query.ruleName}%`));
+  if (query.status) filters.push(eq(autoAcceptHistory.status, query.status));
+  if (query.search) {
+    const term = `%${query.search}%`;
+    const searchFilter = or(
+      like(autoAcceptHistory.ruleName, term),
+      like(autoAcceptHistory.origin, term),
+      like(autoAcceptHistory.destination, term),
+      like(autoAcceptHistory.vehicleType, term),
+    );
+    if (searchFilter) filters.push(searchFilter);
+  }
+
+  const orderBy = query.sortBy === "id"
+    ? (query.sortDir === "asc" ? asc(autoAcceptHistory.id) : desc(autoAcceptHistory.id))
+    : (query.sortDir === "asc" ? asc(autoAcceptHistory.createdAt) : desc(autoAcceptHistory.createdAt));
+
+  const whereClause = filters.length > 0 ? and(...filters) : undefined;
+
+  const [data, [countResult]] = await Promise.all([
+    db.select().from(autoAcceptHistory).where(whereClause).orderBy(orderBy).limit(pageSize).offset(offset),
+    db.select({ total: count() }).from(autoAcceptHistory).where(whereClause),
+  ]);
+
+  const total = countResult?.total ?? 0;
+
+  return {
+    data: data.map(dbRowToItem),
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
+  };
 }

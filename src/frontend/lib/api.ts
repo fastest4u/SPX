@@ -228,6 +228,20 @@ export const auditApi = {
     const query = queryParams.toString()
     return fetchJson<AuditLog[]>(`${API_BASE}/audit-logs${query ? `?${query}` : ''}`)
   },
+
+  paginated: (params?: AuditQuery): Promise<ApiPaginatedResponse<AuditLog>> => {
+    const queryParams = new URLSearchParams()
+    if (params?.page) queryParams.set('page', String(params.page))
+    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
+    if (params?.search) queryParams.set('search', params.search)
+    if (params?.username) queryParams.set('username', params.username)
+    if (params?.action) queryParams.set('action', params.action)
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
+    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
+
+    const query = queryParams.toString()
+    return fetchPaginated<AuditLog>(`${API_BASE}/audit-logs/paginated${query ? `?${query}` : ''}`)
+  },
 }
 
 // Auto-Accept History API
@@ -243,6 +257,20 @@ export const autoAcceptHistoryApi = {
 
     const query = queryParams.toString()
     return fetchJson<AutoAcceptHistoryItem[]>(`${API_BASE}/auto-accept-history${query ? `?${query}` : ''}`)
+  },
+
+  paginated: (params?: AutoAcceptHistoryQuery): Promise<ApiPaginatedResponse<AutoAcceptHistoryItem>> => {
+    const queryParams = new URLSearchParams()
+    if (params?.page) queryParams.set('page', String(params.page))
+    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
+    if (params?.search) queryParams.set('search', params.search)
+    if (params?.ruleName) queryParams.set('ruleName', params.ruleName)
+    if (params?.status) queryParams.set('status', params.status)
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
+    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
+
+    const query = queryParams.toString()
+    return fetchPaginated<AutoAcceptHistoryItem>(`${API_BASE}/auto-accept-history/paginated${query ? `?${query}` : ''}`)
   },
 }
 
