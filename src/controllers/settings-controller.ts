@@ -19,6 +19,7 @@ const settingsSchema = {
     LINE_USER_ID: { type: "string" },
     DISCORD_WEBHOOK_URL: { type: "string" },
     POLL_INTERVAL_MS: { type: "string" },
+    BOOKING_DETAIL_CONCURRENCY: { type: "string" },
   },
 } as const;
 
@@ -45,6 +46,7 @@ function readPublicSettings(): EnvSettings {
     LINE_USER_ID: redactSecret(envVars.LINE_USER_ID),
     DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
     POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
+    BOOKING_DETAIL_CONCURRENCY: envVars.BOOKING_DETAIL_CONCURRENCY || "8",
   };
 }
 

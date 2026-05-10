@@ -20,7 +20,25 @@ import { classifyPollingError, formatClassifiedError } from "../utils/error-clas
 import { sseBroadcaster } from "../services/sse.js";
 import type { PollingStats } from "../models/types.js";
 
-const MAX_BOOKING_CONCURRENCY = 3;
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+
+  return results;
+}
 
 export class Poller {
   private apiClient: ApiClient;
@@ -167,43 +185,61 @@ export class Poller {
 
       const acceptedRequestIds = new Set<number>();
 
-      for (let i = 0; i < bookings.length; i += MAX_BOOKING_CONCURRENCY) {
-        const chunk = bookings.slice(i, i + MAX_BOOKING_CONCURRENCY);
-        const chunkResults = await Promise.all(chunk.map(async (booking) => {
+      let autoAcceptQueue: Promise<void> = Promise.resolve();
+      const runAutoAcceptInOrder = async (trips: ExtractedTripInfo[]): Promise<void> => {
+        const current = autoAcceptQueue.then(async () => {
+          const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
+          autoResult.accepted.forEach((a) => {
+            if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
+          });
+        });
+        autoAcceptQueue = current.catch(() => undefined);
+        await current;
+      };
+
+      const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, bookings.length);
+      if (bookings.length > detailConcurrency) {
+        logger.info("booking-detail-concurrency", { bookings: bookings.length, concurrency: detailConcurrency });
+      }
+
+      const bookingTrips = await mapWithConcurrency(bookings, detailConcurrency, async (booking) => {
+        try {
           const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
           if (!requestList) {
             logger.warn("request-list-missing", { bookingId: booking.booking_id });
             return [] as ExtractedTripInfo[];
           }
 
-          return extractAllRequestListTrips(requestList.data, {
+          const trips = extractAllRequestListTrips(requestList.data, {
             booking_id: booking.booking_id,
             booking_name: booking.booking_name,
             agency_name: booking.agency_name,
           });
-        }));
 
-        const chunkTrips = chunkResults.flat();
+          if (env.AUTO_ACCEPT_ENABLED && trips.length > 0) {
+            await runAutoAcceptInOrder(trips);
+          }
 
-        // Auto-accept immediately after each chunk to reduce race condition window
-        if (env.AUTO_ACCEPT_ENABLED && chunkTrips.length > 0) {
-          const autoResult = await acceptAndNotifyMatchedRules(chunkTrips, this.apiClient);
-          autoResult.accepted.forEach((a) => {
-            if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
+          return trips;
+        } catch (err) {
+          logger.error("booking-detail-processing-failed", {
+            bookingId: booking.booking_id,
+            error: err instanceof Error ? err.message : String(err),
           });
+          return [] as ExtractedTripInfo[];
+        }
+      });
+
+      allTrips.push(...bookingTrips.flat());
+
+      for (const trip of allTrips) {
+        if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
+          console.log("\n" + formatTripInfo(trip));
         }
 
-        for (const trip of chunkTrips) {
-          if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
-            console.log("\n" + formatTripInfo(trip));
-          }
-
-          if (env.SAVE_TO_DB) {
-            const dbResult = await saveBookingRequest(trip);
-            metrics.recordTrip(dbResult.action);
-          }
-
-          allTrips.push(trip);
+        if (env.SAVE_TO_DB) {
+          const dbResult = await saveBookingRequest(trip);
+          metrics.recordTrip(dbResult.action);
         }
       }
 

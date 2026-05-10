@@ -91,6 +91,7 @@ export const env = {
   REFERER: process.env.REFERER || "",
   DEBUG: process.env.DEBUG === "true",
   FETCH_DETAILS: process.env.FETCH_DETAILS === "true",
+  BOOKING_DETAIL_CONCURRENCY: readIntegerEnv("BOOKING_DETAIL_CONCURRENCY", 8),
   BIDDING_PAGE_NO: readIntegerEnv("BIDDING_PAGE_NO", 1),
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",
@@ -138,6 +139,7 @@ export function validateRuntimeConfig(): void {
   if (env.API_URL && !env.API_URL.includes("/booking/bidding/list")) invalid.push("API_URL must contain /booking/bidding/list");
   if (env.REFERER && !isValidUrl(env.REFERER)) invalid.push("REFERER must be a valid URL");
   if (!isPositiveInteger(env.POLL_INTERVAL_MS)) invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
+  if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50) invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
   if (!isPositiveInteger(env.BIDDING_PAGE_NO)) invalid.push("BIDDING_PAGE_NO must be a positive integer");
   if (!isPositiveInteger(env.BIDDING_PAGE_COUNT)) invalid.push("BIDDING_PAGE_COUNT must be a positive integer");
   if (!isNonNegativeInteger(env.REQUEST_CTIME_START)) invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");

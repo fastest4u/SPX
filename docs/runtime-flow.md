@@ -59,9 +59,10 @@ sequenceDiagram
 4. ถ้า request สำเร็จ:
    - **DataProcessor.detectChange()** — FNV-1a hash comparison
    - **formatStatus()** — log summary (bookings count, change status)
-   - ถ้า `FETCH_DETAILS` | `SAVE_TO_DB` | `NOTIFY_ENABLED`:
-     - Fetch request list per booking (3 concurrent via `Promise.all`)
+   - ถ้า `FETCH_DETAILS` | `SAVE_TO_DB` | `NOTIFY_ENABLED` | `AUTO_ACCEPT_ENABLED`:
+     - Fetch request list per booking ด้วย worker pool (`BOOKING_DETAIL_CONCURRENCY`, default 8)
      - **extractAllRequestListTrips()** — แปลง API response → `ExtractedTripInfo[]`
+     - ถ้า `AUTO_ACCEPT_ENABLED`: booking ที่ดึงเสร็จก่อนจะเข้า auto-accept queue ทันที
      - Print trip info ถ้า `FETCH_DETAILS`
    - ถ้า `SAVE_TO_DB`:
      - `INSERT IGNORE` each trip → `spx_booking_history`

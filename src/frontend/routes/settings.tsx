@@ -29,6 +29,7 @@ function SettingsComponent() {
     LINE_CHANNEL_ACCESS_TOKEN: '',
     LINE_USER_ID: '',
     DISCORD_WEBHOOK_URL: '',
+    BOOKING_DETAIL_CONCURRENCY: '8',
   })
 
   useEffect(() => {
@@ -41,6 +42,7 @@ function SettingsComponent() {
         LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
         LINE_USER_ID: settings.LINE_USER_ID || '',
         DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
+        BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
       })
     }
   }, [settings])
@@ -109,6 +111,16 @@ function SettingsComponent() {
                       value={formData.POLL_INTERVAL_MS}
                       onChange={(e) => setFormData({ ...formData, POLL_INTERVAL_MS: e.target.value })}
                       placeholder="30000"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="settings-booking-concurrency" className="text-sm text-muted-foreground">BOOKING_DETAIL_CONCURRENCY</label>
+                    <Input
+                      id="settings-booking-concurrency"
+                      value={formData.BOOKING_DETAIL_CONCURRENCY}
+                      onChange={(e) => setFormData({ ...formData, BOOKING_DETAIL_CONCURRENCY: e.target.value })}
+                      placeholder="8"
                     />
                   </div>
 

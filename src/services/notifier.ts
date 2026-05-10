@@ -202,6 +202,10 @@ interface AutoAcceptResult {
   notified: boolean;
 }
 
+interface AutoAcceptOptions {
+  deferSideEffects?: boolean;
+}
+
 const acceptedRequestKeys = new Set<string>();
 const acceptedRequestKeyOrder: string[] = [];
 const MAX_ACCEPTED_REQUEST_KEYS = 5000;
@@ -220,6 +224,12 @@ function rememberAcceptedRequest(ruleId: string, requestId: number): void {
     const oldest = acceptedRequestKeyOrder.shift();
     if (oldest) acceptedRequestKeys.delete(oldest);
   }
+}
+
+function runDetached(label: string, promise: Promise<unknown>): void {
+  void promise.catch((err) => {
+    logger.warn(label, { error: err instanceof Error ? err.message : String(err) });
+  });
 }
 
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
@@ -257,7 +267,8 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
  */
 export async function acceptAndNotifyMatchedRules(
   trips: TripLike[],
-  apiClient: ApiClient
+  apiClient: ApiClient,
+  options: AutoAcceptOptions = {}
 ): Promise<AutoAcceptResult> {
   const autoAcceptMatches = await matchAutoAcceptRuleTrips(trips);
 
@@ -324,6 +335,7 @@ export async function acceptAndNotifyMatchedRules(
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
   const acceptedProgress: Array<{ ruleId: string; acceptedCount: number }> = [];
+  const historyWrites: Array<() => Promise<unknown>> = [];
 
   // Call accept API for all matched bookings at once. fetchWithRetry already
   // handles transient HTTP failures; retrying business failures only delays
@@ -349,7 +361,7 @@ export async function acceptAndNotifyMatchedRules(
         }
       }
       acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: requestIds.length });
-      await insertAutoAcceptHistory({
+      historyWrites.push(() => insertAutoAcceptHistory({
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -359,11 +371,11 @@ export async function acceptAndNotifyMatchedRules(
         destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "success",
-      });
+      }));
     } else {
       logger.error("auto-accept-failed", { bookingId, requestIds, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
-      await insertAutoAcceptHistory({
+      historyWrites.push(() => insertAutoAcceptHistory({
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -374,7 +386,7 @@ export async function acceptAndNotifyMatchedRules(
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "failed",
         errorMessage: result.error,
-      });
+      }));
     }
   }
 
@@ -384,6 +396,12 @@ export async function acceptAndNotifyMatchedRules(
 
   await applyAutoAcceptProgress(acceptedProgress);
 
+  if (options.deferSideEffects) {
+    for (const write of historyWrites) runDetached("auto-accept-history-write-failed", write());
+  } else {
+    await Promise.all(historyWrites.map((write) => write()));
+  }
+
   // Notify only if at least one request was accepted successfully
   let notified = false;
 
@@ -391,11 +409,19 @@ export async function acceptAndNotifyMatchedRules(
     const title = `✅ SPX Auto-Accept สำเร็จ ${accepted.length} รายการ`;
     const message = buildAcceptNotificationMessage(accepted);
 
-    const sendResult = await sendNotificationMessage(title, message);
-    notified = sendResult.sent;
+    if (options.deferSideEffects) {
+      runDetached("auto-accept-notification-failed", sendNotificationMessage(title, message).then((sendResult) => {
+        if (sendResult.sent) {
+          logger.info("auto-accept-notified", { acceptedCount: accepted.length });
+        }
+      }));
+    } else {
+      const sendResult = await sendNotificationMessage(title, message);
+      notified = sendResult.sent;
 
-    if (notified) {
-      logger.info("auto-accept-notified", { acceptedCount: accepted.length });
+      if (notified) {
+        logger.info("auto-accept-notified", { acceptedCount: accepted.length });
+      }
     }
   }
 
@@ -405,7 +431,11 @@ export async function acceptAndNotifyMatchedRules(
     const failLines = failed.map((f) => `- booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}] error: ${f.error}`);
     const failMessage = truncate(failLines.join("\n"), 4000);
 
-    await sendNotificationMessage(failTitle, failMessage);
+    if (options.deferSideEffects) {
+      runDetached("auto-accept-failure-notification-failed", sendNotificationMessage(failTitle, failMessage));
+    } else {
+      await sendNotificationMessage(failTitle, failMessage);
+    }
   }
 
   return { autoAcceptMatches, accepted, failed, notified };

@@ -171,6 +171,7 @@ export interface EnvSettings {
   LINE_USER_ID?: string;
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
+  BOOKING_DETAIL_CONCURRENCY?: string;
 }
 
 // Line Quota

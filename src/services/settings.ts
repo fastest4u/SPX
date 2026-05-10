@@ -11,6 +11,7 @@ export const SETTINGS_KEYS = [
   "LINE_USER_ID",
   "DISCORD_WEBHOOK_URL",
   "POLL_INTERVAL_MS",
+  "BOOKING_DETAIL_CONCURRENCY",
 ] as const;
 
 export type SettingsKey = typeof SETTINGS_KEYS[number];

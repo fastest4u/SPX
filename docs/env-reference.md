@@ -35,6 +35,7 @@ aliases:
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `POLL_INTERVAL_MS` | int | — | Milliseconds ระหว่าง poll (CLI override เป็นวินาที) |
+| `BOOKING_DETAIL_CONCURRENCY` | int | `8` | จำนวน booking ที่ดึง `request/list` พร้อมกันต่อรอบ poll |
 | `FETCH_DETAILS` | bool | `false` | แสดงรายละเอียด trip ใน console |
 | `SAVE_TO_DB` | bool | `false` | บันทึก trip ลง MySQL |
 | `NOTIFY_ENABLED` | bool | `false` | ส่ง notification |
