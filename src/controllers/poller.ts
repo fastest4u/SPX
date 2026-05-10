@@ -238,16 +238,11 @@ export class Poller {
       }
     }
 
-    let autoAcceptQueue: Promise<void> = Promise.resolve();
-    const runAutoAcceptInOrder = async (trips: ExtractedTripInfo[]): Promise<void> => {
-      const current = autoAcceptQueue.then(async () => {
-        const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
-        autoResult.accepted.forEach((a) => {
-          if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
-        });
+    const runAutoAcceptConcurrent = async (trips: ExtractedTripInfo[]): Promise<void> => {
+      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
+      autoResult.accepted.forEach((a) => {
+        if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
       });
-      autoAcceptQueue = current.catch(() => undefined);
-      await current;
     };
 
     const fetchBookingTrips = async (
@@ -281,7 +276,7 @@ export class Poller {
           });
 
           if (options.autoAccept && trips.length > 0) {
-            await runAutoAcceptInOrder(trips);
+            await runAutoAcceptConcurrent(trips);
           }
 
           return trips;

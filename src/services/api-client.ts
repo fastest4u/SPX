@@ -335,16 +335,25 @@ export class ApiClient {
     }
 
     const requests = [...firstPage.data.request_list];
-    let pageNo = 2;
+    if (requests.length >= firstPage.data.total) {
+      return firstPage;
+    }
 
-    while (requests.length < firstPage.data.total) {
-      const page = await this.fetchBookingRequestListPage(bookingId, pageNo);
-      if (!page || page.data.request_list.length === 0) {
-        break;
+    // Fetch remaining pages in parallel for speed
+    const pageSize = Math.max(1, firstPage.data.count || requests.length);
+    const totalPages = Math.ceil(firstPage.data.total / pageSize);
+    const pageNumbers: number[] = [];
+    for (let p = 2; p <= totalPages; p++) pageNumbers.push(p);
+
+    if (pageNumbers.length > 0) {
+      const pages = await Promise.all(
+        pageNumbers.map((p) => this.fetchBookingRequestListPage(bookingId, p))
+      );
+      for (const page of pages) {
+        if (page && page.data.request_list.length > 0) {
+          requests.push(...page.data.request_list);
+        }
       }
-
-      requests.push(...page.data.request_list);
-      pageNo++;
     }
 
     return {
@@ -368,7 +377,7 @@ export class ApiClient {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-accept:${bookingId}`);
+      }, `booking-accept:${bookingId}`, 1);
 
       const rawText = await response.text();
       let parsed: unknown = null;
