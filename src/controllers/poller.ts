@@ -188,21 +188,25 @@ export class Poller {
 
     if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
       const allTrips: ExtractedTripInfo[] = [];
-      let bookings = [...result.data.data.list];
+      let fastLaneBookings = [...result.data.data.list];
+      let deferredBookings: Booking[] = [];
 
       const acceptedRequestIds = new Set<number>();
+      let fastLanePrefiltered = false;
 
       if (env.AUTO_ACCEPT_ENABLED) {
         const originFilters = await getActiveAutoAcceptOriginFilters();
         if (originFilters.length > 0) {
-          const matchingBookings = bookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
-          const skippedCount = bookings.length - matchingBookings.length;
+          const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
+          const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
+          const skippedCount = nonMatchingBookings.length;
+          fastLanePrefiltered = true;
 
           if (env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) {
-            const nonMatchingBookings = bookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
-            bookings = [...matchingBookings, ...nonMatchingBookings];
+            fastLaneBookings = matchingBookings;
+            deferredBookings = nonMatchingBookings;
           } else {
-            bookings = matchingBookings;
+            fastLaneBookings = matchingBookings;
           }
 
           logger.info("booking-origin-prefilter", {
@@ -225,38 +229,50 @@ export class Poller {
         await current;
       };
 
-      const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, bookings.length);
-      if (bookings.length > detailConcurrency) {
-        logger.info("booking-detail-concurrency", { bookings: bookings.length, concurrency: detailConcurrency });
-      }
+      const fetchBookingTrips = async (
+        bookings: Booking[],
+        options: { autoAccept: boolean; lane: "fast" | "deferred" }
+      ): Promise<ExtractedTripInfo[][]> => {
+        const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, bookings.length);
+        if (bookings.length > detailConcurrency) {
+          logger.info("booking-detail-concurrency", { bookings: bookings.length, concurrency: detailConcurrency, lane: options.lane });
+        }
 
-      const bookingTrips = await mapWithConcurrency(bookings, detailConcurrency, async (booking) => {
-        try {
-          const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
-          if (!requestList) {
-            logger.warn("request-list-missing", { bookingId: booking.booking_id });
+        return mapWithConcurrency(bookings, detailConcurrency, async (booking) => {
+          try {
+            const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
+            if (!requestList) {
+              logger.warn("request-list-missing", { bookingId: booking.booking_id });
+              return [] as ExtractedTripInfo[];
+            }
+
+            const trips = extractAllRequestListTrips(requestList.data, {
+              booking_id: booking.booking_id,
+              booking_name: booking.booking_name,
+              agency_name: booking.agency_name,
+            });
+
+            if (options.autoAccept && trips.length > 0) {
+              await runAutoAcceptInOrder(trips);
+            }
+
+            return trips;
+          } catch (err) {
+            logger.error("booking-detail-processing-failed", {
+              bookingId: booking.booking_id,
+              lane: options.lane,
+              error: err instanceof Error ? err.message : String(err),
+            });
             return [] as ExtractedTripInfo[];
           }
+        });
+      };
 
-          const trips = extractAllRequestListTrips(requestList.data, {
-            booking_id: booking.booking_id,
-            booking_name: booking.booking_name,
-            agency_name: booking.agency_name,
-          });
-
-          if (env.AUTO_ACCEPT_ENABLED && trips.length > 0) {
-            await runAutoAcceptInOrder(trips);
-          }
-
-          return trips;
-        } catch (err) {
-          logger.error("booking-detail-processing-failed", {
-            bookingId: booking.booking_id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return [] as ExtractedTripInfo[];
-        }
-      });
+      const bookingTrips = await fetchBookingTrips(fastLaneBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "fast" });
+      if (deferredBookings.length > 0) {
+        const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED && !fastLanePrefiltered, lane: "deferred" });
+        bookingTrips.push(...deferredTrips);
+      }
 
       allTrips.push(...bookingTrips.flat());
 
