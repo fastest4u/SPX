@@ -343,6 +343,23 @@ export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleT
   return matches;
 }
 
+export async function getActiveAutoAcceptOriginFilters(): Promise<string[]> {
+  const rules = await readRules();
+  const origins = new Set<string>();
+
+  for (const rule of rules) {
+    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
+    if (rule.origins.length === 0) return [];
+
+    for (const origin of rule.origins) {
+      const normalized = normalize(origin);
+      if (normalized.length > 0) origins.add(normalized);
+    }
+  }
+
+  return [...origins];
+}
+
 export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; acceptedCount: number }>): Promise<void> {
   const acceptedByRule = new Map<string, number>();
   for (const update of updates) {

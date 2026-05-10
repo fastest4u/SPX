@@ -6,6 +6,7 @@ import { saveBookingRequest } from "../services/db-service.js";
 import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
+import { getActiveAutoAcceptOriginFilters } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import {
   logger,
@@ -18,7 +19,7 @@ import { extractAllRequestListTrips, formatTripInfo } from "../utils/booking-ext
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
-import type { PollingStats } from "../models/types.js";
+import type { Booking, PollingStats } from "../models/types.js";
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -38,6 +39,12 @@ async function mapWithConcurrency<T, R>(
   }));
 
   return results;
+}
+
+function bookingMatchesOriginFilters(booking: Booking, originFilters: string[]): boolean {
+  if (originFilters.length === 0) return true;
+  const bookingName = booking.booking_name.trim().toLowerCase();
+  return originFilters.some((origin) => origin.length > 0 && bookingName.includes(origin));
 }
 
 export class Poller {
@@ -181,9 +188,30 @@ export class Poller {
 
     if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
       const allTrips: ExtractedTripInfo[] = [];
-      const bookings = [...result.data.data.list];
+      let bookings = [...result.data.data.list];
 
       const acceptedRequestIds = new Set<number>();
+
+      if (env.AUTO_ACCEPT_ENABLED) {
+        const originFilters = await getActiveAutoAcceptOriginFilters();
+        if (originFilters.length > 0) {
+          const matchingBookings = bookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
+          const skippedCount = bookings.length - matchingBookings.length;
+
+          if (env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) {
+            const nonMatchingBookings = bookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
+            bookings = [...matchingBookings, ...nonMatchingBookings];
+          } else {
+            bookings = matchingBookings;
+          }
+
+          logger.info("booking-origin-prefilter", {
+            total: result.data.data.list.length,
+            prioritized: matchingBookings.length,
+            skipped: env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED ? 0 : skippedCount,
+          });
+        }
+      }
 
       let autoAcceptQueue: Promise<void> = Promise.resolve();
       const runAutoAcceptInOrder = async (trips: ExtractedTripInfo[]): Promise<void> => {
