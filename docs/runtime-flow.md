@@ -60,7 +60,8 @@ sequenceDiagram
    - **DataProcessor.detectChange()** — FNV-1a hash comparison
    - **formatStatus()** — log summary (bookings count, change status)
    - ถ้า `FETCH_DETAILS` | `SAVE_TO_DB` | `NOTIFY_ENABLED` | `AUTO_ACCEPT_ENABLED`:
-     - Fetch request list per booking ด้วย worker pool (`BOOKING_DETAIL_CONCURRENCY`, default 8)
+     - Tick schedule งานรายละเอียดเข้า background แล้วจบรอบทันที เพื่อให้ `booking/bidding/list` รอบถัดไปไม่ต้องรอ `request/list`
+     - Background fetch request list per booking ด้วย worker pool (`BOOKING_DETAIL_CONCURRENCY`, default 8)
      - ถ้าเปิดเฉพาะ `AUTO_ACCEPT_ENABLED` และ rule ระบุต้นทางไว้ จะข้าม booking ที่ `booking_name` ไม่ตรงต้นทางก่อนเรียก `request/list`
      - ถ้ามี `SAVE_TO_DB` / `NOTIFY_ENABLED` / `FETCH_DETAILS` จะไม่ข้าม แต่จะจัด booking ที่ต้นทางตรงขึ้นก่อน
      - **extractAllRequestListTrips()** — แปลง API response → `ExtractedTripInfo[]`

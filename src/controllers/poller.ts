@@ -58,6 +58,8 @@ export class Poller {
   private stopped = false;
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
   private lastSessionAlertTime = 0;
+  private activeDetailJobs = new Set<Promise<void>>();
+  private activeDetailBookingIds = new Set<number>();
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
 
   constructor(intervalSec?: number) {
@@ -187,112 +189,138 @@ export class Poller {
     }
 
     if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
-      const allTrips: ExtractedTripInfo[] = [];
-      let fastLaneBookings = [...result.data.data.list];
-      let deferredBookings: Booking[] = [];
+      this.scheduleBookingDetails(result.data.data.list);
+    }
+  }
 
-      const acceptedRequestIds = new Set<number>();
-      let fastLanePrefiltered = false;
+  private scheduleBookingDetails(bookings: Booking[]): void {
+    if (this.stopped || bookings.length === 0) return;
 
-      if (env.AUTO_ACCEPT_ENABLED) {
-        const originFilters = await getActiveAutoAcceptOriginFilters();
-        if (originFilters.length > 0) {
-          const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
-          const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
-          const skippedCount = nonMatchingBookings.length;
-          fastLanePrefiltered = true;
+    const job = this.processBookingDetails(bookings)
+      .catch((err) => {
+        logger.error("booking-detail-job-failed", err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        this.activeDetailJobs.delete(job);
+      });
 
-          if (env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) {
-            fastLaneBookings = matchingBookings;
-            deferredBookings = nonMatchingBookings;
-          } else {
-            fastLaneBookings = matchingBookings;
-          }
+    this.activeDetailJobs.add(job);
+  }
 
-          logger.info("booking-origin-prefilter", {
-            total: result.data.data.list.length,
-            prioritized: matchingBookings.length,
-            skipped: env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED ? 0 : skippedCount,
-          });
+  private async processBookingDetails(bookings: Booking[]): Promise<void> {
+    const allTrips: ExtractedTripInfo[] = [];
+    let fastLaneBookings = [...bookings];
+    let deferredBookings: Booking[] = [];
+
+    const acceptedRequestIds = new Set<number>();
+    let fastLanePrefiltered = false;
+
+    if (env.AUTO_ACCEPT_ENABLED) {
+      const originFilters = await getActiveAutoAcceptOriginFilters();
+      if (originFilters.length > 0) {
+        const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
+        const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
+        const skippedCount = nonMatchingBookings.length;
+        fastLanePrefiltered = true;
+
+        if (env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) {
+          fastLaneBookings = matchingBookings;
+          deferredBookings = nonMatchingBookings;
+        } else {
+          fastLaneBookings = matchingBookings;
         }
+
+        logger.info("booking-origin-prefilter", {
+          total: bookings.length,
+          prioritized: matchingBookings.length,
+          skipped: env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED ? 0 : skippedCount,
+        });
+      }
+    }
+
+    let autoAcceptQueue: Promise<void> = Promise.resolve();
+    const runAutoAcceptInOrder = async (trips: ExtractedTripInfo[]): Promise<void> => {
+      const current = autoAcceptQueue.then(async () => {
+        const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
+        autoResult.accepted.forEach((a) => {
+          if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
+        });
+      });
+      autoAcceptQueue = current.catch(() => undefined);
+      await current;
+    };
+
+    const fetchBookingTrips = async (
+      items: Booking[],
+      options: { autoAccept: boolean; lane: "fast" | "deferred" }
+    ): Promise<ExtractedTripInfo[][]> => {
+      const availableBookings = items.filter((booking) => !this.activeDetailBookingIds.has(booking.booking_id));
+      if (availableBookings.length === 0) return [];
+
+      for (const booking of availableBookings) {
+        this.activeDetailBookingIds.add(booking.booking_id);
       }
 
-      let autoAcceptQueue: Promise<void> = Promise.resolve();
-      const runAutoAcceptInOrder = async (trips: ExtractedTripInfo[]): Promise<void> => {
-        const current = autoAcceptQueue.then(async () => {
-          const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
-          autoResult.accepted.forEach((a) => {
-            if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
-          });
-        });
-        autoAcceptQueue = current.catch(() => undefined);
-        await current;
-      };
+      const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, availableBookings.length);
+      if (availableBookings.length > detailConcurrency) {
+        logger.info("booking-detail-concurrency", { bookings: availableBookings.length, concurrency: detailConcurrency, lane: options.lane });
+      }
 
-      const fetchBookingTrips = async (
-        bookings: Booking[],
-        options: { autoAccept: boolean; lane: "fast" | "deferred" }
-      ): Promise<ExtractedTripInfo[][]> => {
-        const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, bookings.length);
-        if (bookings.length > detailConcurrency) {
-          logger.info("booking-detail-concurrency", { bookings: bookings.length, concurrency: detailConcurrency, lane: options.lane });
-        }
-
-        return mapWithConcurrency(bookings, detailConcurrency, async (booking) => {
-          try {
-            const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
-            if (!requestList) {
-              logger.warn("request-list-missing", { bookingId: booking.booking_id });
-              return [] as ExtractedTripInfo[];
-            }
-
-            const trips = extractAllRequestListTrips(requestList.data, {
-              booking_id: booking.booking_id,
-              booking_name: booking.booking_name,
-              agency_name: booking.agency_name,
-            });
-
-            if (options.autoAccept && trips.length > 0) {
-              await runAutoAcceptInOrder(trips);
-            }
-
-            return trips;
-          } catch (err) {
-            logger.error("booking-detail-processing-failed", {
-              bookingId: booking.booking_id,
-              lane: options.lane,
-              error: err instanceof Error ? err.message : String(err),
-            });
+      return mapWithConcurrency(availableBookings, detailConcurrency, async (booking) => {
+        try {
+          const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
+          if (!requestList) {
+            logger.warn("request-list-missing", { bookingId: booking.booking_id });
             return [] as ExtractedTripInfo[];
           }
-        });
-      };
 
-      const bookingTrips = await fetchBookingTrips(fastLaneBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "fast" });
-      if (deferredBookings.length > 0) {
-        const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED && !fastLanePrefiltered, lane: "deferred" });
-        bookingTrips.push(...deferredTrips);
+          const trips = extractAllRequestListTrips(requestList.data, {
+            booking_id: booking.booking_id,
+            booking_name: booking.booking_name,
+            agency_name: booking.agency_name,
+          });
+
+          if (options.autoAccept && trips.length > 0) {
+            await runAutoAcceptInOrder(trips);
+          }
+
+          return trips;
+        } catch (err) {
+          logger.error("booking-detail-processing-failed", {
+            bookingId: booking.booking_id,
+            lane: options.lane,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return [] as ExtractedTripInfo[];
+        } finally {
+          this.activeDetailBookingIds.delete(booking.booking_id);
+        }
+      });
+    };
+
+    const bookingTrips = await fetchBookingTrips(fastLaneBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "fast" });
+    if (deferredBookings.length > 0) {
+      const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED && !fastLanePrefiltered, lane: "deferred" });
+      bookingTrips.push(...deferredTrips);
+    }
+
+    allTrips.push(...bookingTrips.flat());
+
+    for (const trip of allTrips) {
+      if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
+        console.log("\n" + formatTripInfo(trip));
       }
 
-      allTrips.push(...bookingTrips.flat());
-
-      for (const trip of allTrips) {
-        if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
-          console.log("\n" + formatTripInfo(trip));
-        }
-
-        if (env.SAVE_TO_DB) {
-          const dbResult = await saveBookingRequest(trip);
-          metrics.recordTrip(dbResult.action);
-        }
+      if (env.SAVE_TO_DB) {
+        const dbResult = await saveBookingRequest(trip);
+        metrics.recordTrip(dbResult.action);
       }
+    }
 
-      // Regular notify for all trips at the end (exclude auto-accepted)
-      if (env.NOTIFY_ENABLED && allTrips.length > 0) {
-        const remainingTrips = allTrips.filter((trip) => !acceptedRequestIds.has(trip.request_id));
-        if (remainingTrips.length > 0) {
-          await notifyMatchedRules(remainingTrips);
-        }
+    if (env.NOTIFY_ENABLED && allTrips.length > 0) {
+      const remainingTrips = allTrips.filter((trip) => !acceptedRequestIds.has(trip.request_id));
+      if (remainingTrips.length > 0) {
+        await notifyMatchedRules(remainingTrips);
       }
     }
   }
@@ -318,6 +346,10 @@ export class Poller {
 
     if (this.activeTick) {
       await this.activeTick.catch(() => undefined);
+    }
+
+    if (this.activeDetailJobs.size > 0) {
+      await Promise.allSettled([...this.activeDetailJobs]);
     }
 
     formatFooter(this.stats);
