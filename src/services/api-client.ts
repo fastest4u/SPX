@@ -169,11 +169,7 @@ export class ApiClient {
   async fetch(requestNumber: number): Promise<PollingResult> {
     const startTime = Date.now();
     try {
-      const response = await fetchWithRetry(env.API_URL, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(this.body),
-      }, "bidding-list");
+      const response = await this.fetchBiddingListPage(this.body.pageno);
 
       const latencyMs = Date.now() - startTime;
 
@@ -226,10 +222,12 @@ export class ApiClient {
         };
       }
 
+      const allPagesResponse = await this.fetchRemainingBiddingListPages(apiResponse);
+
       return {
         success: true,
-        data: apiResponse,
-        latencyMs,
+        data: allPagesResponse,
+        latencyMs: Date.now() - startTime,
         httpStatus: response.status,
         timestamp: new Date(),
         requestNumber,
@@ -245,6 +243,76 @@ export class ApiClient {
         requestNumber,
       };
     }
+  }
+
+  private async fetchBiddingListPage(pageNo: number): Promise<Response> {
+    return fetchWithRetry(env.API_URL, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({ ...this.body, pageno: pageNo }),
+    }, `bidding-list:${pageNo}`);
+  }
+
+  private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse> {
+    const firstList = firstPage.data.list;
+    if (firstList.length >= firstPage.data.total) {
+      return firstPage;
+    }
+
+    const pageSize = Math.max(1, firstPage.data.count || firstList.length || this.body.count);
+    const totalPages = Math.ceil(firstPage.data.total / pageSize);
+    const pageNumbers: number[] = [];
+
+    for (let pageNo = firstPage.data.pageno + 1; pageNo <= totalPages; pageNo++) {
+      pageNumbers.push(pageNo);
+    }
+
+    if (pageNumbers.length === 0) {
+      return firstPage;
+    }
+
+    logger.info("bidding-list-fetching-extra-pages", {
+      total: firstPage.data.total,
+      firstPageCount: firstList.length,
+      extraPages: pageNumbers.length,
+    });
+
+    const pageResults = await Promise.all(pageNumbers.map(async (pageNo) => {
+      try {
+        const response = await this.fetchBiddingListPage(pageNo);
+        if (!response.ok) {
+          logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
+          return null;
+        }
+
+        const data: unknown = await response.json();
+        const page = normalizeApiResponse(data);
+        if (!page) {
+          logger.warn("bidding-list-page-unexpected-shape", { pageNo });
+          return null;
+        }
+
+        return page;
+      } catch (err) {
+        logger.warn("bidding-list-page-error", { pageNo, error: err instanceof Error ? err.message : String(err) });
+        return null;
+      }
+    }));
+
+    const allList = [...firstList];
+    for (const page of pageResults) {
+      if (!page) continue;
+      allList.push(...page.data.list);
+    }
+
+    return {
+      ...firstPage,
+      data: {
+        ...firstPage.data,
+        count: allList.length,
+        list: allList,
+      },
+    };
   }
 
   async fetchBookingOverview(bookingId: number): Promise<BookingOverviewResponse | null> {
