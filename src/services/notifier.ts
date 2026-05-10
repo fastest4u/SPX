@@ -204,6 +204,28 @@ interface AutoAcceptResult {
 
 interface AutoAcceptOptions {
   deferSideEffects?: boolean;
+  needBudget?: NeedBudget;
+}
+
+/**
+ * Atomic in-memory budget tracker for concurrent auto-accept.
+ * Node.js is single-threaded — synchronous Map operations between await
+ * points are inherently atomic, so this acts as a lock-free semaphore.
+ * Create one instance per polling cycle and share it across concurrent workers.
+ */
+export class NeedBudget {
+  private remaining = new Map<string, number>();
+
+  /** Atomically claim up to `requested` slots. Returns the granted count. */
+  claim(ruleId: string, dbNeed: number, requested: number): number {
+    if (!this.remaining.has(ruleId)) {
+      this.remaining.set(ruleId, dbNeed);
+    }
+    const available = this.remaining.get(ruleId)!;
+    const granted = Math.min(requested, available);
+    this.remaining.set(ruleId, available - granted);
+    return granted;
+  }
 }
 
 const acceptedRequestKeys = new Set<string>();
@@ -286,11 +308,14 @@ export async function acceptAndNotifyMatchedRules(
   const selectedRequests = new Map<number, { trip: TripLike; bookingId: number; ruleId: string; ruleName: string }>();
 
   for (const match of autoAcceptMatches) {
-    const limit = Math.max(0, match.need);
-    const selected = match.trips.filter((trip) => {
+    const candidates = match.trips.filter((trip) => {
       const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
       return requestId !== undefined && !acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId));
-    }).slice(0, limit);
+    });
+    const limit = options.needBudget
+      ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
+      : Math.max(0, match.need);
+    const selected = candidates.slice(0, limit);
 
     if (match.trips.length > selected.length) {
       logger.info("auto-accept-truncated", {

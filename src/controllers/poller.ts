@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { saveBookingRequest } from "../services/db-service.js";
-import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification } from "../services/notifier.js";
+import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import { getActiveAutoAcceptOriginFilters } from "../services/notify-rules.js";
@@ -238,8 +238,10 @@ export class Poller {
       }
     }
 
+    const needBudget = new NeedBudget();
+
     const runAutoAcceptConcurrent = async (trips: ExtractedTripInfo[]): Promise<void> => {
-      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true });
+      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true, needBudget });
       autoResult.accepted.forEach((a) => {
         if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
       });
