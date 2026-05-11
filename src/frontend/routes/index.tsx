@@ -49,7 +49,7 @@ function DashboardComponent() {
 
   const { data: historyData } = useQuery({
     queryKey: ['metrics-history'],
-    queryFn: metricsApi.history,
+    queryFn: () => metricsApi.history(),
   })
 
   const { data: lineQuota } = useQuery({

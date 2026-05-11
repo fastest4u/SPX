@@ -1,4 +1,4 @@
-import { cn } from '../../lib/utils'
+import { cn } from '../lib/utils'
 import { Search, FileX, type LucideIcon } from 'lucide-react'
 
 interface EmptyStateProps {

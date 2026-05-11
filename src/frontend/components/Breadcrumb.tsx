@@ -1,4 +1,4 @@
-import { cn } from '../../lib/utils'
+import { cn } from '../lib/utils'
 import { ChevronRight, Home } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 
