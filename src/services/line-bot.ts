@@ -96,7 +96,7 @@ export class LineBotQrRequiredError extends Error {
 // ── Enable check ───────────────────────────────────────────────────────
 
 export function isLineBotEnabled(): boolean {
-  return env.LINEJS_TEST_ENABLED && env.NODE_ENV !== "production";
+  return env.LINEJS_TEST_ENABLED;
 }
 
 // ── Lazy module loader ─────────────────────────────────────────────────
