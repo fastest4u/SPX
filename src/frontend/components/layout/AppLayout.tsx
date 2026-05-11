@@ -4,12 +4,10 @@ import { cn } from '../../lib/utils'
 import {
   LayoutDashboard, History, FileText, Users, Settings, Bell, FileBarChart,
   LogOut, ChevronLeft, ChevronRight, Truck, MessageCircle,
-  Search, Command, Menu, X, MoreHorizontal,
-  BarChart3, ShieldCheck, Terminal
+  Search, Command, Menu
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Avatar } from '../ui/avatar'
-import { Badge } from '../ui/badge'
 import { Breadcrumb } from '../Breadcrumb'
 import { useState, useCallback, useEffect } from 'react'
 

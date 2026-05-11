@@ -378,7 +378,9 @@
 
 /* Sidebar glow */
 .sidebar-active-glow {
-  box-shadow: 0 0 16px -4px var(--sidebar-primary) / 0.25;
+  box-shadow:
+    0 0 18px -8px var(--sidebar-primary),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 /* Data font for metrics/numbers */
