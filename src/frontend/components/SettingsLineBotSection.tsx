@@ -143,19 +143,13 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
             <label>Target MID</label>
             <span className="text-xs text-muted-foreground/70">ปล่อยว่างเพื่อใช้ ID เดียวกับ LINE OA</span>
           </div>
-          <Input value={formData.LINEJS_TEST_TARGET_ID} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} placeholder={`Uxxx... หรือ Cxxx... (ค่าเริ่มต้น: ${formData.LINE_USER_ID || 'LINE_USER_ID'})`} className="settings-input" />
-          {isAuth && chats.length > 0 && (
-            <div className="mt-1 text-sm text-slate-300 bg-white/5 rounded-lg p-2 border border-white/10">
-              <p className="mb-2 text-xs text-emerald-400">✅ คลิกเลือกกลุ่มเพื่อเติมลงช่อง:</p>
-              <div className="space-y-1 max-h-[120px] overflow-y-auto">
-                {chats.map(c => (
-                  <button key={c.chatMid} type="button" onClick={() => setField('LINEJS_TEST_TARGET_ID', c.chatMid)} className="w-full text-left px-2 py-1.5 rounded bg-white/5 hover:bg-emerald-500/20 text-xs transition-colors flex justify-between items-center group">
-                    <span className="truncate mr-2 text-slate-200 group-hover:text-emerald-300 font-medium">{c.chatName || 'ไม่ทราบชื่อ'}</span>
-                    <span className="text-[10px] text-slate-500 group-hover:text-emerald-400 shrink-0 font-mono">{c.chatMid}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+          {isAuth && chats.length > 0 ? (
+            <select value={formData.LINEJS_TEST_TARGET_ID || ''} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} className="settings-select">
+              <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+              {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+            </select>
+          ) : (
+            <Input value={formData.LINEJS_TEST_TARGET_ID} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} placeholder={`Uxxx... หรือ Cxxx... (ค่าเริ่มต้น: ${formData.LINE_USER_ID || 'LINE_USER_ID'})`} className="settings-input" />
           )}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
