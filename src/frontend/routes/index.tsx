@@ -13,7 +13,7 @@ import { AlertTriangle, PauseCircle, Plus, Radio, Search, SignalHigh, Target, Wi
 import { formatDuration } from '../lib/utils'
 import { useEffect, useState, useMemo } from 'react'
 import { toast } from 'sonner'
-import type { NotifyRule } from '../types'
+import type { NotifyRule, MetricsHistoryRow } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
@@ -102,11 +102,11 @@ function DashboardComponent() {
     : 0
 
   const sparklineData = useMemo(() => {
-    const rows = historyData || []
+    const rows: MetricsHistoryRow[] = historyData || []
     return {
-      success: rows.map((r) => r.successRate ?? 0),
-      latency: rows.map((r) => Math.min(r.latencyP95, 5000)),
-      trips: rows.map((r) => r.requestCount ?? 0),
+      success: rows.map((r: MetricsHistoryRow) => r.successRate ?? 0),
+      latency: rows.map((r: MetricsHistoryRow) => Math.min(r.latencyP95, 5000)),
+      trips: rows.map((r: MetricsHistoryRow) => r.requestCount ?? 0),
     }
   }, [historyData])
 
