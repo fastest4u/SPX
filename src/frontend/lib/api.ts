@@ -405,4 +405,16 @@ export const lineBotApi = {
 
   getGroups: (): Promise<{ chats: Array<{ chatMid: string, chatName: string }> }> =>
     fetchJson(`${API_BASE}/line-bot/groups`),
+
+  getProfile: (): Promise<{ displayName: string; mid: string; statusMessage?: string; pictureUrl?: string }> =>
+    fetchJson(`${API_BASE}/line-bot/profile`),
+
+  getStorage: (): Promise<{ storagePath: string; exists: boolean; sizeBytes: number; hasE2EEKeys: boolean; hasAuthState: boolean }> =>
+    fetchJson(`${API_BASE}/line-bot/storage`),
+
+  logout: (clearStorage = false): Promise<{ loggedOut: boolean; clearStorage: boolean }> =>
+    fetchJson(`${API_BASE}/line-bot/logout`, {
+      method: 'POST',
+      body: JSON.stringify({ clearStorage }),
+    }),
 }
