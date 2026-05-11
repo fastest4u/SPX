@@ -287,4 +287,13 @@ async function createDashboardTables(): Promise<void> {
       UNIQUE KEY lbs_session_key_idx (session_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+      setting_value VARCHAR(4000) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
 }

@@ -102,3 +102,10 @@ export const lineBotSessions = mysqlTable("line_bot_sessions", {
 }, (table) => ({
   sessionKeyIdx: uniqueIndex("lbs_session_key_idx").on(table.sessionKey),
 }));
+
+export const appSettings = mysqlTable("app_settings", {
+  key: varchar("setting_key", { length: 100 }).primaryKey(),
+  value: varchar("setting_value", { length: 4000 }).notNull().default(""),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

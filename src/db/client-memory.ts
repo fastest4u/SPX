@@ -156,6 +156,13 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_line_bot_sessions_key ON line_bot_sessions(session_key);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key TEXT NOT NULL PRIMARY KEY,
+      setting_value TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
