@@ -6,6 +6,7 @@ import { lineBotApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { toast } from 'sonner'
+import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { MessageCircle, QrCode, Send, CheckCircle2, XCircle, RefreshCw, Loader2 } from 'lucide-react'
 import type { LineBotStatus } from '../types'
 
@@ -35,6 +36,16 @@ function LineBotComponent() {
   })
 
   const status: LineBotStatus | undefined = statusQuery.data
+
+  if (statusQuery.isLoading) {
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <Card className="glass border-white/10">
+          <SkeletonCard />
+        </Card>
+      </div>
+    )
+  }
 
   // Login mutation
   const loginMutation = useMutation({

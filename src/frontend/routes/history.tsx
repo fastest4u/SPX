@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
+import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Hand, Search, SlidersHorizontal, X, MapPin, Car, Hash } from 'lucide-react'
 import type { BookingHistory } from '../types'
 
@@ -64,7 +65,7 @@ function HistoryComponent() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  const { data: result } = useQuery({
+  const { data: result, isLoading } = useQuery({
     queryKey: ['history', { search, origin, destination, vehicleType, page, pageSize }],
     queryFn: () =>
       historyApi.paginated({
@@ -76,6 +77,16 @@ function HistoryComponent() {
         pageSize,
       }),
   })
+
+  if (isLoading) {
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <Card className="glass border-white/10">
+          <SkeletonTable rows={5} cols={4} />
+        </Card>
+      </div>
+    )
+  }
 
   const history = result?.data || []
   const total = result?.meta?.total_items || 0

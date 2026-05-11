@@ -118,6 +118,11 @@ export async function writeSettings(newSettings: EnvSettings): Promise<void> {
   applySettingsToEnv(settings);
 }
 
+export async function reloadSettingsLive(): Promise<void> {
+  const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
+  applySettingsToEnv(dbSettings);
+}
+
 export async function migrateEnvSettingsToDb(): Promise<void> {
   const envSettings = pickKnownSettings(readProcessSettings());
   for (const key of REMOVED_SETTINGS_KEYS) {

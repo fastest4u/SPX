@@ -52,7 +52,7 @@ export class Poller {
   private apiClient: ApiClient;
   private dataProcessor: DataProcessor;
   private stats: PollingStats;
-  private intervalMs: number;
+  private readonly cliIntervalMs: number | null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private activeTick: Promise<void> | null = null;
   private requestCount = 0;
@@ -66,7 +66,7 @@ export class Poller {
   constructor(intervalSec?: number) {
     this.apiClient = new ApiClient();
     this.dataProcessor = new DataProcessor();
-    this.intervalMs = intervalSec === undefined ? env.POLL_INTERVAL_MS : intervalSec * 1000;
+    this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
     this.stats = {
       totalRequests: 0,
       errorCount: 0,
@@ -74,12 +74,16 @@ export class Poller {
     };
   }
 
+  private getIntervalMs(): number {
+    return this.cliIntervalMs ?? env.POLL_INTERVAL_MS;
+  }
+
   async start(): Promise<void> {
     this.stopped = false;
     formatHeader(
       "Agency Booking Bidding List - Real-time Polling",
       env.API_URL,
-      Math.round(this.intervalMs / 1000)
+      Math.round(this.getIntervalMs() / 1000)
     );
 
     const features: string[] = [];
@@ -140,7 +144,7 @@ export class Poller {
     } finally {
       this.activeTick = null;
       if (!this.stopped) {
-        const waitMs = pollerControl.isPaused ? 1000 : this.intervalMs;
+        const waitMs = pollerControl.isPaused ? 1000 : this.getIntervalMs();
         this.timer = setTimeout(() => void this.run(), waitMs);
       }
     }

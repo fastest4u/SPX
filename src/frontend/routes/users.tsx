@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog'
 import { formatDateTime } from '../lib/utils'
+import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { AlertTriangle, Loader2, Lock, Plus, Trash2, UserCog, Users as UsersIcon } from 'lucide-react'
 import type { User } from '../types'
 import { useAuth } from '../hooks/useAuth'
@@ -52,6 +53,16 @@ function UsersComponent() {
     queryKey: ['users'],
     queryFn: usersApi.list,
   })
+
+  if (isLoading) {
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <Card className="glass border-white/10">
+          <SkeletonTable rows={5} cols={4} />
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">

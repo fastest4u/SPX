@@ -288,6 +288,94 @@
   animation: blink 1s infinite;
 }
 
+/* ── Modern UI Enhancements ─────────────────────── */
+
+/* Thin scrollbar for sidebar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+}
+
+/* Page enter animation */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.page-enter {
+  animation: page-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Zoom in animation for modals */
+@keyframes zoom-in-95 {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-in {
+  animation-duration: 0.2s;
+  animation-fill-mode: both;
+}
+
+.fade-in {
+  animation-name: page-enter;
+}
+
+.zoom-in-95 {
+  animation-name: zoom-in-95;
+}
+
+/* Sidebar active pulse */
+.sidebar-active-glow {
+  box-shadow:
+    0 0 18px -8px var(--sidebar-primary),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Mobile tab active indicator */
+.mobile-tab-indicator {
+  position: absolute;
+  bottom: 2px;
+  width: 24px;
+  height: 2px;
+  border-radius: 9999px;
+  background: var(--primary);
+}
+
 /* Sidebar glow */
 .sidebar-active-glow {
   box-shadow: 0 0 16px -4px var(--sidebar-primary) / 0.25;

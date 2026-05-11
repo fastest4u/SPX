@@ -147,23 +147,39 @@ function buildHeaders(): Record<string, string> {
 }
 
 export class ApiClient {
-  private headers: Record<string, string>;
-  private body: BiddingRequest;
-  private readonly overviewBaseUrl: string;
-  private readonly requestListUrl: string;
-  private readonly acceptUrl: string;
+  private cookieOverride: string | null = null;
 
   constructor() {
-    this.headers = buildHeaders();
-    this.body = {
+    // No caching — all env reads happen per-fetch via getters below
+  }
+
+  private get headers(): Record<string, string> {
+    const h = buildHeaders();
+    if (this.cookieOverride) {
+      h.cookie = this.cookieOverride;
+    }
+    return h;
+  }
+
+  private get body(): BiddingRequest {
+    return {
       pageno: env.BIDDING_PAGE_NO,
       count: env.BIDDING_PAGE_COUNT,
       request_tab_pending_confirmation: env.REQUEST_TAB_PENDING_CONFIRMATION,
       request_ctime_start: env.REQUEST_CTIME_START,
     };
-    this.overviewBaseUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/booking_overview");
-    this.requestListUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/request/list");
-    this.acceptUrl = env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept");
+  }
+
+  private get overviewBaseUrl(): string {
+    return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/booking_overview");
+  }
+
+  private get requestListUrl(): string {
+    return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/request/list");
+  }
+
+  private get acceptUrl(): string {
+    return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept");
   }
 
   async fetch(requestNumber: number): Promise<PollingResult> {
@@ -441,6 +457,6 @@ export class ApiClient {
   }
 
   setCookie(cookie: string): void {
-    this.headers.cookie = cookie;
+    this.cookieOverride = cookie;
   }
 }

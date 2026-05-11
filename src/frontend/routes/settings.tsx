@@ -82,7 +82,7 @@ function SettingsComponent() {
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
     onSuccess: () => {
-      toast.success('บันทึกการตั้งค่าแล้ว เซิร์ฟเวอร์กำลังรีสตาร์ท...')
+      toast.success('บันทึกการตั้งค่าแล้ว มีผลทันที')
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
     },
@@ -144,7 +144,7 @@ function SettingsComponent() {
               <ShieldCheck className="h-3 w-3" /> Masked secrets
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.7rem] font-semibold text-muted-foreground">
-              <Clock className="h-3 w-3" /> Restart after save
+              <Clock className="h-3 w-3" /> Live reload
             </span>
           </div>
           <div className="flex items-start gap-3">
@@ -178,7 +178,7 @@ function SettingsComponent() {
             <AlertTriangle className="h-4 w-4 text-amber-300" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-amber-100">การบันทึกการตั้งค่าจะทำให้เซิร์ฟเวอร์รีสตาร์ทโดยอัตโนมัติ</div>
+            <div className="text-sm font-semibold text-amber-100">การบันทึกการตั้งค่าจะมีผลทันที โดยไม่ต้องรีสตาร์ทเซิร์ฟเวอร์</div>
             <p className="mt-1 text-xs leading-relaxed text-amber-100/70">ค่า secret ที่ถูก masked จะไม่เขียนทับค่าเดิม หากต้องการเปลี่ยนให้กรอกค่าใหม่เต็มรูปแบบ</p>
           </div>
         </div>
