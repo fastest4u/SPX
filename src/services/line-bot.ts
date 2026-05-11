@@ -12,7 +12,8 @@
  * of touching @evex/linejs directly.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
@@ -62,6 +63,21 @@ export type LineBotSendResult = {
   error?: string;
   qrUrl?: string;
   pincode?: string;
+};
+
+export type LineBotProfile = {
+  displayName: string;
+  mid: string;
+  statusMessage?: string;
+  pictureUrl?: string;
+};
+
+export type LineBotStorageHealth = {
+  storagePath: string;
+  exists: boolean;
+  sizeBytes: number;
+  hasE2EEKeys: boolean;
+  hasAuthState: boolean;
 };
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -400,6 +416,103 @@ export function getStatus(): LineBotStatus {
     authenticated: false,
     message: "LINE Bot is not yet logged in",
   };
+}
+
+/**
+ * Get LINE profile of the authenticated account.
+ */
+export async function getProfile(): Promise<LineBotProfile | null> {
+  if (!isLineBotEnabled()) return null;
+  if (!client) return null;
+
+  try {
+    const profile = await client.base.talk.getProfile();
+    return {
+      displayName: profile.displayName,
+      mid: profile.mid,
+      statusMessage: profile.statusMessage,
+      // LINE profile picture is typically at: https://profile.line-scdn.net/xxx
+      // but linejs getProfile may not expose it directly
+    };
+  } catch (error) {
+    logger.warn("line-bot-get-profile-failed", { error: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
+}
+
+/**
+ * Check storage health — whether E2EE keys and auth state are persisted.
+ */
+export async function getStorageHealth(): Promise<LineBotStorageHealth> {
+  const storagePath = getStoragePath();
+  const authTokenPath = getAuthTokenPath();
+
+  let exists = false;
+  let sizeBytes = 0;
+  let hasE2EEKeys = false;
+  let hasAuthState = false;
+
+  try {
+    const stats = await stat(storagePath);
+    exists = true;
+    sizeBytes = stats.size;
+
+    if (sizeBytes > 50) {
+      const content = await readFile(storagePath, "utf-8");
+      const data = JSON.parse(content);
+      // E2EE keys typically stored under e2ee or keyStore
+      hasE2EEKeys = !!(data.e2ee || data.keyStore || data.keys || data.e2eeKeyIds);
+      // Auth state
+      hasAuthState = !!(data.authToken || data.auth || data.cert || data.meta);
+    }
+  } catch {
+    // file may not exist yet
+  }
+
+  // Also check DB session
+  try {
+    const dbSession = await getLineBotSession();
+    if (dbSession) {
+      hasAuthState = true;
+    }
+  } catch {
+    // ignore
+  }
+
+  return { storagePath, exists, sizeBytes, hasE2EEKeys, hasAuthState };
+}
+
+/**
+ * Logout and optionally clear all stored auth data.
+ * @param clearStorage — also delete persisted storage files
+ */
+export async function logout(clearStorage = false): Promise<void> {
+  client = null;
+  clientPromise = null;
+  currentQrUrl = "";
+  currentPincode = "";
+  qrUrlWaiter = null;
+
+  if (clearStorage) {
+    try {
+      const storagePath = getStoragePath();
+      if (existsSync(storagePath)) {
+        await unlink(storagePath);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const authPath = getAuthTokenPath();
+      if (existsSync(authPath)) {
+        await unlink(authPath);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  logger.info("line-bot-logout", { clearStorage });
 }
 
 /**

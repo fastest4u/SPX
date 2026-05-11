@@ -1,11 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
-import { requestQrLogin, sendMessage, getStatus, getGroups, isLineBotEnabled } from "../services/line-bot.js";
+import { requestQrLogin, sendMessage, getStatus, getGroups, getProfile, getStorageHealth, logout, isLineBotEnabled } from "../services/line-bot.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
 
 interface SendMessageBody {
   to: string;
   text: string;
+}
+
+interface LogoutBody {
+  clearStorage?: boolean;
 }
 
 export const lineBotController: FastifyPluginAsync = async (app) => {
@@ -76,6 +80,67 @@ export const lineBotController: FastifyPluginAsync = async (app) => {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error("line-bot-groups-error", { error: msg });
       return sendError(reply, 500, "GROUPS_ERROR", msg);
+    }
+  });
+
+  /** GET /profile — get authenticated LINE profile */
+  app.get("/profile", async (_req, reply) => {
+    if (!isLineBotEnabled()) {
+      return sendError(reply, 400, "DISABLED", "LINE Bot is disabled");
+    }
+
+    try {
+      const profile = await getProfile();
+      if (!profile) {
+        return sendError(reply, 503, "NOT_AUTHENTICATED", "LINE Bot is not authenticated or profile unavailable");
+      }
+      return sendSuccess(reply, profile);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error("line-bot-profile-error", { error: msg });
+      return sendError(reply, 500, "PROFILE_ERROR", msg);
+    }
+  });
+
+  /** GET /storage — check storage health (E2EE keys, auth state) */
+  app.get("/storage", async (_req, reply) => {
+    if (!isLineBotEnabled()) {
+      return sendError(reply, 400, "DISABLED", "LINE Bot is disabled");
+    }
+
+    try {
+      const health = await getStorageHealth();
+      return sendSuccess(reply, health);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error("line-bot-storage-error", { error: msg });
+      return sendError(reply, 500, "STORAGE_ERROR", msg);
+    }
+  });
+
+  /** POST /logout — logout and optionally clear storage */
+  app.post<{ Body: LogoutBody }>("/logout", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          clearStorage: { type: "boolean" },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    if (!isLineBotEnabled()) {
+      return sendError(reply, 400, "DISABLED", "LINE Bot is disabled");
+    }
+
+    try {
+      await logout(req.body.clearStorage);
+      return sendSuccess(reply, { loggedOut: true, clearStorage: req.body.clearStorage }, "LINE Bot logged out");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error("line-bot-logout-error", { error: msg });
+      return sendError(reply, 500, "LOGOUT_ERROR", msg);
     }
   });
 };

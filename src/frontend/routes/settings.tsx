@@ -262,7 +262,23 @@ function LineBotSettingsCard({ formData, setFormData, onSaveSettings, isSaving }
   const groupsQuery = useQuery({
     queryKey: ['line-bot-groups'],
     queryFn: lineBotApi.getGroups,
-    enabled: isAuthenticated, // Only fetch groups when authenticated
+    enabled: isAuthenticated,
+  })
+
+  // Profile query
+  const profileQuery = useQuery({
+    queryKey: ['line-bot-profile'],
+    queryFn: lineBotApi.getProfile,
+    enabled: isAuthenticated,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Storage health query
+  const storageQuery = useQuery({
+    queryKey: ['line-bot-storage'],
+    queryFn: lineBotApi.getStorage,
+    enabled: isAuthenticated,
+    refetchInterval: 10000,
   })
 
   // Login mutation
@@ -290,6 +306,22 @@ function LineBotSettingsCard({ formData, setFormData, onSaveSettings, isSaving }
     },
     onError: (error) => {
       toast.error('ส่งไม่สำเร็จ: ' + error.message)
+    },
+  })
+
+  // Logout mutation
+  const lineBotQueryClient = useQueryClient()
+  const logoutMutation = useMutation({
+    mutationFn: (clearStorage: boolean) => lineBotApi.logout(clearStorage),
+    onSuccess: () => {
+      toast.success('ออกจากระบบ LINE Bot แล้ว')
+      lineBotQueryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
+      lineBotQueryClient.invalidateQueries({ queryKey: ['line-bot-profile'] })
+      lineBotQueryClient.invalidateQueries({ queryKey: ['line-bot-groups'] })
+      lineBotQueryClient.invalidateQueries({ queryKey: ['line-bot-storage'] })
+    },
+    onError: (error) => {
+      toast.error('Logout ไม่สำเร็จ: ' + error.message)
     },
   })
 
@@ -330,6 +362,69 @@ function LineBotSettingsCard({ formData, setFormData, onSaveSettings, isSaving }
             </div>
           </div>
         </div>
+
+        {/* Profile & Storage Health */}
+        {isAuthenticated && (
+          <div className="space-y-3">
+            {/* Profile */}
+            {profileQuery.data && (
+              <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.05] p-4">
+                <div className="h-10 w-10 rounded-full bg-[#06C755]/20 flex items-center justify-center text-lg shrink-0">
+                  👤
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">{profileQuery.data.displayName}</div>
+                  <div className="text-[11px] text-slate-400 font-mono truncate">{profileQuery.data.mid}</div>
+                  {profileQuery.data.statusMessage && (
+                    <div className="text-xs text-slate-400 truncate">{profileQuery.data.statusMessage}</div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 shrink-0 h-8 px-2"
+                  onClick={() => {
+                    if (window.confirm('ต้องการออกจากระบบ LINE Bot?\n\nเลือก "ตกลง" เพื่อ logout อย่างเดียว\nเลือก "ยกเลิก" แล้วกดปุ่ม "ล้างข้อมูลทั้งหมด" ด้านล่างหากต้องการล้างข้อมูลจัดเก็บ')) {
+                      logoutMutation.mutate(false)
+                    }
+                  }}
+                  disabled={logoutMutation.isPending}
+                >
+                  {logoutMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Logout'}
+                </Button>
+              </div>
+            )}
+
+            {/* Storage Health */}
+            {storageQuery.data && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className={`rounded-xl border p-2.5 text-center ${storageQuery.data.hasE2EEKeys ? 'border-emerald-500/20 bg-emerald-500/[0.05]' : 'border-amber-500/20 bg-amber-500/[0.05]'}`}>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">E2EE Keys</div>
+                  <div className={`text-xs font-semibold mt-0.5 ${storageQuery.data.hasE2EEKeys ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {storageQuery.data.hasE2EEKeys ? '✅ มี' : '⚠️ ไม่มี'}
+                  </div>
+                </div>
+                <div className={`rounded-xl border p-2.5 text-center ${storageQuery.data.hasAuthState ? 'border-emerald-500/20 bg-emerald-500/[0.05]' : 'border-amber-500/20 bg-amber-500/[0.05]'}`}>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Auth State</div>
+                  <div className={`text-xs font-semibold mt-0.5 ${storageQuery.data.hasAuthState ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {storageQuery.data.hasAuthState ? '✅ มี' : '⚠️ ไม่มี'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Storage warning */}
+            {storageQuery.data && !storageQuery.data.hasE2EEKeys && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-3 text-xs text-amber-200">
+                ⚠️ <strong>E2EE Keys หาย</strong> — หาก restart เซิร์ฟเวอร์ อาจต้อง login QR ใหม่
+                {storageQuery.data.sizeBytes < 100 && (
+                  <span> (ไฟล์ storage มีแค่ {storageQuery.data.sizeBytes} bytes)</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Settings Fields */}
         <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
