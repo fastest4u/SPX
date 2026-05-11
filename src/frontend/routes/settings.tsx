@@ -426,6 +426,34 @@ function LineBotSettingsCard({ formData, setFormData, onSaveSettings, isSaving }
           </div>
         )}
 
+        {/* Notification Routing Info */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">เส้นทางการส่งข้อความ</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-start gap-3 rounded-xl border border-[#06C755]/10 bg-[#06C755]/[0.03] p-3">
+              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#06C755]/20 text-[#06C755]">Rule match</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-medium">LINEJS only</div>
+                <div className="text-xs text-slate-400 truncate">ส่งตรงไปกลุ่ม {formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID || 'c05959fbfd088274cfe9e7dfe019dc858'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-xl border border-blue-500/10 bg-blue-500/[0.03] p-3">
+              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">Auto-accept สำเร็จ</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-medium">LINE OA → LINEJS fallback</div>
+                <div className="text-xs text-slate-400">ลอง LINE OA ก่อน ถ้าติด quota/ล้มเหลว ส่ง LINEJS</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-xl border border-rose-500/10 bg-rose-500/[0.03] p-3">
+              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400">Auto-accept ล้มเหลว</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-medium">LINEJS only</div>
+                <div className="text-xs text-slate-400 truncate">ส่งตรงไปกลุ่ม {formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID || 'c05959fbfd088274cfe9e7dfe019dc858'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Settings Fields */}
         <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-center justify-between gap-3">
