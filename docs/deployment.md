@@ -82,12 +82,9 @@ docker compose up --build
 
 ## Process Manager
 
-> [!tip] ทำไมต้องมี process manager?
-> Settings API เขียน `.env` แล้ว ==exit process ทันที== เพื่อ reload config
-> ต้องมี auto-restart mechanism:
-> - Docker: `restart: unless-stopped`
-> - PM2: `pm2 start dist/app.js --name spx`
-> - systemd: `Restart=always`
+> [!tip] Settings Live Reload
+> Settings API เขียน DB แล้ว sync กลับเข้า process.env ทันที — **ไม่ต้อง restart server แล้ว**
+> การใช้ process manager (Docker, PM2, systemd) ยังแนะนำสำหรับ crash recovery และ availability ทั่วไป
 
 ## Frontend Build Output
 

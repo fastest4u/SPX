@@ -52,13 +52,40 @@ SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก==
 |-----------|------|--------|
 | Entry Point | `src/frontend/main.tsx` | React 19 entry, QueryClient, Router |
 | Root Layout | `src/frontend/routes/__root.tsx` | App shell, auth check, sidebar |
-| Router | `src/frontend/routes/*.tsx` | 7 pages: Dashboard, History, Audit, Users, Settings, Notifications, Reports |
-| UI Components | `src/frontend/components/ui/*.tsx` | shadcn/ui: Button, Card, Input, Table |
-| Layout | `src/frontend/components/layout/AppLayout.tsx` | Sidebar, header, navigation |
+| Router | `src/frontend/routes/*.tsx` | 11 pages (Dashboard, History, Audit, Users, Settings, Notifications, Reports, LINE Bot, Auto-Accept History, Login) |
+| UI Primitives | `src/frontend/components/ui/*.tsx` | Button, Card, Input, Dialog, Label, Skeleton, Avatar, Badge, Switch |
+| Business Components | `src/frontend/components/*.tsx` | DataTable (with sorting), EmptyState, Sparkline, Breadcrumb, CreateRuleDialog, EditRuleDialog, DeleteConfirmDialog, VehicleTypeMultiSelect, SettingsLineBotSection |
+| Layout | `src/frontend/components/layout/AppLayout.tsx` | Sidebar (collapsible sections, keyboard shortcuts), Top bar (breadcrumbs, Cmd+K search, notification bell, user dropdown), Mobile bottom tab bar |
 | API Client | `src/frontend/lib/api.ts` | Typed fetch wrapper with auth handling |
 | Auth Hook | `src/frontend/hooks/useAuth.ts` | Login/logout/auth state |
 | SSE Hook | `src/frontend/hooks/useSse.ts` | Real-time metrics updates |
-| Styles | `src/frontend/index.css` | Tailwind CSS v4 with custom theme |
+| Styles | `src/frontend/index.css` | Tailwind CSS v4 with custom theme, animations, glass morphism |
+
+## Settings Storage
+
+Settings ถูกเก็บใน DB (`app_settings` table) ตั้งแต่ v2.0:
+
+```
+Startup: .env → process.env → loadDbSettingsIntoEnv() (DB overrides env)
+Read:    readStoredSettings() = merge(Defaults, process.env, DB) — DB wins
+Write:   Web UI → upsertAppSettings(DB) + reloadSettingsLive() → สดทันที
+```
+
+> [!info] ไม่ต้อง restart
+> `ApiClient` อ่าน `env` ทุกครั้งที่ fetch (ไม่ cache ใน constructor)  
+> `Poller` อ่าน `POLL_INTERVAL_MS` ทุก tick ผ่าน `getIntervalMs()`  
+> เมื่อ save settings → sync DB → process.env → env object → ระบบทำงานต่อด้วยค่าใหม่ทันที
+
+## AppLayout Features
+
+| Feature | Description |
+|---------|-------------|
+| Sidebar | Collapsible sections (Menu / Administration), active glow indicator, hover shortcut keys (⌘1-⌘9) |
+| Top Bar | Breadcrumbs, Cmd+K quick search modal, notification bell, user avatar dropdown |
+| Mobile | Bottom tab bar (5 tabs), hamburger-less navigation |
+| Keyboard | `⌘B` toggle sidebar, `⌘K` quick search, `Esc` close modals |
+| Loading | SkeletonTable / SkeletonCard on every data page |
+| Empty | EmptyState component with icon + action button |
 
 ## Architecture Diagram
 
@@ -99,7 +126,7 @@ flowchart TD
 
 ## Feature Flag System
 
-ระบบใช้ `.env` เป็น feature flags:
+ระบบใช้ `.env` + DB (`app_settings` table) เป็น feature flags:
 
 ```
 FETCH_DETAILS=true    → แสดงรายละเอียด trip ใน console
@@ -108,6 +135,10 @@ NOTIFY_ENABLED=true   → ส่ง notification
 AUTO_ACCEPT_ENABLED=true → รับงานอัตโนมัติ  
 HTTP_ENABLED=true     → เปิด Web Dashboard
 ```
+
+> [!info] Live Reload
+> Settings แก้ไขผ่าน Web UI (`/settings`) → บันทึกลง DB → sync กลับเข้า `process.env` และ `env` object ทันที
+> API credentials (COOKIE, DEVICE_ID, API_URL) อ่านจาก `env` ทุกครั้งที่ fetch — **ไม่ต้อง restart server**
 
 > [!warning] Feature Dependencies
 > - `SAVE_TO_DB`, `HTTP_ENABLED`, `AUTO_ACCEPT_ENABLED` ต้องการ DB config ทั้งหมด

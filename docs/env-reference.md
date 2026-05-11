@@ -15,7 +15,7 @@ aliases:
 > [!important] ไฟล์ `.env` ที่ root ของ project
 > - โหลดอัตโนมัติผ่าน `src/config/env.ts`
 > - ไม่ override ค่า `process.env` ที่มีอยู่แล้ว
-> - สามารถแก้ไขผ่าน Settings UI (admin only) → ระบบ restart ทันที
+> - สามารถแก้ไขผ่าน Settings UI (admin only) → **มีผลทันทีโดยไม่ต้อง restart** (Live Reload)
 
 ## Required Base Values
 
