@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { lineBotApi } from '../lib/api'
+import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { toast } from 'sonner'
@@ -76,10 +77,21 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
   const statusTitle = isAuth ? '✅ เชื่อมต่อแล้ว' : isFormOn ? '⏳ พร้อม Login' : '⬛ ปิดใช้งาน'
   const statusDesc = isAuth ? status?.message : needsSave ? 'กดบันทึกก่อน แล้วจึง Login QR' : status?.message || 'กำลังตรวจสอบ...'
 
+  const toggleClass = `relative w-12 h-7 rounded-full cursor-pointer transition-all border border-white/10 p-0 shrink-0 ${
+    formData.LINEJS_TEST_ENABLED === 'true'
+      ? 'bg-[#06C755] shadow-[0_0_18px_rgba(6,199,85,0.34)]'
+      : 'bg-[#3a3a3c]'
+  }`
+
+  const toggleDotClass = `absolute top-[3px] left-[3px] w-5 h-5 rounded-full bg-white shadow transition-transform duration-300 ease-out ${
+    formData.LINEJS_TEST_ENABLED === 'true' ? 'translate-x-5' : ''
+  }`
+
   return (
-    <div className="settings-section space-y-5">
+    <div className="space-y-5">
+
       {/* Status indicator */}
-      <div className="settings-line-status">
+      <div className="flex items-center gap-3 rounded-2xl border border-white/10 glass p-4">
         {statusIcon}
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-white">{statusTitle}</div>
@@ -87,9 +99,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
         </div>
       </div>
 
-      {/* Profile & Storage */}
+      {/* Profile */}
       {isAuth && profileQuery.data && (
-        <div className="settings-line-profile">
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4">
           <div className="h-10 w-10 rounded-full bg-[#06C755]/20 flex items-center justify-center text-lg shrink-0">👤</div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-white truncate">{profileQuery.data.displayName}</div>
@@ -101,6 +113,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
         </div>
       )}
 
+      {/* Storage info */}
       {isAuth && storageQuery.data && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(['hasE2EEKeys', 'hasAuthState'] as const).map(k => (
@@ -113,67 +126,96 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
       )}
 
       {/* Enable toggle */}
-      <div className="settings-line-card flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-white">เปิดใช้งาน LINE Bot</div>
-          <div className="text-xs text-muted-foreground">login QR ครั้งเดียว ส่งข้อความได้ตลอด</div>
-        </div>
-        <button type="button" className="settings-toggle" data-on={formData.LINEJS_TEST_ENABLED} aria-label="เปิดหรือปิด LINE Bot" aria-pressed={isFormOn} onClick={() => setField('LINEJS_TEST_ENABLED', formData.LINEJS_TEST_ENABLED === 'true' ? 'false' : 'true')} />
-      </div>
+      <Card className="glass border-white/10">
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-white">เปิดใช้งาน LINE Bot</div>
+              <div className="text-xs text-muted-foreground">login QR ครั้งเดียว ส่งข้อความได้ตลอด</div>
+            </div>
+            <button
+              type="button"
+              className={toggleClass}
+              aria-label="เปิดหรือปิด LINE Bot"
+              aria-pressed={isFormOn}
+              onClick={() => setField('LINEJS_TEST_ENABLED', formData.LINEJS_TEST_ENABLED === 'true' ? 'false' : 'true')}
+            >
+              <span className={toggleDotClass} />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Routing config */}
-      <div className="settings-line-card space-y-3">
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">เส้นทางการส่งข้อความ</h4>
-        {routingRows.map(row => (
-          <div key={row.key} className="rounded-xl border p-3" style={{ borderColor: row.color + '1a', background: row.color + '08' }}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded self-start" style={{ background: row.color + '33', color: row.color }}>{row.label}</span>
-              <div className="flex-1 min-w-0 space-y-1">
-                <div className="text-white font-medium text-sm">{row.desc}</div>
-                {isAuth && chats.length > 0 ? (
-                  <select value={formData[row.key] || ''} onChange={e => setField(row.key, e.target.value)} className="settings-select mt-1.5">
-                    <option value="" className="bg-slate-900">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
-                    {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
-                  </select>
-                ) : (
-                  <Input value={formData[row.key] || ''} onChange={e => setField(row.key, e.target.value)} placeholder="Target MID (ปล่อยว่าง = ค่าเริ่มต้น)" className="settings-input mt-1.5 h-9 text-xs" />
-                )}
+      <Card className="glass border-white/10">
+        <CardContent className="pt-5">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">เส้นทางการส่งข้อความ</h4>
+          <div className="space-y-3">
+            {routingRows.map(row => (
+              <div key={row.key} className="rounded-xl border p-3" style={{ borderColor: row.color + '1a', background: row.color + '08' }}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                  <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded self-start" style={{ background: row.color + '33', color: row.color }}>{row.label}</span>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="text-white font-medium text-sm">{row.desc}</div>
+                    {isAuth && chats.length > 0 ? (
+                      <select
+                        value={formData[row.key] || ''}
+                        onChange={e => setField(row.key, e.target.value)}
+                        className="mt-1.5 w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                      >
+                        <option value="" className="bg-slate-900">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+                        {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                      </select>
+                    ) : (
+                      <Input value={formData[row.key] || ''} onChange={e => setField(row.key, e.target.value)} placeholder="Target MID (ปล่อยว่าง = ค่าเริ่มต้น)" className="mt-1.5 h-9 text-xs" />
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Target & Device settings */}
-      <div className="settings-line-card space-y-4">
-        <div className="settings-field">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <label htmlFor="linejs-target-mid">Target MID</label>
-            <span className="text-xs text-muted-foreground/70">ปล่อยว่างเพื่อใช้ ID เดียวกับ LINE OA</span>
+      <Card className="glass border-white/10">
+        <CardContent className="pt-5">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <label htmlFor="linejs-target-mid" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Target MID</label>
+                <span className="text-xs text-muted-foreground/70">ปล่อยว่างเพื่อใช้ ID เดียวกับ LINE OA</span>
+              </div>
+              {isAuth && chats.length > 0 ? (
+                <select
+                  id="linejs-target-mid"
+                  value={formData.LINEJS_TEST_TARGET_ID || ''}
+                  onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)}
+                  className="w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                >
+                  <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+                  {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                </select>
+              ) : (
+                <Input value={formData.LINEJS_TEST_TARGET_ID} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} placeholder={`Uxxx... หรือ Cxxx... (ค่าเริ่มต้น: ${formData.LINE_USER_ID || 'LINE_USER_ID'})`} />
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="linejs-device" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Device Type</label>
+                <Input id="linejs-device" value={formData.LINEJS_TEST_DEVICE} onChange={e => setField('LINEJS_TEST_DEVICE', e.target.value)} placeholder="IOSIPAD" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="linejs-storage" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Storage Path</label>
+                <Input id="linejs-storage" value={formData.LINEJS_TEST_STORAGE_PATH} onChange={e => setField('LINEJS_TEST_STORAGE_PATH', e.target.value)} placeholder="data/linejs-storage.json" />
+              </div>
+            </div>
+            <Button type="button" variant="outline" className="w-full rounded-xl" onClick={onSave} disabled={isSaving}>
+              {isSaving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า LINE Bot'}
+            </Button>
           </div>
-          {isAuth && chats.length > 0 ? (
-            <select id="linejs-target-mid" value={formData.LINEJS_TEST_TARGET_ID || ''} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} className="settings-select">
-              <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
-              {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
-            </select>
-          ) : (
-            <Input value={formData.LINEJS_TEST_TARGET_ID} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} placeholder={`Uxxx... หรือ Cxxx... (ค่าเริ่มต้น: ${formData.LINE_USER_ID || 'LINE_USER_ID'})`} className="settings-input" />
-          )}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="settings-field">
-            <label htmlFor="linejs-device">Device Type</label>
-            <Input id="linejs-device" value={formData.LINEJS_TEST_DEVICE} onChange={e => setField('LINEJS_TEST_DEVICE', e.target.value)} placeholder="IOSIPAD" className="settings-input" />
-          </div>
-          <div className="settings-field">
-            <label htmlFor="linejs-storage">Storage Path</label>
-            <Input id="linejs-storage" value={formData.LINEJS_TEST_STORAGE_PATH} onChange={e => setField('LINEJS_TEST_STORAGE_PATH', e.target.value)} placeholder="data/linejs-storage.json" className="settings-input" />
-          </div>
-        </div>
-        <Button type="button" variant="outline" className="w-full rounded-2xl" onClick={onSave} disabled={isSaving}>
-          {isSaving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า LINE Bot'}
-        </Button>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* QR Login */}
       {showQr && (
@@ -184,7 +226,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
             {loginMut.isPending ? 'กำลังสร้าง QR Code...' : 'Login ด้วย QR Code'}
           </Button>
           {qrUrl && (
-            <div className="settings-qr-card">
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-5 text-center">
               <span className="font-medium text-white">สแกน QR Code เพื่อ Login</span>
               <div className="bg-white p-4 rounded-xl shadow-lg"><QRCodeSVG value={qrUrl} size={200} level="H" includeMargin /></div>
               <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={qrUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">{qrUrl}</a>)</p>
@@ -201,15 +243,36 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
 
       {/* Send test message */}
       {isAuth && (
-        <div className="settings-line-card space-y-3 border-emerald-300/20 bg-emerald-300/5">
-          <h4 className="text-sm font-medium text-white">ทดสอบส่งข้อความ</h4>
-          <Input value={testMid} onChange={e => setTestMid(e.target.value)} placeholder="Target MID (uxxx... / cxxx...)" className="settings-input" />
-          <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} placeholder="ข้อความ..." rows={2} className="settings-textarea min-h-20 resize-none text-sm" />
-          <Button type="button" onClick={() => { if (!testMid.trim() || !testMsg.trim()) { toast.error('กรุณากรอก MID และข้อความ'); return } sendMut.mutate({ to: testMid.trim(), text: testMsg.trim() }) }} disabled={sendMut.isPending || !testMid.trim() || !testMsg.trim()} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-white">
-            {sendMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-            {sendMut.isPending ? 'กำลังส่ง...' : 'ส่งข้อความทดสอบ'}
-          </Button>
-        </div>
+        <Card className="glass border-emerald-300/20 bg-emerald-300/5">
+          <CardContent className="pt-5">
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-white">ทดสอบส่งข้อความ</h4>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Target MID</label>
+                {isAuth && chats.length > 0 ? (
+                  <select
+                    value={testMid}
+                    onChange={e => setTestMid(e.target.value)}
+                    className="w-full min-h-[2.5rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                  >
+                    <option value="" className="bg-slate-900">เลือกกลุ่ม...</option>
+                    {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                  </select>
+                ) : (
+                  <Input value={testMid} onChange={e => setTestMid(e.target.value)} placeholder="Target MID (uxxx... / cxxx...)" />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ข้อความ</label>
+                <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} placeholder="ข้อความ..." rows={2} className="flex min-h-[5rem] w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" />
+              </div>
+              <Button type="button" onClick={() => { if (!testMid.trim() || !testMsg.trim()) { toast.error('กรุณากรอก MID และข้อความ'); return } sendMut.mutate({ to: testMid.trim(), text: testMsg.trim() }) }} disabled={sendMut.isPending || !testMid.trim() || !testMsg.trim()} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-white">
+                {sendMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                {sendMut.isPending ? 'กำลังส่ง...' : 'ส่งข้อความทดสอบ'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )
