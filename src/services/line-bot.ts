@@ -295,7 +295,8 @@ export async function sendMessage(to: string, text: string): Promise<LineBotSend
       await c.base.talk.sendMessage({ to, text, e2ee: true });
     } catch (e2eeError: unknown) {
       const errMsg = e2eeError instanceof Error ? e2eeError.message : String(e2eeError);
-      if (errMsg.includes("E2EE_RETRY_PLAIN")) {
+      if (errMsg.includes("E2EE_RETRY_PLAIN") || errMsg.includes("E2EE Key has not been saved")) {
+        logger.warn("line-bot-e2ee-fallback-plain", { to, error: errMsg });
         await c.base.talk.sendMessage({ to, text, e2ee: false });
       } else {
         throw e2eeError;
