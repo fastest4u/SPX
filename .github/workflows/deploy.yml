@@ -51,6 +51,7 @@ jobs:
             cd /root/SPX
             git fetch origin main
             git reset --hard origin/main
+            docker compose down
             docker compose up --build -d
             docker compose ps
             curl -fsS --retry 10 --retry-delay 3 https://www.pathwaylogistic.com/health >/dev/null
