@@ -23,6 +23,11 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
+function getIntervalSec(pollIntervalMs: string): number {
+  const ms = Number(pollIntervalMs || 30000)
+  return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 1000)) : 0
+}
+
 const INITIAL_FORM = {
   API_URL: '',
   POLL_INTERVAL_MS: '30000',
@@ -92,8 +97,7 @@ function SettingsComponent() {
     setFormData(prev => ({ ...prev, [key]: value }))
   }
 
-  const pollMs = Number(formData.POLL_INTERVAL_MS || 30000)
-  const pollSeconds = Number.isFinite(pollMs) ? Math.max(0, Math.round(pollMs / 1000)) : 0
+  const pollSeconds = getIntervalSec(formData.POLL_INTERVAL_MS)
   const apiReady = Boolean(formData.API_URL.trim() && formData.DEVICE_ID.trim() && formData.COOKIE.trim())
   const configuredChannels = [
     formData.LINE_CHANNEL_ACCESS_TOKEN,
@@ -244,8 +248,7 @@ function SettingsComponent() {
 
 /* ─── API & Polling Section ──────────────────────── */
 function ApiSection({ formData, setField }: { formData: Record<string, string>; setField: (k: string, v: string) => void }) {
-  const pollMs = Number(formData.POLL_INTERVAL_MS || 30000)
-  const intervalSec = Number.isFinite(pollMs) ? Math.max(0, Math.round(pollMs / 1000)) : 0
+  const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
   const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
 
   return (

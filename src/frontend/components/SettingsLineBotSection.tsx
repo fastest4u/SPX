@@ -68,14 +68,22 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
     { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE', label: 'Auto-accept ล้มเหลว', desc: 'LINEJS only', color: '#f43f5e' },
   ] as const
 
+  const statusIcon = isAuth
+    ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+    : isFormOn
+      ? <QrCode className="h-5 w-5 text-amber-400 shrink-0" />
+      : <XCircle className="h-5 w-5 text-rose-400/50 shrink-0" />
+  const statusTitle = isAuth ? '✅ เชื่อมต่อแล้ว' : isFormOn ? '⏳ พร้อม Login' : '⬛ ปิดใช้งาน'
+  const statusDesc = isAuth ? status?.message : needsSave ? 'กดบันทึกก่อน แล้วจึง Login QR' : status?.message || 'กำลังตรวจสอบ...'
+
   return (
     <div className="settings-section space-y-5">
       {/* Status indicator */}
       <div className="settings-line-status">
-        {isAuth ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" /> : isFormOn ? <QrCode className="h-5 w-5 text-amber-400 shrink-0" /> : <XCircle className="h-5 w-5 text-rose-400/50 shrink-0" />}
+        {statusIcon}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-white">{isAuth ? '✅ เชื่อมต่อแล้ว' : isFormOn ? '⏳ พร้อม Login' : '⬛ ปิดใช้งาน'}</div>
-          <div className="text-xs text-muted-foreground sm:truncate">{isAuth ? status?.message : needsSave ? 'กดบันทึกก่อน แล้วจึง Login QR' : status?.message || 'กำลังตรวจสอบ...'}</div>
+          <div className="text-sm font-medium text-white">{statusTitle}</div>
+          <div className="text-xs text-muted-foreground sm:truncate">{statusDesc}</div>
         </div>
       </div>
 
@@ -140,11 +148,11 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
       <div className="settings-line-card space-y-4">
         <div className="settings-field">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <label>Target MID</label>
+            <label htmlFor="linejs-target-mid">Target MID</label>
             <span className="text-xs text-muted-foreground/70">ปล่อยว่างเพื่อใช้ ID เดียวกับ LINE OA</span>
           </div>
           {isAuth && chats.length > 0 ? (
-            <select value={formData.LINEJS_TEST_TARGET_ID || ''} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} className="settings-select">
+            <select id="linejs-target-mid" value={formData.LINEJS_TEST_TARGET_ID || ''} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} className="settings-select">
               <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
               {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
             </select>
@@ -154,12 +162,12 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="settings-field">
-            <label>Device Type</label>
-            <Input value={formData.LINEJS_TEST_DEVICE} onChange={e => setField('LINEJS_TEST_DEVICE', e.target.value)} placeholder="IOSIPAD" className="settings-input" />
+            <label htmlFor="linejs-device">Device Type</label>
+            <Input id="linejs-device" value={formData.LINEJS_TEST_DEVICE} onChange={e => setField('LINEJS_TEST_DEVICE', e.target.value)} placeholder="IOSIPAD" className="settings-input" />
           </div>
           <div className="settings-field">
-            <label>Storage Path</label>
-            <Input value={formData.LINEJS_TEST_STORAGE_PATH} onChange={e => setField('LINEJS_TEST_STORAGE_PATH', e.target.value)} placeholder="data/linejs-storage.json" className="settings-input" />
+            <label htmlFor="linejs-storage">Storage Path</label>
+            <Input id="linejs-storage" value={formData.LINEJS_TEST_STORAGE_PATH} onChange={e => setField('LINEJS_TEST_STORAGE_PATH', e.target.value)} placeholder="data/linejs-storage.json" className="settings-input" />
           </div>
         </div>
         <Button type="button" variant="outline" className="w-full rounded-2xl" onClick={onSave} disabled={isSaving}>
