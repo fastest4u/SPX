@@ -460,10 +460,11 @@ export async function getStorageHealth(): Promise<LineBotStorageHealth> {
     if (sizeBytes > 50) {
       const content = await readFile(storagePath, "utf-8");
       const data = JSON.parse(content);
-      // E2EE keys typically stored under e2ee or keyStore
-      hasE2EEKeys = !!(data.e2ee || data.keyStore || data.keys || data.e2eeKeyIds);
-      // Auth state
-      hasAuthState = !!(data.authToken || data.auth || data.cert || data.meta);
+      const keys = Object.keys(data);
+      // E2EE keys stored under keys like "e2eeKeys:5843820"
+      hasE2EEKeys = keys.some((k) => k.includes("e2ee") || k.includes("keyStore") || k.includes("e2eeKeyIds"));
+      // Auth state: qrCert, authToken, cert, etc.
+      hasAuthState = keys.some((k) => k.includes("cert") || k.includes("auth") || k.includes("token") || k.includes("meta"));
     }
   } catch {
     // file may not exist yet
