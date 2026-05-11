@@ -119,7 +119,7 @@ async function sendLineJsTestMessage(title: string, message: string): Promise<vo
   }
 }
 
-const LINEJS_FALLBACK_GROUP_MID = "c05959fbfd088274cfe9e7dfe019dc858";
+const LINEJS_FALLBACK_GROUP_MID = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
 
 /** Try LINE OA first; if it fails/quota exceeded, fallback to LINEJS direct message */
 async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
@@ -217,7 +217,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
     // Send only via LINEJS direct group message
-    const notifyGroupMid = "c05959fbfd088274cfe9e7dfe019dc858";
+    const notifyGroupMid = env.LINEJS_TEST_TARGET_ID_RULE_MATCH || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
     const matchLines = matches.map((m) => `• ${m.ruleName} (${m.matchedCount} รายการ)`);
     const notifyAlertText = [
       `🔔 ${title}`,
@@ -509,7 +509,7 @@ export async function acceptAndNotifyMatchedRules(
 
   // Notify about failures — LINEJS direct group only
   if (failed.length > 0) {
-    const failGroupMid = "c05959fbfd088274cfe9e7dfe019dc858";
+    const failGroupMid = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
     const failLines = failed.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
     const failAlertText = [
       "⚠️ SPX Auto-Accept ล้มเหลว",
