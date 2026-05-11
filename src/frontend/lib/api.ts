@@ -14,6 +14,9 @@ import type {
   EnvSettings,
   HealthResponse,
   HistoryFilterQuery,
+  LineBotSendInput,
+  LineBotSendResult,
+  LineBotStatus,
   LoginResponse,
   MeResponse,
   MetricsHistoryRow,
@@ -322,6 +325,12 @@ export const metricsApi = {
 
   history: (limit?: number): Promise<MetricsHistoryRow[]> =>
     fetchPlain<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
+
+  pause: (): Promise<any> =>
+    fetchPlain<any>('/system/pause', { method: 'POST' }),
+
+  resume: (): Promise<any> =>
+    fetchPlain<any>('/system/resume', { method: 'POST' }),
 }
 
 export const lineApi = {
@@ -375,4 +384,25 @@ export const reportsApi = {
   downloadAudit: (): void => {
     window.open(`${API_BASE}/reports/audit.csv`, '_blank')
   },
+}
+
+// LINE Bot API
+export const lineBotApi = {
+  status: (): Promise<LineBotStatus> =>
+    fetchJson<LineBotStatus>(`${API_BASE}/line-bot/status`),
+
+  login: (): Promise<LineBotStatus> =>
+    fetchJson<LineBotStatus>(`${API_BASE}/line-bot/login`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  send: (input: LineBotSendInput): Promise<LineBotSendResult> =>
+    fetchJson<LineBotSendResult>(`${API_BASE}/line-bot/send`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  getGroups: (): Promise<{ chats: Array<{ chatMid: string, chatName: string }> }> =>
+    fetchJson(`${API_BASE}/line-bot/groups`),
 }

@@ -24,6 +24,7 @@ import { reportController } from "../controllers/report-controller.js";
 import { biddingController } from "../controllers/bidding-controller.js";
 import { autoAcceptHistoryController } from "../controllers/auto-accept-history-controller.js";
 import { notifyController } from "./notify-controller.js";
+import { lineBotController } from "../controllers/line-bot-controller.js";
 
 let app: FastifyInstance | null = null;
 
@@ -260,6 +261,7 @@ export async function startHttpServer(port: number): Promise<void> {
       await userScope.register(rulesController, { prefix: "/rules" });
       await userScope.register(notifyController, { prefix: "/notifications" });
       await userScope.register(biddingController, { prefix: "/bidding" });
+      await userScope.register(lineBotController, { prefix: "/line-bot" });
     });
 
     await apiScope.register(async (adminScope) => {

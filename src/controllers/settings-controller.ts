@@ -5,7 +5,7 @@ import { insertAuditLog } from "../repositories/audit-repository.js";
 import { logger } from "../utils/logger.js";
 import { sendSuccess } from "../utils/response.js";
 
-const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_USER_ID", "DISCORD_WEBHOOK_URL"]);
+const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_USER_ID", "LINEJS_TEST_TARGET_ID", "DISCORD_WEBHOOK_URL"]);
 const REDACTED_PREFIX = "********";
 
 const settingsSchema = {
@@ -17,6 +17,10 @@ const settingsSchema = {
     DEVICE_ID: { type: "string" },
     LINE_CHANNEL_ACCESS_TOKEN: { type: "string" },
     LINE_USER_ID: { type: "string" },
+    LINEJS_TEST_ENABLED: { type: "string" },
+    LINEJS_TEST_TARGET_ID: { type: "string" },
+    LINEJS_TEST_DEVICE: { type: "string" },
+    LINEJS_TEST_STORAGE_PATH: { type: "string" },
     DISCORD_WEBHOOK_URL: { type: "string" },
     POLL_INTERVAL_MS: { type: "string" },
     BOOKING_DETAIL_CONCURRENCY: { type: "string" },
@@ -44,6 +48,10 @@ function readPublicSettings(): EnvSettings {
     DEVICE_ID: envVars.DEVICE_ID || "",
     LINE_CHANNEL_ACCESS_TOKEN: redactSecret(envVars.LINE_CHANNEL_ACCESS_TOKEN),
     LINE_USER_ID: redactSecret(envVars.LINE_USER_ID),
+    LINEJS_TEST_ENABLED: envVars.LINEJS_TEST_ENABLED || "false",
+    LINEJS_TEST_TARGET_ID: redactSecret(envVars.LINEJS_TEST_TARGET_ID),
+    LINEJS_TEST_DEVICE: envVars.LINEJS_TEST_DEVICE || "IOSIPAD",
+    LINEJS_TEST_STORAGE_PATH: envVars.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json",
     DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
     POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
     BOOKING_DETAIL_CONCURRENCY: envVars.BOOKING_DETAIL_CONCURRENCY || "8",

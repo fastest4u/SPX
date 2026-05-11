@@ -10,6 +10,7 @@ interface NotificationBody {
   channels?: {
     line?: boolean;
     discord?: boolean;
+    linejs_test?: boolean;
   };
 }
 
@@ -17,6 +18,10 @@ function redact(value: string, visible = 4): string {
   if (!value) return "";
   if (value.length <= visible * 2) return "*".repeat(Math.max(4, value.length));
   return `${value.slice(0, visible)}${"*".repeat(Math.max(4, value.length - visible * 2))}${value.slice(-visible)}`;
+}
+
+function isLineJsTestConfigured(): boolean {
+  return env.LINEJS_TEST_ENABLED && env.NODE_ENV !== "production";
 }
 
 export const notifyController: FastifyPluginAsync = async (app) => {
@@ -33,6 +38,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
             properties: {
               line: { type: "boolean" },
               discord: { type: "boolean" },
+              linejs_test: { type: "boolean" },
             },
           },
         },
@@ -47,6 +53,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
         channels: {
           line: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
           discord: Boolean(env.DISCORD_WEBHOOK_URL),
+          linejs_test: isLineJsTestConfigured(),
         },
       },
     });
@@ -65,6 +72,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
             properties: {
               line: { type: "boolean" },
               discord: { type: "boolean" },
+              linejs_test: { type: "boolean" },
             },
           },
         },
@@ -75,7 +83,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
     const title = body?.title ?? "SPX Notification Test";
     const message = body?.message ?? "Test notification from SPX Bidding Poller.";
 
-    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL) {
+    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL && !isLineJsTestConfigured()) {
       return sendError(reply, 400, "NOT_CONFIGURED", "No notification target is configured");
     }
 
@@ -83,6 +91,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
       title,
       lineConfigured: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
       discordConfigured: Boolean(env.DISCORD_WEBHOOK_URL),
+      lineJsTestConfigured: isLineJsTestConfigured(),
       discordWebhook: redact(env.DISCORD_WEBHOOK_URL),
     });
 
@@ -92,6 +101,7 @@ export const notifyController: FastifyPluginAsync = async (app) => {
       sent: {
         line: result.results.some((item) => item.channel === "line" && item.ok),
         discord: result.results.some((item) => item.channel === "discord" && item.ok),
+        linejs_test: result.results.some((item) => item.channel === "linejs_test" && item.ok),
       },
       channels: result.results,
       message,

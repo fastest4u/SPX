@@ -6,6 +6,8 @@ import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js
 import { sseBroadcaster } from "../services/sse.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { fetchLineQuota } from "../services/notifier.js";
+import { insertAuditLog } from "../repositories/audit-repository.js";
+import type { AuthUser } from "../services/authz.js";
 
 export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/health", async (req, reply) => {
@@ -104,5 +106,31 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
   app.get("/line-quota", async (_req, reply) => {
     const quota = await fetchLineQuota();
     return reply.send(quota);
+  });
+
+  app.post("/system/pause", async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+    } catch {
+      return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
+    }
+    const { pollerControl } = await import("../services/poller-control.js");
+    pollerControl.isPaused = true;
+    sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
+    await insertAuditLog((req.user as AuthUser).username, "Pause Poller", "Paused SPX polling");
+    return sendSuccess(reply, { paused: true });
+  });
+
+  app.post("/system/resume", async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+    } catch {
+      return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
+    }
+    const { pollerControl } = await import("../services/poller-control.js");
+    pollerControl.isPaused = false;
+    sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
+    await insertAuditLog((req.user as AuthUser).username, "Resume Poller", "Resumed SPX polling");
+    return sendSuccess(reply, { paused: false });
   });
 };

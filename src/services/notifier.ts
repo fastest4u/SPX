@@ -4,17 +4,24 @@ import { metrics } from "./metrics.js";
 import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, applyAutoAcceptProgress, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
+import { isLineBotEnabled, sendNotification as sendLineBotNotification, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
 
-type NotificationChannel = "line" | "discord";
+// Re-export for backward compatibility
+export type { LineBotStatus as LineJsQrLoginResult } from "./line-bot.js";
+export { requestQrLogin as requestLineJsQrLogin } from "./line-bot.js";
+
+type NotificationChannel = "line" | "discord" | "linejs_test";
 
 type NotificationSendResult = {
   channel: NotificationChannel;
   ok: boolean;
   error?: string;
+  qrUrl?: string;
+  pincode?: string;
 };
 
 function hasNotificationTarget(): boolean {
-  return Boolean(env.LINE_CHANNEL_ACCESS_TOKEN || env.DISCORD_WEBHOOK_URL);
+  return Boolean(env.LINE_CHANNEL_ACCESS_TOKEN || env.DISCORD_WEBHOOK_URL || isLineBotEnabled());
 }
 
 function dedupeRuleIds(matches: Array<{ ruleId: string }>): string[] {
@@ -103,6 +110,47 @@ async function sendLineOaMessage(title: string, message: string): Promise<void> 
   }
 }
 
+async function sendLineJsTestMessage(title: string, message: string): Promise<void> {
+  const result = await sendLineBotNotification(title, message);
+  if (!result.ok) {
+    const err = new Error(result.error || "LINE Bot send failed");
+    if (result.qrUrl) Object.assign(err, { qrUrl: result.qrUrl, pincode: result.pincode });
+    throw err;
+  }
+}
+
+const LINEJS_FALLBACK_GROUP_MID = "c05959fbfd088274cfe9e7dfe019dc858";
+
+/** Try LINE OA first; if it fails/quota exceeded, fallback to LINEJS direct message */
+async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
+  if (env.LINE_CHANNEL_ACCESS_TOKEN) {
+    try {
+      await sendLineOaMessage(title, message);
+      logger.info("auto-accept-alert-line-oa-sent", { title });
+      return true;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.warn("auto-accept-alert-line-oa-failed", { title, error: errMsg });
+      // Fallback to LINEJS below
+    }
+  }
+
+  try {
+    const text = `${title}\n${message}`;
+    const result = await sendLineBotMessage(LINEJS_FALLBACK_GROUP_MID, text);
+    if (result.ok) {
+      logger.info("auto-accept-alert-linejs-sent", { groupMid: LINEJS_FALLBACK_GROUP_MID, title });
+      return true;
+    }
+    logger.warn("auto-accept-alert-linejs-failed", { groupMid: LINEJS_FALLBACK_GROUP_MID, title, error: result.error });
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger.warn("auto-accept-alert-linejs-error", { groupMid: LINEJS_FALLBACK_GROUP_MID, title, error: errMsg });
+  }
+
+  return false;
+}
+
 export async function sendNotificationMessage(title: string, message: string): Promise<{ sent: boolean; results: NotificationSendResult[] }> {
   const results: NotificationSendResult[] = [];
 
@@ -128,6 +176,24 @@ export async function sendNotificationMessage(title: string, message: string): P
     }
   }
 
+  if (isLineBotEnabled()) {
+    try {
+      await sendLineJsTestMessage(title, message);
+      results.push({ channel: "linejs_test", ok: true });
+    } catch (error) {
+      const errorMessage = lineBotFormatError(error);
+      logger.error("linejs-test-notification-failed", { error: errorMessage });
+      const errObj = error as Record<string, unknown>;
+      results.push({
+        channel: "linejs_test",
+        ok: false,
+        error: errorMessage,
+        qrUrl: error instanceof LineBotQrRequiredError ? error.qrUrl : errObj.qrUrl as string | undefined,
+        pincode: error instanceof LineBotQrRequiredError ? error.pincode : errObj.pincode as string | undefined,
+      });
+    }
+  }
+
   return { sent: results.some((result) => result.ok), results };
 }
 
@@ -145,42 +211,39 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     return { matches, sent: false };
   }
 
-  if (!hasNotificationTarget() && !options?.forceTest) {
-    logger.warn("notification-skipped", { reason: "no-notification-target" });
-    return { matches, sent: false, skipped: true };
-  }
-
   try {
     const forceTest = Boolean(options?.forceTest);
     const title = forceTest ? "SPX Notification Test" : "SPX แจ้งเตือนงานที่ตรงเงื่อนไข";
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
-    const channelResults: NotificationSendResult[] = [];
-    const fulfilledRuleIds: string[] = [];
+    // Send only via LINEJS direct group message
+    const notifyGroupMid = "c05959fbfd088274cfe9e7dfe019dc858";
+    const matchLines = matches.map((m) => `• ${m.ruleName} (${m.matchedCount} รายการ)`);
+    const notifyAlertText = [
+      `🔔 ${title}`,
+      `เวลา: ${new Date().toLocaleString("th-TH")}`,
+      "",
+      ...matchLines,
+    ].join("\n");
 
-    if (!forceTest && env.NOTIFY_MODE === "each") {
-      for (const match of matches) {
-        const message = buildNotificationMessage([match], trips, false);
-        const sendResult = await sendNotificationMessage(`${title}: ${match.ruleName}`, message);
-        channelResults.push(...sendResult.results);
-        if (sendResult.sent) {
-          fulfilledRuleIds.push(match.ruleId);
-        }
+    let sent = false;
+    try {
+      const lineResult = await sendLineBotMessage(notifyGroupMid, notifyAlertText);
+      if (lineResult.ok) {
+        sent = true;
+        logger.info("rule-match-linejs-alert-sent", { groupMid: notifyGroupMid, matchCount: matches.length });
+      } else {
+        logger.warn("rule-match-linejs-alert-failed", { groupMid: notifyGroupMid, error: lineResult.error });
       }
-    } else {
-      const message = buildNotificationMessage(matches, trips, forceTest);
-      const sendResult = await sendNotificationMessage(title, message);
-      channelResults.push(...sendResult.results);
-      if (sendResult.sent) {
-        fulfilledRuleIds.push(...dedupeRuleIds(matches));
-      }
+    } catch (lineError) {
+      logger.warn("rule-match-linejs-alert-error", { groupMid: notifyGroupMid, error: lineError instanceof Error ? lineError.message : String(lineError) });
     }
 
-    if (fulfilledRuleIds.length > 0) {
-      await markRulesFulfilled(fulfilledRuleIds);
+    if (sent && !forceTest) {
+      await markRulesFulfilled(dedupeRuleIds(matches));
     }
 
-    return { matches, sent: channelResults.some((result) => result.ok), channels: channelResults };
+    return { matches, sent };
   } catch (error) {
     logger.error("notification-failed", error instanceof Error ? error : new Error(String(error)));
     return { matches, sent: false, error: true };
@@ -430,36 +493,48 @@ export async function acceptAndNotifyMatchedRules(
   // Notify only if at least one request was accepted successfully
   let notified = false;
 
-  if (accepted.length > 0 && hasNotificationTarget()) {
+  if (accepted.length > 0) {
     const title = `✅ SPX Auto-Accept สำเร็จ ${accepted.length} รายการ`;
     const message = buildAcceptNotificationMessage(accepted);
 
     if (options.deferSideEffects) {
-      runDetached("auto-accept-notification-failed", sendNotificationMessage(title, message).then((sendResult) => {
-        if (sendResult.sent) {
-          logger.info("auto-accept-notified", { acceptedCount: accepted.length });
-        }
-      }));
+      runDetached("auto-accept-notification", sendAutoAcceptAlert(title, message));
     } else {
-      const sendResult = await sendNotificationMessage(title, message);
-      notified = sendResult.sent;
-
+      notified = await sendAutoAcceptAlert(title, message);
       if (notified) {
         logger.info("auto-accept-notified", { acceptedCount: accepted.length });
       }
     }
   }
 
-  // Notify about failures too (if any)
-  if (failed.length > 0 && hasNotificationTarget()) {
-    const failTitle = "⚠️ SPX Auto-Accept ล้มเหลว";
-    const failLines = failed.map((f) => `- booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}] error: ${f.error}`);
-    const failMessage = truncate(failLines.join("\n"), 4000);
+  // Notify about failures — LINEJS direct group only
+  if (failed.length > 0) {
+    const failGroupMid = "c05959fbfd088274cfe9e7dfe019dc858";
+    const failLines = failed.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
+    const failAlertText = [
+      "⚠️ SPX Auto-Accept ล้มเหลว",
+      `เวลา: ${new Date().toLocaleString("th-TH")}`,
+      "",
+      ...failLines,
+    ].join("\n");
+
+    const sendFailAlert = async () => {
+      try {
+        const result = await sendLineBotMessage(failGroupMid, failAlertText);
+        if (result.ok) {
+          logger.info("auto-accept-failure-linejs-sent", { groupMid: failGroupMid, failedCount: failed.length });
+        } else {
+          logger.warn("auto-accept-failure-linejs-failed", { groupMid: failGroupMid, error: result.error });
+        }
+      } catch (error) {
+        logger.warn("auto-accept-failure-linejs-error", { groupMid: failGroupMid, error: error instanceof Error ? error.message : String(error) });
+      }
+    };
 
     if (options.deferSideEffects) {
-      runDetached("auto-accept-failure-notification-failed", sendNotificationMessage(failTitle, failMessage));
+      runDetached("auto-accept-failure-linejs-alert", sendFailAlert());
     } else {
-      await sendNotificationMessage(failTitle, failMessage);
+      await sendFailAlert();
     }
   }
 

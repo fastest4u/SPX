@@ -51,3 +51,15 @@ CREATE TABLE IF NOT EXISTS auto_accept_history (
   KEY aah_rule_id_idx (rule_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
+
+export const lineBotSessionsMigrationSql = `
+CREATE TABLE IF NOT EXISTS line_bot_sessions (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_key VARCHAR(50) NOT NULL DEFAULT 'default',
+  auth_token VARCHAR(2000) NOT NULL,
+  device VARCHAR(50) NOT NULL DEFAULT 'IOSIPAD',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY lbs_session_key_idx (session_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;

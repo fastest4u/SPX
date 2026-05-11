@@ -51,12 +51,14 @@ sequenceDiagram
 
 ## Tick Flow (แต่ละรอบ polling)
 
-1. **Request counter** เพิ่มขึ้น
-2. **ApiClient.fetch()** เรียก `POST /booking/bidding/list`
-3. ถ้า request ล้มเหลว:
+1. **Check State**: ตรวจสอบว่าระบบถูกหยุดชั่วคราวผ่านหน้าเว็บ (Pause) หรือไม่ผ่าน `pollerControl.isPaused`
+   - ถ้า `isPaused == true` ข้ามรอบ (skip tick) รอ 1 วินาทีแล้วเช็คใหม่
+2. **Request counter** เพิ่มขึ้น
+3. **ApiClient.fetch()** เรียก `POST /booking/bidding/list`
+4. ถ้า request ล้มเหลว:
    - Error ถูก classify (`session_expired`, `network`, `rate_limited`, etc.)
    - Metrics updated, tick ends
-4. ถ้า request สำเร็จ:
+5. ถ้า request สำเร็จ:
    - **DataProcessor.detectChange()** — FNV-1a hash comparison
    - **formatStatus()** — log summary (bookings count, change status)
    - ถ้า `FETCH_DETAILS` | `SAVE_TO_DB` | `NOTIFY_ENABLED` | `AUTO_ACCEPT_ENABLED`:

@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Truck,
+  MessageCircle,
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useState } from 'react'
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/history', label: 'ประวัติงาน', icon: History },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell },
+  { path: '/line-bot', label: 'LINE Bot', icon: MessageCircle },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart },
 ]
 

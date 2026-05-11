@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { toast } from 'sonner'
 import { Bell, Send, Eye } from 'lucide-react'
+import type { NotificationPreview, NotificationTestResult } from '../types'
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -15,8 +16,9 @@ export const Route = createRoute({
 })
 
 function NotificationsComponent() {
-  const [preview, setPreview] = useState<unknown>(null)
-  const [testResult, setTestResult] = useState<unknown>(null)
+  const [preview, setPreview] = useState<NotificationPreview | null>(null)
+  const [testResult, setTestResult] = useState<NotificationTestResult | null>(null)
+  const lineJsQrChallenge = testResult?.channels.find((channel) => channel.channel === 'linejs_test' && channel.qrUrl)
 
   const previewMutation = useMutation({
     mutationFn: notificationsApi.preview,
@@ -33,7 +35,14 @@ function NotificationsComponent() {
     mutationFn: notificationsApi.test,
     onSuccess: (data) => {
       setTestResult(data)
-      toast.success('ส่งข้อความทดสอบสำเร็จ')
+      const lineJsQr = data.channels.find((channel) => channel.channel === 'linejs_test' && channel.qrUrl)
+      if (lineJsQr?.qrUrl) {
+        toast.info('LINEJS ต้องสแกน QR ก่อน แล้วกด Send Test อีกครั้ง')
+      } else if (Object.values(data.sent).some(Boolean)) {
+        toast.success('ส่งข้อความทดสอบสำเร็จ')
+      } else {
+        toast.error('ส่งข้อความทดสอบไม่สำเร็จ')
+      }
     },
     onError: (error) => {
       toast.error('เกิดข้อผิดพลาด: ' + error.message)
@@ -82,6 +91,23 @@ function NotificationsComponent() {
           {!!testResult && (
             <div className="space-y-2">
               <h4 className="text-sm font-medium text-white">Test Result</h4>
+              {!!lineJsQrChallenge?.qrUrl && (
+                <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">
+                  <div className="font-medium text-white">LINEJS QR Login</div>
+                  <a
+                    href={lineJsQrChallenge.qrUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 block break-all text-cyan-200 underline underline-offset-4"
+                  >
+                    {lineJsQrChallenge.qrUrl}
+                  </a>
+                  {!!lineJsQrChallenge.pincode && (
+                    <div className="mt-2">PIN: <span className="font-mono text-white">{lineJsQrChallenge.pincode}</span></div>
+                  )}
+                  <div className="mt-2 text-xs text-emerald-100/70">เปิดลิงก์หรือสแกนด้วยแอป LINE แล้วกด Send Test อีกครั้ง</div>
+                </div>
+              )}
               <pre className="max-h-[50dvh] overflow-auto rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-6 text-slate-300 sm:text-sm">
                 {String(JSON.stringify(testResult, null, 2))}
               </pre>
@@ -94,7 +120,7 @@ function NotificationsComponent() {
               <span className="text-sm font-medium text-white">การตั้งค่าการแจ้งเตือน</span>
             </div>
             <p className="text-sm text-muted-foreground">
-              การแจ้งเตือนจะถูกส่งผ่าน LINE Notify และ/หรือ Discord Webhook ตามการตั้งค่าใน Settings
+              การแจ้งเตือนจะถูกส่งผ่าน LINE OA, LINEJS test และ/หรือ Discord Webhook ตามการตั้งค่าใน Settings
             </p>
           </div>
         </CardContent>

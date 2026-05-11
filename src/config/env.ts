@@ -28,7 +28,9 @@ if (existsSync(envFilePath)) {
       value = value.slice(1, -1);
     }
 
-    process.env[key] = value;
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
   }
 }
 
@@ -106,6 +108,10 @@ export const env = {
   NOTIFY_ENABLED: process.env.NOTIFY_ENABLED === "true",
   LINE_CHANNEL_ACCESS_TOKEN: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
   LINE_USER_ID: process.env.LINE_USER_ID || "",
+  LINEJS_TEST_ENABLED: process.env.LINEJS_TEST_ENABLED === "true",
+  LINEJS_TEST_TARGET_ID: process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
+  LINEJS_TEST_DEVICE: process.env.LINEJS_TEST_DEVICE || "IOSIPAD",
+  LINEJS_TEST_STORAGE_PATH: process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json",
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
   NOTIFY_MODE: (process.env.NOTIFY_MODE || "batch") as "each" | "batch",
   NOTIFY_ORIGINS: parseCommaSeparated(process.env.NOTIFY_ORIGINS),
@@ -148,6 +154,7 @@ export function validateRuntimeConfig(): void {
   if (!isBooleanString(process.env.FETCH_DETAILS)) invalid.push("FETCH_DETAILS must be true or false");
   if (!isBooleanString(process.env.SAVE_TO_DB)) invalid.push("SAVE_TO_DB must be true or false");
   if (!isBooleanString(process.env.NOTIFY_ENABLED)) invalid.push("NOTIFY_ENABLED must be true or false");
+  if (!isBooleanString(process.env.LINEJS_TEST_ENABLED)) invalid.push("LINEJS_TEST_ENABLED must be true or false");
   if (!isBooleanString(process.env.AUTO_ACCEPT_ENABLED)) invalid.push("AUTO_ACCEPT_ENABLED must be true or false");
   if (!isBooleanString(process.env.HTTP_ENABLED)) invalid.push("HTTP_ENABLED must be true or false");
   if (!isBooleanString(process.env.REQUEST_TAB_PENDING_CONFIRMATION)) invalid.push("REQUEST_TAB_PENDING_CONFIRMATION must be true or false");
@@ -164,10 +171,20 @@ export function validateRuntimeConfig(): void {
   }
 
   if (env.NOTIFY_ENABLED) {
-    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL) invalid.push("NOTIFY_ENABLED=true but neither LINE_CHANNEL_ACCESS_TOKEN nor DISCORD_WEBHOOK_URL is set");
+    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL && !env.LINEJS_TEST_ENABLED) invalid.push("NOTIFY_ENABLED=true but neither LINE_CHANNEL_ACCESS_TOKEN, DISCORD_WEBHOOK_URL, nor LINEJS_TEST_ENABLED is set");
     if (env.LINE_CHANNEL_ACCESS_TOKEN && !env.LINE_USER_ID) invalid.push("LINE_CHANNEL_ACCESS_TOKEN is set but LINE_USER_ID is not");
     if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
     if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
+  }
+
+  if (env.LINEJS_TEST_ENABLED) {
+    if (!env.LINEJS_TEST_DEVICE.trim()) invalid.push("LINEJS_TEST_DEVICE must not be empty");
+    if (!env.LINEJS_TEST_STORAGE_PATH.trim()) invalid.push("LINEJS_TEST_STORAGE_PATH must not be empty");
+  }
+
+  if (env.NOTIFY_ENABLED && env.LINEJS_TEST_ENABLED && !env.LINEJS_TEST_TARGET_ID) {
+    // Not fatal — target can be set later via UI or .env
+    console.warn("⚠ LINEJS_TEST_TARGET_ID is empty; LINE Bot notifications won't work until it is set");
   }
 
   if (env.HTTP_ENABLED) {

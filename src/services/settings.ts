@@ -2,6 +2,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { resolve } from "node:path";
 
 const envFilePath = resolve(process.cwd(), ".env");
+const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
 
 export const SETTINGS_KEYS = [
   "API_URL",
@@ -9,6 +10,10 @@ export const SETTINGS_KEYS = [
   "DEVICE_ID",
   "LINE_CHANNEL_ACCESS_TOKEN",
   "LINE_USER_ID",
+  "LINEJS_TEST_ENABLED",
+  "LINEJS_TEST_TARGET_ID",
+  "LINEJS_TEST_DEVICE",
+  "LINEJS_TEST_STORAGE_PATH",
   "DISCORD_WEBHOOK_URL",
   "POLL_INTERVAL_MS",
   "BOOKING_DETAIL_CONCURRENCY",
@@ -45,6 +50,9 @@ export function readEnvFile(): Record<string, string> {
 
 export function writeEnvFile(newSettings: EnvSettings): void {
   const currentSettings = readEnvFile();
+  for (const key of REMOVED_SETTINGS_KEYS) {
+    delete currentSettings[key];
+  }
   const mergedSettings = { ...currentSettings, ...newSettings };
   
   let content = "";
