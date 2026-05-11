@@ -1,6 +1,7 @@
 /** Lightweight polling metrics collector — no external dependencies */
 
 import { getPoolStats, type PoolStats } from "../db/client.js";
+import { pollerControl } from "./poller-control.js";
 
 export interface LatencyBucket {
   count: number;
@@ -11,6 +12,7 @@ export interface LatencyBucket {
 }
 
 export interface MetricsSnapshot {
+  isPaused: boolean;
   uptime: number;
   startedAt: string;
   polling: {
@@ -129,6 +131,7 @@ export class MetricsCollector {
     const len = sorted.length;
 
     return {
+      isPaused: pollerControl.isPaused,
       uptime: Math.round((Date.now() - this.startTime) / 1000),
       startedAt: new Date(this.startTime).toISOString(),
       polling: {

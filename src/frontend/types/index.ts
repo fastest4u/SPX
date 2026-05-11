@@ -169,6 +169,10 @@ export interface EnvSettings {
   DEVICE_ID?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_USER_ID?: string;
+  LINEJS_TEST_ENABLED?: string;
+  LINEJS_TEST_TARGET_ID?: string;
+  LINEJS_TEST_DEVICE?: string;
+  LINEJS_TEST_STORAGE_PATH?: string;
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
   BOOKING_DETAIL_CONCURRENCY?: string;
@@ -184,6 +188,7 @@ export interface LineQuota {
 
 // Metrics Types
 export interface MetricsSnapshot {
+  isPaused?: boolean;
   uptime: number;
   startedAt: string;
   lastPoll: {
@@ -294,6 +299,7 @@ export interface NotificationPreview {
     channels: {
       line: boolean;
       discord: boolean;
+      linejs_test: boolean;
     };
   };
 }
@@ -303,11 +309,14 @@ export interface NotificationTestResult {
   sent: {
     line: boolean;
     discord: boolean;
+    linejs_test: boolean;
   };
   channels: Array<{
     channel: string;
     ok: boolean;
     error?: string;
+    qrUrl?: string;
+    pincode?: string;
   }>;
   message: string;
 }
@@ -346,4 +355,22 @@ export interface AutoAcceptHistoryQuery {
   sortDir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;
+}
+
+// LINE Bot Types
+export interface LineBotStatus {
+  enabled: boolean;
+  authenticated: boolean;
+  qrUrl?: string;
+  pincode?: string;
+  message: string;
+}
+
+export interface LineBotSendInput {
+  to: string;
+  text: string;
+}
+
+export interface LineBotSendResult {
+  sent: boolean;
 }

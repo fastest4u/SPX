@@ -94,6 +94,13 @@ Content-Type: application/x-www-form-urlencoded
 // Max message: 3000 chars (truncated)
 ```
 
+### LINE Bot (LINEJS)
+ใช้ `linejs` library เพื่อส่งข้อความในฐานะบัญชี LINE ปกติ หรือผ่าน LINE Official Account โดยใช้วิธีสแกน QR Code:
+- ข้อมูล Session ถูกเก็บใน `data/linejs-storage.json`
+- รองรับการตั้งเป้าหมาย (Target) เป็นกลุ่ม (`C...`) หรือผู้ใช้ส่วนตัว (`U...`) โดยสามารถเลือก Target MID ได้ผ่านหน้าเว็บ Settings (ดึงรายชื่อกลุ่มอัตโนมัติจาก `/api/line-bot/groups`)
+- หากไม่ได้กำหนด Target จะดึงจาก `LINEJS_TEST_TARGET_ID` หรือ `LINE_USER_ID`
+- มี UI สแกน QR Code แบบเรียลไทม์ และระบบตรวจสอบสถานะ Auth Status ตลอดเวลา
+
 ## Notification Modes
 
 | Mode | Behavior |

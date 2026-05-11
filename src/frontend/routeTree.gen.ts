@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LineBotRouteImport } from './routes/line-bot'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as AutoAcceptHistoryRouteImport } from './routes/auto-accept-history'
 import { Route as AuditRouteImport } from './routes/audit'
@@ -44,6 +45,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LineBotRoute = LineBotRouteImport.update({
+  id: '/line-bot',
+  path: '/line-bot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HistoryRoute = HistoryRouteImport.update({
   id: '/history',
   path: '/history',
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuditRoute
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
+  '/line-bot': typeof LineBotRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/audit': typeof AuditRoute
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
+  '/line-bot': typeof LineBotRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/audit': typeof AuditRoute
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
+  '/line-bot': typeof LineBotRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/auto-accept-history'
     | '/history'
+    | '/line-bot'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/auto-accept-history'
     | '/history'
+    | '/line-bot'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/auto-accept-history'
     | '/history'
+    | '/line-bot'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   AuditRoute: typeof AuditRoute
   AutoAcceptHistoryRoute: typeof AutoAcceptHistoryRoute
   HistoryRoute: typeof HistoryRoute
+  LineBotRoute: typeof LineBotRoute
   LoginRoute: typeof LoginRoute
   NotificationsRoute: typeof NotificationsRoute
   ReportsRoute: typeof ReportsRoute
@@ -184,6 +197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/line-bot': {
+      id: '/line-bot'
+      path: '/line-bot'
+      fullPath: '/line-bot'
+      preLoaderRoute: typeof LineBotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/history': {
       id: '/history'
       path: '/history'
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuditRoute: AuditRoute,
   AutoAcceptHistoryRoute: AutoAcceptHistoryRoute,
   HistoryRoute: HistoryRoute,
+  LineBotRoute: LineBotRoute,
   LoginRoute: LoginRoute,
   NotificationsRoute: NotificationsRoute,
   ReportsRoute: ReportsRoute,

@@ -20,6 +20,8 @@ export const Route = createRoute({
   component: DashboardComponent,
 })
 
+import { useMutation } from '@tanstack/react-query'
+
 function DashboardComponent() {
   const queryClient = useQueryClient()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -46,6 +48,16 @@ function DashboardComponent() {
   const metrics = sseMetrics || initialMetrics
   const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
   const sessionAlertTimestamp = sessionAlert?.timestamp
+
+  const togglePollerMutation = useMutation({
+    mutationFn: () => metrics?.isPaused ? metricsApi.resume() : metricsApi.pause(),
+    onSuccess: (data) => {
+      toast.success(data.paused ? 'หยุดการทำงาน (Pause) เรียบร้อย' : 'เริ่มทำงาน (Resume) เรียบร้อย')
+    },
+    onError: (error) => {
+      toast.error('ไม่สามารถเปลี่ยนสถานะได้: ' + error.message)
+    }
+  })
 
   useEffect(() => {
     if (sseRules) {
@@ -81,10 +93,17 @@ function DashboardComponent() {
       {/* Compact Top Bar: Title + Stats + LINE */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-cyan-200">
-            <Radio className="h-3 w-3" />
-            Live
-          </div>
+          <button 
+            onClick={() => togglePollerMutation.mutate()}
+            disabled={togglePollerMutation.isPending}
+            className={`mb-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors hover:brightness-110 disabled:opacity-50 ${metrics?.isPaused ? 'border-amber-300/20 bg-amber-300/10 text-amber-300 hover:bg-amber-300/20' : 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200 hover:bg-cyan-300/20'}`}
+          >
+            {metrics?.isPaused ? (
+              <><PauseCircle className="h-3 w-3" />Paused</>
+            ) : (
+              <><Radio className="h-3 w-3 animate-pulse" />Live</>
+            )}
+          </button>
           <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">
             รายการค้นหาและสถานะระบบ
           </h1>

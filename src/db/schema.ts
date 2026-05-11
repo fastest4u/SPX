@@ -91,3 +91,14 @@ export const metricsSnapshots = mysqlTable("metrics_snapshots", {
 }, (table) => ({
   createdAtIdx: index("metrics_created_at_idx").on(table.createdAt),
 }));
+
+export const lineBotSessions = mysqlTable("line_bot_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionKey: varchar("session_key", { length: 50 }).notNull().default("default"),
+  authToken: varchar("auth_token", { length: 2000 }).notNull(),
+  device: varchar("device", { length: 50 }).notNull().default("IOSIPAD"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  sessionKeyIdx: uniqueIndex("lbs_session_key_idx").on(table.sessionKey),
+}));

@@ -6,6 +6,7 @@
 
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
+import * as schema from "./schema.js";
 
 let sqliteDb: Database.Database | null = null;
 let drizzleDb: ReturnType<typeof drizzle> | null = null;
@@ -20,7 +21,7 @@ export function getMemoryDb(): ReturnType<typeof drizzle> {
   }
 
   sqliteDb = new Database(":memory:");
-  drizzleDb = drizzle(sqliteDb);
+  drizzleDb = drizzle(sqliteDb, { schema });
 
   // Initialize schema
   initSchema(sqliteDb);
@@ -144,6 +145,17 @@ function initSchema(db: Database.Database): void {
       error_message TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS line_bot_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_key TEXT NOT NULL DEFAULT 'default',
+      auth_token TEXT NOT NULL,
+      device TEXT NOT NULL DEFAULT 'IOSIPAD',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_line_bot_sessions_key ON line_bot_sessions(session_key);
   `);
 }
 

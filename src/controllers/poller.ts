@@ -20,6 +20,7 @@ import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
+import { pollerControl } from "../services/poller-control.js";
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -129,15 +130,18 @@ export class Poller {
     }
 
     try {
-      this.activeTick = this.tick();
-      await this.activeTick;
+      if (!pollerControl.isPaused) {
+        this.activeTick = this.tick();
+        await this.activeTick;
+      }
     } catch (err) {
       this.stats.errorCount++;
       logger.error(err instanceof Error ? err : new Error(String(err)));
     } finally {
       this.activeTick = null;
       if (!this.stopped) {
-        this.timer = setTimeout(() => void this.run(), this.intervalMs);
+        const waitMs = pollerControl.isPaused ? 1000 : this.intervalMs;
+        this.timer = setTimeout(() => void this.run(), waitMs);
       }
     }
   }
