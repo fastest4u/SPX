@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { readEnvFile, writeEnvFile, type EnvSettings, type SettingsKey } from "../services/settings.js";
+import { readStoredSettings, writeSettings, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { logger } from "../utils/logger.js";
 import { sendSuccess } from "../utils/response.js";
@@ -43,8 +43,8 @@ function isRedactedSecret(value: string): boolean {
   return value.startsWith(REDACTED_PREFIX);
 }
 
-function readPublicSettings(): EnvSettings {
-  const envVars = readEnvFile();
+async function readPublicSettings(): Promise<EnvSettings> {
+  const envVars = await readStoredSettings();
   return {
     API_URL: envVars.API_URL || "",
     COOKIE: redactSecret(envVars.COOKIE),
@@ -76,7 +76,7 @@ function writableSettings(body: Partial<Record<SettingsKey, string>>): EnvSettin
 
 export const settingsController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
-    return sendSuccess(reply, readPublicSettings());
+    return sendSuccess(reply, await readPublicSettings());
   });
 
   app.post(
@@ -84,8 +84,8 @@ export const settingsController: FastifyPluginAsync = async (app) => {
     { schema: { body: settingsSchema } },
     async (req, reply) => {
       const data = writableSettings(req.body as Partial<Record<SettingsKey, string>>);
-      writeEnvFile(data);
-      await insertAuditLog(currentUser(req).username, "Update Settings", "Updated .env configuration (Server Restarted)");
+      await writeSettings(data);
+      await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Server Restarted)");
 
       setTimeout(() => {
         logger.info("settings-updated-restarting");

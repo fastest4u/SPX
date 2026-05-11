@@ -5,6 +5,7 @@ import {
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,
   lineBotSessionsMigrationSql,
+  appSettingsMigrationSql,
 } from "../db/migration-sql.js";
 
 const migrationsDir = resolve(process.cwd(), "migrations");
@@ -16,6 +17,7 @@ const allMigrations = [
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,
   lineBotSessionsMigrationSql,
+  appSettingsMigrationSql,
 ].join("\n\n");
 
 mkdirSync(migrationsDir, { recursive: true });
