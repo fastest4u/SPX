@@ -150,16 +150,19 @@ async function readStoredAuthToken(): Promise<{ token: string; device: string } 
 }
 
 async function saveAuthToken(token: string, device = env.LINEJS_TEST_DEVICE): Promise<void> {
-  // Try DB first
-  const dbOk = await saveLineBotSession(token, device);
-  if (dbOk) return;
-
-  // Fallback to file
+  // Always write to file for Docker restart resilience
   try {
     await mkdir(dirname(getAuthTokenPath()), { recursive: true });
     await writeFile(getAuthTokenPath(), JSON.stringify({ token, device, savedAt: new Date().toISOString() }));
   } catch (error) {
-    logger.warn("line-bot-auth-token-save-failed", { error: error instanceof Error ? error.message : String(error) });
+    logger.warn("line-bot-auth-token-file-save-failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+
+  // Also try DB
+  try {
+    await saveLineBotSession(token, device);
+  } catch {
+    // ignore DB errors
   }
 }
 
