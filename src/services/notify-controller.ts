@@ -21,7 +21,7 @@ function redact(value: string, visible = 4): string {
 }
 
 function isLineJsTestConfigured(): boolean {
-  return env.LINEJS_TEST_ENABLED && env.NODE_ENV !== "production";
+  return env.LINEJS_TEST_ENABLED;
 }
 
 export const notifyController: FastifyPluginAsync = async (app) => {

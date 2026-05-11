@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createRoute } from '@tanstack/react-router'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { rootRoute } from './__root'
 import { settingsApi, lineBotApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -18,6 +18,8 @@ export const Route = createRoute({
 })
 
 function SettingsComponent() {
+  const queryClient = useQueryClient()
+
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
@@ -61,6 +63,8 @@ function SettingsComponent() {
     mutationFn: settingsApi.update,
     onSuccess: () => {
       toast.success('บันทึกการตั้งค่าแล้ว เซิร์ฟเวอร์กำลังรีสตาร์ท...')
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
     },
     onError: (error) => {
       toast.error('เกิดข้อผิดพลาด: ' + error.message)

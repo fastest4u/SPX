@@ -54,6 +54,7 @@
     "fastify": "^5.8.5",
     "lucide-react": "^0.503.0",
     "mysql2": "^3.9.0",
+    "@evex/linejs": "npm:@jsr/evex__linejs@^2.6.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -63,7 +64,6 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "@evex/linejs": "npm:@jsr/evex__linejs@^2.6.1",
     "@tailwindcss/vite": "^4.1.4",
     "@tanstack/router-plugin": "^1.117.1",
     "@types/bcryptjs": "^2.4.6",
