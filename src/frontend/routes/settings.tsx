@@ -34,6 +34,9 @@ function SettingsComponent() {
     LINE_USER_ID: '',
     LINEJS_TEST_ENABLED: 'false',
     LINEJS_TEST_TARGET_ID: '',
+    LINEJS_TEST_TARGET_ID_RULE_MATCH: '',
+    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: '',
+    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: '',
     LINEJS_TEST_DEVICE: 'IOSIPAD',
     LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
     DISCORD_WEBHOOK_URL: '',
@@ -51,6 +54,9 @@ function SettingsComponent() {
         LINE_USER_ID: settings.LINE_USER_ID || '',
         LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
         LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
+        LINEJS_TEST_TARGET_ID_RULE_MATCH: settings.LINEJS_TEST_TARGET_ID_RULE_MATCH || '',
+        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || '',
+        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || '',
         LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
         LINEJS_TEST_STORAGE_PATH: settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
         DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
@@ -226,6 +232,9 @@ interface LineBotSettingsCardProps {
   formData: {
     LINEJS_TEST_ENABLED: string
     LINEJS_TEST_TARGET_ID: string
+    LINEJS_TEST_TARGET_ID_RULE_MATCH: string
+    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: string
+    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: string
     LINEJS_TEST_DEVICE: string
     LINEJS_TEST_STORAGE_PATH: string
     LINE_USER_ID: string
@@ -427,31 +436,80 @@ function LineBotSettingsCard({ formData, setFormData, onSaveSettings, isSaving }
         )}
 
         {/* Notification Routing Info */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">เส้นทางการส่งข้อความ</h4>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-start gap-3 rounded-xl border border-[#06C755]/10 bg-[#06C755]/[0.03] p-3">
-              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#06C755]/20 text-[#06C755]">Rule match</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-medium">LINEJS only</div>
-                <div className="text-xs text-slate-400 truncate">ส่งตรงไปกลุ่ม {formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID || 'c05959fbfd088274cfe9e7dfe019dc858'}</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-xl border border-blue-500/10 bg-blue-500/[0.03] p-3">
-              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">Auto-accept สำเร็จ</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-medium">LINE OA → LINEJS fallback</div>
-                <div className="text-xs text-slate-400">ลอง LINE OA ก่อน ถ้าติด quota/ล้มเหลว ส่ง LINEJS</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-xl border border-rose-500/10 bg-rose-500/[0.03] p-3">
-              <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400">Auto-accept ล้มเหลว</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-medium">LINEJS only</div>
-                <div className="text-xs text-slate-400 truncate">ส่งตรงไปกลุ่ม {formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID || 'c05959fbfd088274cfe9e7dfe019dc858'}</div>
-              </div>
-            </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">เส้นทางการส่งข้อความ</h4>
+            {isAuthenticated && groupsQuery.data?.chats && groupsQuery.data.chats.length > 0 && (
+              <span className="text-[10px] text-emerald-400">เลือกกลุ่มจากรายชื่อได้</span>
+            )}
           </div>
+
+          {/* Routing rows with group selectors */}
+          {[
+            {
+              key: 'LINEJS_TEST_TARGET_ID_RULE_MATCH' as const,
+              label: 'Rule match',
+              desc: 'LINEJS only',
+              color: 'emerald',
+              borderColor: 'border-[#06C755]/10',
+              bgColor: 'bg-[#06C755]/[0.03]',
+              badgeBg: 'bg-[#06C755]/20',
+              badgeText: 'text-[#06C755]',
+            },
+            {
+              key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS' as const,
+              label: 'Auto-accept สำเร็จ',
+              desc: 'LINE OA → LINEJS fallback',
+              detail: 'ลอง LINE OA ก่อน ถ้าติด quota/ล้มเหลว ส่ง LINEJS',
+              color: 'blue',
+              borderColor: 'border-blue-500/10',
+              bgColor: 'bg-blue-500/[0.03]',
+              badgeBg: 'bg-blue-500/20',
+              badgeText: 'text-blue-400',
+            },
+            {
+              key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE' as const,
+              label: 'Auto-accept ล้มเหลว',
+              desc: 'LINEJS only',
+              color: 'rose',
+              borderColor: 'border-rose-500/10',
+              bgColor: 'bg-rose-500/[0.03]',
+              badgeBg: 'bg-rose-500/20',
+              badgeText: 'text-rose-400',
+            },
+          ].map((row) => (
+            <div key={row.key} className={`rounded-xl border ${row.borderColor} ${row.bgColor} p-3`}>
+              <div className="flex items-start gap-3">
+                <span className={`shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${row.badgeBg} ${row.badgeText}`}>{row.label}</span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="text-white font-medium text-sm">{row.desc}</div>
+                  {row.detail && <div className="text-xs text-slate-400">{row.detail}</div>}
+                  {/* Group selector */}
+                  {isAuthenticated && groupsQuery.data?.chats && groupsQuery.data.chats.length > 0 ? (
+                    <select
+                      value={formData[row.key] || ''}
+                      onChange={(e) => handleSetFormField(row.key, e.target.value)}
+                      className="w-full mt-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white focus:border-[#06C755]/50 focus:outline-none"
+                    >
+                      <option value="" className="bg-slate-900">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+                      {groupsQuery.data.chats.map((chat) => (
+                        <option key={chat.chatMid} value={chat.chatMid} className="bg-slate-900">
+                          {chat.chatName || 'ไม่ทราบชื่อ'} ({chat.chatMid.slice(-8)})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={formData[row.key] || ''}
+                      onChange={(e) => handleSetFormField(row.key, e.target.value)}
+                      placeholder={`Target MID (ปล่อยว่าง = ใช้ค่าเริ่มต้น)`}
+                      className="mt-1.5 text-xs h-8"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Settings Fields */}
