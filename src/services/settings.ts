@@ -1,9 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { env } from "../config/env.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
 
-const envFilePath = resolve(process.cwd(), ".env");
 const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
 
 export const SETTINGS_KEYS = [
@@ -94,34 +91,19 @@ function applySettingsToEnv(settings: EnvSettings): void {
   syncEnvObjectFromProcess();
 }
 
-export function readEnvFile(): Record<string, string> {
+function readProcessSettings(): Record<string, string> {
   const settings: Record<string, string> = {};
-  if (!existsSync(envFilePath)) return settings;
-
-  const lines = readFileSync(envFilePath, "utf8").split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex === -1) continue;
-
-    const key = line.slice(0, separatorIndex).trim();
-    let value = line.slice(separatorIndex + 1).trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+  for (const key of SETTINGS_KEYS) {
+    const value = process.env[key];
+    if (typeof value === "string") {
+      settings[key] = value;
     }
-    settings[key] = value;
   }
   return settings;
 }
 
 export async function readStoredSettings(): Promise<EnvSettings> {
-  const envSettings = pickKnownSettings(readEnvFile());
+  const envSettings = pickKnownSettings(readProcessSettings());
   try {
     const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
     return { ...DEFAULT_SETTINGS, ...envSettings, ...dbSettings };
@@ -137,7 +119,7 @@ export async function writeSettings(newSettings: EnvSettings): Promise<void> {
 }
 
 export async function migrateEnvSettingsToDb(): Promise<void> {
-  const envSettings = pickKnownSettings(readEnvFile());
+  const envSettings = pickKnownSettings(readProcessSettings());
   for (const key of REMOVED_SETTINGS_KEYS) {
     delete envSettings[key as SettingsKey];
   }
