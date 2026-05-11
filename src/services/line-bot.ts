@@ -96,7 +96,7 @@ export class LineBotQrRequiredError extends Error {
 // ── Enable check ───────────────────────────────────────────────────────
 
 export function isLineBotEnabled(): boolean {
-  return env.LINEJS_TEST_ENABLED;
+  return env.LINEJS_TEST_ENABLED && env.NODE_ENV !== "production";
 }
 
 // ── Lazy module loader ─────────────────────────────────────────────────
@@ -117,16 +117,17 @@ function getAuthTokenPath(): string {
   return resolve(process.cwd(), "data/linejs-auth-token.json");
 }
 
-async function readStoredAuthToken(): Promise<string | null> {
+async function readStoredAuthToken(): Promise<{ token: string; device: string } | null> {
   // Try DB first
   const dbSession = await getLineBotSession();
-  if (dbSession) return dbSession.authToken;
+  if (dbSession) return { token: dbSession.authToken, device: dbSession.device };
 
   // Fallback to file
   try {
     const raw = await readFile(getAuthTokenPath(), "utf-8");
-    const parsed = JSON.parse(raw) as { token?: string };
-    return parsed.token || null;
+    const parsed = JSON.parse(raw) as { token?: string; device?: string };
+    if (parsed.token) return { token: parsed.token, device: parsed.device || env.LINEJS_TEST_DEVICE };
+    return null;
   } catch {
     return null;
   }
@@ -140,7 +141,7 @@ async function saveAuthToken(token: string, device = env.LINEJS_TEST_DEVICE): Pr
   // Fallback to file
   try {
     await mkdir(dirname(getAuthTokenPath()), { recursive: true });
-    await writeFile(getAuthTokenPath(), JSON.stringify({ token, savedAt: new Date().toISOString() }));
+    await writeFile(getAuthTokenPath(), JSON.stringify({ token, device, savedAt: new Date().toISOString() }));
   } catch (error) {
     logger.warn("line-bot-auth-token-save-failed", { error: error instanceof Error ? error.message : String(error) });
   }
@@ -166,8 +167,8 @@ export async function getClient(): Promise<LineJsClient> {
       const storedToken = await readStoredAuthToken();
       if (storedToken) {
         try {
-          const c = await linejs.loginWithAuthToken(storedToken, {
-            device: env.LINEJS_TEST_DEVICE,
+          const c = await linejs.loginWithAuthToken(storedToken.token, {
+            device: storedToken.device,
             storage: new FileStorage(storagePath),
           });
           client = c;
