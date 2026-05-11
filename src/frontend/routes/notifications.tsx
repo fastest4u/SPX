@@ -6,6 +6,7 @@ import { notificationsApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { toast } from 'sonner'
+import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Bell, Send, Eye } from 'lucide-react'
 import type { NotificationPreview, NotificationTestResult } from '../types'
 

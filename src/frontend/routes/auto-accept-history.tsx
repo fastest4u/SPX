@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
+import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Search, CheckCircle2, XCircle, Truck } from 'lucide-react'
 import type { AutoAcceptHistoryItem } from '../types'
 
@@ -84,7 +85,7 @@ function AutoAcceptHistoryComponent() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  const { data: result } = useQuery({
+  const { data: result, isLoading } = useQuery({
     queryKey: ['autoAcceptHistory', { search, status, ruleName, page, pageSize }],
     queryFn: () =>
       autoAcceptHistoryApi.paginated({
@@ -95,6 +96,16 @@ function AutoAcceptHistoryComponent() {
         pageSize,
       }),
   })
+
+  if (isLoading) {
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <Card className="glass border-white/10">
+          <SkeletonTable rows={5} cols={4} />
+        </Card>
+      </div>
+    )
+  }
 
   const items = result?.data || []
   const total = result?.meta?.total_items || 0

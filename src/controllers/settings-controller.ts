@@ -1,8 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { readStoredSettings, writeSettings, type EnvSettings, type SettingsKey } from "../services/settings.js";
+import { readStoredSettings, writeSettings, reloadSettingsLive, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
-import { logger } from "../utils/logger.js";
 import { sendSuccess } from "../utils/response.js";
 
 const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_USER_ID", "LINEJS_TEST_TARGET_ID", "LINEJS_TEST_TARGET_ID_RULE_MATCH", "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS", "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE", "DISCORD_WEBHOOK_URL"]);
@@ -85,14 +84,10 @@ export const settingsController: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const data = writableSettings(req.body as Partial<Record<SettingsKey, string>>);
       await writeSettings(data);
-      await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Server Restarted)");
+      await reloadSettingsLive();
+      await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Live Reload)");
 
-      setTimeout(() => {
-        logger.info("settings-updated-restarting");
-        process.exit(0);
-      }, 1000);
-
-      return sendSuccess(reply, null, "Settings saved. Server is restarting...");
+      return sendSuccess(reply, null, "Settings saved. Applied live.");
     }
   );
 };

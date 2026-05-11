@@ -1,12 +1,15 @@
+import { useState, useMemo } from 'react'
 import { cn } from '../lib/utils'
 import type { ReactNode } from 'react'
 import { Button } from './ui/button'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUp, ArrowDown } from 'lucide-react'
 
 export interface DataTableColumn<T> {
   header: string
   className?: string
   render: (item: T) => ReactNode
+  sortKey?: string
+  sortable?: boolean
 }
 
 export interface PaginationState {
@@ -47,9 +50,11 @@ function getPageNumbers(page: number, totalPages: number) {
   return pages
 }
 
+type SortDirection = 'asc' | 'desc' | null
+
 export function DataTable<T>({
   columns,
-  data,
+  data: rawData,
   keyField,
   emptyIcon,
   emptyMessage = 'ไม่พบข้อมูล',
@@ -58,6 +63,34 @@ export function DataTable<T>({
   className,
   pagination,
 }: DataTableProps<T>) {
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDirection>(null)
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      if (sortDir === 'asc') {
+        setSortDir('desc')
+      } else if (sortDir === 'desc') {
+        setSortKey(null)
+        setSortDir(null)
+      }
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const data = useMemo(() => {
+    if (!sortKey || !sortDir) return rawData
+    const col = columns.find(c => c.sortKey === sortKey || c.header === sortKey)
+    return [...rawData].sort((a, b) => {
+      const aVal = col ? String(col.render(a) ?? '') : String((a as any)[sortKey] ?? '')
+      const bVal = col ? String(col.render(b) ?? '') : String((b as any)[sortKey] ?? '')
+      const cmp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [rawData, sortKey, sortDir, columns])
+
   if (data.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
@@ -85,11 +118,31 @@ export function DataTable<T>({
         <table className="data-table" style={{ minWidth }}>
           <thead>
             <tr>
-              {columns.map((col) => (
-                <th key={col.header} className={col.className}>
-                  {col.header}
-                </th>
-              ))}
+              {columns.map((col) => {
+                const columnSortKey = col.sortKey || col.header
+                const isSorted = sortKey === columnSortKey
+                const isSortable = col.sortable !== false && Boolean(col.sortKey || col.header)
+                return (
+                  <th
+                    key={col.header}
+                    className={cn(
+                      col.className,
+                      isSortable && 'cursor-pointer select-none hover:text-white transition-colors'
+                    )}
+                    onClick={isSortable ? () => handleSort(columnSortKey) : undefined}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.header}
+                      {isSortable && (
+                        <span className="inline-flex flex-col -space-y-1">
+                          <ArrowUp className={cn('h-2.5 w-2.5', isSorted && sortDir === 'asc' ? 'text-primary' : 'text-muted-foreground/30')} />
+                          <ArrowDown className={cn('h-2.5 w-2.5', isSorted && sortDir === 'desc' ? 'text-primary' : 'text-muted-foreground/30')} />
+                        </span>
+                      )}
+                    </span>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -111,7 +164,7 @@ export function DataTable<T>({
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>แสดง</span>
             <select
-              className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-sm text-slate-200 outline-none focus:border-cyan-400"
+              className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-sm text-slate-200 outline-none focus:border-primary/50"
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
             >
