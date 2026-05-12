@@ -287,7 +287,10 @@ export async function startHttpServer(port: number): Promise<void> {
       return reply.callNotFound();
     }
     // Serve SPA index.html for client-side routes like /history, /users, etc.
-    reply.type("text/html; charset=utf-8").send(getSpaIndexHtml());
+    reply
+      .header("Cache-Control", "no-store")
+      .type("text/html; charset=utf-8")
+      .send(getSpaIndexHtml());
   });
 
   await app.listen({ port, host: "0.0.0.0" });
