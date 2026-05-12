@@ -62,6 +62,11 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
   const qrUrl = loginMut.data?.qrUrl || status?.qrUrl
   const pincode = loginMut.data?.pincode || status?.pincode
   const chats = groupsQuery.data?.chats ?? []
+  const maskedPrefix = '********'
+  const isMaskedValue = (value?: string) => Boolean(value?.startsWith(maskedPrefix))
+  const shortTarget = (value: string) => value.slice(-8)
+  const currentTargetLabel = (value: string) =>
+    isMaskedValue(value) ? `ตั้งค่าไว้แล้ว (${shortTarget(value)})` : `ตั้งค่าเอง (${shortTarget(value)})`
 
   const routingRows = [
     { key: 'LINEJS_TEST_TARGET_ID_RULE_MATCH', label: 'Rule match', desc: 'LINEJS only', color: '#06C755' },
@@ -151,7 +156,10 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
         <CardContent className="pt-5">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">เส้นทางการส่งข้อความ</h4>
           <div className="space-y-3">
-            {routingRows.map(row => (
+            {routingRows.map(row => {
+              const currentValue = formData[row.key] || ''
+              const hasCurrentOption = currentValue ? chats.some(c => c.chatMid === currentValue) : true
+              return (
               <div key={row.key} className="rounded-xl border p-3" style={{ borderColor: row.color + '1a', background: row.color + '08' }}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                   <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded self-start" style={{ background: row.color + '33', color: row.color }}>{row.label}</span>
@@ -163,6 +171,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                         onChange={e => setField(row.key, e.target.value)}
                         className="mt-1.5 w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
                       >
+                        {currentValue && !hasCurrentOption && (
+                          <option value={currentValue} className="bg-slate-900">{currentTargetLabel(currentValue)}</option>
+                        )}
                         <option value="" className="bg-slate-900">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
                         {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
                       </select>
@@ -172,7 +183,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </CardContent>
       </Card>
@@ -193,6 +204,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                   onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)}
                   className="w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
                 >
+                  {formData.LINEJS_TEST_TARGET_ID && !chats.some(c => c.chatMid === formData.LINEJS_TEST_TARGET_ID) && (
+                    <option value={formData.LINEJS_TEST_TARGET_ID} className="bg-slate-900">{currentTargetLabel(formData.LINEJS_TEST_TARGET_ID)}</option>
+                  )}
                   <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
                   {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
                 </select>
