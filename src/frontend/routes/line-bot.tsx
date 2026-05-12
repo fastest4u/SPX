@@ -37,16 +37,6 @@ function LineBotComponent() {
 
   const status: LineBotStatus | undefined = statusQuery.data
 
-  if (statusQuery.isLoading) {
-    return (
-      <div className="space-y-5 sm:space-y-6">
-        <Card className="glass border-white/10">
-          <SkeletonCard />
-        </Card>
-      </div>
-    )
-  }
-
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: lineBotApi.login,
@@ -93,6 +83,16 @@ function LineBotComponent() {
   const pincode = status?.pincode || loginMutation.data?.pincode
 
   const groupsQuery = useLineBotGroups(isAuthenticated)
+
+  if (statusQuery.isLoading) {
+    return (
+      <div className="space-y-5 sm:space-y-6">
+        <Card className="glass border-white/10">
+          <SkeletonCard />
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">
