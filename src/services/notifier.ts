@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
-import { matchRules, matchAutoAcceptRuleTrips, matchAutoAcceptRuleTripsWithRules, markRulesFulfilled, applyAutoAcceptProgress, type NotifyRule, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, markRulesFulfilled, applyAutoAcceptProgress, type NotifyRule, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
 import { isLineBotEnabled, sendNotification as sendLineBotNotification, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
@@ -290,11 +290,18 @@ export class NeedBudget {
     this.remaining.set(ruleId, available - granted);
     return granted;
   }
+
+  release(ruleId: string, count: number): void {
+    if (count <= 0 || !this.remaining.has(ruleId)) return;
+    this.remaining.set(ruleId, this.remaining.get(ruleId)! + count);
+  }
 }
 
 const acceptedRequestKeys = new Set<string>();
 const acceptedRequestKeyOrder: string[] = [];
 const MAX_ACCEPTED_REQUEST_KEYS = 5000;
+const autoAcceptRequestKeys = new Set<string>();
+const autoAcceptRequestKeyOrder: string[] = [];
 
 function acceptedRequestKey(ruleId: string, requestId: number): string {
   return `${ruleId}:${requestId}`;
@@ -310,6 +317,27 @@ function rememberAcceptedRequest(ruleId: string, requestId: number): void {
     const oldest = acceptedRequestKeyOrder.shift();
     if (oldest) acceptedRequestKeys.delete(oldest);
   }
+}
+
+function autoAcceptRequestKey(bookingId: number, requestId: number): string {
+  return `${bookingId}:${requestId}`;
+}
+
+function claimAutoAcceptRequest(bookingId: number, requestId: number): boolean {
+  const key = autoAcceptRequestKey(bookingId, requestId);
+  if (autoAcceptRequestKeys.has(key)) return false;
+
+  autoAcceptRequestKeys.add(key);
+  autoAcceptRequestKeyOrder.push(key);
+  while (autoAcceptRequestKeyOrder.length > MAX_ACCEPTED_REQUEST_KEYS) {
+    const oldest = autoAcceptRequestKeyOrder.shift();
+    if (oldest) autoAcceptRequestKeys.delete(oldest);
+  }
+  return true;
+}
+
+function releaseAutoAcceptRequest(bookingId: number, requestId: number): void {
+  autoAcceptRequestKeys.delete(autoAcceptRequestKey(bookingId, requestId));
 }
 
 function runDetached(label: string, promise: Promise<unknown>): void {
@@ -347,76 +375,101 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   ].filter(Boolean).join("\n");
 }
 
-/**
- * Auto-accept matched rules then notify on success.
- * Flow: Match auto_accept rules → call Accept API → notify only if accept succeeded.
- */
-export async function acceptAndNotifyMatchedRules(
-  trips: TripLike[],
-  apiClient: ApiClient,
-  options: AutoAcceptOptions = {}
-): Promise<AutoAcceptResult> {
-  const autoAcceptMatches = options.autoAcceptRules
-    ? matchAutoAcceptRuleTripsWithRules(trips, options.autoAcceptRules)
-    : await matchAutoAcceptRuleTrips(trips);
+interface AutoAcceptRuleRunResult {
+  autoAcceptMatches: RuleTripMatch[];
+  accepted: AcceptedTrip[];
+  failed: AutoAcceptResult["failed"];
+  acceptedProgress: Array<{ ruleId: string; acceptedCount: number }>;
+  historyWrites: Array<() => Promise<unknown>>;
+}
 
-  if (autoAcceptMatches.length === 0) {
-    return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
-  }
+interface SelectedAutoAcceptRequest {
+  trip: TripLike;
+  bookingId: number;
+  requestId: number;
+}
 
-  logger.info("auto-accept-matched", {
-    ruleCount: autoAcceptMatches.length,
-    totalTrips: autoAcceptMatches.reduce((sum, m) => sum + m.matchedCount, 0),
-  });
+interface AutoAcceptBookingEntry {
+  requestIds: Set<number>;
+  trips: TripLike[];
+  ruleId: string;
+  ruleName: string;
+}
 
-  // Select only up to the requested need per rule, then group by booking_id
-  const byBooking = new Map<number, { requestIds: Set<number>; trips: TripLike[]; ruleId: string; ruleName: string }>();
-  const selectedRequests = new Map<number, { trip: TripLike; bookingId: number; ruleId: string; ruleName: string }>();
+function emptyAutoAcceptRuleRunResult(): AutoAcceptRuleRunResult {
+  return {
+    autoAcceptMatches: [],
+    accepted: [],
+    failed: [],
+    acceptedProgress: [],
+    historyWrites: [],
+  };
+}
 
-  for (const match of autoAcceptMatches) {
-    const candidates = match.trips.filter((trip) => {
-      const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
-      return requestId !== undefined && !acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId));
-    });
-    const limit = options.needBudget
-      ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
-      : Math.max(0, match.need);
-    const selected = candidates.slice(0, limit);
+function selectAutoAcceptRequests(match: RuleTripMatch, options: AutoAcceptOptions): SelectedAutoAcceptRequest[] {
+  const candidates: SelectedAutoAcceptRequest[] = [];
 
-    if (match.trips.length > selected.length) {
-      logger.info("auto-accept-truncated", {
-        ruleId: match.ruleId,
-        ruleName: match.ruleName,
-        matchedCount: match.matchedCount,
-        selectedCount: selected.length,
-        limit,
-      });
-    }
-
-    for (const trip of selected) {
-      const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
-      const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
-
-      if (bookingId === undefined || requestId === undefined) {
-        logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
-        continue;
-      }
-
-      if (!selectedRequests.has(requestId)) {
-        selectedRequests.set(requestId, { trip, bookingId, ruleId: match.ruleId, ruleName: match.ruleName });
-      }
-    }
-  }
-
-  for (const { trip, bookingId, ruleId, ruleName } of selectedRequests.values()) {
+  for (const trip of match.trips) {
     const requestId = typeof trip.request_id === "number" ? trip.request_id : undefined;
-    if (requestId === undefined) {
+    const bookingId = typeof trip.booking_id === "number" ? trip.booking_id : undefined;
+
+    if (bookingId === undefined || requestId === undefined) {
+      logger.warn("auto-accept-skip-trip", { reason: "missing booking_id or request_id", trip });
       continue;
     }
 
+    if (acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId))) continue;
+    candidates.push({ trip, bookingId, requestId });
+  }
+
+  const limit = options.needBudget
+    ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
+    : Math.max(0, match.need);
+  const selected: SelectedAutoAcceptRequest[] = [];
+
+  for (const candidate of candidates) {
+    if (selected.length >= limit) break;
+    if (claimAutoAcceptRequest(candidate.bookingId, candidate.requestId)) {
+      selected.push(candidate);
+    }
+  }
+
+  options.needBudget?.release(match.ruleId, limit - selected.length);
+
+  if (match.trips.length > selected.length) {
+    logger.info("auto-accept-truncated", {
+      ruleId: match.ruleId,
+      ruleName: match.ruleName,
+      matchedCount: match.matchedCount,
+      selectedCount: selected.length,
+      limit,
+    });
+  }
+
+  return selected;
+}
+
+async function acceptAutoAcceptMatch(
+  match: RuleTripMatch,
+  apiClient: ApiClient,
+  options: AutoAcceptOptions
+): Promise<AutoAcceptRuleRunResult> {
+  logger.info("auto-accept-rule-matched", {
+    ruleId: match.ruleId,
+    ruleName: match.ruleName,
+    matchedCount: match.matchedCount,
+  });
+
+  const selected = selectAutoAcceptRequests(match, options);
+  if (selected.length === 0) {
+    return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match] };
+  }
+
+  const byBooking = new Map<number, AutoAcceptBookingEntry>();
+  for (const { trip, bookingId, requestId } of selected) {
     let entry = byBooking.get(bookingId);
     if (!entry) {
-      entry = { requestIds: new Set(), trips: [], ruleId, ruleName };
+      entry = { requestIds: new Set(), trips: [], ruleId: match.ruleId, ruleName: match.ruleName };
       byBooking.set(bookingId, entry);
     }
     entry.requestIds.add(requestId);
@@ -428,13 +481,10 @@ export async function acceptAndNotifyMatchedRules(
   const acceptedProgress: Array<{ ruleId: string; acceptedCount: number }> = [];
   const historyWrites: Array<() => Promise<unknown>> = [];
 
-  // Call accept API for all matched bookings at once. fetchWithRetry already
-  // handles transient HTTP failures; retrying business failures only delays
-  // the next booking and loses the bidding race.
   const acceptResults = await Promise.all([...byBooking].map(async ([bookingId, entry]) => {
     const requestIds = [...entry.requestIds];
 
-    logger.info("auto-accept-calling", { bookingId, requestIds });
+    logger.info("auto-accept-calling", { bookingId, requestIds, ruleId: match.ruleId, ruleName: match.ruleName });
 
     const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
 
@@ -443,7 +493,7 @@ export async function acceptAndNotifyMatchedRules(
 
   for (const { bookingId, entry, requestIds, result } of acceptResults) {
     if (result.ok) {
-      logger.info("auto-accept-success", { bookingId, requestIds, httpStatus: result.httpStatus });
+      logger.info("auto-accept-success", { bookingId, requestIds, ruleId: entry.ruleId, httpStatus: result.httpStatus });
       for (const trip of entry.trips) {
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
         accepted.push({ trip, bookingId, requestId });
@@ -464,7 +514,10 @@ export async function acceptAndNotifyMatchedRules(
         status: "success",
       }));
     } else {
-      logger.error("auto-accept-failed", { bookingId, requestIds, error: result.error, httpStatus: result.httpStatus });
+      for (const requestId of requestIds) {
+        releaseAutoAcceptRequest(bookingId, requestId);
+      }
+      logger.error("auto-accept-failed", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
       historyWrites.push(() => insertAutoAcceptHistory({
         ruleId: entry.ruleId,
@@ -480,6 +533,47 @@ export async function acceptAndNotifyMatchedRules(
       }));
     }
   }
+
+  return {
+    autoAcceptMatches: [match],
+    accepted,
+    failed,
+    acceptedProgress,
+    historyWrites,
+  };
+}
+
+/**
+ * Auto-accept matched rules then notify on success.
+ * Flow: Match auto_accept rules → call Accept API → notify only if accept succeeded.
+ */
+export async function acceptAndNotifyMatchedRules(
+  trips: TripLike[],
+  apiClient: ApiClient,
+  options: AutoAcceptOptions = {}
+): Promise<AutoAcceptResult> {
+  const autoAcceptRules = options.autoAcceptRules ?? await getActiveAutoAcceptRules();
+  const ruleResults = await Promise.all(autoAcceptRules.map((rule) => {
+    const [match] = matchAutoAcceptRuleTripsWithRules(trips, [rule]);
+    if (!match) return Promise.resolve(emptyAutoAcceptRuleRunResult());
+    return acceptAutoAcceptMatch(match, apiClient, options);
+  }));
+
+  const autoAcceptMatches = ruleResults.flatMap((result) => result.autoAcceptMatches);
+
+  if (autoAcceptMatches.length === 0) {
+    return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
+  }
+
+  logger.info("auto-accept-matched", {
+    ruleCount: autoAcceptMatches.length,
+    totalTrips: autoAcceptMatches.reduce((sum, m) => sum + m.matchedCount, 0),
+  });
+
+  const accepted = ruleResults.flatMap((result) => result.accepted);
+  const failed = ruleResults.flatMap((result) => result.failed);
+  const acceptedProgress = ruleResults.flatMap((result) => result.acceptedProgress);
+  const historyWrites = ruleResults.flatMap((result) => result.historyWrites);
 
   // Record auto-accept metrics
   for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
