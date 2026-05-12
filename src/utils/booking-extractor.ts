@@ -125,7 +125,7 @@ export function extractAllRequestListTrips(
   return data.request_list.map((request) =>
     extractTripInfoFromSource({
       ...request,
-      booking_id: context?.booking_id,
+      booking_id: request.booking_id ?? context?.booking_id,
       booking_name: context?.booking_name,
       agency_name: context?.agency_name,
     })
