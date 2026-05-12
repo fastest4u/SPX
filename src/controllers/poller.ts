@@ -222,7 +222,6 @@ export class Poller {
     let deferredBookings: Booking[] = [];
 
     const acceptedRequestIds = new Set<number>();
-    let fastLanePrefiltered = false;
     let autoAcceptRules: NotifyRule[] = [];
 
     if (env.AUTO_ACCEPT_ENABLED) {
@@ -231,20 +230,14 @@ export class Poller {
       if (originFilters.length > 0) {
         const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
         const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
-        const skippedCount = nonMatchingBookings.length;
-        fastLanePrefiltered = true;
-
-        if (env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED) {
-          fastLaneBookings = matchingBookings;
-          deferredBookings = nonMatchingBookings;
-        } else {
-          fastLaneBookings = matchingBookings;
-        }
+        fastLaneBookings = matchingBookings;
+        deferredBookings = nonMatchingBookings;
 
         logger.info("booking-origin-prefilter", {
           total: bookings.length,
           prioritized: matchingBookings.length,
-          skipped: env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED ? 0 : skippedCount,
+          deferred: nonMatchingBookings.length,
+          skipped: 0,
         });
       }
     }
@@ -332,7 +325,7 @@ export class Poller {
 
     const bookingTrips = await fetchBookingTrips(fastLaneBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "fast" });
     if (deferredBookings.length > 0) {
-      const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED && !fastLanePrefiltered, lane: "deferred" });
+      const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "deferred" });
       bookingTrips.push(...deferredTrips);
     }
 
