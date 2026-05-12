@@ -298,6 +298,29 @@ export async function matchRules(trips: TripLike[]): Promise<RuleMatch[]> {
   return ruleTrips.map(({ ruleId, ruleName, matchedCount }) => ({ ruleId, ruleName, matchedCount }));
 }
 
+export async function getActiveAutoAcceptRules(): Promise<NotifyRule[]> {
+  const rules = await readRules();
+  return rules.filter((rule) =>
+    rule.enabled && !rule.fulfilled && rule.auto_accept && rule.need > 0
+  );
+}
+
+export function getAutoAcceptOriginFilters(rules: NotifyRule[]): string[] {
+  const origins = new Set<string>();
+
+  for (const rule of rules) {
+    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
+    if (rule.origins.length === 0) return [];
+
+    for (const origin of rule.origins) {
+      const normalized = normalize(origin);
+      if (normalized.length > 0) origins.add(normalized);
+    }
+  }
+
+  return [...origins];
+}
+
 function ruleMatchesTrips(rule: NotifyRule, trips: TripLike[]): TripLike[] {
   return trips.filter((trip) => {
     const origin = normalize(trip.origin ?? trip["ต้นทาง"]);
@@ -327,8 +350,7 @@ export async function matchRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]
   return matches;
 }
 
-export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]> {
-  const rules = await readRules();
+export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: NotifyRule[]): RuleTripMatch[] {
   const matches: RuleTripMatch[] = [];
 
   for (const rule of rules) {
@@ -343,21 +365,12 @@ export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleT
   return matches;
 }
 
+export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]> {
+  return matchAutoAcceptRuleTripsWithRules(trips, await readRules());
+}
+
 export async function getActiveAutoAcceptOriginFilters(): Promise<string[]> {
-  const rules = await readRules();
-  const origins = new Set<string>();
-
-  for (const rule of rules) {
-    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
-    if (rule.origins.length === 0) return [];
-
-    for (const origin of rule.origins) {
-      const normalized = normalize(origin);
-      if (normalized.length > 0) origins.add(normalized);
-    }
-  }
-
-  return [...origins];
+  return getAutoAcceptOriginFilters(await getActiveAutoAcceptRules());
 }
 
 export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; acceptedCount: number }>): Promise<void> {

@@ -6,7 +6,8 @@ import { saveBookingRequest } from "../services/db-service.js";
 import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
-import { getActiveAutoAcceptOriginFilters } from "../services/notify-rules.js";
+import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters } from "../services/notify-rules.js";
+import type { NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import {
   logger,
@@ -222,9 +223,11 @@ export class Poller {
 
     const acceptedRequestIds = new Set<number>();
     let fastLanePrefiltered = false;
+    let autoAcceptRules: NotifyRule[] = [];
 
     if (env.AUTO_ACCEPT_ENABLED) {
-      const originFilters = await getActiveAutoAcceptOriginFilters();
+      autoAcceptRules = await getActiveAutoAcceptRules();
+      const originFilters = getAutoAcceptOriginFilters(autoAcceptRules);
       if (originFilters.length > 0) {
         const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
         const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
@@ -247,12 +250,31 @@ export class Poller {
     }
 
     const needBudget = new NeedBudget();
+    const autoAcceptTasks: Promise<void>[] = [];
 
     const runAutoAcceptConcurrent = async (trips: ExtractedTripInfo[]): Promise<void> => {
-      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, { deferSideEffects: true, needBudget });
+      if (autoAcceptRules.length === 0) return;
+
+      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+        autoAcceptRules,
+        deferSideEffects: true,
+        needBudget,
+      });
       autoResult.accepted.forEach((a) => {
         if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
       });
+    };
+
+    const enqueueAutoAccept = (trips: ExtractedTripInfo[], bookingId: number): void => {
+      const task = runAutoAcceptConcurrent(trips).catch((err) => {
+        logger.error("auto-accept-processing-failed", {
+          bookingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }).finally(() => {
+        this.activeDetailBookingIds.delete(bookingId);
+      });
+      autoAcceptTasks.push(task);
     };
 
     const fetchBookingTrips = async (
@@ -272,6 +294,8 @@ export class Poller {
       }
 
       return mapWithConcurrency(availableBookings, detailConcurrency, async (booking) => {
+        let releasedByAutoAccept = false;
+
         try {
           const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
           if (!requestList) {
@@ -286,7 +310,8 @@ export class Poller {
           });
 
           if (options.autoAccept && trips.length > 0) {
-            await runAutoAcceptConcurrent(trips);
+            releasedByAutoAccept = true;
+            enqueueAutoAccept(trips, booking.booking_id);
           }
 
           return trips;
@@ -298,7 +323,9 @@ export class Poller {
           });
           return [] as ExtractedTripInfo[];
         } finally {
-          this.activeDetailBookingIds.delete(booking.booking_id);
+          if (!releasedByAutoAccept) {
+            this.activeDetailBookingIds.delete(booking.booking_id);
+          }
         }
       });
     };
@@ -320,6 +347,10 @@ export class Poller {
         const dbResult = await saveBookingRequest(trip);
         metrics.recordTrip(dbResult.action);
       }
+    }
+
+    if (autoAcceptTasks.length > 0) {
+      await Promise.allSettled(autoAcceptTasks);
     }
 
     if (env.NOTIFY_ENABLED && allTrips.length > 0) {

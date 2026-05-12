@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
-import { matchRules, matchAutoAcceptRuleTrips, markRulesFulfilled, applyAutoAcceptProgress, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import { matchRules, matchAutoAcceptRuleTrips, matchAutoAcceptRuleTripsWithRules, markRulesFulfilled, applyAutoAcceptProgress, type NotifyRule, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
 import { isLineBotEnabled, sendNotification as sendLineBotNotification, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
@@ -268,6 +268,7 @@ interface AutoAcceptResult {
 interface AutoAcceptOptions {
   deferSideEffects?: boolean;
   needBudget?: NeedBudget;
+  autoAcceptRules?: NotifyRule[];
 }
 
 /**
@@ -355,7 +356,9 @@ export async function acceptAndNotifyMatchedRules(
   apiClient: ApiClient,
   options: AutoAcceptOptions = {}
 ): Promise<AutoAcceptResult> {
-  const autoAcceptMatches = await matchAutoAcceptRuleTrips(trips);
+  const autoAcceptMatches = options.autoAcceptRules
+    ? matchAutoAcceptRuleTripsWithRules(trips, options.autoAcceptRules)
+    : await matchAutoAcceptRuleTrips(trips);
 
   if (autoAcceptMatches.length === 0) {
     return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
