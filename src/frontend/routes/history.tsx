@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { rootRoute } from './__root'
@@ -56,14 +56,26 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
   },
 ]
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs)
+    return () => window.clearTimeout(timeout)
+  }, [value, delayMs])
+
+  return debouncedValue
+}
+
 function HistoryComponent() {
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [vehicleType, setVehicleType] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const search = useDebouncedValue(searchInput.trim(), 400)
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['history', { search, origin, destination, vehicleType, page, pageSize }],
@@ -76,6 +88,7 @@ function HistoryComponent() {
         page,
         pageSize,
       }),
+    placeholderData: (previousData) => previousData,
   })
 
   if (isLoading) {
@@ -99,7 +112,7 @@ function HistoryComponent() {
   const hasFilters = origin || destination || vehicleType
 
   const handleReset = () => {
-    setSearch('')
+    setSearchInput('')
     setOrigin('')
     setDestination('')
     setVehicleType('')
@@ -158,16 +171,16 @@ function HistoryComponent() {
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder={'ค้นหา Request ID, Booking ID, เส้นทาง, ประเภทรถ...'}
-                value={search}
+                value={searchInput}
                 onChange={(e) => {
-                  setSearch(e.target.value)
+                  setSearchInput(e.target.value)
                   setPage(1)
                 }}
                 className="pl-10 pr-10 h-11 text-base"
               />
-              {search && (
+              {searchInput && (
                 <button
-                  onClick={() => { setSearch(''); setPage(1) }}
+                  onClick={() => { setSearchInput(''); setPage(1) }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
                 >
                   <X className="h-4 w-4" />
