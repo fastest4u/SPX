@@ -52,6 +52,10 @@ function readIntegerSetting(name: string, defaultValue: number): number {
   return Number.isInteger(value) ? value : Number.NaN;
 }
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
 function pickKnownSettings(settings: Record<string, string>): EnvSettings {
   const result: EnvSettings = {};
   for (const key of SETTINGS_KEYS) {
@@ -106,7 +110,9 @@ export async function readStoredSettings(): Promise<EnvSettings> {
   const envSettings = pickKnownSettings(readProcessSettings());
   try {
     const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
-    return { ...DEFAULT_SETTINGS, ...envSettings, ...dbSettings };
+    return isProduction()
+      ? { ...DEFAULT_SETTINGS, ...dbSettings }
+      : { ...DEFAULT_SETTINGS, ...envSettings, ...dbSettings };
   } catch {
     return { ...DEFAULT_SETTINGS, ...envSettings };
   }
@@ -120,7 +126,7 @@ export async function writeSettings(newSettings: EnvSettings): Promise<void> {
 
 export async function reloadSettingsLive(): Promise<void> {
   const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
-  applySettingsToEnv(dbSettings);
+  applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
 }
 
 export async function migrateEnvSettingsToDb(): Promise<void> {
@@ -144,5 +150,5 @@ export async function migrateEnvSettingsToDb(): Promise<void> {
 
 export async function loadDbSettingsIntoEnv(): Promise<void> {
   const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
-  applySettingsToEnv(dbSettings);
+  applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
 }
