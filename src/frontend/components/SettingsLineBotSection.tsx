@@ -70,7 +70,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
 
   const routingRows = [
     { key: 'LINEJS_TEST_TARGET_ID_RULE_MATCH', label: 'Rule match', desc: 'LINEJS only', color: '#06C755' },
-    { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS', label: 'Auto-accept สำเร็จ', desc: 'LINE OA → LINEJS fallback', color: '#3b82f6' },
+    { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS', label: 'Auto-accept สำเร็จ', desc: 'LINEJS → LINE OA fallback', color: '#3b82f6' },
     { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE', label: 'Auto-accept ล้มเหลว', desc: 'LINEJS only', color: '#f43f5e' },
   ] as const
 

@@ -119,11 +119,41 @@ async function sendLineJsTestMessage(title: string, message: string): Promise<vo
   }
 }
 
-const LINEJS_FALLBACK_GROUP_MID = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
+function getAutoAcceptSuccessLineJsTarget(): string {
+  return env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
+}
 
-/** Try LINE OA first; if it fails/quota exceeded, fallback to LINEJS direct message */
+function maskTarget(value: string): string {
+  if (!value) return "";
+  return value.length <= 4 ? "****" : `****${value.slice(-4)}`;
+}
+
+/** Send auto-accept success to the configured LINEJS target first, then fallback to LINE OA. */
 async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
-  if (env.LINE_CHANNEL_ACCESS_TOKEN) {
+  const text = `${title}\n${message}`;
+  const lineJsTarget = getAutoAcceptSuccessLineJsTarget();
+
+  if (lineJsTarget && isLineBotEnabled()) {
+    try {
+      const result = await sendLineBotMessage(lineJsTarget, text);
+      if (result.ok) {
+        logger.info("auto-accept-alert-linejs-sent", { groupMid: maskTarget(lineJsTarget), title });
+        return true;
+      }
+      logger.warn("auto-accept-alert-linejs-failed", { groupMid: maskTarget(lineJsTarget), title, error: result.error });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.warn("auto-accept-alert-linejs-error", { groupMid: maskTarget(lineJsTarget), title, error: errMsg });
+    }
+  } else {
+    logger.warn("auto-accept-alert-linejs-skipped", {
+      title,
+      targetConfigured: Boolean(lineJsTarget),
+      lineBotEnabled: isLineBotEnabled(),
+    });
+  }
+
+  if (env.LINE_CHANNEL_ACCESS_TOKEN && env.LINE_USER_ID) {
     try {
       await sendLineOaMessage(title, message);
       logger.info("auto-accept-alert-line-oa-sent", { title });
@@ -131,21 +161,13 @@ async function sendAutoAcceptAlert(title: string, message: string): Promise<bool
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.warn("auto-accept-alert-line-oa-failed", { title, error: errMsg });
-      // Fallback to LINEJS below
     }
-  }
-
-  try {
-    const text = `${title}\n${message}`;
-    const result = await sendLineBotMessage(LINEJS_FALLBACK_GROUP_MID, text);
-    if (result.ok) {
-      logger.info("auto-accept-alert-linejs-sent", { groupMid: LINEJS_FALLBACK_GROUP_MID, title });
-      return true;
-    }
-    logger.warn("auto-accept-alert-linejs-failed", { groupMid: LINEJS_FALLBACK_GROUP_MID, title, error: result.error });
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    logger.warn("auto-accept-alert-linejs-error", { groupMid: LINEJS_FALLBACK_GROUP_MID, title, error: errMsg });
+  } else {
+    logger.warn("auto-accept-alert-line-oa-skipped", {
+      title,
+      tokenConfigured: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
+      userConfigured: Boolean(env.LINE_USER_ID),
+    });
   }
 
   return false;
