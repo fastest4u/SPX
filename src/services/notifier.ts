@@ -128,19 +128,21 @@ function maskTarget(value: string): string {
   return value.length <= 4 ? "****" : `****${value.slice(-4)}`;
 }
 
-/** Send auto-accept success to the configured LINEJS target first, then fallback to LINE OA. */
+/** Send auto-accept success to every configured LINE channel. */
 async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
   const text = `${title}\n${message}`;
   const lineJsTarget = getAutoAcceptSuccessLineJsTarget();
+  let sent = false;
 
   if (lineJsTarget && isLineBotEnabled()) {
     try {
       const result = await sendLineBotMessage(lineJsTarget, text);
       if (result.ok) {
         logger.info("auto-accept-alert-linejs-sent", { groupMid: maskTarget(lineJsTarget), title });
-        return true;
+        sent = true;
+      } else {
+        logger.warn("auto-accept-alert-linejs-failed", { groupMid: maskTarget(lineJsTarget), title, error: result.error });
       }
-      logger.warn("auto-accept-alert-linejs-failed", { groupMid: maskTarget(lineJsTarget), title, error: result.error });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.warn("auto-accept-alert-linejs-error", { groupMid: maskTarget(lineJsTarget), title, error: errMsg });
@@ -157,7 +159,7 @@ async function sendAutoAcceptAlert(title: string, message: string): Promise<bool
     try {
       await sendLineOaMessage(title, message);
       logger.info("auto-accept-alert-line-oa-sent", { title });
-      return true;
+      sent = true;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.warn("auto-accept-alert-line-oa-failed", { title, error: errMsg });
@@ -170,7 +172,7 @@ async function sendAutoAcceptAlert(title: string, message: string): Promise<bool
     });
   }
 
-  return false;
+  return sent;
 }
 
 export async function sendNotificationMessage(title: string, message: string): Promise<{ sent: boolean; results: NotificationSendResult[] }> {
