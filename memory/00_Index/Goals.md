@@ -69,6 +69,7 @@ Progress:
 - [x] Production schema verification runbook added ([[Runbook-Production-Schema-Verification]]).
 - [x] DB-backed live settings ADR added ([[ADR-002-DB-Backed-Live-Settings]]).
 - [x] Read-only schema verification command added (`npm run schema:verify`).
+- [x] Production schema verified against source contract with `npm run schema:verify` on 2026-05-13.
 - [x] Deploy safety checklist added ([[Runbook-Deploy-Safety-Checklist]]).
 - [ ] Define alerting policy.
 - [ ] Add deeper metrics dashboard policy for poll latency.
