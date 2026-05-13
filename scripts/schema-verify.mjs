@@ -297,7 +297,10 @@ async function main() {
 
   try {
     const [tableRows] = await connection.execute(
-      `SELECT table_name, engine, table_collation
+      `SELECT
+         table_name AS table_name,
+         engine AS engine,
+         table_collation AS table_collation
        FROM information_schema.tables
        WHERE table_schema = ?
          AND table_name IN (${expectedTables.map(() => "?").join(",")})
@@ -306,7 +309,13 @@ async function main() {
     );
 
     const [columnRows] = await connection.execute(
-      `SELECT table_name, column_name, column_type, is_nullable, column_default, extra
+      `SELECT
+         table_name AS table_name,
+         column_name AS column_name,
+         column_type AS column_type,
+         is_nullable AS is_nullable,
+         column_default AS column_default,
+         extra AS extra
        FROM information_schema.columns
        WHERE table_schema = ?
          AND table_name IN (${expectedTables.map(() => "?").join(",")})
@@ -315,7 +324,12 @@ async function main() {
     );
 
     const [indexRows] = await connection.execute(
-      `SELECT table_name, index_name, non_unique, seq_in_index, column_name
+      `SELECT
+         table_name AS table_name,
+         index_name AS index_name,
+         non_unique AS non_unique,
+         seq_in_index AS seq_in_index,
+         column_name AS column_name
        FROM information_schema.statistics
        WHERE table_schema = ?
          AND table_name IN (${expectedTables.map(() => "?").join(",")})
