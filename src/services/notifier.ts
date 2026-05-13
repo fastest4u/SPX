@@ -128,27 +128,38 @@ function maskTarget(value: string): string {
   return value.length <= 4 ? "****" : `****${value.slice(-4)}`;
 }
 
-/** Send auto-accept success to every configured LINE channel. */
-async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
+async function sendLineJsThenOa(
+  title: string,
+  message: string,
+  options: { lineJsTarget?: string; logPrefix: string; results?: NotificationSendResult[] }
+): Promise<boolean> {
   const text = `${title}\n${message}`;
-  const lineJsTarget = getAutoAcceptSuccessLineJsTarget();
-  let sent = false;
+  const lineJsTarget = options.lineJsTarget || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
 
   if (lineJsTarget && isLineBotEnabled()) {
     try {
       const result = await sendLineBotMessage(lineJsTarget, text);
       if (result.ok) {
-        logger.info("auto-accept-alert-linejs-sent", { groupMid: maskTarget(lineJsTarget), title });
-        sent = true;
-      } else {
-        logger.warn("auto-accept-alert-linejs-failed", { groupMid: maskTarget(lineJsTarget), title, error: result.error });
+        logger.info(`${options.logPrefix}-linejs-sent`, { groupMid: maskTarget(lineJsTarget), title });
+        options.results?.push({ channel: "linejs_test", ok: true });
+        return true;
       }
+      logger.warn(`${options.logPrefix}-linejs-failed`, { groupMid: maskTarget(lineJsTarget), title, error: result.error });
+      options.results?.push({ channel: "linejs_test", ok: false, error: result.error });
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.warn("auto-accept-alert-linejs-error", { groupMid: maskTarget(lineJsTarget), title, error: errMsg });
+      const errorMessage = lineBotFormatError(error);
+      logger.warn(`${options.logPrefix}-linejs-error`, { groupMid: maskTarget(lineJsTarget), title, error: errorMessage });
+      const errObj = error as Record<string, unknown>;
+      options.results?.push({
+        channel: "linejs_test",
+        ok: false,
+        error: errorMessage,
+        qrUrl: error instanceof LineBotQrRequiredError ? error.qrUrl : errObj.qrUrl as string | undefined,
+        pincode: error instanceof LineBotQrRequiredError ? error.pincode : errObj.pincode as string | undefined,
+      });
     }
   } else {
-    logger.warn("auto-accept-alert-linejs-skipped", {
+    logger.warn(`${options.logPrefix}-linejs-skipped`, {
       title,
       targetConfigured: Boolean(lineJsTarget),
       lineBotEnabled: isLineBotEnabled(),
@@ -158,21 +169,31 @@ async function sendAutoAcceptAlert(title: string, message: string): Promise<bool
   if (env.LINE_CHANNEL_ACCESS_TOKEN && env.LINE_USER_ID) {
     try {
       await sendLineOaMessage(title, message);
-      logger.info("auto-accept-alert-line-oa-sent", { title });
-      sent = true;
+      logger.info(`${options.logPrefix}-line-oa-sent`, { title });
+      options.results?.push({ channel: "line", ok: true });
+      return true;
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.warn("auto-accept-alert-line-oa-failed", { title, error: errMsg });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.warn(`${options.logPrefix}-line-oa-failed`, { title, error: errorMessage });
+      options.results?.push({ channel: "line", ok: false, error: errorMessage });
     }
   } else {
-    logger.warn("auto-accept-alert-line-oa-skipped", {
+    logger.warn(`${options.logPrefix}-line-oa-skipped`, {
       title,
       tokenConfigured: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
       userConfigured: Boolean(env.LINE_USER_ID),
     });
   }
 
-  return sent;
+  return false;
+}
+
+/** Send auto-accept success to LINEJS first, then fallback to LINE OA. */
+async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
+  return sendLineJsThenOa(title, message, {
+    lineJsTarget: getAutoAcceptSuccessLineJsTarget(),
+    logPrefix: "auto-accept-alert",
+  });
 }
 
 export async function sendNotificationMessage(title: string, message: string): Promise<{ sent: boolean; results: NotificationSendResult[] }> {
@@ -189,34 +210,7 @@ export async function sendNotificationMessage(title: string, message: string): P
     }
   }
 
-  if (env.LINE_CHANNEL_ACCESS_TOKEN) {
-    try {
-      await sendLineOaMessage(title, message);
-      results.push({ channel: "line", ok: true });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("line-notification-failed", { error: errorMessage });
-      results.push({ channel: "line", ok: false, error: errorMessage });
-    }
-  }
-
-  if (isLineBotEnabled()) {
-    try {
-      await sendLineJsTestMessage(title, message);
-      results.push({ channel: "linejs_test", ok: true });
-    } catch (error) {
-      const errorMessage = lineBotFormatError(error);
-      logger.error("linejs-test-notification-failed", { error: errorMessage });
-      const errObj = error as Record<string, unknown>;
-      results.push({
-        channel: "linejs_test",
-        ok: false,
-        error: errorMessage,
-        qrUrl: error instanceof LineBotQrRequiredError ? error.qrUrl : errObj.qrUrl as string | undefined,
-        pincode: error instanceof LineBotQrRequiredError ? error.pincode : errObj.pincode as string | undefined,
-      });
-    }
-  }
+  await sendLineJsThenOa(title, message, { logPrefix: "notification", results });
 
   return { sent: results.some((result) => result.ok), results };
 }
@@ -240,7 +234,6 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     const title = forceTest ? "SPX Notification Test" : "SPX แจ้งเตือนงานที่ตรงเงื่อนไข";
     logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
 
-    // Send only via LINEJS direct group message
     const notifyGroupMid = env.LINEJS_TEST_TARGET_ID_RULE_MATCH || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
     const matchLines = matches.map((m) => `• ${m.ruleName} (${m.matchedCount} รายการ)`);
     const notifyAlertText = [
@@ -250,18 +243,10 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
       ...matchLines,
     ].join("\n");
 
-    let sent = false;
-    try {
-      const lineResult = await sendLineBotMessage(notifyGroupMid, notifyAlertText);
-      if (lineResult.ok) {
-        sent = true;
-        logger.info("rule-match-linejs-alert-sent", { groupMid: notifyGroupMid, matchCount: matches.length });
-      } else {
-        logger.warn("rule-match-linejs-alert-failed", { groupMid: notifyGroupMid, error: lineResult.error });
-      }
-    } catch (lineError) {
-      logger.warn("rule-match-linejs-alert-error", { groupMid: notifyGroupMid, error: lineError instanceof Error ? lineError.message : String(lineError) });
-    }
+    const sent = await sendLineJsThenOa(title, notifyAlertText, {
+      lineJsTarget: notifyGroupMid,
+      logPrefix: "rule-match-alert",
+    });
 
     if (sent && !forceTest) {
       await markRulesFulfilled(dedupeRuleIds(matches));
@@ -628,7 +613,7 @@ export async function acceptAndNotifyMatchedRules(
     }
   }
 
-  // Notify about failures — LINEJS direct group only
+  // Notify about failures via LINEJS first, then LINE OA fallback.
   if (failed.length > 0) {
     const failGroupMid = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
     const failLines = failed.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
@@ -640,16 +625,10 @@ export async function acceptAndNotifyMatchedRules(
     ].join("\n");
 
     const sendFailAlert = async () => {
-      try {
-        const result = await sendLineBotMessage(failGroupMid, failAlertText);
-        if (result.ok) {
-          logger.info("auto-accept-failure-linejs-sent", { groupMid: failGroupMid, failedCount: failed.length });
-        } else {
-          logger.warn("auto-accept-failure-linejs-failed", { groupMid: failGroupMid, error: result.error });
-        }
-      } catch (error) {
-        logger.warn("auto-accept-failure-linejs-error", { groupMid: failGroupMid, error: error instanceof Error ? error.message : String(error) });
-      }
+      await sendLineJsThenOa("SPX Auto-Accept ล้มเหลว", failAlertText, {
+        lineJsTarget: failGroupMid,
+        logPrefix: "auto-accept-failure-alert",
+      });
     };
 
     if (options.deferSideEffects) {
