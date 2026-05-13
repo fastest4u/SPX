@@ -10,6 +10,7 @@ outcomes:
   - Replaced overconfident accept/409 claims with provider-specific wording grounded in src/services/api-client.ts
   - Re-ran memory:check and build after edits
   - Verified dry-run staging keeps Obsidian plugin binaries, workspace state, and local-rest-api secrets out of git
+  - Committed and pushed the complete memory vault to main
 created: 2026-05-13
 updated: 2026-05-13
 tags:
@@ -23,7 +24,7 @@ tags:
 # 2026-05-13 — Vault Completion 100 Percent
 
 > [!abstract] TL;DR
-> Closed the remaining polish gaps from the latest review: Goals now reflect the docs that actually exist, the retry component no longer labels the API endpoint reference as TODO, and accept-conflict behavior is no longer documented as a guaranteed `409`. `npm run memory:check`, `npm run build --silent`, and dry-run staging all passed.
+> Closed the remaining polish gaps from the latest review: Goals now reflect the docs that actually exist, the retry component no longer labels the API endpoint reference as TODO, and accept-conflict behavior is no longer documented as a guaranteed `409`. `npm run memory:check`, `npm run build --silent`, dry-run staging, commit, and push all passed.
 
 > Confidence: high — edits were grounded in [[API-Bidding-Endpoints]], [[Component-Retry-With-Backoff]], [[Runbook-Auto-Accept-Debug]], and `src/services/api-client.ts`.
 
@@ -49,6 +50,7 @@ This session targeted the last review findings:
 - [x] Reworded accept retry/duplicate behavior in [[API-Bidding-Endpoints]] to avoid claiming a guaranteed upstream `409`.
 - [x] Reworded [[Runbook-Auto-Accept-Debug]] conflict handling to say `409` or conflict-like responses are provider-specific and must be inspected.
 - [x] Wrote this session log to satisfy the auto-log rule.
+- [x] Committed and pushed the full vault delta to `main`.
 
 ---
 
@@ -87,6 +89,17 @@ This session targeted the last review findings:
 > - [x] `npm run memory:check` -> clean, 0 errors / 0 warnings
 > - [x] `npm run build --silent` -> passed; Vite reported the existing large-chunk warning only
 > - [x] `git add -n .gitignore AGENTS.md package.json memory/ scripts/ .windsurf/workflows/` confirms ignored binaries/secrets stay out
+> - [x] `git commit -m "feat: add production-grade memory vault"` -> `38241e6`
+> - [x] `git push origin main` -> `fa57e62..38241e6 main -> main`
+
+---
+
+## Commit / Push
+
+- Commit: `38241e6 feat: add production-grade memory vault`
+- Branch: `main`
+- Remote: `origin/main`
+- Production note: push to `main` triggers the normal auto-deploy flow, but this change is docs/tooling-only (`memory/`, workflows, `.gitignore`, root `AGENTS.md`, and `memory:check` script).
 
 ---
 
