@@ -166,7 +166,7 @@ If you can't answer any of these, **run `/session-start` first**.
 | **Deploy / Docker / production** | Deploy section in root `AGENTS.md` | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |
 | **Vault hygiene / memory** | [[AGENTS]] (this file), [[Memory-Vault-Principles]] | [[Vault-Dashboard]] | recent mistakes with `topic/memory-vault` |
-| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]] | `npm run memory:check`, `npm run memory:eval` |
+| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]] | `npm run memory:verify` |
 | **Architectural decision** | [[Goals]] active items | Latest ADRs in `04_Architecture_Decisions/` | similar prior ADRs |
 | **Any task** (always) | [[AGENT-IDENTITY]], [[Goals#Active Goals]] | Last 3 entries in `05_Agent_Session_Logs/` | matching `08_Mistakes/` entries |
 

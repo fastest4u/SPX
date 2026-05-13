@@ -50,6 +50,12 @@ Required result:
 - `memory:check` exits 0.
 - `memory:eval` exits 0 with 100 percent score.
 
+Shortcut:
+
+```bash
+npm run memory:verify
+```
+
 ---
 
 ## Manual Agent Test

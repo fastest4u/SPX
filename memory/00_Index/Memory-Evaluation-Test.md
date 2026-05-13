@@ -26,7 +26,17 @@ tags:
 
 ---
 
-## Command
+## Commands
+
+Default one-command gate:
+
+```bash
+npm run memory:verify
+```
+
+This runs `memory:check` first, then `memory:eval`.
+
+Evaluation-only command:
 
 ```bash
 npm run memory:eval
@@ -62,6 +72,8 @@ The script passes only when every evaluation item has:
 - Score of 100 percent.
 
 Any missing note or term exits non-zero so automation can catch memory drift.
+
+For normal Memory Vault edits, use `npm run memory:verify` instead of running the two commands manually.
 
 ---
 

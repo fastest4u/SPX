@@ -26,14 +26,14 @@ cssclasses:
 Run from repo root:
 
 ```bash
-npm run memory:check
-npm run memory:eval
+npm run memory:verify
 ```
 
 Expected:
 
 - `memory:check` exits 0 with no frontmatter, wikilink, Dataview, freshness, or stale-truth errors.
 - `memory:eval` exits 0 with 100 percent retrieval coverage.
+- `memory:verify` exits 0 only when both checks pass.
 
 See [[Memory-Evaluation-Test]].
 
@@ -220,8 +220,7 @@ GROUP BY file.link
 
 ## Maintenance Checklist
 
-- [ ] Run `npm run memory:check`.
-- [ ] Run `npm run memory:eval`.
+- [ ] Run `npm run memory:verify`.
 - [ ] Review stale notes and update or archive.
 - [ ] Review orphan notes and link them from a hub.
 - [ ] Review open mistake notes.

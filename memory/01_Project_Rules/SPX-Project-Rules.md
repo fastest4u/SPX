@@ -65,6 +65,7 @@ aliases:
 | `npm run flow:start` | migrate, build, then start `dist/app.js` |
 | `npm run memory:check` | Validate Memory Vault frontmatter, wikilinks, Dataview syntax |
 | `npm run memory:eval` | Verify Awakened AI retrieval coverage for core SPX questions |
+| `npm run memory:verify` | Run both memory checks as the default Memory Vault gate |
 
 > [!warning]
 > `db:test` and `flow:test` require real API auth, network access, and MySQL. They can insert into `spx_booking_history`.

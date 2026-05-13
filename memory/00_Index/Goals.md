@@ -44,6 +44,7 @@ Progress:
 - [x] Add source-grounded Awakened AI operating model ([[Awakened-AI-System]]).
 - [x] Add source-grounded SPX system map ([[SPX-System-Map]]).
 - [x] Add deterministic memory evaluation (`npm run memory:eval`) and stale-truth detection.
+- [x] Add one-command Memory Vault gate (`npm run memory:verify`).
 - [x] Commit memory vault to git.
 - [ ] Test multi-AI access beyond Codex.
 

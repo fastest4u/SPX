@@ -131,7 +131,7 @@ As of 2026-05-13, the Awakened AI memory has:
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
 - ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
 - Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
-- Automated checks: `npm run memory:check` for structure/stale claims and `npm run memory:eval` for retrieval coverage.
+- Automated checks: `npm run memory:verify` runs structure/stale-claim checks plus retrieval coverage in one command.
 
 ---
 
