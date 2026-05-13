@@ -23,7 +23,8 @@
     "dev:backend": "HTTP_ENABLED=true tsx src/app.ts",
     "dev:frontend": "vite",
     "frontend:build": "vite build --emptyOutDir",
-    "flow:start": "npm run db:migrate && npm run build --silent && node dist/app.js"
+    "flow:start": "npm run db:migrate && npm run build --silent && node dist/app.js",
+    "memory:check": "node scripts/memory-check.mjs"
   },
   "keywords": [
     "spx",

@@ -1,5 +1,60 @@
 # AGENTS.md
 
+## 🧠 Memory Vault (Read First)
+
+This project has a persistent **Memory Vault** at [`memory/`](./memory/). It contains the long-term knowledge that all AI agents (Cascade, Claude Code, Codex, opencode, Cursor, Copilot) share for this project.
+
+**Session start checklist for every AI agent:**
+1. Read [`memory/AGENTS.md`](./memory/AGENTS.md) — vault constitution & conventions.
+2. Open [`memory/00_Index/MOC-Home.md`](./memory/00_Index/MOC-Home.md) — navigation hub.
+3. Check [`memory/05_Agent_Session_Logs/`](./memory/05_Agent_Session_Logs/) for recent context.
+4. Use [`memory/99_Templates/`](./memory/99_Templates/) when creating new notes.
+
+See [`memory/README.md`](./memory/README.md) for tool-specific setup (Claude Code, Cursor, Obsidian, etc.).
+
+---
+
+## 🤖 Auto-Log Session Rule (MANDATORY)
+
+> **AI agents MUST automatically write a session log to `memory/05_Agent_Session_Logs/YYYY-MM-DD-Topic.md` after completing any meaningful work — without waiting for the user to ask.**
+
+### When to auto-log (any of these triggers)
+
+- ✅ Completed a feature or bug fix (code committed/changed)
+- ✅ Made an architectural decision (always log + create ADR)
+- ✅ Resolved a debugging session
+- ✅ Set up tooling (MCP servers, plugins, configs)
+- ✅ Refactored a non-trivial module
+- ✅ User says: "done", "เสร็จแล้ว", "ok merge", "ship it", etc.
+- ✅ Approaching session token limit (proactively save state)
+
+### When NOT to log
+
+- ❌ Pure Q&A (user just asked a question, no work done)
+- ❌ Trivial single-line fixes (typos)
+- ❌ User explicitly says "don't log this"
+
+### How to auto-log
+
+1. Pick topic name (kebab-case): `Fix-Auto-Accept-Race`, `Add-Discord-Embed`, etc.
+2. Filename: `memory/05_Agent_Session_Logs/YYYY-MM-DD-<Topic>.md` (today's date).
+3. Use frontmatter schema from `memory/99_Templates/Template-Session-Log.md`.
+4. Fill these sections at minimum: **TL;DR · Goal · What Was Done · Files Touched · Decisions Made · Open Follow-ups**.
+5. Use wikilinks `[[...]]` for in-vault references.
+6. Run after writing: report path + outcome count to user.
+
+### Reference
+
+- Workflow: `.windsurf/workflows/session-end.md` (Cascade `/session-end` slash command)
+- Template: `memory/99_Templates/Template-Session-Log.md`
+- Vault rules: `memory/AGENTS.md`
+
+---
+
+The rest of this file = **project-specific rules** for SPX code.
+
+---
+
 ## Sources Of Truth
 - Trust `package.json`, `tsconfig.json`, `src/`, and `docs/` over guesses; there is no CI workflow, lint config, formatter config, or unit-test script.
 - Edit `src/`; `dist/`, `data/`, `logs/`, `node_modules/`, and `.env` are ignored/generated or local-only.

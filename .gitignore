@@ -6,7 +6,39 @@ logs
 .agents
 notify-rules.json
 
-
-
+# Editors / IDEs
 .cursor/
+
+# ─── Obsidian Memory Vault ───────────────────────────────────────────────
+# Strategy: track CONFIG (settings, plugin manifests + data) so a fresh clone
+# has the same vault behavior, but never track binaries (plugin main.js / styles.css
+# are ~5 MB combined and reinstall on Obsidian "enable" anyway), per-user UI state,
+# or secrets.
+#
+# Default-deny generic .obsidian/ vaults outside memory/, then re-allow ours.
 .obsidian/
+!memory/.obsidian/
+!memory/.obsidian/**
+
+# Plugin binaries — large + auto-installed by Obsidian when plugin is enabled
+memory/.obsidian/plugins/*/main.js
+memory/.obsidian/plugins/*/styles.css
+
+# Per-user Obsidian UI state — never commit (which file is open, layout, panes)
+memory/.obsidian/workspace.json
+memory/.obsidian/workspace-mobile.json
+memory/.obsidian/workspaces.json
+
+# Plugin secrets — Local REST API stores TLS private key + apiKey
+memory/.obsidian/plugins/obsidian-local-rest-api/data.json
+
+# App state caches and backups (not config)
+memory/.obsidian/cache
+memory/.obsidian/community-plugins.json.bak
+
+# Tracked on purpose (positive examples — these MUST be committed):
+#   memory/.obsidian/community-plugins.json   ← which plugins to install
+#   memory/.obsidian/core-plugins.json        ← which core plugins are on
+#   memory/.obsidian/app.json, appearance.json, graph.json
+#   memory/.obsidian/plugins/*/manifest.json  ← plugin id + version pin
+#   memory/.obsidian/plugins/*/data.json      ← plugin settings (NOT for local-rest-api)
