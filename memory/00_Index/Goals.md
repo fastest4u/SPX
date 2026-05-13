@@ -48,6 +48,7 @@ Progress:
 - [x] Add full code + memory verification gate (`npm run verify`).
 - [x] Add Memory Quality Score dashboard command (`npm run memory:score`).
 - [x] Add Multi-AI acceptance result registry ([[Multi-AI-Acceptance-Results]]).
+- [x] Triage old session follow-up debt into Goals, runbooks, or closed historical tasks.
 - [x] Commit memory vault to git.
 - [ ] Test multi-AI access beyond Codex in native tools.
 
@@ -71,8 +72,8 @@ Progress:
 - [x] Read-only schema verification command added (`npm run schema:verify`).
 - [x] Production schema verified against source contract with `npm run schema:verify` on 2026-05-13.
 - [x] Deploy safety checklist added ([[Runbook-Deploy-Safety-Checklist]]).
-- [ ] Define alerting policy.
-- [ ] Add deeper metrics dashboard policy for poll latency.
+- [x] Define alerting policy ([[Runbook-Production-Alert-Policy]]).
+- [x] Add deeper metrics dashboard policy for poll latency ([[Runbook-Production-Alert-Policy#Poll Latency High]]).
 
 ### G-003: Reduce Re-Explanation by 80 Percent
 
@@ -110,6 +111,9 @@ Outcomes to verify:
 - [ ] Promote recurring insights to `07_Insights/`.
 - [ ] Mark stale notes or re-verify `last-verified` dates.
 - [ ] Refresh [[MOC-Home]] if topology changes.
+- [ ] Test Dataview render in Obsidian.
+- [ ] Test Templater templates manually.
+- [ ] Test Cascade session workflows if Cascade is available.
 - [ ] Write a session log for the compactor pass.
 
 ### M-002: Runbook Re-Verification
@@ -157,6 +161,17 @@ Progress:
 - Why: Run specialized agents for security, tests, docs, and implementation in parallel when tooling supports it.
 - Trigger: User asks for multi-agent work or a large enough task requires parallel slices.
 
+### G-007: Verification Automation
+
+- Status: backlog
+- Why: Direct pushes to `main` auto-deploy, so optional automation can reduce reliance on human discipline.
+- Trigger: Team grows, branch/PR workflow starts, or manual `npm run verify` is skipped.
+
+Progress:
+
+- [ ] Add local pre-push hook for `npm run verify` if the workflow tolerates slower pushes.
+- [ ] Add GitHub Action for `npm run verify` if PR/branch workflow becomes active.
+
 ---
 
 ## Recently Completed
@@ -169,6 +184,7 @@ Progress:
 | Source-grounded system survey | 2026-05-13 | [[Awakened-AI-System]], [[SPX-System-Map]], internal API/SSE docs, and component docs added. |
 | Awakened AI hardening pass | 2026-05-13 | `memory:eval`, stale-truth detector, ADR-002, schema verification, multi-AI acceptance, and mistake notes added. |
 | Full verification and safety pass | 2026-05-13 | `memory:score`, `schema:verify`, deploy checklist, multi-AI result registry, and extra mistake entries added. |
+| Memory debt and alert policy pass | 2026-05-13 | Session follow-ups triaged, [[Defense-In-Depth-Vault-Architecture]] promoted, and [[Runbook-Production-Alert-Policy]] added. |
 
 ---
 

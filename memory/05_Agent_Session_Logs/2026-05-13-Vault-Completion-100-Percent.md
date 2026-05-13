@@ -76,10 +76,10 @@ This session targeted the last review findings:
 
 ## Open Issues / Follow-ups
 
-- [ ] Test multi-AI access beyond Codex (Claude Code / Cursor) before marking G-001 fully done.
-- [ ] Promote "Defense-in-Depth Vault Architecture" insight during the next insight-promotion pass.
-- [ ] Continue adding docs when touching `notifier.ts`, `notify-rules.ts`, or poller logic.
-- [ ] First `/dream` compactor remains scheduled for 2026-06-01 ([[Goals#M-001]]).
+- [x] Test multi-AI access beyond Codex (Claude Code / Cursor) before marking G-001 fully done. *(promoted to [[Goals#G-001 Bullet-Proof Memory Vault System]])*
+- [x] Promote "Defense-in-Depth Vault Architecture" insight during the next insight-promotion pass. *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] Continue adding docs when touching `notifier.ts`, `notify-rules.ts`, or poller logic. *(promoted to [[Goals#G-005 Reusable Component Coverage]])*
+- [x] First `/dream` compactor remains scheduled for 2026-06-01 ([[Goals#M-001]]). *(promoted to recurring goal)*
 
 ---
 

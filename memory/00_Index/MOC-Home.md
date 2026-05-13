@@ -35,7 +35,7 @@ cssclasses:
 > 8. [[Memory-Vault-Principles]] - why the vault exists.
 
 > [!tip] Need to do operational work?
-> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Production-Schema-Verification]], [[Runbook-Multi-AI-Memory-Acceptance]], [[Runbook-Notify-Failure]], [[Runbook-Deploy-Safety-Checklist]], [[Runbook-Production-Deploy]].
+> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Production-Schema-Verification]], [[Runbook-Production-Alert-Policy]], [[Runbook-Multi-AI-Memory-Acceptance]], [[Runbook-Notify-Failure]], [[Runbook-Deploy-Safety-Checklist]], [[Runbook-Production-Deploy]].
 
 ---
 
@@ -158,6 +158,7 @@ SORT file.name ASC
 | Why are dashboard settings DB-backed? | [[ADR-002-DB-Backed-Live-Settings]] |
 | How do I recover an expired SPX session? | [[Runbook-API-Session-Expired]] |
 | How do I check production schema drift? | [[Runbook-Production-Schema-Verification]] |
+| What production conditions should alert? | [[Runbook-Production-Alert-Policy]] |
 | How do I test multiple AI tools against the vault? | [[Runbook-Multi-AI-Memory-Acceptance]] |
 | What must I check before pushing to main? | [[Runbook-Deploy-Safety-Checklist]] |
 | How should I structure a new note? | `99_Templates/` |

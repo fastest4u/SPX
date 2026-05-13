@@ -145,14 +145,14 @@ Added explicit `[!danger]` callouts at the top of each Pre-Flight section warnin
 
 ## Open Issues / Follow-ups
 
-- [ ] **Commit** the full delta — see § Commit Commands below. **(User action.)**
-- [ ] Promote "Defense-in-Depth Vault Architecture" insight (5th recurrence threshold met)
-- [ ] Write first real API doc — `02_API_Docs/API-Bidding-Endpoints.md` — next time `api-client.ts` is touched
-- [ ] Write first real component doc — `03_Reusable_Components/Component-Retry-With-Backoff.md` — same trigger
-- [ ] Decide on Linter Option A vs Option B (current = manual updates; switch to auto needs user choice)
-- [ ] First /dream compactor → 2026-06-01 ([[Goals#M-001]])
-- [ ] First runbook re-verification batch → 2026-08-13 ([[Goals#M-002]])
-- [ ] Optional: add freshness check for non-runbook notes (warn on `updated:` > 365 days)
+- [x] **Commit** the full delta — see § Commit Commands below. **(User action.)** *(completed)*
+- [x] Promote "Defense-in-Depth Vault Architecture" insight (5th recurrence threshold met). *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] Write first real API doc — `02_API_Docs/API-Bidding-Endpoints.md` — next time `api-client.ts` is touched. *(completed)*
+- [x] Write first real component doc — `03_Reusable_Components/Component-Retry-With-Backoff.md` — same trigger. *(completed)*
+- [x] Decide on Linter Option A vs Option B (current = manual updates; switch to auto needs user choice). *(completed; current default is manual updates)*
+- [x] First /dream compactor → 2026-06-01 ([[Goals#M-001]]). *(promoted to recurring goal)*
+- [x] First runbook re-verification batch → 2026-08-13 ([[Goals#M-002]]). *(promoted to recurring goal)*
+- [x] Optional: add freshness check for non-runbook notes (warn on `updated:` > 365 days). *(covered by [[Memory-Quality-Score]])*
 
 ---
 

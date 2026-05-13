@@ -2,8 +2,9 @@
 title: Mistake-004 - Push Main Without Full Verify
 type: mistake
 severity: high
-status: open
+status: resolved
 occurred-date: 2026-05-13
+resolved-date: 2026-05-13
 created: 2026-05-13
 updated: 2026-05-13
 agent: codex
@@ -58,6 +59,17 @@ npm run schema:verify
 ```
 
 Then stage only task-relevant files and push.
+
+---
+
+## Resolution
+
+Resolved on 2026-05-13 by:
+
+- Adding [[Runbook-Deploy-Safety-Checklist]].
+- Adding `npm run verify`.
+- Following explicit path staging in later commits.
+- Recording verification outcomes in session logs.
 
 ---
 

@@ -203,6 +203,8 @@ Sources: `src/controllers/settings-controller.ts`, `src/services/settings.ts`.
 | Deploy | push to `main`, server pulls and rebuilds |
 | Health | `GET /ready` every 30 seconds |
 
+Alert policy: [[Runbook-Production-Alert-Policy]] defines alert conditions for `/ready`, `/health`, poll error rate, session expiry, auto-accept failures, DB connectivity, and poll latency.
+
 ---
 
 ## Related
@@ -217,5 +219,6 @@ Sources: `src/controllers/settings-controller.ts`, `src/services/settings.ts`.
 - [[Component-Poller-Orchestration]]
 - [[Component-Dual-Storage-Notify-Rules]]
 - [[Runbook-Production-Schema-Verification]]
+- [[Runbook-Production-Alert-Policy]]
 - [[Runbook-Multi-AI-Memory-Acceptance]]
 - [[Runbook-Production-Deploy]]

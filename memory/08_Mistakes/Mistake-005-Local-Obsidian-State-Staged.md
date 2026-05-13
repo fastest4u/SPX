@@ -2,8 +2,9 @@
 title: Mistake-005 - Local Obsidian State Staged
 type: mistake
 severity: medium
-status: open
+status: resolved
 occurred-date: 2026-05-13
+resolved-date: 2026-05-13
 created: 2026-05-13
 updated: 2026-05-13
 agent: codex
@@ -57,6 +58,16 @@ git add -- AGENTS.md package.json memory/00_Index/Memory-Quality-Score.md
 ```
 
 Leave local-only files unstaged unless the user explicitly asked to change them.
+
+---
+
+## Resolution
+
+Resolved on 2026-05-13 by:
+
+- Adding [[Runbook-Deploy-Safety-Checklist]].
+- Repeatedly leaving `memory/.obsidian/graph.json` unstaged during unrelated commits.
+- Documenting explicit path staging as the required pattern.
 
 ---
 

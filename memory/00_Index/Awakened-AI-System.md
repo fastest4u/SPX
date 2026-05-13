@@ -86,6 +86,7 @@ When a lower-priority source is stale, update it or record a follow-up. Do not s
 | Session expired | [[Runbook-API-Session-Expired]] |
 | Production deploy | [[Runbook-Production-Deploy]] |
 | Production schema drift | [[Runbook-Production-Schema-Verification]] |
+| Production alerts | [[Runbook-Production-Alert-Policy]] |
 | Multi-AI acceptance | [[Runbook-Multi-AI-Memory-Acceptance]] |
 | Deploy safety | [[Runbook-Deploy-Safety-Checklist]] |
 | Vault hygiene | [[Memory-Vault-Principles]], [[Vault-Dashboard]], [[Memory-Evaluation-Test]] |
@@ -134,6 +135,7 @@ As of 2026-05-13, the Awakened AI memory has:
 - Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
 - Automated checks: `npm run memory:verify` runs structure/stale-claim checks, retrieval coverage, and [[Memory-Quality-Score]] in one command; `npm run verify` adds the full application build gate.
 - Production safeguards: [[Runbook-Deploy-Safety-Checklist]] and `npm run schema:verify` provide pre-push and read-only DB schema checks.
+- Operations policy: [[Runbook-Production-Alert-Policy]] defines `/ready`, `/health`, poll error, session-expired, auto-accept, DB, and latency alert conditions.
 
 ---
 
@@ -154,3 +156,4 @@ As of 2026-05-13, the Awakened AI memory has:
 - [[Agent-Orchestration-Patterns]]
 - [[Memory-Quality-Score]]
 - [[Runbook-Deploy-Safety-Checklist]]
+- [[Runbook-Production-Alert-Policy]]

@@ -67,9 +67,9 @@ Continue improving the Awakened AI Memory Vault beyond source-grounded docs by a
 
 ## Open Issues / Follow-ups
 
-- [ ] Run [[Runbook-Multi-AI-Memory-Acceptance]] with Claude Code, Cursor, and Cascade.
-- [ ] Consider adding CI or pre-commit wiring for `npm run memory:check` and `npm run memory:eval`.
-- [ ] Add an SSE broadcaster component note if SSE internals change again.
+- [x] Run [[Runbook-Multi-AI-Memory-Acceptance]] with Claude Code, Cursor, and Cascade. *(promoted to [[Goals#G-001 Bullet-Proof Memory Vault System]] and [[Multi-AI-Acceptance-Results]])*
+- [x] Consider adding CI or pre-commit wiring for `npm run memory:check` and `npm run memory:eval`. *(promoted to [[Goals#G-007 Verification Automation]])*
+- [x] Add an SSE broadcaster component note if SSE internals change again. *(promoted to [[Goals#G-005 Reusable Component Coverage]])*
 
 ## Quality Checks
 

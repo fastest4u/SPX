@@ -106,11 +106,11 @@ Created **14 notes** across 8 folders:
 
 ## Open Issues / Follow-ups
 
-- [ ] Consider installing **Dataview** plugin → auto-generate MOC sections in [[MOC-Home]].
-- [ ] Add `02_API_Docs/` content for SPX bidding API endpoint reference.
-- [ ] Add `03_Reusable_Components/` notes for Poller pattern, DB migration pattern.
-- [ ] Set calendar reminder for **monthly compactor pass** (per [[Context-Rot-Prevention#Layer 4]]).
-- [ ] Document the MCP setup as a workflow `.windsurf/workflows/setup-mcp.md`?
+- [x] Consider installing **Dataview** plugin → auto-generate MOC sections in [[MOC-Home]]. *(completed)*
+- [x] Add `02_API_Docs/` content for SPX bidding API endpoint reference. *(completed)*
+- [x] Add `03_Reusable_Components/` notes for Poller pattern, DB migration pattern. *(completed)*
+- [x] Set calendar reminder for **monthly compactor pass** (per [[Context-Rot-Prevention#Layer 4]]). *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
+- [x] Document the MCP setup as a workflow `.windsurf/workflows/setup-mcp.md`? *(not planned; current setup is documented in memory notes)*
 
 ---
 

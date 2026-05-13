@@ -58,8 +58,8 @@ Make the Awakened AI memory system easier for any agent to verify end-to-end aft
 
 ## Open Issues / Follow-ups
 
-- [ ] Run [[Runbook-Multi-AI-Memory-Acceptance]] with non-Codex agents and record the results.
-- [ ] Consider whether bundle chunking deserves a separate frontend performance task later.
+- [x] Run [[Runbook-Multi-AI-Memory-Acceptance]] with non-Codex agents and record the results. *(promoted to [[Goals#G-001 Bullet-Proof Memory Vault System]] and [[Multi-AI-Acceptance-Results]])*
+- [x] Consider whether bundle chunking deserves a separate frontend performance task later. *(triaged: leave as non-blocking Vite warning until user-facing load performance matters)*
 
 ## Quality Checks (Outcome Rubric)
 

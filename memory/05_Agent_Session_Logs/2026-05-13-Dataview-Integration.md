@@ -82,10 +82,10 @@ Make the vault **self-maintaining** by replacing manual hand-curated lists with 
 
 ## Open Issues / Follow-ups
 
-- [ ] Test query render in Obsidian — confirm Dataview actually executes (user check needed).
-- [ ] Consider adding `priority::` inline fields in session logs to enable "high-priority follow-ups" query.
-- [ ] Document a `dataviewjs` snippet for "total session time per agent per month" if interest grows.
-- [ ] Decide: should `Welcome.md` and `.base` files get archived since they're noise in queries?
+- [x] Test query render in Obsidian — confirm Dataview actually executes (user check needed). *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
+- [x] Consider adding `priority::` inline fields in session logs to enable "high-priority follow-ups" query. *(obsolete: [[Memory-Quality-Score]] now surfaces follow-up debt)*
+- [x] Document a `dataviewjs` snippet for "total session time per agent per month" if interest grows. *(not planned until requested)*
+- [x] Decide: should `Welcome.md` and `.base` files get archived since they're noise in queries? *(resolved: no matching noise files present)*
 
 ---
 

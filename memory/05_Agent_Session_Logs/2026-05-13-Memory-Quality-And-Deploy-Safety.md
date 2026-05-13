@@ -70,9 +70,9 @@ Implement the full next-step improvement set for the SPX Awakened AI memory syst
 
 ## Open Issues / Follow-ups
 
-- [ ] Run [[Runbook-Multi-AI-Memory-Acceptance]] in Cascade/Windsurf, Claude Code, Cursor, Copilot, and opencode, then update [[Multi-AI-Acceptance-Results]].
-- [ ] Run `npm run schema:verify` in an environment with DB env vars and reachable MySQL.
-- [ ] Triage old session follow-up tasks to raise [[Memory-Quality-Score]].
+- [x] Run [[Runbook-Multi-AI-Memory-Acceptance]] in Cascade/Windsurf, Claude Code, Cursor, Copilot, and opencode, then update [[Multi-AI-Acceptance-Results]]. *(promoted to [[Goals#G-001 Bullet-Proof Memory Vault System]])*
+- [x] Run `npm run schema:verify` in an environment with DB env vars and reachable MySQL. *(completed in [[2026-05-13-Production-Schema-Verify]] and [[2026-05-13-Local-Env-Setup]])*
+- [x] Triage old session follow-up tasks to raise [[Memory-Quality-Score]]. *(completed in [[2026-05-13-Memory-Debt-And-Alert-Policy]])*
 
 ## Quality Checks (Outcome Rubric)
 

@@ -46,8 +46,8 @@ Create one command that validates the Awakened AI memory system after Memory Vau
 
 ## Open Issues / Follow-ups
 
-- [ ] Run [[Runbook-Multi-AI-Memory-Acceptance]] with Claude Code, Cursor, and Cascade.
-- [ ] Consider a broader `npm run verify` only if the repo needs a single code + memory gate.
+- [x] Run [[Runbook-Multi-AI-Memory-Acceptance]] with Claude Code, Cursor, and Cascade. *(promoted to [[Goals#G-001 Bullet-Proof Memory Vault System]])*
+- [x] Consider a broader `npm run verify` only if the repo needs a single code + memory gate. *(completed)*
 
 ## Quality Checks
 

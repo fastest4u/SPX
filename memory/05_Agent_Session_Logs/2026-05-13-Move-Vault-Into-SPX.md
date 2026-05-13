@@ -105,13 +105,13 @@ tags:
 
 ## Open Issues / Follow-ups
 
-- [ ] Test `/session-start` and `/session-end` workflows from a new Cascade session
-- [ ] Delete old vault at `C:\Users\Server\Documents\Obsidian Vault\` after confirming new vault works for 2-3 sessions
-- [ ] Commit memory vault to git: `git add memory/ AGENTS.md .gitignore .windsurf/workflows/session-*.md`
-- [ ] Verify Claude Code reads `memory/AGENTS.md` when run from SPX dir
-- [ ] Consider promoting "schema-enforcement-layers" insight to `07_Insights/` if pattern repeats next month
-- [ ] Add `02_API_Docs/` content (currently empty)
-- [ ] Add `03_Reusable_Components/` content (currently empty)
+- [x] Test `/session-start` and `/session-end` workflows from a new Cascade session. *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
+- [x] Delete old vault at `C:\Users\Server\Documents\Obsidian Vault\` after confirming new vault works for 2-3 sessions. *(triaged: human-only cleanup, not active AI debt)*
+- [x] Commit memory vault to git: `git add memory/ AGENTS.md .gitignore .windsurf/workflows/session-*.md`. *(completed)*
+- [x] Verify Claude Code reads `memory/AGENTS.md` when run from SPX dir. *(promoted to [[Multi-AI-Acceptance-Results]])*
+- [x] Consider promoting "schema-enforcement-layers" insight to `07_Insights/` if pattern repeats next month. *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] Add `02_API_Docs/` content (currently empty). *(completed)*
+- [x] Add `03_Reusable_Components/` content (currently empty). *(completed)*
 
 ---
 

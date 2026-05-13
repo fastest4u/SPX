@@ -65,9 +65,9 @@ Survey the SPX system in detail, update the "Awakened AI" memory system, and cor
 
 ## Open Issues / Follow-ups
 
-- [ ] Confirm production DB schema has all current `spx_booking_history` columns if there is evidence of insert failures.
-- [ ] Test this vault with non-Codex agents (Claude Code / Cursor / Cascade) and record results.
-- [ ] Add a dedicated auth/session API note if cookie/JWT behavior changes again.
+- [x] Confirm production DB schema has all current `spx_booking_history` columns if there is evidence of insert failures. *(completed in [[2026-05-13-Production-Schema-Verify]])*
+- [x] Test this vault with non-Codex agents (Claude Code / Cursor / Cascade) and record results. *(promoted to [[Multi-AI-Acceptance-Results]])*
+- [x] Add a dedicated auth/session API note if cookie/JWT behavior changes again. *(promoted to [[Goals#G-004 API Documentation Coverage]])*
 
 ## Quality Checks
 

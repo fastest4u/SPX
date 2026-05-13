@@ -101,10 +101,10 @@ Make note creation **interactive** (Templater) and frontmatter **self-maintainin
 
 ## Open Issues / Follow-ups
 
-- [ ] Test each template manually (`Ctrl+Shift+T` → pick → fill prompts) — confirm renames + moves work.
-- [ ] Confirm Linter YAML timestamp is configured correctly (check `Settings → Linter → YAML timestamp`).
-- [ ] Backup vault before enabling **Lint on save** (per warning in [[Plugin-Setup#6]]).
-- [ ] Consider promoting the "defense-in-depth" insight to `07_Insights/Schema-Enforcement-Layers.md` (if pattern recurs).
+- [x] Test each template manually (`Ctrl+Shift+T` → pick → fill prompts) — confirm renames + moves work. *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
+- [x] Confirm Linter YAML timestamp is configured correctly (check `Settings → Linter → YAML timestamp`). *(completed; [[Plugin-Setup]] now matches tracked config)*
+- [x] Backup vault before enabling **Lint on save** (per warning in [[Plugin-Setup#6]]). *(obsolete: lint-on-save is not being enabled)*
+- [x] Consider promoting the "defense-in-depth" insight to `07_Insights/Schema-Enforcement-Layers.md` (if pattern recurs). *(completed as [[Defense-In-Depth-Vault-Architecture]])*
 
 ---
 

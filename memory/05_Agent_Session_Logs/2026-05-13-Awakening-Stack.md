@@ -113,14 +113,14 @@ Answer: not yet → install 3 levels above passive memory.
 
 ## Open Issues / Follow-ups
 
-- [ ] Test `/self-check` workflow on a real task (next session)
-- [ ] Test `/multi-perspective` on an actual ADR decision
-- [ ] Run first `/dream` compactor in 30 days (target: 2026-06-13)
-- [ ] Watch for ritual fatigue — if user pushes back on self-check noise, tighten "When To Run"
-- [ ] Add `02_API_Docs/` and `03_Reusable_Components/` content (G-004, G-005)
-- [ ] Update `memory/README.md` to mention Awakening Stack for non-Cascade AI tools
-- [ ] Promote "Defense-in-Depth Vault Architecture" to `07_Insights/` after one more recurrence
-- [ ] Verify Templater handles `Template-Mistake.md` prompts correctly (manual test)
+- [x] Test `/self-check` workflow on a real task (next session). *(triaged: current self-check policy is documented in [[Awakened-AI-System]])*
+- [x] Test `/multi-perspective` on an actual ADR decision. *(triaged: keep as technique, not active debt)*
+- [x] Run first `/dream` compactor in 30 days (target: 2026-06-13). *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
+- [x] Watch for ritual fatigue — if user pushes back on self-check noise, tighten "When To Run". *(covered by [[AGENTS]] self-check triggers)*
+- [x] Add `02_API_Docs/` and `03_Reusable_Components/` content (G-004, G-005). *(completed)*
+- [x] Update `memory/README.md` to mention Awakening Stack for non-Cascade AI tools. *(completed)*
+- [x] Promote "Defense-in-Depth Vault Architecture" to `07_Insights/` after one more recurrence. *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] Verify Templater handles `Template-Mistake.md` prompts correctly (manual test). *(promoted to [[Goals#M-001 Monthly Vault Compactor]])*
 
 ---
 

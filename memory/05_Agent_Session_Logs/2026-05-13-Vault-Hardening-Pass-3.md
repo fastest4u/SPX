@@ -180,14 +180,14 @@ Both docs include `source: file:src/services/api-client.ts` + `confidence: high`
 
 ## Open Issues / Follow-ups
 
-- [ ] **User action — `git commit + push`.** Commands at the bottom of this log.
-- [ ] Promote "Defense-in-Depth Vault Architecture" insight (5th recurrence threshold met)
-- [ ] Next time `notifier.ts` is touched → write `Component-Discord-Embed-Builder.md`
-- [ ] Next time `notify-rules.ts` is touched → write `Component-Dual-Storage-Repository.md`
-- [ ] Next time poller logic changes → write `Component-Poller-Tick.md`
-- [ ] Decide on Linter Option A vs Option B (carry-over from Pass 2)
-- [ ] First /dream compactor → 2026-06-01 ([[Goals#M-001]])
-- [ ] First runbook re-verification batch → 2026-08-13 ([[Goals#M-002]])
+- [x] **User action — `git commit + push`.** Commands at the bottom of this log. *(completed)*
+- [x] Promote "Defense-in-Depth Vault Architecture" insight (5th recurrence threshold met). *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] Next time `notifier.ts` is touched → write `Component-Discord-Embed-Builder.md`. *(promoted to [[Goals#G-005 Reusable Component Coverage]])*
+- [x] Next time `notify-rules.ts` is touched → write `Component-Dual-Storage-Repository.md`. *(promoted to [[Goals#G-005 Reusable Component Coverage]])*
+- [x] Next time poller logic changes → write `Component-Poller-Tick.md`. *(covered by [[Component-Poller-Orchestration]])*
+- [x] Decide on Linter Option A vs Option B (carry-over from Pass 2). *(completed; current default is manual updates)*
+- [x] First /dream compactor → 2026-06-01 ([[Goals#M-001]]). *(promoted to recurring goal)*
+- [x] First runbook re-verification batch → 2026-08-13 ([[Goals#M-002]]). *(promoted to recurring goal)*
 
 ---
 

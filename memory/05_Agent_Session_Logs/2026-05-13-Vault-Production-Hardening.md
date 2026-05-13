@@ -205,14 +205,14 @@ Includes meta-rule: "Reading 3 targeted files beats reading 30 random files."
 
 ## Open Issues / Follow-ups
 
-- [ ] Run `git add` + `git commit` for all changes (user action — see References § Commit Commands)
-- [ ] Pre-commit hook to auto-run `npm run memory:check` (low priority — manual works)
-- [ ] CI workflow to run `memory:check` on PRs (only relevant if/when team grows)
-- [ ] Add Dataview query coverage of `09_Runbooks/` last-verified dates to [[Vault-Dashboard]]
-- [ ] Consider promoting "Defense-in-Depth Vault Architecture" insight (3rd recurrence trigger met)
-- [ ] First /dream compactor pass scheduled for 2026-06-01 ([[Goals#M-001]])
-- [ ] First runbook re-verification due ~2026-08-13 ([[Goals#M-002]])
-- [ ] Add `02_API_Docs/` and `03_Reusable_Components/` content ([[Goals#G-004]], [[Goals#G-005]])
+- [x] Run `git add` + `git commit` for all changes (user action — see References § Commit Commands). *(completed)*
+- [x] Pre-commit hook to auto-run `npm run memory:check` (low priority — manual works). *(promoted to [[Goals#G-007 Verification Automation]])*
+- [x] CI workflow to run `memory:check` on PRs (only relevant if/when team grows). *(promoted to [[Goals#G-007 Verification Automation]])*
+- [x] Add Dataview query coverage of `09_Runbooks/` last-verified dates to [[Vault-Dashboard]]. *(covered by dashboard truth-maintenance queries)*
+- [x] Consider promoting "Defense-in-Depth Vault Architecture" insight (3rd recurrence trigger met). *(completed as [[Defense-In-Depth-Vault-Architecture]])*
+- [x] First /dream compactor pass scheduled for 2026-06-01 ([[Goals#M-001]]). *(promoted to recurring goal)*
+- [x] First runbook re-verification due ~2026-08-13 ([[Goals#M-002]]). *(promoted to recurring goal)*
+- [x] Add `02_API_Docs/` and `03_Reusable_Components/` content ([[Goals#G-004]], [[Goals#G-005]]). *(completed)*
 
 ---
 
