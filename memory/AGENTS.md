@@ -163,10 +163,10 @@ If you can't answer any of these, **run `/session-start` first**.
 | **API client / polling** | [[SPX-Project-Rules#Architecture]] | Runbook [[Runbook-API-Session-Expired]] | `area/api` in mistakes, `session-log` referencing `api-client.ts` |
 | **Whole-system survey / onboarding** | [[Awakened-AI-System]], [[SPX-System-Map]] | [[API-Internal-HTTP]], [[API-SSE-Events]], [[Component-Poller-Orchestration]] | recent `session-log` with `topic/system-map` or `topic/memory-vault` |
 | **Notify (Discord/LINE)** | `notify-rules` section in [[SPX-Project-Rules]] | Runbook [[Runbook-Notify-Failure]] | `area/notify` in mistakes |
-| **Deploy / Docker / production** | Deploy section in root `AGENTS.md` | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
+| **Deploy / Docker / production** | Deploy section in root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]] | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |
 | **Vault hygiene / memory** | [[AGENTS]] (this file), [[Memory-Vault-Principles]] | [[Vault-Dashboard]] | recent mistakes with `topic/memory-vault` |
-| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]] | `npm run memory:verify` |
+| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Memory-Quality-Score]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]], [[Multi-AI-Acceptance-Results]] | `npm run memory:verify` |
 | **Architectural decision** | [[Goals]] active items | Latest ADRs in `04_Architecture_Decisions/` | similar prior ADRs |
 | **Any task** (always) | [[AGENT-IDENTITY]], [[Goals#Active Goals]] | Last 3 entries in `05_Agent_Session_Logs/` | matching `08_Mistakes/` entries |
 

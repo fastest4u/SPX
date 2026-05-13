@@ -34,7 +34,7 @@ Default one-command gate:
 npm run memory:verify
 ```
 
-This runs `memory:check` first, then `memory:eval`.
+This runs `memory:check` first, then `memory:eval`, then `memory:score`.
 
 Full repo gate after code + memory changes:
 
@@ -81,7 +81,7 @@ The script passes only when every evaluation item has:
 
 Any missing note or term exits non-zero so automation can catch memory drift.
 
-For normal Memory Vault edits, use `npm run memory:verify` instead of running the two commands manually.
+For normal Memory Vault edits, use `npm run memory:verify` instead of running memory checks manually. Use [[Memory-Quality-Score]] when you need the score details without the full gate.
 
 ---
 
@@ -101,4 +101,5 @@ Update `scripts/memory-eval.mjs` and this note when:
 - [[Awakened-AI-System]]
 - [[SPX-System-Map]]
 - [[Vault-Dashboard]]
+- [[Memory-Quality-Score]]
 - [[Runbook-Multi-AI-Memory-Acceptance]]

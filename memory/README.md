@@ -125,13 +125,21 @@ codex --context-file memory/AGENTS.md
 
 ### 🩺 Health Check
 
-Run the vault linter to verify everything is consistent:
+Run the default vault gate to verify everything is consistent:
 
 ```bash
-npm run memory:check
+npm run memory:verify
 ```
 
-Reports: missing frontmatter, invalid types, broken wikilinks, Dataview hyphenated-field misuse. Exit code 2 = errors, 1 = warnings only, 0 = clean.
+This runs structure checks, deterministic retrieval evaluation, and the quality score summary.
+
+For score-only output:
+
+```bash
+npm run memory:score
+```
+
+Reports: missing frontmatter, invalid types, broken wikilinks, Dataview hyphenated-field misuse, source-grounding gaps, open mistakes, session follow-ups, and multi-AI acceptance status.
 
 ---
 

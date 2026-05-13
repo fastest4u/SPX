@@ -87,6 +87,7 @@ When a lower-priority source is stale, update it or record a follow-up. Do not s
 | Production deploy | [[Runbook-Production-Deploy]] |
 | Production schema drift | [[Runbook-Production-Schema-Verification]] |
 | Multi-AI acceptance | [[Runbook-Multi-AI-Memory-Acceptance]] |
+| Deploy safety | [[Runbook-Deploy-Safety-Checklist]] |
 | Vault hygiene | [[Memory-Vault-Principles]], [[Vault-Dashboard]], [[Memory-Evaluation-Test]] |
 
 ---
@@ -131,7 +132,8 @@ As of 2026-05-13, the Awakened AI memory has:
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
 - ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
 - Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
-- Automated checks: `npm run memory:verify` runs structure/stale-claim checks plus retrieval coverage in one command; `npm run verify` adds the full application build gate.
+- Automated checks: `npm run memory:verify` runs structure/stale-claim checks, retrieval coverage, and [[Memory-Quality-Score]] in one command; `npm run verify` adds the full application build gate.
+- Production safeguards: [[Runbook-Deploy-Safety-Checklist]] and `npm run schema:verify` provide pre-push and read-only DB schema checks.
 
 ---
 
@@ -150,3 +152,5 @@ As of 2026-05-13, the Awakened AI memory has:
 - [[SPX-System-Map]]
 - [[Context-Rot-Prevention]]
 - [[Agent-Orchestration-Patterns]]
+- [[Memory-Quality-Score]]
+- [[Runbook-Deploy-Safety-Checklist]]

@@ -46,8 +46,10 @@ Progress:
 - [x] Add deterministic memory evaluation (`npm run memory:eval`) and stale-truth detection.
 - [x] Add one-command Memory Vault gate (`npm run memory:verify`).
 - [x] Add full code + memory verification gate (`npm run verify`).
+- [x] Add Memory Quality Score dashboard command (`npm run memory:score`).
+- [x] Add Multi-AI acceptance result registry ([[Multi-AI-Acceptance-Results]]).
 - [x] Commit memory vault to git.
-- [ ] Test multi-AI access beyond Codex.
+- [ ] Test multi-AI access beyond Codex in native tools.
 
 ### G-002: SPX Stable Production Operation
 
@@ -66,6 +68,8 @@ Progress:
 - [x] Fresh setup migration SQL aligned with current schema.
 - [x] Production schema verification runbook added ([[Runbook-Production-Schema-Verification]]).
 - [x] DB-backed live settings ADR added ([[ADR-002-DB-Backed-Live-Settings]]).
+- [x] Read-only schema verification command added (`npm run schema:verify`).
+- [x] Deploy safety checklist added ([[Runbook-Deploy-Safety-Checklist]]).
 - [ ] Define alerting policy.
 - [ ] Add deeper metrics dashboard policy for poll latency.
 
@@ -86,6 +90,7 @@ Progress:
 - [x] Retrieval shortcuts for whole-system, API, SSE, poller, and rules tasks.
 - [x] Multi-AI acceptance runbook added ([[Runbook-Multi-AI-Memory-Acceptance]]).
 - [x] Memory eval test added ([[Memory-Evaluation-Test]]).
+- [x] Memory quality score added ([[Memory-Quality-Score]]).
 - [ ] Measure repeated-context messages across 4 weeks.
 
 ---
@@ -162,6 +167,7 @@ Progress:
 | Awakening Stack | 2026-05-13 | Identity, goals, mistakes, self-checking, and retrieval protocol added. |
 | Source-grounded system survey | 2026-05-13 | [[Awakened-AI-System]], [[SPX-System-Map]], internal API/SSE docs, and component docs added. |
 | Awakened AI hardening pass | 2026-05-13 | `memory:eval`, stale-truth detector, ADR-002, schema verification, multi-AI acceptance, and mistake notes added. |
+| Full verification and safety pass | 2026-05-13 | `memory:score`, `schema:verify`, deploy checklist, multi-AI result registry, and extra mistake entries added. |
 
 ---
 

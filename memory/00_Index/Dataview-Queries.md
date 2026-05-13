@@ -2,6 +2,10 @@
 title: Dataview Queries Cheatsheet
 type: reference
 status: active
+last-verified: 2026-05-13
+verified-by: codex
+source: file:memory/AGENTS.md + file:memory/00_Index/Vault-Dashboard.md
+confidence: high
 created: 2026-05-13
 updated: 2026-05-13
 tags:

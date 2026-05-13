@@ -63,9 +63,11 @@ aliases:
 | `npm run db:test` | Integration test against live SPX API + MySQL |
 | `npm run flow:test` | `db:migrate` then `db:test` |
 | `npm run flow:start` | migrate, build, then start `dist/app.js` |
+| `npm run schema:verify` | Read-only MySQL schema drift check against the source schema contract |
 | `npm run memory:check` | Validate Memory Vault frontmatter, wikilinks, Dataview syntax |
 | `npm run memory:eval` | Verify Awakened AI retrieval coverage for core SPX questions |
-| `npm run memory:verify` | Run both memory checks as the default Memory Vault gate |
+| `npm run memory:score` | Print Memory Vault quality score and maintenance signals |
+| `npm run memory:verify` | Run memory check, eval, and score as the default Memory Vault gate |
 | `npm run verify` | Run `memory:verify` plus `build` as the full local gate after code + memory changes |
 
 > [!warning]
@@ -188,6 +190,7 @@ Sources: `src/controllers/settings-controller.ts`, `src/services/settings.ts`.
 - `data/` is captured local output, not stable fixtures.
 - `notify-rules.json` is ignored; Docker creates and persists it through a host volume.
 - State-changing accept calls intentionally use a smaller retry budget than read calls.
+- Before pushing to `main`, use [[Runbook-Deploy-Safety-Checklist]] and do not stage local Obsidian state like `memory/.obsidian/graph.json`.
 
 ---
 

@@ -4,7 +4,7 @@ type: runbook
 status: active
 last-verified: 2026-05-13
 verified-by: codex
-source: file:src/db/schema.ts + file:src/db/client.ts + file:migrations/001_create_booking_requests.sql
+source: file:src/db/schema.ts + file:src/db/client.ts + file:migrations/001_create_booking_requests.sql + file:scripts/schema-verify.mjs
 confidence: high
 severity-when-applies: high
 related-adrs:
@@ -37,6 +37,25 @@ tags:
 
 > [!warning] Migration reality
 > `schema_migrations` tracks filenames. Editing an already-applied baseline SQL file improves fresh installs but does not automatically alter an existing production database.
+
+---
+
+## Automated Read-Only Check
+
+Run from repo root when DB env vars point to the target MySQL database:
+
+```bash
+npm run schema:verify
+```
+
+Expected result:
+
+- The command connects to MySQL using `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_NAME`.
+- It queries `information_schema` only.
+- It compares table columns and indexes against the current source schema contract.
+- It exits non-zero if required tables, columns, types, nullability, defaults, or indexes drift.
+
+The command does not print DB passwords, cookies, or token values.
 
 ---
 
@@ -168,3 +187,4 @@ If drift is destructive or ambiguous, do not auto-fix. Escalate with the observe
 - [[SPX-System-Map]]
 - [[ADR-002-DB-Backed-Live-Settings]]
 - [[Mistake-003-Baseline-Migration-Drift]]
+- [[Runbook-Deploy-Safety-Checklist]]

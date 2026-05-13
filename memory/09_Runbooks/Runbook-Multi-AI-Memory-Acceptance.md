@@ -56,6 +56,14 @@ Shortcut:
 npm run memory:verify
 ```
 
+Quality summary:
+
+```bash
+npm run memory:score
+```
+
+`memory:score` reads [[Multi-AI-Acceptance-Results]] and reports pass/pending/fail counts.
+
 ---
 
 ## Manual Agent Test
@@ -109,7 +117,7 @@ An agent passes if it:
 
 ## Record Results
 
-Create a session log with:
+Update [[Multi-AI-Acceptance-Results]] and create a session log with:
 
 - Agent name and tool.
 - Questions asked.
@@ -124,6 +132,8 @@ Use topic: `Multi-AI-Memory-Acceptance`.
 ## Related
 
 - [[Memory-Evaluation-Test]]
+- [[Memory-Quality-Score]]
+- [[Multi-AI-Acceptance-Results]]
 - [[Awakened-AI-System]]
 - [[MOC-Home]]
 - [[AGENTS]]

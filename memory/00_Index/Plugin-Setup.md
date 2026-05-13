@@ -2,6 +2,10 @@
 title: Plugin Setup Guide (Templater + Linter + Dataview)
 type: reference
 status: active
+last-verified: 2026-05-13
+verified-by: codex
+source: file:memory/.obsidian/community-plugins.json + file:memory/.obsidian/plugins/obsidian-linter/data.json
+confidence: high
 created: 2026-05-13
 updated: 2026-05-13
 tags:
@@ -17,7 +21,7 @@ aliases:
 # 🔌 Plugin Setup Guide
 
 > [!abstract] Three plugins power this vault
-> **Dataview** (query) + **Templater** (note creation) + **Linter** (auto-fix on save). This note tells future-you (and future agents) exactly how to configure them.
+> **Dataview** (query) + **Templater** (note creation) + **Linter** (manual linting only right now). This note tells future-you and future agents what is currently configured.
 
 ---
 
@@ -74,89 +78,32 @@ aliases:
 
 ---
 
-## 3. Linter Setup
+## 3. Linter Current State
 
-### Step 1 — Enable the right rules
+Source checked: `memory/.obsidian/plugins/obsidian-linter/data.json`.
 
-`Settings → Linter → Lint on save`: ✅ ON
+Current settings:
 
-Then enable these rule groups:
-
-#### YAML rules (most important)
-
-| Rule | Setting |
+| Setting | Current value |
 |---|---|
-| **Format YAML array** | enabled |
-| **Insert YAML attributes** | enabled — pre-populate `title`, `created`, `updated`, `tags` |
-| **YAML title** | enabled (use heading as title) |
-| **YAML title alias** | optional |
-| **YAML timestamp** | ✅ enabled (this is the killer feature) |
+| `lintOnSave` | `false` |
+| `yaml-timestamp.enabled` | `false` |
+| `format-yaml-array.enabled` | `false` |
+| `insert-yaml-attributes.enabled` | `false` |
 
-#### YAML timestamp config
+> [!warning] Manual `updated:` rule
+> Because Linter is installed but not auto-running, agents must update `updated: YYYY-MM-DD` manually when editing notes. This matches [[AGENTS]].
 
-| Sub-setting | Value |
-|---|---|
-| **Date Created** | ✅ ON |
-| **Date Created Key** | `created` |
-| **Date Modified** | ✅ ON |
-| **Date Modified Key** | `updated` |
-| **Format** | `YYYY-MM-DD` |
-| **Force retention of date created** | ✅ ON |
+### Optional Future Change
 
-> [!success] Result
-> Every save automatically refreshes the `updated:` field. **Manual updates are no longer needed** — Linter handles it.
+If the human wants Obsidian to auto-update timestamps later:
 
-#### Heading rules
-
-| Rule | Setting |
-|---|---|
-| **Header increment** | enabled |
-| **File name heading** | enabled (auto-add `# Title` if missing) |
-| **Capitalize headings** | disabled (we use mixed case intentionally) |
-
-#### Footnote / Spacing rules
-
-| Rule | Setting |
-|---|---|
-| **Remove trailing whitespace** | enabled |
-| **Remove multiple spaces** | enabled |
-| **Two spaces between sentences** | disabled |
-| **Empty line around tables / code blocks** | enabled |
-
-#### Content rules
-
-| Rule | Setting |
-|---|---|
-| **Remove consecutive list markers** | enabled |
-| **Trailing newlines** | enabled (force exactly one) |
-| **Compact YAML** | disabled (we prefer expanded) |
-
-### Step 2 — Disable conflict-prone rules
-
-> [!warning] Turn OFF these (they fight with our convention)
-> - **Re-Index Footnotes** — we don't use footnotes
-> - **Convert Bullet List Markers** — keep `-` style
-> - **Auto-correct common misspellings** — false positives on tech terms
-> - **Move math blocks below tags** — irrelevant here
-
-### Step 3 — Custom regex (optional, advanced)
-
-If you want **strict frontmatter enforcement**, add a Custom Regex rule:
-
-```regex
-Find: ^(?!---\n).*\n# 
-Flags: m
-Replace: (intentionally empty — flags missing frontmatter)
-```
-
-(This is a starting point — Linter has a Custom Regex section but limited; for strict enforcement consider [obsidian-linter-action](https://github.com/platers/obsidian-linter) CI later.)
-
-### Step 4 — Hotkey
-
-`Settings → Hotkeys` → search **"Linter: Lint the current file"** → bind to `Ctrl+Alt+L`.
-
-> [!info] Reference
-> [Obsidian Linter Documentation](https://platers.github.io/obsidian-linter/) — full rule catalogue.
+1. Open Obsidian Settings -> Linter.
+2. Enable `Lint on save`.
+3. Enable `YAML timestamp`.
+4. Set modified key to `updated`.
+5. Re-check `memory/.obsidian/plugins/obsidian-linter/data.json`.
+6. Update this note and [[AGENTS]] in the same commit.
 
 ---
 

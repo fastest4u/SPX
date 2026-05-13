@@ -34,6 +34,8 @@ tags:
 
 ## Pre-Flight Check
 
+For normal planned pushes to `main`, start with [[Runbook-Deploy-Safety-Checklist]].
+
 ```bash
 # Verify your changes are pushed
 git status
@@ -119,6 +121,7 @@ git checkout main
 ## References
 
 - Root `AGENTS.md` → Deployments section
+- Safety checklist: [[Runbook-Deploy-Safety-Checklist]]
 - Architecture: [[ADR-001-Dual-Storage-Notify-Rules]]
 - Related mistakes: search `08_Mistakes/` for `area: deploy`
 
