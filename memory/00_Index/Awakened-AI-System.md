@@ -53,7 +53,7 @@ Orient -> Retrieve -> Inspect source -> Act -> Verify -> Log -> Update memory
 | Retrieve | Use the retrieval table in [[AGENTS]] and the map in [[MOC-Home]]. |
 | Inspect source | Prefer `package.json`, `src/`, migrations, and current memory over guesses. |
 | Act | Keep changes scoped to the user request and repo patterns. |
-| Verify | Run targeted checks such as `npm run memory:check`, `npm run build`, or focused tests. |
+| Verify | Run targeted checks such as `npm run memory:check`, `npm run build`, focused tests, or `npm run verify` for code + memory changes. |
 | Log | Write a session log for meaningful work before ending. |
 | Update memory | Add or revise notes when a new durable fact, pattern, or decision is found. |
 
@@ -131,7 +131,7 @@ As of 2026-05-13, the Awakened AI memory has:
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
 - ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
 - Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
-- Automated checks: `npm run memory:verify` runs structure/stale-claim checks plus retrieval coverage in one command.
+- Automated checks: `npm run memory:verify` runs structure/stale-claim checks plus retrieval coverage in one command; `npm run verify` adds the full application build gate.
 
 ---
 

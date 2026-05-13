@@ -29,11 +29,18 @@ Run from repo root:
 npm run memory:verify
 ```
 
+For code + memory changes, run the full repo gate:
+
+```bash
+npm run verify
+```
+
 Expected:
 
 - `memory:check` exits 0 with no frontmatter, wikilink, Dataview, freshness, or stale-truth errors.
 - `memory:eval` exits 0 with 100 percent retrieval coverage.
 - `memory:verify` exits 0 only when both checks pass.
+- `verify` exits 0 only when `memory:verify` and `build` both pass.
 
 See [[Memory-Evaluation-Test]].
 
@@ -220,7 +227,7 @@ GROUP BY file.link
 
 ## Maintenance Checklist
 
-- [ ] Run `npm run memory:verify`.
+- [ ] Run `npm run memory:verify` for memory-only work, or `npm run verify` for code + memory work.
 - [ ] Review stale notes and update or archive.
 - [ ] Review orphan notes and link them from a hub.
 - [ ] Review open mistake notes.

@@ -36,6 +36,14 @@ npm run memory:verify
 
 This runs `memory:check` first, then `memory:eval`.
 
+Full repo gate after code + memory changes:
+
+```bash
+npm run verify
+```
+
+This runs `memory:verify` first, then `build`.
+
 Evaluation-only command:
 
 ```bash

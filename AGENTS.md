@@ -73,6 +73,7 @@ The rest of this file = **project-specific rules** for SPX code.
 - `npm run memory:check` validates Memory Vault structure, wikilinks, Dataview field syntax, and known stale truth claims.
 - `npm run memory:eval` verifies Awakened AI retrieval coverage for core SPX operating questions.
 - `npm run memory:verify` runs both memory checks and is the default one-command gate after Memory Vault edits.
+- `npm run verify` runs `memory:verify` plus `build`; use it as the full local gate after code + memory changes.
 
 ## Git Workflow Preference
 - User preference for this repository: push completed fixes directly to `main` only. Do not create feature branches or PRs unless the user explicitly asks for branch/PR review workflow.
