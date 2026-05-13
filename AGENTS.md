@@ -62,8 +62,9 @@ The rest of this file = **project-specific rules** for SPX code.
 
 ## Commands
 - `npm ci` installs locked dependencies.
-- `npm run build` is the main local verification; it runs `tsc --noEmit`, then `esbuild` to bundle and minify `src/app.ts` into a single `dist/app.js` file, keeping dependencies external.
-- `npm run dev -- 10` runs `src/app.ts` via `ts-node` with an optional polling interval in seconds.
+- `npm run build` is the main local verification; it runs backend + frontend typechecks, bundles backend entry/scripts with `esbuild`, then runs Vite frontend build into `dist/`.
+- `npm run dev` runs the backend with `HTTP_ENABLED=true tsx src/app.ts` and the Vite frontend dev server concurrently.
+- `npm run dev:backend` runs only the backend; `npm run dev:frontend` runs only Vite.
 - `npm start -- 10` runs `dist/app.js`; run `npm run build` first if `dist/` may be stale.
 - `npm run db:generate` builds, then rewrites `migrations/001_create_booking_requests.sql` from `src/db/migration-sql.ts`.
 - `npm run db:migrate` builds, then applies semicolon-delimited statements from `migrations/*.sql` to MySQL and records filenames in `schema_migrations`.
@@ -80,18 +81,18 @@ The rest of this file = **project-specific rules** for SPX code.
 - DB env vars `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_NAME` are required when `SAVE_TO_DB=true`, `HTTP_ENABLED=true`, or `AUTO_ACCEPT_ENABLED=true`; `DB_PORT` defaults to `3306`. `DB_MODE` defaults to `mysql` (use `memory` for SQLite in-memory testing).
 - `POLL_INTERVAL_MS` is milliseconds, but the CLI interval argument is seconds and overrides it.
 - `FETCH_DETAILS=true`, `SAVE_TO_DB=true`, or `NOTIFY_ENABLED=true` makes the poller request `booking/bidding/request/list` for every returned booking.
-- Notification env vars: `NOTIFY_ENABLED=true` activates notifications; requires `LINE_NOTIFY_TOKEN` and/or `DISCORD_WEBHOOK_URL`. `NOTIFY_MODE` controls batch vs per-match notification (`batch` or `each`, default `batch`).
+- Notification env vars: `NOTIFY_ENABLED=true` activates notifications; requires at least one channel: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_USER_ID`, `DISCORD_WEBHOOK_URL`, or `LINEJS_TEST_ENABLED=true` with a target ID. `NOTIFY_MODE` controls batch vs per-match notification (`batch` or `each`, default `batch`).
 - `AUTO_ACCEPT_ENABLED=true` enables auto-accept: the poller will automatically accept bidding requests matching enabled rules with `auto_accept` flag; auto-accept events are recorded in `auto_accept_history` table.
 - Rule-based notifications use a dual storage mode:
   - **DEV** (`NODE_ENV !== "production"`, or no DB flags): reads/writes `notify-rules.json` at project root.
   - **PROD** (`NODE_ENV === "production"` + DB flags): reads/writes `notify_rules` MySQL table; JSON file is used only for one-time migration on first startup.
 - Each rule has: `id`, `name`, `origins`, `destinations`, `vehicle_types`, `need`, `enabled`, `fulfilled`, `auto_accept`, `auto_accepted`.
 - When trips match, the rule is auto-fulfilled and Discord/LINE notification is sent. SSE broadcasts rules changes to connected Web UI clients in real-time.
-- The system settings (`.env`) can be modified via the Web UI (`SettingsController`), which automatically overwrites the `.env` file and triggers an immediate `process.exit(0)` to restart the server (Docker auto-restarts via `restart: unless-stopped`).
+- Web UI settings are DB-backed through `app_settings`. `SettingsController` redacts secrets on read, preserves masked secrets on write, calls `reloadSettingsLive()`, and applies changed settings without `process.exit(0)`.
 - `HTTP_ENABLED=true` starts a Fastify server on `HTTP_PORT` (default 3000) exposing the MVC-based Web UI and API routes under `/api`; `HTTP_ALLOWED_ORIGINS` optionally allows comma-separated non-localhost CORS origins.
 
 ## Architecture Notes
-- `src/app.ts` validates env, calls `migrateJsonToDb()` (when DB is active), constructs `Poller`, then starts the polling loop.
+- `src/app.ts` loads `.env`, migrates selected env settings into `app_settings` when DB is usable, reloads DB-backed settings into `env`, validates config, migrates `notify-rules.json` into DB when active, creates the admin user when HTTP is enabled, constructs `Poller`, then starts the polling loop.
 - `src/controllers/poller.ts` owns polling, stats, list fetches, change detection, request-list detail printing, optional DB saves, auto-accept flow, and SSE broadcasting.
 - `src/services/api-client.ts` derives detail endpoints by replacing `/booking/bidding/list` in `API_URL`; update that logic if the list URL shape changes. All fetches use retry with exponential backoff (3 retries). Session expiry is detected from API retcodes. Automatically fetches multiple pages when `total > count` in API response.
 - `src/services/db-service.ts` owns DB save semantics; uses INSERT IGNORE — records are written once when a job first appears and never updated.

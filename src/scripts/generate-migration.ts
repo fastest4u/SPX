@@ -4,6 +4,7 @@ import {
   spxBookingHistoryMigrationSql,
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,
+  metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
   appSettingsMigrationSql,
 } from "../db/migration-sql.js";
@@ -16,6 +17,7 @@ const allMigrations = [
   spxBookingHistoryMigrationSql,
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,
+  metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
   appSettingsMigrationSql,
 ].join("\n\n");

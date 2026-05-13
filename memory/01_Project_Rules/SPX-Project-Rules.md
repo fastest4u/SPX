@@ -2,6 +2,10 @@
 title: SPX Project Rules
 type: rules
 status: active
+last-verified: 2026-05-13
+verified-by: codex
+source: file:AGENTS.md + file:package.json + file:src/
+confidence: high
 created: 2026-05-13
 updated: 2026-05-13
 tags:
@@ -19,16 +23,16 @@ aliases:
 > A TypeScript/Node.js polling service that watches the SPX bidding API, detects new booking requests, optionally saves them to MySQL, sends Discord/LINE notifications, and auto-accepts matching rules.
 
 > [!info] Source of truth
-> This note mirrors the key rules from the repository's `AGENTS.md`. When repo `AGENTS.md` is updated, update this note too.
+> This note mirrors the key rules from root `AGENTS.md`, `package.json`, and the current `src/` implementation. When repo behavior changes, update this note and [[SPX-System-Map]] together.
 
 ---
 
 ## Repository
 
-- **Path:** `c:\Users\Server\Desktop\SPX`
-- **Git root:** same
-- **Language:** TypeScript (`moduleResolution: NodeNext`)
-- **Package manager:** npm (single package, `package-lock.json`)
+- Path: `C:\Users\Server\Desktop\SPX`
+- Language: TypeScript with `moduleResolution: NodeNext`
+- Package manager: npm, single package, `package-lock.json`
+- Primary app: backend poller + Fastify API + React/Vite SPA
 
 ---
 
@@ -36,10 +40,10 @@ aliases:
 
 > [!important]
 > Trust `package.json`, `tsconfig.json`, `src/`, and `docs/` over guesses.
-> **No CI workflow, no lint config, no formatter config, no unit-test script.**
 
-- Edit `src/`
-- Ignored / generated: `dist/`, `data/`, `logs/`, `node_modules/`, `.env`
+- Edit `src/` for app changes.
+- Ignored/generated/local: `dist/`, `data/`, `logs/`, `node_modules/`, `.env`, `notify-rules.json`.
+- Do not read, print, copy, or commit `.env` secrets.
 
 ---
 
@@ -47,78 +51,92 @@ aliases:
 
 | Command | Purpose |
 |---|---|
-| `npm ci` | Install locked deps |
-| `npm run build` | `tsc --noEmit` + `esbuild` bundle → `dist/app.js` |
-| `npm run dev -- 10` | Run `src/app.ts` via `ts-node` (10 sec interval) |
-| `npm start -- 10` | Run `dist/app.js` (build first if stale) |
-| `npm run db:generate` | Build + regenerate `migrations/001_*.sql` |
-| `npm run db:migrate` | Apply migrations to MySQL |
-| `npm run db:test` | Integration test — hits live API + MySQL |
-| `npm run flow:test` | `db:migrate` → `db:test` |
-| `npm run flow:start` | migrate → build → start |
+| `npm ci` | Install locked dependencies |
+| `npm run typecheck` | Backend + frontend TypeScript checks |
+| `npm run build` | Typecheck, bundle backend/scripts with esbuild, build frontend with Vite |
+| `npm run dev` | Run backend (`HTTP_ENABLED=true tsx src/app.ts`) and Vite frontend concurrently |
+| `npm run dev:backend` | Run only backend with HTTP enabled |
+| `npm run dev:frontend` | Run only Vite frontend |
+| `npm start -- 10` | Run `dist/app.js`; optional CLI interval is seconds |
+| `npm run db:generate` | Build and regenerate `migrations/001_create_booking_requests.sql` |
+| `npm run db:migrate` | Apply unapplied SQL migrations to MySQL |
+| `npm run db:test` | Integration test against live SPX API + MySQL |
+| `npm run flow:test` | `db:migrate` then `db:test` |
+| `npm run flow:start` | migrate, build, then start `dist/app.js` |
+| `npm run memory:check` | Validate Memory Vault frontmatter, wikilinks, Dataview syntax |
 
 > [!warning]
-> `db:test` and `flow:test` require real API auth + network + MySQL. They can insert into `spx_booking_history`.
+> `db:test` and `flow:test` require real API auth, network access, and MySQL. They can insert into `spx_booking_history`.
 
 ---
 
-## Git Workflow (User Preference)
+## Git Workflow
 
-> [!danger] STRICT RULE
-> **Push completed fixes directly to `main` only.**
-> Do NOT create feature branches or PRs unless the user explicitly asks for branch/PR review workflow.
+> [!danger] User preference
+> Push completed fixes directly to `main`. Do not create feature branches or PRs unless the user explicitly asks for that workflow.
 
-**Why?** Production server has auto-deploy:
-- push → main → server git-pulls → rebuilds Docker → restarts.
-
-See also: `.windsurf/workflows/review.md` (used only when explicitly requested).
+Production auto-deploy is push-based: push to `main`, server pulls, Docker rebuilds, container restarts.
 
 ---
 
 ## Required Env Vars
 
 ### Always
-- `API_URL`, `COOKIE`, `DEVICE_ID`, `APP_NAME`, `REFERER`
 
-### When `SAVE_TO_DB=true` OR `HTTP_ENABLED=true` OR `AUTO_ACCEPT_ENABLED=true`
-- `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`
-- `DB_PORT` (default `3306`)
-- `DB_MODE` (default `mysql`, `memory` for SQLite in-memory test)
+- `API_URL`
+- `COOKIE`
+- `DEVICE_ID`
+- `APP_NAME`
+- `REFERER`
 
-### Optional (feature toggles)
-- `POLL_INTERVAL_MS` — ms; CLI arg (seconds) overrides
-- `FETCH_DETAILS` / `SAVE_TO_DB` / `NOTIFY_ENABLED`
-- `NOTIFY_MODE` (`batch` | `each`)
+### When DB-backed features are active
+
+Required when `SAVE_TO_DB=true`, `HTTP_ENABLED=true`, or `AUTO_ACCEPT_ENABLED=true`:
+
+- `DB_HOST`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+- `DB_NAME`
+- `DB_PORT` defaults to `3306`
+- `DB_MODE` defaults to `mysql`; use `memory` for SQLite in-memory tests
+
+### Optional feature toggles
+
+- `POLL_INTERVAL_MS` in milliseconds; CLI interval arg is seconds and overrides it.
+- `FETCH_DETAILS`, `SAVE_TO_DB`, `NOTIFY_ENABLED`
+- `NOTIFY_MODE` as `batch` or `each`
 - `AUTO_ACCEPT_ENABLED`
-- `LINE_NOTIFY_TOKEN` / `DISCORD_WEBHOOK_URL`
-- `HTTP_ENABLED` / `HTTP_PORT` / `HTTP_ALLOWED_ORIGINS`
+- LINE OA: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_USER_ID`
+- LINEJS routing: `LINEJS_TEST_ENABLED` + target IDs
+- Discord: `DISCORD_WEBHOOK_URL`
+- HTTP: `HTTP_ENABLED`, `HTTP_PORT`, `HTTP_ALLOWED_ORIGINS`, `JWT_SECRET`, `COOKIE_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_ROLE`
 
 ---
 
 ## Architecture Quick Map
 
-```
+```text
 src/
-├── app.ts                       # entrypoint
-├── config/env.ts                # env loading
-├── controllers/poller.ts        # polling + stats + SSE
-├── services/
-│   ├── api-client.ts            # bidding API + retry
-│   ├── db-service.ts            # INSERT IGNORE saves
-│   ├── notifier.ts              # Discord embed + LINE text
-│   ├── notify-rules.ts          # dual-mode rule engine
-│   ├── metrics.ts               # latency, success rate
-│   ├── sse.ts                   # SSE broadcaster
-│   ├── http-server.ts           # Fastify + RBAC + JWT
-│   └── auto-accept-repository.ts
-└── db/
-    ├── schema.ts                # Drizzle
-    ├── migration-sql.ts
-    ├── client.ts                # mysql2 pool
-    └── client-memory.ts         # SQLite mirror
+  app.ts                         entrypoint and boot sequence
+  config/env.ts                  env loading and validation
+  controllers/poller.ts          polling loop, details, DB saves, auto-accept, SSE
+  services/
+    api-client.ts                SPX bidding API client and retry behavior
+    db-service.ts                write-once booking history saves
+    notifier.ts                  Discord, LINE OA, LINEJS notifications
+    notify-rules.ts              dual-mode rules engine
+    metrics.ts                   runtime metrics collector
+    sse.ts                       SSE broadcaster singleton
+    http-server.ts               Fastify, auth, RBAC, static SPA
+    settings.ts                  DB-backed live settings
+  db/
+    schema.ts                    Drizzle schema
+    migration-sql.ts             generated migration SQL source
+    client.ts                    mysql2 pool and runtime table creation
+    client-memory.ts             SQLite memory-mode schema
 ```
 
-See [[ADR-001-Dual-Storage-Notify-Rules]] for the rule storage decision.
+Read [[SPX-System-Map]] before broad changes.
 
 ---
 
@@ -126,59 +144,47 @@ See [[ADR-001-Dual-Storage-Notify-Rules]] for the rule storage decision.
 
 ### TypeScript
 
-> [!important]
-> `moduleResolution: NodeNext` — **all local relative imports must use `.js` suffix**.
+`moduleResolution: NodeNext` means local relative imports in `.ts` files must keep the `.js` suffix.
 
 ```typescript
-// ✅ correct
-import { Foo } from './services/foo.js';
-
-// ❌ wrong
-import { Foo } from './services/foo';
+import { Foo } from "./services/foo.js";
 ```
 
 ### MySQL Compatibility
 
-> [!warning] MySQL 5.7 in production
-> - Use `CURRENT_TIMESTAMP` (NOT `(UTC_TIMESTAMP())`) in DDL `DEFAULT`.
-> - Application queries can use `UTC_TIMESTAMP()`.
-> - Use `INT(0/1)` for booleans in `notify_rules` table.
+- Production targets MySQL 5.7 compatibility.
+- DDL defaults use `CURRENT_TIMESTAMP`, not `(UTC_TIMESTAMP())`.
+- Boolean DB fields use `INT` with `0`/`1`.
+- Keep `src/db/schema.ts`, `src/db/migration-sql.ts`, `migrations/*.sql`, runtime SQL in `src/db/client.ts`, and memory-mode SQL in `src/db/client-memory.ts` aligned.
 
-### Notify Rules (Dual Storage)
+### Notify Rules Dual Storage
 
 | Mode | Storage |
 |---|---|
-| **DEV** (`NODE_ENV !== "production"` or no DB flags) | `notify-rules.json` at project root |
-| **PROD** (`NODE_ENV === "production"` + DB flags) | `notify_rules` MySQL table |
+| DEV (`NODE_ENV !== "production"` or no DB flags) | `notify-rules.json` |
+| PROD (`NODE_ENV === "production"` + DB flags) | `notify_rules` MySQL table |
 
-JSON file is used **only for one-time migration** on first prod startup.
-
-See [[ADR-001-Dual-Storage-Notify-Rules]].
+JSON is used for one-time migration when DB is active and DB has no existing rules. See [[ADR-001-Dual-Storage-Notify-Rules]] and [[Component-Dual-Storage-Notify-Rules]].
 
 ### DB Save Semantics
 
-> [!info]
-> Uses `INSERT IGNORE` — records written **once** when a job first appears, **never updated**.
+`spx_booking_history` is write-once by `request_id`. Inserts use `INSERT IGNORE`; existing rows are not updated.
 
-### Settings Self-Restart
+### DB-Backed Live Settings
 
-> [!warning]
-> `SettingsController` writes `.env` → triggers `process.exit(0)` → Docker auto-restart.
+`SettingsController` reads/writes selected runtime settings through `app_settings`, redacts secrets on read, preserves masked secrets on write, calls `reloadSettingsLive()`, and applies changed settings without `process.exit(0)`.
+
+Sources: `src/controllers/settings-controller.ts`, `src/services/settings.ts`.
 
 ---
 
 ## Gotchas
 
-> [!danger] Don't
-> - ❌ Read / print / commit / copy secrets from `.env`
-> - ❌ Use legacy root `poll-bidding.js` — prefer `src/` TS app
-> - ❌ Treat `data/` as stable test fixtures (captured JSON, ignored)
-> - ❌ `notify-rules.json` is `.gitignore`d — Dockerfile creates at build time
-
-> [!tip] Do
-> - ✅ `request_id` comes from `booking/bidding/request/list`, NOT `booking_overview.vehicle_driver_info`
-> - ✅ Keep `src/db/schema.ts`, `migration-sql.ts`, `migrations/*.sql`, runtime `client.ts` in sync
-> - ✅ `ensureDashboardTables()` creates `notify_rules` + `auto_accept_history` at runtime too
+- `request_id` comes from `booking/bidding/request/list`, not `booking_overview.vehicle_driver_info`.
+- Root `poll-bidding.js` is legacy CommonJS; prefer `src/`.
+- `data/` is captured local output, not stable fixtures.
+- `notify-rules.json` is ignored; Docker creates and persists it through a host volume.
+- State-changing accept calls intentionally use a smaller retry budget than read calls.
 
 ---
 
@@ -186,17 +192,21 @@ See [[ADR-001-Dual-Storage-Notify-Rules]].
 
 | Field | Value |
 |---|---|
-| **Host** | `root@45.83.207.139` |
-| **Stack** | Docker Compose at `/root/SPX/docker-compose.yml` |
-| **Deploy** | git push → main → server pulls + rebuilds |
-| **Health** | `GET /ready` every 30s |
+| Host | `root@45.83.207.139` |
+| Stack | Docker Compose at `/root/SPX/docker-compose.yml` |
+| Deploy | push to `main`, server pulls and rebuilds |
+| Health | `GET /ready` every 30 seconds |
 
 ---
 
 ## Related
 
+- [[SPX-System-Map]]
+- [[Awakened-AI-System]]
+- [[API-Bidding-Endpoints]]
+- [[API-Internal-HTTP]]
+- [[API-SSE-Events]]
 - [[ADR-001-Dual-Storage-Notify-Rules]]
-- [[2026-05-13-Setup-MCP-Servers]]
-- [[Glossary#Poller]]
-- [[Glossary#Auto-Accept]]
-- [[AGENTS.md]] — vault-level rules
+- [[Component-Poller-Orchestration]]
+- [[Component-Dual-Storage-Notify-Rules]]
+- [[Runbook-Production-Deploy]]

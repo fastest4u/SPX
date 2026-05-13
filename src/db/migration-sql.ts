@@ -2,6 +2,9 @@ export const spxBookingHistoryMigrationSql = `
 CREATE TABLE IF NOT EXISTS spx_booking_history (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   request_id BIGINT UNSIGNED NOT NULL,
+  booking_id BIGINT UNSIGNED NULL,
+  booking_name VARCHAR(255) NULL,
+  agency_name VARCHAR(255) NULL,
   route VARCHAR(255) NOT NULL,
   origin VARCHAR(255) NULL,
   destination VARCHAR(255) NULL,
@@ -10,8 +13,11 @@ CREATE TABLE IF NOT EXISTS spx_booking_history (
   shift_type VARCHAR(50) NULL,
   vehicle_type VARCHAR(50) NULL,
   standby_datetime VARCHAR(50) NULL,
+  acceptance_status INT NULL,
+  assignment_status INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY request_id_idx (request_id),
+  KEY booking_id_idx (booking_id),
   KEY created_at_idx (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
@@ -49,6 +55,26 @@ CREATE TABLE IF NOT EXISTS auto_accept_history (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY aah_created_at_idx (created_at),
   KEY aah_rule_id_idx (rule_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const metricsSnapshotsMigrationSql = `
+CREATE TABLE IF NOT EXISTS metrics_snapshots (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  uptime INT NOT NULL,
+  total_requests INT NOT NULL DEFAULT 0,
+  success_count INT NOT NULL DEFAULT 0,
+  error_count INT NOT NULL DEFAULT 0,
+  success_rate VARCHAR(10) NOT NULL DEFAULT '0',
+  latency_avg INT NOT NULL DEFAULT 0,
+  latency_p95 INT NOT NULL DEFAULT 0,
+  latency_p99 INT NOT NULL DEFAULT 0,
+  total_records_seen INT NOT NULL DEFAULT 0,
+  changes_detected INT NOT NULL DEFAULT 0,
+  trips_inserted INT NOT NULL DEFAULT 0,
+  trips_skipped INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY metrics_created_at_idx (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 

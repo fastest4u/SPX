@@ -161,6 +161,7 @@ If you can't answer any of these, **run `/session-start` first**.
 | **DB schema change / migration** | [[SPX-Project-Rules#Database]], [[ADR-001-Dual-Storage-Notify-Rules]] | Runbook [[Runbook-DB-Migration]] | `area/db` in `08_Mistakes/`, recent `session-log` with `area/db` |
 | **Auto-accept logic** | [[ADR-001-Dual-Storage-Notify-Rules]] | Runbook [[Runbook-Auto-Accept-Debug]] | `tag:topic/auto-accept` in sessions + mistakes |
 | **API client / polling** | [[SPX-Project-Rules#Architecture]] | Runbook [[Runbook-API-Session-Expired]] | `area/api` in mistakes, `session-log` referencing `api-client.ts` |
+| **Whole-system survey / onboarding** | [[Awakened-AI-System]], [[SPX-System-Map]] | [[API-Internal-HTTP]], [[API-SSE-Events]], [[Component-Poller-Orchestration]] | recent `session-log` with `topic/system-map` or `topic/memory-vault` |
 | **Notify (Discord/LINE)** | `notify-rules` section in [[SPX-Project-Rules]] | Runbook [[Runbook-Notify-Failure]] | `area/notify` in mistakes |
 | **Deploy / Docker / production** | Deploy section in root `AGENTS.md` | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |

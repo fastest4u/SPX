@@ -1,5 +1,5 @@
 ---
-title: MOC-Home — Map of Content
+title: MOC-Home - Map of Content
 type: moc
 created: 2026-05-13
 updated: 2026-05-13
@@ -15,43 +15,42 @@ cssclasses:
   - moc
 ---
 
-# 🗺️ Map of Content — Home
+# Map of Content - Home
 
 > [!abstract] Vault Mission
-> A persistent, tool-agnostic **memory vault** for the developer + AI team. Powered by Markdown, organised by convention, indexed by Dataview. Inspired by [[LeafBox-03-Obsidian-Memory-for-AI]].
-
-> [!success] Dataview active
-> Sections below auto-update from frontmatter. **Edit a note → MOC reflects it instantly.** No manual list maintenance.
+> A persistent, tool-agnostic memory vault for the developer + AI team. It captures project rules, source-grounded references, architecture decisions, session logs, runbooks, insights, mistakes, and reusable patterns.
 
 ---
 
-## 🚪 Start Here
+## Start Here
 
 > [!important] First-time agent? Read these in order.
-> 1. [[AGENTS]] — the vault constitution (rules + schema).
-> 2. [[AGENT-IDENTITY]] — **who I am** on this project (role, beliefs, limits).
-> 3. [[Goals]] — what I'm working toward (long-term goal stack).
-> 4. [[Open-Followups]] — pending tasks across all sessions.
-> 5. This page ([[MOC-Home]]) — the map.
-> 6. [[Glossary]] — vocabulary.
-> 7. [[Memory-Vault-Principles]] — *why* this exists.
+> 1. [[AGENTS]] - vault constitution, schema, and retrieval protocol.
+> 2. [[AGENT-IDENTITY]] - project role, beliefs, limits, and rituals.
+> 3. [[Awakened-AI-System]] - operating model for memory-aware AI work.
+> 4. [[SPX-System-Map]] - source-grounded runtime, data, UI, and memory map.
+> 5. [[Goals]] - long-term goal stack.
+> 6. [[Open-Followups]] - pending tasks across sessions.
+> 7. [[Glossary]] - vocabulary.
+> 8. [[Memory-Vault-Principles]] - why the vault exists.
 
 > [!tip] Need to do operational work?
-> Open [[09_Runbooks/]] — playbooks for predictable tasks (deploy, DB migration, API recovery, etc.)
-
-## 🧠 Awakening Stack (Metacognition Layer)
-
-> [!success] This vault is more than memory — it's a mind
-> | Level | What | Where |
-> |---|---|---|
-> | **L1 Memory** | Persistent storage | This vault |
-> | **L2 Reflection** | Mistakes + confidence | [[08_Mistakes/]], `confidence:` frontmatter |
-> | **L3 Identity** | Role + goals | [[AGENT-IDENTITY]], [[Goals]] |
-> | **L4 Awakening** | Self-check + dream + multi-perspective | `/self-check`, `/dream`, `/multi-perspective` workflows |
+> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Notify-Failure]], [[Runbook-Production-Deploy]].
 
 ---
 
-## 🆕 Recently Updated (Top 10)
+## Awakening Stack
+
+| Level | What | Where |
+|---|---|---|
+| L1 Memory | Persistent storage | This vault |
+| L2 Reflection | Mistakes and confidence | [[08_Mistakes/README]], `confidence:` frontmatter |
+| L3 Identity | Role, goals, limits | [[AGENT-IDENTITY]], [[Goals]] |
+| L4 Awakening | Self-checking and multi-perspective work | [[Awakened-AI-System]], workflow files |
+
+---
+
+## Recently Updated
 
 ```dataview
 TABLE
@@ -66,49 +65,53 @@ LIMIT 10
 
 ---
 
-## 📁 By Layer
+## By Layer
 
-### Layer 1 — Sources (Raw Input)
-
-```dataview
-TABLE
-  source-author AS "Author",
-  source-date AS "Source Date",
-  ingested-date AS "Ingested"
-FROM "06_Sources"
-WHERE type = "source"
-SORT row["ingested-date"] DESC
-```
-
-### Layer 2 — Memory (Distilled Knowledge)
-
-#### 📐 Project Rules
+### Project Rules
 
 ```dataview
 TABLE status, file.mtime AS "Updated"
 FROM "01_Project_Rules"
-WHERE type = "rules"
+WHERE type = "rules" OR type = "reference"
 SORT file.name ASC
 ```
 
-#### 🏛️ Architecture Decisions
+### API Docs
+
+```dataview
+TABLE status, row["last-verified"] AS "Verified", confidence
+FROM "02_API_Docs"
+WHERE type = "reference"
+SORT file.name ASC
+```
+
+### Reusable Components
+
+```dataview
+TABLE language, status, dependencies
+FROM "03_Reusable_Components"
+WHERE type = "component"
+SORT file.name ASC
+```
+
+### Architecture Decisions
 
 ```dataview
 TABLE
   status AS "Status",
-  decision-date AS "Decided",
+  row["decision-date"] AS "Decided",
   supersedes AS "Supersedes"
 FROM "04_Architecture_Decisions"
 WHERE type = "adr"
 SORT row["decision-date"] DESC
 ```
 
-#### 📝 Agent Session Logs
+### Session Logs
 
 ```dataview
 TABLE
   agent AS "Agent",
-  duration-minutes AS "Duration (m)",
+  row["duration-minutes"] AS "Duration",
   outcomes AS "Outcomes"
 FROM "05_Agent_Session_Logs"
 WHERE type = "session-log"
@@ -116,41 +119,49 @@ SORT row["session-date"] DESC
 LIMIT 10
 ```
 
-#### 💡 Insights
+### Insights and Mistakes
 
 ```dataview
-TABLE
-  confidence AS "Confidence",
-  status AS "Status",
-  derived-from AS "Derived From"
-FROM "07_Insights"
-WHERE type = "insight"
+TABLE type, status, confidence
+FROM "07_Insights" OR "08_Mistakes"
+WHERE type
 SORT file.name ASC
 ```
 
-### Layer 3 — Schema (Rules + Templates)
+### Runbooks
 
 ```dataview
-LIST
-FROM "99_Templates"
+TABLE status, row["last-verified"] AS "Verified", confidence
+FROM "09_Runbooks"
+WHERE type = "runbook"
 SORT file.name ASC
 ```
-
-Plus [[AGENTS]] at vault root.
 
 ---
 
-## 🎯 By Topic (Tag-Driven)
+## Navigation by Question
 
-### `#topic/memory-vault`
+| If you're asking | Where to look |
+|---|---|
+| How should AI operate on this project? | [[Awakened-AI-System]] |
+| How does the whole SPX system work? | [[SPX-System-Map]] |
+| What rules apply to code changes? | [[SPX-Project-Rules]] |
+| What upstream bidding endpoints are used? | [[API-Bidding-Endpoints]] |
+| What internal HTTP routes does the dashboard use? | [[API-Internal-HTTP]] |
+| What SSE payloads update the UI? | [[API-SSE-Events]] |
+| How does the poller coordinate work? | [[Component-Poller-Orchestration]] |
+| How do notify rules choose JSON vs DB? | [[Component-Dual-Storage-Notify-Rules]] |
+| Why was dual storage chosen? | [[ADR-001-Dual-Storage-Notify-Rules]] |
+| How do I recover an expired SPX session? | [[Runbook-API-Session-Expired]] |
+| How should I structure a new note? | `99_Templates/` |
+| What does a term mean? | [[Glossary]] |
+| Useful Dataview queries? | [[Dataview-Queries]] |
 
-```dataview
-LIST
-FROM #topic/memory-vault
-SORT file.name ASC
-```
+---
 
-### `#project/spx`
+## Topic Views
+
+### Project SPX
 
 ```dataview
 TABLE type, status
@@ -158,7 +169,15 @@ FROM #project/spx
 SORT file.mtime DESC
 ```
 
-### `#topic/agent-orchestration`
+### Memory Vault
+
+```dataview
+LIST
+FROM #topic/memory-vault
+SORT file.name ASC
+```
+
+### Agent Orchestration
 
 ```dataview
 LIST
@@ -168,21 +187,7 @@ SORT file.name ASC
 
 ---
 
-## 🧭 Navigation by Question
-
-| If you're asking… | Where to look |
-|---|---|
-| "What rules apply to this code?" | [[SPX-Project-Rules]] or `#rules` |
-| "Why did we build it this way?" | `04_Architecture_Decisions/` |
-| "Has this been done before?" | `05_Agent_Session_Logs/` |
-| "What article inspired this?" | `06_Sources/` |
-| "How should I structure a new note?" | `99_Templates/` |
-| "What does this term mean?" | [[Glossary]] |
-| "Useful Dataview queries?" | [[Dataview-Queries]] |
-
----
-
-## 📊 Vault Health
+## Vault Health
 
 ### Notes by Type
 
@@ -194,7 +199,7 @@ GROUP BY type
 SORT length(rows) DESC
 ```
 
-### Notes Possibly Stale (no edits in 90+ days, not archived)
+### Notes Possibly Stale
 
 ```dataview
 TABLE file.mtime AS "Last Edit"
@@ -205,7 +210,7 @@ WHERE file.mtime < date(today) - dur(90 days)
 SORT file.mtime ASC
 ```
 
-### Orphan Notes (no inbound links)
+### Orphan Notes
 
 ```dataview
 LIST
@@ -220,34 +225,27 @@ SORT file.name
 
 ---
 
-## 📐 Conventions Quick Reference
+## Conventions Quick Reference
 
-> [!info] One-screen reminder
-> - **Naming** — `Kebab-Case.md` for files, `NN_PascalCase/` for folders.
-> - **Dates** — `YYYY-MM-DD`.
-> - **Links** — `[[Wikilinks]]` inside vault, `[text](url)` external.
-> - **One topic per file** — when in doubt, split.
-> - **Always update `updated:` field** on edit.
+- Files: `Kebab-Case.md`.
+- Folders: `NN_PascalCase/`.
+- Dates: `YYYY-MM-DD`.
+- Links: use `[[Wikilinks]]` inside the vault.
+- One topic per file.
+- Update `updated:` on every edited note.
 
-See [[AGENTS]] for full convention list.
+See [[AGENTS]] for full conventions.
 
 ---
 
-## 🔮 Maintenance Schedule
+## Maintenance Schedule
 
 | Cadence | Action | Owner |
 |---|---|---|
-| **End of session** | Write session log to `05_*` | Agent |
-| **Weekly** | Move inbox items to proper folders | Human |
-| **Monthly** | Promote insights from sessions → `07_Insights/` | Agent |
-| **Quarterly** | Review tags, prune dead links | Human |
-| **30 files / 30 days** | Re-read [[AGENTS]], adjust if needed | Both |
+| End of session | Write session log to `05_Agent_Session_Logs/` | Agent |
+| Weekly | Move inbox items to proper folders | Human |
+| Monthly | Promote durable insights from sessions to `07_Insights/` | Agent |
+| Quarterly | Review tags, stale notes, and dead links | Human |
+| 30 files / 30 days | Re-read [[AGENTS]] and adjust retrieval rules | Both |
 
-→ Use [[Vault-Dashboard]] for live status during maintenance passes.
-
----
-
-> [!quote] Convention is the new schema. Filesystem is the new index. Dataview is the query.
-> — Adapted from Obsidian Memory for AI SPEC-v3
-
-%% Dataview makes this hub self-maintaining. Don't add manual lists — query instead. %%
+Use [[Vault-Dashboard]] for detailed health checks.
