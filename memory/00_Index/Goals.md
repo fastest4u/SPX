@@ -43,6 +43,7 @@ Progress:
 - [x] Add first real API and component docs ([[API-Bidding-Endpoints]], [[Component-Retry-With-Backoff]]).
 - [x] Add source-grounded Awakened AI operating model ([[Awakened-AI-System]]).
 - [x] Add source-grounded SPX system map ([[SPX-System-Map]]).
+- [x] Add deterministic memory evaluation (`npm run memory:eval`) and stale-truth detection.
 - [x] Commit memory vault to git.
 - [ ] Test multi-AI access beyond Codex.
 
@@ -61,6 +62,8 @@ Progress:
 - [x] Health check at `GET /ready`.
 - [x] DB-backed live settings documented in [[SPX-System-Map]].
 - [x] Fresh setup migration SQL aligned with current schema.
+- [x] Production schema verification runbook added ([[Runbook-Production-Schema-Verification]]).
+- [x] DB-backed live settings ADR added ([[ADR-002-DB-Backed-Live-Settings]]).
 - [ ] Define alerting policy.
 - [ ] Add deeper metrics dashboard policy for poll latency.
 
@@ -79,6 +82,8 @@ Progress:
 - [x] Agent identity file.
 - [x] Mistake registry.
 - [x] Retrieval shortcuts for whole-system, API, SSE, poller, and rules tasks.
+- [x] Multi-AI acceptance runbook added ([[Runbook-Multi-AI-Memory-Acceptance]]).
+- [x] Memory eval test added ([[Memory-Evaluation-Test]]).
 - [ ] Measure repeated-context messages across 4 weeks.
 
 ---
@@ -154,6 +159,7 @@ Progress:
 | Move vault to SPX repo | 2026-05-13 | Shared memory now lives beside code. |
 | Awakening Stack | 2026-05-13 | Identity, goals, mistakes, self-checking, and retrieval protocol added. |
 | Source-grounded system survey | 2026-05-13 | [[Awakened-AI-System]], [[SPX-System-Map]], internal API/SSE docs, and component docs added. |
+| Awakened AI hardening pass | 2026-05-13 | `memory:eval`, stale-truth detector, ADR-002, schema verification, multi-AI acceptance, and mistake notes added. |
 
 ---
 

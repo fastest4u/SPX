@@ -24,7 +24,8 @@
     "dev:frontend": "vite",
     "frontend:build": "vite build --emptyOutDir",
     "flow:start": "npm run db:migrate && npm run build --silent && node dist/app.js",
-    "memory:check": "node scripts/memory-check.mjs"
+    "memory:check": "node scripts/memory-check.mjs",
+    "memory:eval": "node scripts/memory-eval.mjs"
   },
   "keywords": [
     "spx",

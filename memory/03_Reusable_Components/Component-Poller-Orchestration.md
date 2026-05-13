@@ -115,6 +115,7 @@ Auto-accept can use a fast/deferred split so likely matching origins are process
 Source: `src/services/notifier.ts` and `src/controllers/poller.ts`
 
 - Only enabled rules with `auto_accept=true` are candidates.
+- Auto-accept works on upstream `request_id` values from `booking/bidding/request/list`.
 - `NeedBudget` tracks how many requests each rule can still accept during the current poll cycle.
 - Requests already accepted in memory are deduped by request key.
 - Accept calls are grouped by booking ID.

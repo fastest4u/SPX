@@ -221,7 +221,7 @@ Settings are DB-backed through `app_settings`.
 - `reloadSettingsLive()` reloads DB settings into the mutable `env` object.
 - Secret fields are redacted in controller responses and masked values are not written back.
 
-This supersedes the older `.env` rewrite + process-restart behavior.
+This is recorded in [[ADR-002-DB-Backed-Live-Settings]].
 
 ---
 
@@ -249,6 +249,7 @@ Notification paths:
 Use:
 
 - `npm run memory:check` after Memory Vault edits.
+- `npm run memory:eval` after core Memory Vault topology or retrieval changes.
 - `npm run build` after code or type changes.
 - `npm run db:generate` after `src/db/migration-sql.ts` changes.
 - `npm run db:migrate` only when you intend to touch a real MySQL target.
@@ -258,6 +259,8 @@ Runbooks:
 - [[Runbook-API-Session-Expired]]
 - [[Runbook-Auto-Accept-Debug]]
 - [[Runbook-DB-Migration]]
+- [[Runbook-Production-Schema-Verification]]
+- [[Runbook-Multi-AI-Memory-Acceptance]]
 - [[Runbook-Notify-Failure]]
 - [[Runbook-Production-Deploy]]
 
@@ -277,6 +280,8 @@ Runbooks:
 - [[SPX-Project-Rules]]
 - [[API-Internal-HTTP]]
 - [[API-SSE-Events]]
+- [[ADR-002-DB-Backed-Live-Settings]]
+- [[Memory-Evaluation-Test]]
 - [[Component-Poller-Orchestration]]
 - [[Component-Dual-Storage-Notify-Rules]]
 - [[Goals]]

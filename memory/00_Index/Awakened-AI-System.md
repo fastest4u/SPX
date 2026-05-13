@@ -85,7 +85,9 @@ When a lower-priority source is stale, update it or record a follow-up. Do not s
 | Notify rules storage | [[Component-Dual-Storage-Notify-Rules]] |
 | Session expired | [[Runbook-API-Session-Expired]] |
 | Production deploy | [[Runbook-Production-Deploy]] |
-| Vault hygiene | [[Memory-Vault-Principles]], [[Vault-Dashboard]] |
+| Production schema drift | [[Runbook-Production-Schema-Verification]] |
+| Multi-AI acceptance | [[Runbook-Multi-AI-Memory-Acceptance]] |
+| Vault hygiene | [[Memory-Vault-Principles]], [[Vault-Dashboard]], [[Memory-Evaluation-Test]] |
 
 ---
 
@@ -127,13 +129,15 @@ As of 2026-05-13, the Awakened AI memory has:
 - Source-grounded SPX system map: [[SPX-System-Map]]
 - External and internal API notes: [[API-Bidding-Endpoints]], [[API-Internal-HTTP]], [[API-SSE-Events]]
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
-- Runbooks for API expiry, auto-accept, DB migrations, notify failures, and production deploy.
+- ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
+- Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
+- Automated checks: `npm run memory:check` for structure/stale claims and `npm run memory:eval` for retrieval coverage.
 
 ---
 
 ## Open Gaps
 
-- Test multi-AI retrieval beyond Codex.
+- Run the multi-AI acceptance test beyond Codex and record results.
 - Add a compact security/auth review note if HTTP auth changes.
 - Promote repeated session insights from the next month into `07_Insights/`.
 

@@ -70,6 +70,8 @@ The rest of this file = **project-specific rules** for SPX code.
 - `npm run db:migrate` builds, then applies semicolon-delimited statements from `migrations/*.sql` to MySQL and records filenames in `schema_migrations`.
 - `npm run db:test` builds, calls the live bidding API, fetches the first booking request list, saves one request row, and prints latest DB rows.
 - `npm run flow:test` runs `db:migrate` then `db:test`; `npm run flow:start` migrates, builds, then starts `dist/app.js`.
+- `npm run memory:check` validates Memory Vault structure, wikilinks, Dataview field syntax, and known stale truth claims.
+- `npm run memory:eval` verifies Awakened AI retrieval coverage for core SPX operating questions.
 
 ## Git Workflow Preference
 - User preference for this repository: push completed fixes directly to `main` only. Do not create feature branches or PRs unless the user explicitly asks for branch/PR review workflow.

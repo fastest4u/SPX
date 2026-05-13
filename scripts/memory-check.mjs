@@ -8,6 +8,7 @@
 //   4. Dataview hyphenated fields use bracket syntax
 //   5. `updated:` date not older than 365 days (configurable)
 //   6. No duplicate filenames (case-insensitive)
+//   7. Active truth docs do not contain known-stale project claims
 //
 // Usage: node scripts/memory-check.mjs [--fix]
 // Exit codes: 0 = pass, 1 = warnings, 2 = errors
@@ -54,6 +55,35 @@ const HYPHENATED_FIELDS = [
   "session-date", "decision-date", "duration-minutes", "occurred-date",
   "source-date", "ingested-date", "last-verified", "resolved-date",
   "superseded-by", "derived-from",
+];
+
+const HISTORICAL_TYPES = new Set(["session-log", "source", "mistake", "adr"]);
+
+const STALE_TRUTH_PATTERNS = [
+  {
+    pattern: /\bLINE_NOTIFY_TOKEN\b/,
+    message: "stale notification env var `LINE_NOTIFY_TOKEN`; current LINE OA config uses `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_USER_ID`",
+  },
+  {
+    pattern: /SettingsController`?\s+writes\s+`?\.env`?/i,
+    message: "stale settings behavior; current settings are DB-backed through `app_settings` and live reload",
+  },
+  {
+    pattern: /process\.exit\(0\).*Docker auto-restart/i,
+    message: "stale settings restart claim; current SettingsController applies live settings without process exit",
+  },
+  {
+    pattern: /overwrites?\s+(?:the\s+)?`?\.env`?\s+file/i,
+    message: "stale settings persistence claim; current SettingsController writes `app_settings`, not `.env`",
+  },
+  {
+    pattern: /runs\s+`tsc --noEmit`,?\s+then\s+`esbuild`/i,
+    message: "stale build command summary; current build typechecks backend/frontend, esbuilds backend/scripts, then Vite builds frontend",
+  },
+  {
+    pattern: /`npm run dev -- 10`\s+runs\s+`src\/app\.ts`\s+via\s+`ts-node`/i,
+    message: "stale dev command summary; current `npm run dev` runs backend with tsx plus Vite frontend",
+  },
 ];
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -138,6 +168,17 @@ function findHyphenatedFieldMisuse(content) {
       if (jsPat.test(body)) {
         issues.push(`Hyphenated JS: \`.${f}\` should be \`["${f}"]\``);
       }
+    }
+  }
+  return issues;
+}
+
+function findStaleTruthClaims(content, type) {
+  if (HISTORICAL_TYPES.has(type)) return [];
+  const issues = [];
+  for (const { pattern, message } of STALE_TRUTH_PATTERNS) {
+    if (pattern.test(content)) {
+      issues.push(message);
     }
   }
   return issues;
@@ -237,6 +278,11 @@ for (const file of allFiles) {
   // 5. Dataview hyphenated field misuse
   for (const issue of findHyphenatedFieldMisuse(content)) {
     errors.push(`[${rel}] ${issue}`);
+  }
+
+  // 6. Known stale truth claims in active docs
+  for (const issue of findStaleTruthClaims(content, type)) {
+    errors.push(`[${rel}] stale truth claim: ${issue}`);
   }
 }
 

@@ -32,7 +32,7 @@ tags:
 ## Pre-Flight Check
 
 > [!danger] Never print secret values to terminal or logs
-> Treat `COOKIE`, `LINE_NOTIFY_TOKEN`, `DISCORD_WEBHOOK_URL` as sensitive. The checks below verify **presence and length** without printing the value.
+> Treat `COOKIE`, `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_USER_ID`, LINEJS target IDs, and `DISCORD_WEBHOOK_URL` as sensitive. The checks below verify **presence and length** without printing the value.
 
 ```bash
 # Confirm required env vars are SET (without revealing values).

@@ -1,13 +1,14 @@
 ---
-title: Runbook — Discord / LINE Notification Failure
+title: Runbook - Notification Failure
 type: runbook
 status: active
 last-verified: 2026-05-13
-verified-by: human
-source: file:src/services/notifier.ts
+verified-by: codex
+source: file:src/services/notifier.ts + file:src/services/line-bot.ts + file:src/services/notify-controller.ts
 confidence: high
 severity-when-applies: medium
-related-adrs: []
+related-adrs:
+  - [[ADR-001-Dual-Storage-Notify-Rules]]
 created: 2026-05-13
 updated: 2026-05-13
 aliases:
@@ -21,138 +22,161 @@ tags:
   - topic/line
 ---
 
-# Runbook — Discord / LINE Notification Failure
+# Runbook - Notification Failure
 
-## Symptoms
+> [!abstract] Use this when
+> Discord, LINE OA, or LINEJS notifications stop arriving, while the poller still sees matching rules or auto-accept events.
 
-- Booking matches a rule but no Discord/LINE message arrives
-- Auto-accept fires but no notification of the result
-- Logs show `[notifier] failed` or HTTP errors from webhook calls
+---
 
-## Pre-Flight Check
+## Sensitive Values
 
 > [!danger] Never print secret values
-> `LINE_NOTIFY_TOKEN`, `DISCORD_WEBHOOK_URL`, and `COOKIE` are credentials. The checks below confirm **presence + non-empty** without revealing values.
+> `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_USER_ID`, LINEJS target IDs, `DISCORD_WEBHOOK_URL`, and `COOKIE` are credentials or sensitive routing values. Verify presence and length only.
 
-```bash
-# Confirm env vars are set on the running container (without printing values).
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
-for v in NOTIFY_ENABLED NOTIFY_MODE LINE_NOTIFY_TOKEN DISCORD_WEBHOOK_URL; do
-  val=$(printenv \"$v\")
-  if [ -z \"$val\" ]; then echo \"$v: MISSING\"; else echo \"$v: SET (${#val} chars)\"; fi
-done"'
+Current notification channels:
+
+- LINE Official Account: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_USER_ID`
+- Discord: `DISCORD_WEBHOOK_URL`
+- LINEJS: `LINEJS_TEST_ENABLED=true` plus target IDs
+
+---
+
+## Fast Triage
+
+Check current settings from the Web UI first:
+
+- Settings -> API & Polling for upstream session values.
+- Settings -> Notifications for LINE OA and Discord.
+- Settings -> LINE Bot for LINEJS QR login and target routing.
+
+Then use the dashboard notification test:
+
+```text
+/notifications -> Preview -> Send Test
 ```
 
-Required state:
+Backend route: `POST /api/notifications/test`
+
+---
+
+## Required State
+
 - `NOTIFY_ENABLED=true`
-- At least one of `LINE_NOTIFY_TOKEN`, `DISCORD_WEBHOOK_URL` SET
-- `NOTIFY_MODE=batch` or `each` (defaults to `batch`)
+- At least one channel configured:
+  - LINE OA token + user/group ID
+  - Discord webhook URL
+  - LINEJS enabled with target ID
+- For rule matches, at least one enabled rule must match a trip.
+- For auto-accept result notifications, `AUTO_ACCEPT_ENABLED=true` and matching rule must have `auto_accept=true`.
 
-## Procedure
+---
 
-### 1. Identify which channel is failing
+## Read-Only Checks
 
-```bash
-docker compose logs --tail=200 app | grep -i "notif\|discord\|line"
-```
-
-**Look for the dispatched URLs and HTTP responses:**
-- `[notifier] discord -> 200` → working
-- `[notifier] discord -> 4xx` → bad webhook URL or rate-limited
-- `[notifier] line -> 401` → token revoked
-- No log line at all → notifier not invoked (check rule matching first via [[Runbook-Auto-Accept-Debug]])
-
-### 2. Test webhooks manually
-
-> [!warning] Run these **inside the container** so the secret never leaves it
-> Do NOT paste the token/URL into your shell history. Use `docker exec` with the env var already inside the container, and **drop verbose output**.
-
-**Discord (status code only, body discarded):**
-```bash
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
-curl -s -o /dev/null -w \"discord HTTP %{http_code}\n\" \
-  -X POST \"$DISCORD_WEBHOOK_URL\" \
-  -H \"Content-Type: application/json\" \
-  -d \"{\\\"content\\\":\\\"test from runbook\\\"}\"
-"'
-# Expected: discord HTTP 204
-```
-
-**LINE Notify (status code only, secret via header file — not argv):**
-```bash
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
-set -eu
-hdr=$(mktemp); chmod 600 \"$hdr\"
-trap \"rm -f \\\"$hdr\\\"\" EXIT INT TERM
-printf \"Authorization: Bearer %s\n\" \"$LINE_NOTIFY_TOKEN\" >> \"$hdr\"
-curl -s -o /dev/null -w \"line HTTP %{http_code}\n\" \
-  -X POST https://notify-api.line.me/api/notify \
-  -H @\"$hdr\" \
-  -d \"message=test from runbook\"
-"'
-# Expected: line HTTP 200
-```
-
-> [!note] Discord webhook pattern is different
-> Discord uses a **secret URL** rather than a bearer header — there's no clean `@file` for URLs. The Discord call above piggybacks on the env var inside the container. Don't paste the URL into your shell. Treat it like a token.
-
-> [!tip] If you must inspect the response body for debugging
-> Pipe through `sed 's/<TOKEN>/<REDACTED>/g'` or write to a `chmod 600` temp file, then delete. **Never** commit or paste in chat.
-
-### 3. Common HTTP error responses
-
-| Service | Code | Meaning | Action |
-|---|---|---|---|
-| Discord | 401 | Webhook revoked | Re-create webhook in Discord channel settings |
-| Discord | 404 | Webhook deleted | Re-create + update `.env` |
-| Discord | 429 | Rate-limited | Switch `NOTIFY_MODE=batch` |
-| LINE | 401 | Token revoked | Re-issue token at notify-bot.line.me |
-| LINE | 400 | Bad request body | Check `notifier.ts` payload format |
-
-### 4. Update env (via Web UI if available)
-
-Same flow as [[Runbook-API-Session-Expired]] § Step 2 — use Settings page to update token/URL, container auto-restarts.
-
-### 5. Verify
-
-```bash
-# Trigger a test notification programmatically
-# (use a low-impact rule or wait for next match)
-docker compose logs -f app | grep -i notif
-```
-
-## Verify (Post-Fix)
-
-- [ ] Test webhook curl returns 200/204
-- [ ] Next rule match produces a real Discord/LINE message
-- [ ] `notifier.ts` logs `dispatched` for the message
-- [ ] Recipients confirm receipt
-
-## NOTIFY_MODE Differences
-
-| Mode | Behavior | When to use |
-|---|---|---|
-| `batch` (default) | One message per poll cycle, listing all matches | Lots of matches, want compact output |
-| `each` | One message per match | Few matches, want detail per booking |
-
-To change → Web UI Settings or edit `.env`, then container auto-restarts.
-
-## Auto-Accept Notification Specifics
-
-When `AUTO_ACCEPT_ENABLED=true`, a second notification is dispatched per auto-accept result. This **does not** depend on `NOTIFY_MODE` and is always per-event.
-
-Check `auto_accept_history` table for what should have been notified:
+Use DB-backed settings when production HTTP/DB mode is active:
 
 ```sql
-SELECT * FROM auto_accept_history ORDER BY id DESC LIMIT 10;
+SELECT setting_key,
+       CASE WHEN setting_value = '' THEN 'MISSING' ELSE CONCAT('SET (', CHAR_LENGTH(setting_value), ' chars)') END AS status
+FROM app_settings
+WHERE setting_key IN (
+  'LINE_CHANNEL_ACCESS_TOKEN',
+  'LINE_USER_ID',
+  'LINEJS_TEST_ENABLED',
+  'LINEJS_TEST_TARGET_ID',
+  'LINEJS_TEST_TARGET_ID_RULE_MATCH',
+  'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS',
+  'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE',
+  'DISCORD_WEBHOOK_URL'
+)
+ORDER BY setting_key;
 ```
 
-## References
+Check rules:
 
-- `src/services/notifier.ts` — Discord embeds + LINE message format
-- `src/services/notify-rules.ts` — rule evaluation
-- Root `AGENTS.md` → Runtime Env → Notification section
+```sql
+SELECT id, name, enabled, fulfilled, auto_accept, auto_accepted, need
+FROM notify_rules
+ORDER BY updated_at DESC
+LIMIT 20;
+```
 
-## Changelog
+Check auto-accept history:
 
-- **2026-05-13** — Initial version.
+```sql
+SELECT rule_name, booking_id, accepted_count, status, created_at
+FROM auto_accept_history
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+---
+
+## Channel-Specific Checks
+
+### Discord
+
+Symptoms:
+
+- HTTP 204 or 200 means webhook accepted the message.
+- HTTP 404 means webhook deleted or wrong URL.
+- HTTP 429 means rate-limited.
+
+Use the dashboard test first so the webhook stays secret in app settings.
+
+### LINE Official Account
+
+Symptoms:
+
+- HTTP 200 means push accepted.
+- HTTP 401 means channel access token invalid/revoked.
+- HTTP 400 often means wrong target ID or payload shape.
+- Quota issues appear through `/line-quota` and dashboard quota UI.
+
+Source: `src/services/notifier.ts`.
+
+### LINEJS
+
+Symptoms:
+
+- QR login required: dashboard shows QR/pincode.
+- E2EE send fails: service falls back to plain text for known E2EE key errors.
+- Missing target ID: notification route cannot pick destination.
+
+Source: `src/services/line-bot.ts`.
+
+---
+
+## Common Causes
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Preview works but test sends nothing | No configured channel | Add LINE OA, Discord, or LINEJS settings. |
+| Discord 404 | Deleted webhook | Create new webhook and update Settings. |
+| Discord 429 | Too many messages | Use `NOTIFY_MODE=batch` or reduce duplicate rules. |
+| LINE OA 401 | Token revoked | Issue new channel access token and update Settings. |
+| LINE OA 400 | Wrong target or payload | Verify `LINE_USER_ID` or group ID. |
+| LINEJS asks for QR | Auth token missing/expired | Use LINE Bot page to scan QR. |
+| Auto-accept result missing | Rule did not match or accept failed | Check [[Runbook-Auto-Accept-Debug]]. |
+
+---
+
+## Notify Mode
+
+| Mode | Behavior |
+|---|---|
+| `batch` | One notification per poll batch of matches. |
+| `each` | One notification per matched trip. |
+
+Auto-accept result notifications are per event and do not depend on `NOTIFY_MODE`.
+
+---
+
+## Related
+
+- [[API-Internal-HTTP]]
+- [[API-SSE-Events]]
+- [[Runbook-Auto-Accept-Debug]]
+- [[Component-Dual-Storage-Notify-Rules]]
+- [[SPX-System-Map]]

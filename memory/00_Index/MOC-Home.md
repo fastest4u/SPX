@@ -35,7 +35,7 @@ cssclasses:
 > 8. [[Memory-Vault-Principles]] - why the vault exists.
 
 > [!tip] Need to do operational work?
-> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Notify-Failure]], [[Runbook-Production-Deploy]].
+> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Production-Schema-Verification]], [[Runbook-Multi-AI-Memory-Acceptance]], [[Runbook-Notify-Failure]], [[Runbook-Production-Deploy]].
 
 ---
 
@@ -144,6 +144,7 @@ SORT file.name ASC
 | If you're asking | Where to look |
 |---|---|
 | How should AI operate on this project? | [[Awakened-AI-System]] |
+| How do I test whether the memory is good enough? | [[Memory-Evaluation-Test]] |
 | How does the whole SPX system work? | [[SPX-System-Map]] |
 | What rules apply to code changes? | [[SPX-Project-Rules]] |
 | What upstream bidding endpoints are used? | [[API-Bidding-Endpoints]] |
@@ -152,7 +153,10 @@ SORT file.name ASC
 | How does the poller coordinate work? | [[Component-Poller-Orchestration]] |
 | How do notify rules choose JSON vs DB? | [[Component-Dual-Storage-Notify-Rules]] |
 | Why was dual storage chosen? | [[ADR-001-Dual-Storage-Notify-Rules]] |
+| Why are dashboard settings DB-backed? | [[ADR-002-DB-Backed-Live-Settings]] |
 | How do I recover an expired SPX session? | [[Runbook-API-Session-Expired]] |
+| How do I check production schema drift? | [[Runbook-Production-Schema-Verification]] |
+| How do I test multiple AI tools against the vault? | [[Runbook-Multi-AI-Memory-Acceptance]] |
 | How should I structure a new note? | `99_Templates/` |
 | What does a term mean? | [[Glossary]] |
 | Useful Dataview queries? | [[Dataview-Queries]] |

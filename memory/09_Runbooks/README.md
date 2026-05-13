@@ -49,9 +49,11 @@ SORT row["last-verified"] DESC
 |---|---|
 | Auto-deploy failed | [[Runbook-Production-Deploy]] |
 | Need to add/change DB column | [[Runbook-DB-Migration]] |
+| Need to check production schema drift | [[Runbook-Production-Schema-Verification]] |
 | Auto-accept not firing for matching rules | [[Runbook-Auto-Accept-Debug]] |
 | Poller logs "session expired" / 401 | [[Runbook-API-Session-Expired]] |
 | Discord/LINE notifications stopped arriving | [[Runbook-Notify-Failure]] |
+| Need to test Claude Code / Cursor / Cascade against the vault | [[Runbook-Multi-AI-Memory-Acceptance]] |
 
 ---
 

@@ -14,19 +14,37 @@ cssclasses:
   - dashboard
 ---
 
-# 📊 Vault Dashboard
+# Vault Dashboard
 
 > [!abstract] Purpose
-> Live health board for the vault. Run through this during **monthly compactor passes** (see [[Context-Rot-Prevention]]).
+> Live health board for Memory Vault maintenance and Awakened AI quality checks.
 
 ---
 
-## 🟢 Overview
+## Automated Checks
+
+Run from repo root:
+
+```bash
+npm run memory:check
+npm run memory:eval
+```
+
+Expected:
+
+- `memory:check` exits 0 with no frontmatter, wikilink, Dataview, freshness, or stale-truth errors.
+- `memory:eval` exits 0 with 100 percent retrieval coverage.
+
+See [[Memory-Evaluation-Test]].
+
+---
+
+## Overview
 
 ### Total notes by type
 
 ```dataview
-TABLE WITHOUT ID 
+TABLE WITHOUT ID
   type AS "Type",
   length(rows) AS "Count"
 FROM ""
@@ -49,7 +67,7 @@ SORT length(rows) DESC
 
 ---
 
-## 📈 Activity
+## Activity
 
 ### Edited in last 7 days
 
@@ -67,7 +85,7 @@ SORT file.mtime DESC
 ```dataview
 TABLE
   agent AS "Agent",
-  duration-minutes AS "Min",
+  row["duration-minutes"] AS "Min",
   outcomes AS "Outcomes"
 FROM "05_Agent_Session_Logs"
 WHERE row["session-date"] >= date(today) - dur(30 days)
@@ -76,9 +94,9 @@ SORT row["session-date"] DESC
 
 ---
 
-## 🚨 Health Alerts
+## Health Alerts
 
-### ⚠️ Stale notes (90+ days, not archived)
+### Stale notes
 
 ```dataview
 TABLE file.mtime AS "Last Edit", status
@@ -89,7 +107,7 @@ WHERE file.mtime < date(today) - dur(90 days)
 SORT file.mtime ASC
 ```
 
-### 🕳️ Orphan notes (no inbound links)
+### Orphan notes
 
 ```dataview
 LIST
@@ -105,16 +123,16 @@ WHERE length(file.inlinks) = 0
 SORT file.name
 ```
 
-### ❌ Missing frontmatter
+### Missing frontmatter
 
 ```dataview
 LIST
 FROM ""
-WHERE !type AND file.name != "Welcome" AND file.ext = "md"
+WHERE !type AND file.ext = "md"
 SORT file.name
 ```
 
-### 🏷️ Notes with no tags
+### Notes with no tags
 
 ```dataview
 LIST
@@ -125,9 +143,38 @@ SORT file.name
 
 ---
 
-## 🔗 Connectivity
+## Truth Maintenance
 
-### Most-linked-to notes (vault hubs)
+### Source-grounded references
+
+```dataview
+TABLE
+  row["last-verified"] AS "Verified",
+  row["verified-by"] AS "By",
+  confidence AS "Confidence",
+  source AS "Source"
+FROM ""
+WHERE type = "reference" OR type = "runbook" OR type = "component"
+SORT row["last-verified"] DESC
+```
+
+### Open mistakes
+
+```dataview
+TABLE
+  severity AS "Severity",
+  area AS "Area",
+  row["occurred-date"] AS "Occurred"
+FROM "08_Mistakes"
+WHERE type = "mistake" AND status = "open"
+SORT row["occurred-date"] DESC
+```
+
+---
+
+## Connectivity
+
+### Most-linked-to notes
 
 ```dataview
 TABLE length(file.inlinks) AS "Inbound"
@@ -137,7 +184,7 @@ SORT length(file.inlinks) DESC
 LIMIT 10
 ```
 
-### Most outgoing links (well-connected sources)
+### Most outgoing links
 
 ```dataview
 TABLE length(file.outlinks) AS "Outbound"
@@ -149,40 +196,9 @@ LIMIT 10
 
 ---
 
-## 🏛️ Architecture Decisions
+## Outstanding Tasks
 
-### All ADRs by status
-
-```dataview
-TABLE
-  status AS "Status",
-  decision-date AS "Decided",
-  supersedes AS "Supersedes",
-  superseded-by AS "Superseded By"
-FROM "04_Architecture_Decisions"
-WHERE type = "adr"
-SORT row["decision-date"] DESC
-```
-
----
-
-## 💡 Insights Library
-
-```dataview
-TABLE
-  confidence AS "Confidence",
-  status AS "Status",
-  length(derived-from) AS "Sources"
-FROM "07_Insights"
-WHERE type = "insight"
-SORT file.name
-```
-
----
-
-## ✅ Outstanding Tasks
-
-### Open tasks across all session logs
+### Open tasks across session logs
 
 ```dataview
 TASK
@@ -202,23 +218,24 @@ GROUP BY file.link
 
 ---
 
-## 📅 Maintenance Checklist
+## Maintenance Checklist
 
-Use this on the **1st of each month**:
-
-- [ ] Review `Stale notes` section above → archive or update.
-- [ ] Review `Orphan notes` → link to MOC or relevant note, or delete.
-- [ ] Review `Missing frontmatter` → fix or remove.
-- [ ] Review `Notes with no tags` → add at least 2 tags.
-- [ ] Read last month's session logs in [[MOC-Home#📝 Agent Session Logs]] → promote recurring insights to `07_Insights/`.
-- [ ] Update [[AGENTS]] if any new pattern emerged.
-- [ ] Write a session log titled `YYYY-MM-DD-Monthly-Compactor.md`.
+- [ ] Run `npm run memory:check`.
+- [ ] Run `npm run memory:eval`.
+- [ ] Review stale notes and update or archive.
+- [ ] Review orphan notes and link them from a hub.
+- [ ] Review open mistake notes.
+- [ ] Promote repeated session insights to `07_Insights/`.
+- [ ] Update [[AGENTS]] if a retrieval pattern changed.
+- [ ] Write a session log for the maintenance pass.
 
 ---
 
 ## Related
 
-- [[MOC-Home]] — navigation hub
-- [[Dataview-Queries]] — query reference
-- [[Context-Rot-Prevention]] — why we maintain
-- [[AGENTS]] — vault rules
+- [[MOC-Home]]
+- [[Dataview-Queries]]
+- [[Context-Rot-Prevention]]
+- [[Memory-Evaluation-Test]]
+- [[Runbook-Multi-AI-Memory-Acceptance]]
+- [[AGENTS]]
