@@ -25,6 +25,10 @@ tags:
   - topic/tooling
   - topic/quality
   - topic/runbooks
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Templater-Linter-Integration]]"
+  - "[[2026-05-13-Vault-Hardening-Pass-2]]"
 ---
 
 # 2026-05-13 — Vault Production Hardening

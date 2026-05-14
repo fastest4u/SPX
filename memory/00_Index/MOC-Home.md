@@ -2,7 +2,7 @@
 title: MOC-Home - Map of Content
 type: moc
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - meta
   - moc
@@ -31,11 +31,13 @@ cssclasses:
 > 4. [[SPX-System-Map]] - source-grounded runtime, data, UI, and memory map.
 > 5. [[Goals]] - long-term goal stack.
 > 6. [[Open-Followups]] - pending tasks across sessions.
-> 7. [[Glossary]] - vocabulary.
-> 8. [[Memory-Vault-Principles]] - why the vault exists.
+> 7. [[Session-Threads]] - grouped session log stories.
+> 8. [[AI-Tool-Profiles]] - setup guide per AI tool.
+> 9. [[Glossary]] - vocabulary.
+> 10. [[Memory-Vault-Principles]] - why the vault exists.
 
 > [!tip] Need to do operational work?
-> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Production-Schema-Verification]], [[Runbook-Production-Alert-Policy]], [[Runbook-Multi-AI-Memory-Acceptance]], [[Runbook-Notify-Failure]], [[Runbook-Deploy-Safety-Checklist]], [[Runbook-Production-Deploy]].
+> Open the runbooks: [[Runbook-API-Session-Expired]], [[Runbook-Auto-Accept-Debug]], [[Runbook-DB-Migration]], [[Runbook-Production-Schema-Verification]], [[Runbook-Production-Alert-Policy]], [[Runbook-Multi-AI-Memory-Acceptance]], [[Runbook-Docs-Drift-Cleanup]], [[Runbook-Notify-Failure]], [[Runbook-Deploy-Safety-Checklist]], [[Runbook-Production-Deploy]].
 
 ---
 
@@ -111,6 +113,7 @@ SORT row["decision-date"] DESC
 ```dataview
 TABLE
   agent AS "Agent",
+  thread AS "Thread",
   row["duration-minutes"] AS "Duration",
   outcomes AS "Outcomes"
 FROM "05_Agent_Session_Logs"
@@ -160,10 +163,14 @@ SORT file.name ASC
 | How do I check production schema drift? | [[Runbook-Production-Schema-Verification]] |
 | What production conditions should alert? | [[Runbook-Production-Alert-Policy]] |
 | How do I test multiple AI tools against the vault? | [[Runbook-Multi-AI-Memory-Acceptance]] |
+| What if docs conflict with source? | [[Runbook-Docs-Drift-Cleanup]] |
 | What must I check before pushing to main? | [[Runbook-Deploy-Safety-Checklist]] |
+| What should I work on next? | Run `/awaken` workflow |
 | How should I structure a new note? | `99_Templates/` |
 | What does a term mean? | [[Glossary]] |
 | Useful Dataview queries? | [[Dataview-Queries]] |
+| Where do I find related sessions? | [[Session-Threads]] |
+| How do I set up a new AI tool? | [[AI-Tool-Profiles]] |
 
 ---
 

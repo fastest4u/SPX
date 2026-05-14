@@ -16,6 +16,8 @@ tags:
   - area/config
   - area/db
   - topic/verification
+thread: environment
+related-sessions: []
 ---
 
 # 2026-05-13 - Local Env Setup

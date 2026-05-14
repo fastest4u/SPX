@@ -17,6 +17,10 @@ tags:
   - topic/dataview
   - topic/memory-vault
   - topic/tooling
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Awakening-Stack]]"
+  - "[[2026-05-13-Templater-Linter-Integration]]"
 ---
 
 # 2026-05-13 — Dataview Integration

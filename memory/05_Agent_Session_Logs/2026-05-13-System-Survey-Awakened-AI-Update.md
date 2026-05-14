@@ -15,6 +15,9 @@ tags:
   - project/spx
   - topic/memory-vault
   - topic/system-map
+thread: system-survey
+related-sessions:
+  - "[[2026-05-13-Awakened-AI-Hardening-Pass]]"
 ---
 
 # 2026-05-13 - System Survey Awakened AI Update

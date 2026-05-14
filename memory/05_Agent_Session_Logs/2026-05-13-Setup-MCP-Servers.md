@@ -17,6 +17,10 @@ tags:
   - topic/mcp
   - topic/tooling
   - topic/memory-vault
+thread: system-survey
+related-sessions:
+  - "[[2026-05-13-Awakened-AI-Hardening-Pass]]"
+  - "[[2026-05-13-Strict-Review-Workflow-Gate]]"
 ---
 
 # 2026-05-13 — Setup MCP Servers + Vault Bootstrap

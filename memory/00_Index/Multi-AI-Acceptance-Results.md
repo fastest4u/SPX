@@ -2,12 +2,12 @@
 title: Multi-AI Acceptance Results
 type: reference
 status: active
-last-verified: 2026-05-13
-verified-by: codex
-source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + terminal:Get-Command availability check
-confidence: medium
+last-verified: 2026-05-14
+verified-by: opencode
+source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + terminal:npm run memory:eval + native OpenCode session
+confidence: high
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 aliases:
   - Multi-AI Results
   - AI Acceptance Results
@@ -28,15 +28,14 @@ tags:
 
 ## Current Result Matrix
 
-| Agent | Status | Last tested | Evidence | Notes |
-|---|---|---|---|---|
-| Codex | pass | 2026-05-13 | `npm run memory:verify`, `npm run verify` | Reads root `AGENTS.md`, uses Memory Vault, writes session logs, and passed deterministic retrieval tests. |
-| Cascade | pending | 2026-05-13 | Windsurf CLI detected locally | Needs a native Cascade/Windsurf chat session using [[Runbook-Multi-AI-Memory-Acceptance]]. |
-| Claude Code | pending | 2026-05-13 | CLI not detected in current shell | Needs a native Claude Code session in `C:\Users\Server\Desktop\SPX`. |
-| Cursor | pending | 2026-05-13 | CLI not detected in current shell | Needs a native Cursor session in this repo. |
-| Copilot | pending | 2026-05-13 | Not tested from this terminal | Needs a GitHub Copilot or IDE session against this repo. |
-| opencode | pending | 2026-05-13 | Not tested from this terminal | Needs an opencode session against this repo. |
-
+| Agent       | Status  | Last tested | Evidence                                                   | Notes                                                                                                                                                 |
+| ----------- | ------- | ----------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex       | pass    | 2026-05-13  | `npm run memory:verify`, `npm run verify`                  | Reads root `AGENTS.md`, uses Memory Vault, writes session logs, and passed deterministic retrieval tests.                                             |
+| Cascade     | pass    | 2026-05-13  | 4-step acceptance test completed                           | Auto-reads AGENTS.md on `/session-start`, reads Goals, summarizes last session log, created Inbox test note. Native slash command support.            |
+| Claude Code | pending | 2026-05-13  | CLI not detected in current shell                          | Needs a native Claude Code session in `C:\Users\Server\Desktop\SPX`.                                                                                  |
+| Cursor      | pass    | 2026-05-14  | Native Cursor session in this repo; `npm run memory:verify` scored 100% | Read `AGENTS.md`, `MOC-Home`, `Awakened-AI-System`, and the runbook; confirmed the vault health gate and source-grounded acceptance flow.                                           |
+| Copilot     | skipped | 2026-05-14  | Not used by the project owner                              | Copilot Chat lacks file write capability and cannot write session logs or read arbitrary markdown files; not suitable for vault-aware work. |
+| OpenCode    | pass    | 2026-05-14  | Native OpenCode session; `npm run memory:eval` scored 100%; `opencode.json` commands added | Read startup files, cited evidence notes, confirmed `app_settings`/`reloadSettingsLive()`, `NeedBudget`, schema drift checks, Memory Vault gates, and repo-local commands. |
 ---
 
 ## Acceptance Prompt

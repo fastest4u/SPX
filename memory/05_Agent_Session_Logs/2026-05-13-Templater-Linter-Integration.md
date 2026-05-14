@@ -15,6 +15,10 @@ tags:
   - session-log
   - topic/tooling
   - topic/memory-vault
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Dataview-Integration]]"
+  - "[[2026-05-13-Vault-Production-Hardening]]"
 ---
 
 # 2026-05-13 — Templater + Linter Integration

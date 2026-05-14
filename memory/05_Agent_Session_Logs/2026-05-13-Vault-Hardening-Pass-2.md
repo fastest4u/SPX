@@ -20,6 +20,10 @@ tags:
   - topic/memory-vault
   - topic/security
   - topic/quality
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Vault-Production-Hardening]]"
+  - "[[2026-05-13-Vault-Hardening-Pass-3]]"
 ---
 
 # 2026-05-13 — Vault Hardening Pass 2

@@ -7,7 +7,6 @@ logs
 notify-rules.json
 
 # Editors / IDEs
-.cursor/
 
 # ─── Obsidian Memory Vault ───────────────────────────────────────────────
 # Strategy: track CONFIG (settings, plugin manifests + data) so a fresh clone

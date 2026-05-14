@@ -3,7 +3,7 @@ title: Runbooks Index — SPX Operational Playbooks
 type: index
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 aliases:
   - Runbooks
   - Playbooks
@@ -55,6 +55,7 @@ SORT row["last-verified"] DESC
 | Poller logs "session expired" / 401 | [[Runbook-API-Session-Expired]] |
 | Discord/LINE notifications stopped arriving | [[Runbook-Notify-Failure]] |
 | Need to test Claude Code / Cursor / Cascade against the vault | [[Runbook-Multi-AI-Memory-Acceptance]] |
+| Docs or env examples conflict with source | [[Runbook-Docs-Drift-Cleanup]] |
 
 ---
 

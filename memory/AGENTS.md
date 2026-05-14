@@ -4,7 +4,7 @@ type: rules
 version: 1.0.0
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - meta
   - agent-rules
@@ -48,8 +48,20 @@ This vault is the **persistent long-term memory** of the developer + AI team for
 > [!success] Cascade users can automate session management
 > - `/session-start` — auto-load vault (AGENTS, recent sessions, ADRs, open follow-ups)
 > - `/session-end` — auto-write session log with proper frontmatter
+> - `/awaken` — AI self-introspection: analyze project state and suggest next steps
+> - `/strict-pr-review-8-category` — strict PR/review/merge gate for production-impacting changes
 >
-> Workflow source: `.windsurf/workflows/session-{start,end}.md`
+> Workflow source: `.windsurf/workflows/session-{start,end}.md`, `.windsurf/workflows/awaken.md`, and `.windsurf/workflows/strict-pr-review-8-category.md`
+
+### OpenCode Slash-Commands (shortcuts)
+
+> [!success] OpenCode users can use repo-local commands from `opencode.json`
+> - `/session-start` — read Memory Vault startup context and summarize current state
+> - `/awaken` — review Awakened AI status, risks, gaps, and next actions
+> - `/session-end` — write the required session log and run the right verification gate
+> - `/memory-verify` — run `npm run memory:verify` and summarize memory health
+>
+> Config source: `opencode.json`. Restart OpenCode after editing this file because config is not hot-reloaded.
 
 ### 🤖 Auto-Log Rule (MANDATORY for all AI)
 
@@ -119,6 +131,16 @@ Run [[.windsurf/workflows/dream.md|dream]]:
 - Monthly (compactor pass)
 - When session-log folder grows beyond ~30 files
 
+Run [[.windsurf/workflows/strict-pr-review-8-category.md|strict-pr-review-8-category]] before:
+- Any user-requested PR, review, or merge workflow
+- Production-impacting commit/push work that changes `src/`, DB schema/migrations, auth/security, auto-accept, notifications, deploy/Docker, or runtime settings/secrets handling
+
+Skip strict PR review for:
+- Pure Q&A
+- Memory-only/docs-only maintenance with no production impact
+- Trivial typo fixes
+- Any step that would commit, push, create a PR, or merge when the user explicitly says not to
+
 ### Confidence is part of frontmatter
 
 For `type: insight` and `type: mistake`, **always** include:
@@ -132,6 +154,32 @@ For session logs and ADRs, include confidence in the **body** when stating non-o
 ```markdown
 > Confidence: medium — based on docs + 1 prior session, not benchmarked.
 ```
+
+### Confidence Log (Session Logs)
+
+Every session log MUST include a **Confidence Log** section tracking claims where stated confidence differed from actual correctness:
+
+```markdown
+## Confidence Log
+
+| Claim / Question | Confidence Stated | Actual Result | Lesson |
+|---|---|---|---|
+| "File contains exact string X" | high | wrong — string format differed | Read file before editing |
+| "No duplicate rows in MOC" | high | wrong — created duplicate | Re-read before claiming uniqueness |
+```
+
+**Why this matters:** Overconfidence is a recurring AI failure mode. Recording it creates a calibration dataset that future agents can use to avoid the same traps.
+
+**When to log:**
+- Claimed `confidence: high` but was wrong
+- Assumed file content without reading
+- Used bash syntax on Windows (or vice versa)
+- Any claim that required correction by the user
+
+**When to skip:**
+- Trivial typos (no confidence claim involved)
+- User explicitly asked to try something risky
+- External API/network failures outside AI control
 
 ### Mistake-Awareness Rule
 
@@ -164,8 +212,10 @@ If you can't answer any of these, **run `/session-start` first**.
 | **Whole-system survey / onboarding** | [[Awakened-AI-System]], [[SPX-System-Map]] | [[API-Internal-HTTP]], [[API-SSE-Events]], [[Component-Poller-Orchestration]] | recent `session-log` with `topic/system-map` or `topic/memory-vault` |
 | **Notify (Discord/LINE)** | `notify-rules` section in [[SPX-Project-Rules]] | Runbook [[Runbook-Notify-Failure]] | `area/notify` in mistakes |
 | **Deploy / Docker / production** | Deploy section in root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]] | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
+| **PR / strict review / production-impacting push** | root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]], [[.windsurf/workflows/strict-pr-review-8-category.md]] | Runbook [[Runbook-Production-Deploy]], [[Memory-Quality-Score]] | `npm run verify`, `git status --short`, matching `08_Mistakes/` entries |
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |
 | **Vault hygiene / memory** | [[AGENTS]] (this file), [[Memory-Vault-Principles]] | [[Vault-Dashboard]] | recent mistakes with `topic/memory-vault` |
+| **Docs / instruction drift** | [[Runbook-Docs-Drift-Cleanup]], [[Source-Grounded-Documentation]] | [[Mistake-002-Stale-Memory-Docs-Overrode-Source]] | stale notification env names, old command summaries, or settings restart claims |
 | **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Memory-Quality-Score]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]], [[Multi-AI-Acceptance-Results]] | `npm run memory:verify` |
 | **Architectural decision** | [[Goals]] active items | Latest ADRs in `04_Architecture_Decisions/` | similar prior ADRs |
 | **Any task** (always) | [[AGENT-IDENTITY]], [[Goals#Active Goals]] | Last 3 entries in `05_Agent_Session_Logs/` | matching `08_Mistakes/` entries |

@@ -18,6 +18,10 @@ tags:
   - topic/memory-vault
   - topic/metacognition
   - topic/awakening
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Move-Vault-Into-SPX]]"
+  - "[[2026-05-13-Dataview-Integration]]"
 ---
 
 # 2026-05-13 — Install Awakening Stack (Level 2/3/4)

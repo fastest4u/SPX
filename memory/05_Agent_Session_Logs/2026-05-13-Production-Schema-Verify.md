@@ -16,6 +16,9 @@ tags:
   - area/db
   - topic/production
   - topic/verification
+thread: verification
+related-sessions:
+  - "[[2026-05-13-Memory-Debt-And-Alert-Policy]]"
 ---
 
 # 2026-05-13 - Production Schema Verify

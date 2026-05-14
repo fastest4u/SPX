@@ -29,17 +29,38 @@ tags:
 
 # <% today %> — <% topic.replace(/-/g, " ") %>
 
-> [!abstract] TL;DR
+> [!abstract] Summary
 > 1–2 sentences. Future-you reads this first.
+
+## Summary
+
+- What changed overall.
+- Why it mattered.
 
 ## Goal
 
 What we set out to do.
 
+## Log
+
+- Step-by-step notes of what happened.
+- Include tests, fixes, and notable observations.
+
 ## What Was Done
 
 - [x] Task 1 → result
 - [ ] Task 2 → carried over
+
+## Verification
+
+- [x] Hook/runtime check passed
+- [x] Relevant local test passed
+- [ ] Memory verify passed
+
+## Follow-ups
+
+- [ ] Follow-up 1
+- [ ] Follow-up 2
 
 ## Files Touched
 
@@ -48,6 +69,16 @@ What we set out to do.
 ## Decisions Made
 
 - Decision 1 — see [[ADR-NNN-...]] *(if formal)*
+
+## Confidence Log
+
+> [!important] Track claims where stated confidence differed from actual correctness.
+> This helps future AI agents calibrate their confidence and avoid overconfidence traps.
+
+| Claim / Question | Confidence Stated | Actual Result | Lesson |
+|---|---|---|---|
+| Example: "MOC-Home has no duplicate entries" | high | wrong — created duplicate row | Always re-read before claiming uniqueness |
+| | | | |
 
 ## Insights / Learnings
 

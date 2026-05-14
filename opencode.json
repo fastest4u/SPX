@@ -1,0 +1,34 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "command": {
+    "session-start": {
+      "description": "Load the SPX Memory Vault startup context and summarize the current project state.",
+      "template": "Run the SPX Memory Vault session-start routine. Do not edit files. Read `memory/AGENTS.md`, `memory/00_Index/MOC-Home.md`, `memory/AGENT-IDENTITY.md`, `memory/00_Index/Goals.md`, and the latest relevant files in `memory/05_Agent_Session_Logs/`. If the user provided a task after this command, use the retrieval table in `memory/AGENTS.md` to read the matching memory slice. Reply in Thai with: current role, active goals, recent context, relevant runbooks or mistake notes, and recommended next steps."
+    },
+    "awaken": {
+      "description": "Inspect Awakened AI memory status, risks, active goals, and best next actions.",
+      "template": "Run the SPX Awakened AI review. Do not edit files unless the user explicitly asks for changes. Read `memory/00_Index/Awakened-AI-System.md`, `memory/01_Project_Rules/SPX-System-Map.md`, `memory/00_Index/Goals.md`, `memory/00_Index/Multi-AI-Acceptance-Results.md`, `memory/00_Index/Memory-Quality-Score.md`, `memory/00_Index/Open-Followups.md`, and recent relevant session logs. Run `npm run memory:score` if command execution is available. Reply in Thai with: memory health, active goals, current risks/gaps, stale or pending follow-ups, and the top 3 recommended next actions."
+    },
+    "session-end": {
+      "description": "Write the required Memory Vault session log and run the right verification gate.",
+      "template": "End this SPX session using the Memory Vault rules. Determine whether meaningful work occurred. If not, say no session log is needed and why. If meaningful work occurred, create `memory/05_Agent_Session_Logs/YYYY-MM-DD-<Topic>.md` using the schema from `memory/99_Templates/Template-Session-Log.md` with agent `opencode`; include TL;DR, Goal, What Was Done, Files Touched, Decisions Made, Confidence Log, Open Issues / Follow-ups, Quality Checks, and References. Update `updated:` fields on any edited active Memory Vault notes if needed. Run `npm run memory:verify` after memory-only changes, or `npm run verify` after code + memory changes unless the user explicitly says not to or prerequisites are unavailable. Do not commit or push unless explicitly asked. Reply in Thai with the session log path, outcomes count, verification result, and any remaining risks."
+    },
+    "memory-verify": {
+      "description": "Run the Memory Vault verification gate and summarize the result.",
+      "template": "Run `npm run memory:verify` from the repository root. Summarize the result in Thai: `memory:check` status, `memory:eval` score, `memory:score`, Multi-AI pass/pending/fail counts, and unchecked follow-up count. If it fails, inspect the reported files and explain the smallest safe fix. Only edit files when the fix is clearly mechanical or the user explicitly asks for fixes."
+    },
+    "self-check": {
+      "description": "AI metacognition — evaluate confidence, mistake-awareness, and goal alignment before/during a task.",
+      "template": "Run the SPX self-check workflow before continuing with the user's task. Do not edit files unless the user explicitly asks. Read `memory/AGENT-IDENTITY.md`, `memory/00_Index/Goals.md`, and scan `memory/08_Mistakes/` for any `area` or `tags` matching the current task. Search `memory/05_Agent_Session_Logs/` for prior related work. Output a self-report in Thai with: task summary, confidence level with reasoning, any past mistakes to avoid with wikilinks, identity alignment check, which active goal this advances, and any prior session log references. Then proceed with the original task unless the user raises a concern."
+    },
+    "multi-perspective": {
+      "description": "Multi-angle self-dialogue — evaluate a proposal from Optimizer, Critic, and Devil's Advocate before committing.",
+      "template": "Run the SPX multi-perspective review for the current proposal or decision. Do not edit files unless the user explicitly asks. Play three roles in Thai: Optimizer (best path forward given constraints), Critic (what could break, what assumptions might be wrong), and Devil's Advocate (strongest argument for NOT doing this, best alternative). End with a Synthesis section that states the chosen path, cites which persona influenced the decision, lists accepted risks, and gives a final confidence level. Only proceed with implementation after the user confirms or gives new direction."
+    },
+    "dream": {
+      "description": "Memory compactor — promote insights from session logs, dedupe, archive stale notes, refresh MOC. Run monthly.",
+      "template": "Run the SPX Memory Vault compactor (/dream). Do not edit files unless the user explicitly asks. Read `memory/00_Index/Vault-Dashboard.md`, the last month of session logs in `memory/05_Agent_Session_Logs/`, `memory/07_Insights/`, `memory/04_Architecture_Decisions/`, and `memory/08_Mistakes/`. Identify recurring insights from 2+ logs, check for duplicate or overlapping notes, verify ADR supersede chains, and refresh `memory/00_Index/Goals.md` if any goals should move to Recently Completed. Report in Thai: insights promoted, notes archived or superseded, duplicates merged, ADR chain fixes, MOC refresh status, and any open follow-ups still unresolved. Write a compactor session log only if the user explicitly asks or if substantial changes were made."
+    }
+  }
+}

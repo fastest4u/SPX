@@ -22,6 +22,10 @@ tags:
   - topic/security
   - topic/git-hygiene
   - topic/api
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Vault-Hardening-Pass-2]]"
+  - "[[2026-05-13-Vault-Completion-100-Percent]]"
 ---
 
 # 2026-05-13 — Vault Hardening Pass 3

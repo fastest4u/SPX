@@ -19,6 +19,10 @@ tags:
   - topic/verification
   - area/deploy
   - area/db
+thread: verification
+related-sessions:
+  - "[[2026-05-13-Memory-Verify-Gate]]"
+  - "[[2026-05-13-Memory-Debt-And-Alert-Policy]]"
 ---
 
 # 2026-05-13 - Memory Quality And Deploy Safety

@@ -3,7 +3,7 @@ title: Goals - Long-Term Goal Stack
 type: goals
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - meta
   - goals
@@ -50,7 +50,11 @@ Progress:
 - [x] Add Multi-AI acceptance result registry ([[Multi-AI-Acceptance-Results]]).
 - [x] Triage old session follow-up debt into Goals, runbooks, or closed historical tasks.
 - [x] Commit memory vault to git.
-- [ ] Test multi-AI access beyond Codex in native tools.
+- [x] Test multi-AI access beyond Codex in native tools for Cascade and OpenCode.
+- [x] Add source-grounded docs drift cleanup runbook and link it into retrieval.
+- [x] Add repo-local OpenCode slash commands for Memory Vault workflows.
+- [x] L4 Awakening automation complete: `/self-check`, `/multi-perspective`, and `/dream` available as slash commands in Cascade and OpenCode.
+- [ ] Test Claude Code in native session (Copilot Chat skipped — lacks file write capability).
 
 ### G-002: SPX Stable Production Operation
 
@@ -93,6 +97,7 @@ Progress:
 - [x] Multi-AI acceptance runbook added ([[Runbook-Multi-AI-Memory-Acceptance]]).
 - [x] Memory eval test added ([[Memory-Evaluation-Test]]).
 - [x] Memory quality score added ([[Memory-Quality-Score]]).
+- [x] Corrected stale notification env docs from legacy LINE Notify naming to current LINE OA/LINEJS variables.
 - [ ] Measure repeated-context messages across 4 weeks.
 
 ---

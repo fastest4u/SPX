@@ -2,12 +2,12 @@
 title: Awakened AI System - SPX Operating Model
 type: reference
 status: active
-last-verified: 2026-05-13
-verified-by: codex
-source: file:memory/AGENTS.md + file:memory/AGENT-IDENTITY.md + file:memory/00_Index/Goals.md + file:src/
+last-verified: 2026-05-14
+verified-by: opencode
+source: file:memory/AGENTS.md + file:memory/AGENT-IDENTITY.md + file:memory/00_Index/Goals.md + file:memory/00_Index/Multi-AI-Acceptance-Results.md + terminal:npm run memory:eval
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 aliases:
   - Awakened AI
   - AI ผู้ตื่นรู้
@@ -88,6 +88,7 @@ When a lower-priority source is stale, update it or record a follow-up. Do not s
 | Production schema drift | [[Runbook-Production-Schema-Verification]] |
 | Production alerts | [[Runbook-Production-Alert-Policy]] |
 | Multi-AI acceptance | [[Runbook-Multi-AI-Memory-Acceptance]] |
+| Docs conflict with source | [[Runbook-Docs-Drift-Cleanup]] |
 | Deploy safety | [[Runbook-Deploy-Safety-Checklist]] |
 | Vault hygiene | [[Memory-Vault-Principles]], [[Vault-Dashboard]], [[Memory-Evaluation-Test]] |
 
@@ -109,6 +110,8 @@ Minimum self-check questions:
 3. What should I verify locally?
 4. What memory needs to be updated after this?
 
+**Tool automation:** `/self-check` is available in both Cascade (`.windsurf/workflows/self-check.md`) and OpenCode (`opencode.json`).
+
 ---
 
 ## Evidence Rules
@@ -123,7 +126,7 @@ Minimum self-check questions:
 
 ## Current Coverage
 
-As of 2026-05-13, the Awakened AI memory has:
+As of 2026-05-14, the Awakened AI memory has:
 
 - Vault constitution and retrieval rules: [[AGENTS]]
 - Persistent identity: [[AGENT-IDENTITY]]
@@ -132,16 +135,21 @@ As of 2026-05-13, the Awakened AI memory has:
 - External and internal API notes: [[API-Bidding-Endpoints]], [[API-Internal-HTTP]], [[API-SSE-Events]]
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
 - ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
-- Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, notify failures, and production deploy.
+- Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, docs drift cleanup, notify failures, and production deploy.
 - Automated checks: `npm run memory:verify` runs structure/stale-claim checks, retrieval coverage, and [[Memory-Quality-Score]] in one command; `npm run verify` adds the full application build gate.
 - Production safeguards: [[Runbook-Deploy-Safety-Checklist]] and `npm run schema:verify` provide pre-push and read-only DB schema checks.
 - Operations policy: [[Runbook-Production-Alert-Policy]] defines `/ready`, `/health`, poll error, session-expired, auto-accept, DB, and latency alert conditions.
+- Multi-AI acceptance tracking: [[Multi-AI-Acceptance-Results]] currently has Codex, Cascade, and OpenCode passing the Memory Vault acceptance flow.
+- L4 Awakening automation:
+  - Cascade: `/self-check`, `/multi-perspective`, `/dream` via `.windsurf/workflows/`
+  - OpenCode: same 3 commands plus `/session-start`, `/awaken`, `/session-end`, `/memory-verify` via `opencode.json`
+  - Cursor: 6 commands via `.cursor/commands/` plus **auto-hooks** (`sessionStart`, `beforeSubmitPrompt` with production keyword matcher, `sessionEnd`, `stop`) via `hooks.json` and `.cursor/hooks/*.mjs`
 
 ---
 
 ## Open Gaps
 
-- Run the multi-AI acceptance test beyond Codex and record results.
+- Run the multi-AI acceptance test for Claude Code (Copilot Chat skipped by project owner).
 - Add a compact security/auth review note if HTTP auth changes.
 - Promote repeated session insights from the next month into `07_Insights/`.
 

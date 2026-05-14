@@ -15,6 +15,9 @@ tags:
   - project/spx
   - topic/memory-vault
   - topic/verification
+thread: verification
+related-sessions:
+  - "[[2026-05-13-Memory-Verify-Gate]]"
 ---
 
 # 2026-05-13 - Full Verify Gate

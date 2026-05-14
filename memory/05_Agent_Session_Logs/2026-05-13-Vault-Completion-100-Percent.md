@@ -19,6 +19,9 @@ tags:
   - topic/memory-vault
   - topic/quality
   - topic/docs
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Vault-Hardening-Pass-3]]"
 ---
 
 # 2026-05-13 — Vault Completion 100 Percent

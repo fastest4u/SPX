@@ -17,6 +17,10 @@ tags:
   - topic/memory-vault
   - topic/monitoring
   - area/ops
+thread: verification
+related-sessions:
+  - "[[2026-05-13-Memory-Quality-And-Deploy-Safety]]"
+  - "[[2026-05-13-Production-Schema-Verify]]"
 ---
 
 # 2026-05-13 - Memory Debt And Alert Policy

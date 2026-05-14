@@ -17,6 +17,9 @@ tags:
   - topic/memory-vault
   - topic/tooling
   - topic/workflows
+thread: vault-bootstrap
+related-sessions:
+  - "[[2026-05-13-Awakening-Stack]]"
 ---
 
 # 2026-05-13 — Move Vault Into SPX + Auto-Log Rule

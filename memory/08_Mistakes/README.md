@@ -32,6 +32,14 @@ aliases:
 > - A tool/library was misused
 > - A convention was violated unintentionally
 > - User had to correct AI's plan
+> - **Confidence was high but the claim was wrong** (always log in session Confidence Log, create Mistake if pattern could recur)
+
+> [!tip] Mistake Escalation Threshold
+> - First occurrence → log in session Confidence Log
+> - Second occurrence (same pattern) → create or update Mistake note
+> - Third occurrence → create Runbook or update ADR if architectural
+> 
+> User explicitly requested: "ทุกครั้งที่ AI ผิด ให้บันทึกทันที" — this means log in Confidence Log always; create Mistake note when the pattern is non-trivial.
 
 > [!failure] Skip these
 > - Simple typos (just fix them)

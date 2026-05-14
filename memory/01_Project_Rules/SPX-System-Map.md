@@ -2,12 +2,12 @@
 title: SPX System Map - Runtime, Data, UI, and Memory
 type: reference
 status: active
-last-verified: 2026-05-13
-verified-by: codex
-source: file:src/app.ts + file:src/controllers/poller.ts + file:src/services/http-server.ts + file:src/services/api-client.ts + file:src/services/notify-rules.ts + file:src/services/notifier.ts + file:src/db/schema.ts
+last-verified: 2026-05-14
+verified-by: opencode
+source: file:src/app.ts + file:src/controllers/poller.ts + file:src/controllers/dashboard-controller.ts + file:src/services/http-server.ts + file:src/services/api-client.ts + file:src/services/notify-rules.ts + file:src/services/notifier.ts + file:src/services/settings.ts + file:src/db/schema.ts
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 aliases:
   - SPX System Map
   - System Map
@@ -48,7 +48,7 @@ Source: `src/app.ts`
 5. If DB-backed features are active, migrate `notify-rules.json` into MySQL when DB has no rules.
 6. If HTTP is enabled, create the configured admin user if missing.
 7. Construct `Poller` and call `poller.start()`.
-8. Register shutdown hooks that call `poller.stop()`.
+8. `Poller.start()` registers shutdown and fatal-error hooks that call `poller.stop()`.
 
 ---
 
@@ -56,7 +56,7 @@ Source: `src/app.ts`
 
 | Flag | Effect |
 |---|---|
-| `FETCH_DETAILS=true` | Fetch booking overview/request list for each booking. |
+| `FETCH_DETAILS=true` | Fetch request-list detail rows for each booking. |
 | `SAVE_TO_DB=true` | Save extracted request rows to `spx_booking_history`. |
 | `NOTIFY_ENABLED=true` | Evaluate rules and send notification channels. |
 | `AUTO_ACCEPT_ENABLED=true` | Accept matching request IDs for enabled auto-accept rules. |
@@ -110,7 +110,7 @@ Source: `src/services/api-client.ts`
 | Request list | `POST /booking/bidding/request/list` |
 | Accept requests | `POST /booking/bidding/accept` |
 
-The client fetches additional pages when API response `total > count`. Retrying uses exponential backoff for transient HTTP/network failures; session retcodes are treated as operator action, not retryable work. See [[API-Bidding-Endpoints]] and [[Component-Retry-With-Backoff]].
+The client fetches additional pages when API response `total > count`. Retrying uses exponential backoff for transient HTTP/network failures; session retcodes are treated as operator action, not retryable work. The booking overview client method still exists, but current poller detail processing uses request-list rows as the active source. See [[API-Bidding-Endpoints]] and [[Component-Retry-With-Backoff]].
 
 ---
 
@@ -121,11 +121,10 @@ Source: `src/controllers/poller.ts`, `src/services/db-service.ts`, `src/services
 For each booking from the list:
 
 1. Fetch request-list rows from `booking/bidding/request/list`.
-2. Optionally fetch booking overview for enrichment.
-3. Extract normalized trip info.
-4. Save rows to DB when enabled.
-5. Evaluate notify rules and auto-accept rules.
-6. Send notification results to Discord, LINE OA, and/or LINEJS.
+2. Extract normalized trip info from request-list rows plus booking-list metadata.
+3. Save rows to DB when enabled.
+4. Evaluate notify rules and auto-accept rules.
+5. Send notification results to Discord, LINE OA, and/or LINEJS.
 
 Important details:
 
@@ -159,12 +158,12 @@ The JSON file can be migrated into DB once when DB has no existing rules. Rule c
 
 ## HTTP and Web UI
 
-Source: `src/services/http-server.ts`, `src/frontend/`
+Source: `src/services/http-server.ts`, `src/controllers/dashboard-controller.ts`, `src/frontend/`
 
 Fastify serves:
 
 - Public auth routes under `/api/login`, `/api/logout`, `/api/refresh`, `/api/me`.
-- Public dashboard health routes: `/health`, `/ready`, `/metrics`, `/events`, `/line-quota`, `/system/pause`, `/system/resume`.
+- Dashboard utility routes: unauthenticated `/health`, `/ready`, `/metrics`, `/metrics/history`, and `/line-quota`; authenticated `/events`, `/system/pause`, and `/system/resume`.
 - Authenticated API scope under `/api/*`.
 - Static React SPA from `dist/`, with catch-all routing for non-API paths.
 
@@ -248,8 +247,9 @@ Notification paths:
 
 Use:
 
-- `npm run memory:check` after Memory Vault edits.
+- `npm run memory:verify` after Memory Vault edits.
 - `npm run memory:eval` after core Memory Vault topology or retrieval changes.
+- `npm run verify` after code plus Memory Vault changes.
 - `npm run build` after code or type changes.
 - `npm run db:generate` after `src/db/migration-sql.ts` changes.
 - `npm run db:migrate` only when you intend to touch a real MySQL target.
@@ -261,6 +261,8 @@ Runbooks:
 - [[Runbook-DB-Migration]]
 - [[Runbook-Production-Schema-Verification]]
 - [[Runbook-Multi-AI-Memory-Acceptance]]
+- [[Runbook-Docs-Drift-Cleanup]]
+- [[Runbook-Production-Alert-Policy]]
 - [[Runbook-Notify-Failure]]
 - [[Runbook-Production-Deploy]]
 

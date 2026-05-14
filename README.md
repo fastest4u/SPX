@@ -121,7 +121,9 @@ npm run flow:start     # migrate + build + start
 | `DB_MODE` | no | mysql | `mysql` or `memory` (SQLite) |
 | `NOTIFY_ENABLED` | no | false | Enable Discord/LINE notifications |
 | `NOTIFY_MODE` | no | batch | `batch` or `each` |
-| `LINE_NOTIFY_TOKEN` | no | — | LINE Notify token |
+| `LINE_CHANNEL_ACCESS_TOKEN` | no | — | LINE OA channel access token |
+| `LINE_USER_ID` | no | — | LINE OA target user ID |
+| `LINEJS_TEST_ENABLED` | no | false | Enable LINEJS QR-login notification channel |
 | `DISCORD_WEBHOOK_URL` | no | — | Discord webhook URL |
 | `AUTO_ACCEPT_ENABLED` | no | false | Auto-accept matching requests |
 | `BIDDING_PAGE_NO` | no | 1 | API page start |

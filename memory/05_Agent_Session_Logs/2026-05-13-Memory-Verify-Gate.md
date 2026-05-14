@@ -14,6 +14,10 @@ tags:
   - session-log
   - project/spx
   - topic/memory-vault
+thread: verification
+related-sessions:
+  - "[[2026-05-13-Full-Verify-Gate]]"
+  - "[[2026-05-13-Memory-Quality-And-Deploy-Safety]]"
 ---
 
 # 2026-05-13 - Memory Verify Gate

@@ -5,13 +5,16 @@ status: stable
 confidence: medium
 derived-from:
   - "[[LeafBox-02-Claude-Code-Updates]]"
+  - "[[2026-05-14-Multi-AI-Acceptance-OpenCode]]"
+  - "[[2026-05-14-OpenCode-Slash-Commands]]"
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - insight
   - topic/agent-orchestration
   - topic/multi-agent
   - topic/claude-code
+  - tooling/opencode
 aliases:
   - Multi-Agent Patterns
 ---
@@ -54,6 +57,10 @@ graph LR
 > [!warning]
 > - Routines need **idempotency** — re-running shouldn't double-post.
 > - Log everything — debugging routines is harder than interactive sessions.
+
+### Tool-Local Command Parity
+
+If a tool supports repo-local commands, encode the same vault ritual there instead of relying only on prose. Cascade uses `.windsurf/workflows/*.md`; OpenCode uses `opencode.json` command templates for `/session-start`, `/awaken`, `/session-end`, and `/memory-verify`. Tools without command support should get the explicit startup prompt from [[AI-Tool-Profiles]].
 
 ---
 
@@ -213,7 +220,7 @@ graph LR
 
 | Pattern | Where it lives |
 |---|---|
-| Routines | `.windsurf/workflows/*.md` (already in SPX repo) |
+| Routines | `.windsurf/workflows/*.md` and `opencode.json` command templates |
 | Outcomes | Future: rubric field in [[Template-Session-Log]] |
 | Multi-agent | This vault's [[AGENTS.md]] = coordinator's brief |
 | Compactor | [[Context-Rot-Prevention]] = our compactor SOP |

@@ -15,6 +15,10 @@ tags:
   - project/spx
   - topic/memory-vault
   - topic/agent-orchestration
+thread: system-survey
+related-sessions:
+  - "[[2026-05-13-System-Survey-Awakened-AI-Update]]"
+  - "[[2026-05-13-Setup-MCP-Servers]]"
 ---
 
 # 2026-05-13 - Awakened AI Hardening Pass

@@ -1,0 +1,23 @@
+---
+description: Persistent guidance for Cursor workflow automation and phase gates
+alwaysApply: true
+---
+
+# Cursor Workflow Guidance
+
+## Session Lifecycle
+- Use `session-start` to load Memory Vault context before meaningful work.
+- Use `session-end` to close out meaningful work with a summary and log.
+
+## Risk Handling
+- Use `self-check` only for risky work such as production, DB schema, auth, secrets, deploys, or multi-file changes.
+- If a task is routine and low risk, do not force a self-check reminder.
+
+## Planning
+- Use `awaken` when the next step is unclear or the task needs ranking.
+- Use `multi-perspective` when there are 2+ plausible options or an ADR-like decision is being made.
+
+## Learning Loop
+- Use `autonomous-learning` to advance the phase-1-to-phase-6 learning loop.
+- Keep workflow outputs grounded in `memory/` and current source files.
+- Prefer concise, source-linked summaries over dumping full file contents.
