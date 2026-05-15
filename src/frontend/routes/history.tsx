@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { createRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { rootRoute } from './__root'
+import { useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { historyApi } from '../lib/api'
+
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -10,11 +10,10 @@ import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Hand, Search, SlidersHorizontal, X, MapPin, Car, Hash } from 'lucide-react'
-import type { BookingHistory } from '../types'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import type { BookingHistory, HistoryFilterQuery } from '../types'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/history',
+export const Route = createFileRoute('/history')({
   component: HistoryComponent,
 })
 
@@ -22,6 +21,7 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
   {
     header: 'Request ID',
     className: 'font-mono text-xs text-cyan-300',
+    sortKey: 'request_id',
     render: (item) => item.requestId,
   },
   {
@@ -48,6 +48,7 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
   },
   {
     header: 'บันทึกเมื่อ',
+    sortKey: 'created_at',
     render: (item) => formatDateTime(item.createdAt),
   },
   {
@@ -55,17 +56,6 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
     render: (item) => <AcceptButton item={item} />,
   },
 ]
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value)
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedValue(value), delayMs)
-    return () => window.clearTimeout(timeout)
-  }, [value, delayMs])
-
-  return debouncedValue
-}
 
 function HistoryComponent() {
   const [searchInput, setSearchInput] = useState('')
@@ -75,20 +65,28 @@ function HistoryComponent() {
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [sortKey, setSortKey] = useState<NonNullable<HistoryFilterQuery['sortBy']>>('created_at')
+  const [sortDir, setSortDir] = useState<NonNullable<HistoryFilterQuery['sortDir']>>('desc')
   const search = useDebouncedValue(searchInput.trim(), 400)
+  const debouncedOrigin = useDebouncedValue(origin.trim(), 300)
+  const debouncedDestination = useDebouncedValue(destination.trim(), 300)
+  const debouncedVehicleType = useDebouncedValue(vehicleType.trim(), 300)
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['history', { search, origin, destination, vehicleType, page, pageSize }],
+    queryKey: ['history', { search, origin: debouncedOrigin, destination: debouncedDestination, vehicleType: debouncedVehicleType, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       historyApi.paginated({
         search: search || undefined,
-        origin: origin || undefined,
-        destination: destination || undefined,
-        vehicleType: vehicleType || undefined,
+        origin: debouncedOrigin || undefined,
+        destination: debouncedDestination || undefined,
+        vehicleType: debouncedVehicleType || undefined,
+        sortBy: sortKey,
+        sortDir,
         page,
         pageSize,
       }),
-    placeholderData: (previousData) => previousData,
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   })
 
   if (isLoading) {
@@ -284,6 +282,15 @@ function HistoryComponent() {
                   }
                 : undefined
             }
+            sorting={{
+              sortKey: sortKey ?? null,
+              sortDir,
+              onSortChange: (nextSortKey, nextSortDir) => {
+                setSortKey((nextSortKey as HistoryFilterQuery['sortBy'] | null) ?? 'created_at')
+                setSortDir(nextSortDir ?? 'desc')
+                setPage(1)
+              },
+            }}
           />
         </CardContent>
       </Card>

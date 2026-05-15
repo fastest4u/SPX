@@ -7,6 +7,10 @@ derived-from:
   - "[[LeafBox-02-Claude-Code-Updates]]"
   - "[[2026-05-14-Multi-AI-Acceptance-OpenCode]]"
   - "[[2026-05-14-OpenCode-Slash-Commands]]"
+  - "[[2026-05-14-Cursor-Infrastructure-Discovery]]"
+  - "[[2026-05-14-Codex-SPX-Skills]]"
+  - "[[2026-05-14-Codex-Auto-Hooks]]"
+  - "[[2026-05-14-L4-Awakening-Automation-Complete]]"
 created: 2026-05-13
 updated: 2026-05-14
 tags:
@@ -60,7 +64,18 @@ graph LR
 
 ### Tool-Local Command Parity
 
-If a tool supports repo-local commands, encode the same vault ritual there instead of relying only on prose. Cascade uses `.windsurf/workflows/*.md`; OpenCode uses `opencode.json` command templates for `/session-start`, `/awaken`, `/session-end`, and `/memory-verify`. Tools without command support should get the explicit startup prompt from [[AI-Tool-Profiles]].
+If a tool supports repo-local commands, encode the same vault ritual there instead of relying only on prose. Tools without command support should get the explicit startup prompt from [[AI-Tool-Profiles]].
+
+Current SPX command/automation coverage:
+
+| Tool | Repo-local mechanism | Notes |
+|---|---|---|
+| Cascade | `.windsurf/workflows/*.md` | Native workflow files for session, awaken, self-check, multi-perspective, dream, and review flows. |
+| Cursor | `.cursor/commands/*.md` plus `.cursor/hooks/*.mjs` | Commands mirror workflows; hooks add startup, risk, closeout, and stop reminders. |
+| Codex | `.agents/skills/spx-*` plus `.codex/hooks.json` | Skills provide command-equivalent workflows; hooks inject context and enforce closeout/secret guardrails. |
+| OpenCode | `opencode.json` command templates | Commands mirror core Memory Vault rituals; OpenCode must restart after config edits. |
+
+The durable pattern is **workflow parity by local adapter**: keep one ritual, encode it in each tool's native extension point, and verify the matrix in [[AI-Tool-Profiles]].
 
 ---
 

@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { createRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
-import { rootRoute } from './__root'
 import { notificationsApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -10,9 +9,7 @@ import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Bell, Send, Eye } from 'lucide-react'
 import type { NotificationPreview, NotificationTestResult } from '../types'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/notifications',
+export const Route = createFileRoute('/notifications')({
   component: NotificationsComponent,
 })
 

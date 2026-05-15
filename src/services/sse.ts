@@ -1,5 +1,6 @@
 import type { ServerResponse } from "node:http";
 import { logger } from "../utils/logger.js";
+import { metrics } from "./metrics.js";
 
 export type SseEvent = {
   event: string;
@@ -37,6 +38,7 @@ class SseBroadcaster {
     }
 
     logger.info("sse-client-connected", { total: this.clients.size });
+    metrics.recordRuntimeState({ sseClients: this.clients.size });
   }
 
   /** Remove a client and clean up if no clients remain */
@@ -48,6 +50,7 @@ class SseBroadcaster {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    metrics.recordRuntimeState({ sseClients: this.clients.size });
   }
 
   /** Broadcast an event to all connected clients */
@@ -105,6 +108,7 @@ class SseBroadcaster {
       try { client.end(); } catch { /* ignore */ }
     }
     this.clients.clear();
+    metrics.recordRuntimeState({ sseClients: 0 });
   }
 
   get clientCount(): number {

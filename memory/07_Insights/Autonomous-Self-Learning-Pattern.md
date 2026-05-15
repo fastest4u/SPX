@@ -5,9 +5,12 @@ status: stable
 created: 2026-05-14
 updated: 2026-05-14
 derived-from:
-  - memory/00_Index/Awakened-AI-System.md
-  - memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md
-  - memory/AGENTS.md
+  - "[[Awakened-AI-System]]"
+  - "[[Runbook-Multi-AI-Memory-Acceptance]]"
+  - "[[AGENTS]]"
+  - "[[2026-05-14-Autonomous-Self-Learning-Phase-1-2]]"
+  - "[[2026-05-14-Codex-Auto-Hooks]]"
+  - "[[2026-05-14-Codex-SPX-Skills]]"
 confidence: medium
 tags:
   - topic/agent-orchestration
@@ -30,3 +33,12 @@ The SPX learning loop becomes more adaptive when it is split into explicit stage
 9. Use evaluation runs to keep the loop honest.
 
 This pattern reduces overconfidence and turns repeated experience into reusable project memory.
+
+## Implementation Pattern
+
+Recent SPX sessions show that autonomous learning works best as **guardrail-assisted human-reviewable automation**, not silent self-modification:
+
+- Hooks and commands should inject context, remind the agent, or block obvious hazards.
+- The agent still performs verification and session logging visibly.
+- Repeated lessons should move from session logs into insights, runbooks, goals, or mistake notes.
+- Draft helpers are safer than hard auto-writes because they reduce re-explanation without hiding changes from the user.

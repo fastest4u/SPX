@@ -1,15 +1,12 @@
 import { useState } from 'react'
-import { createRoute, useNavigate } from '@tanstack/react-router'
-import { rootRoute } from './__root'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Activity, BellRing, Loader2, ShieldCheck } from 'lucide-react'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/login',
+export const Route = createFileRoute('/login')({
   component: LoginComponent,
 })
 

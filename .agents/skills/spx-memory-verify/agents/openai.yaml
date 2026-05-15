@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Memory Verify"
+  short_description: "Run SPX memory health checks"
+  default_prompt: "Use $spx-memory-verify to run the SPX Memory Vault verification gate."

@@ -1,14 +1,11 @@
-import { createRoute } from '@tanstack/react-router'
-import { rootRoute } from './__root'
+import { createFileRoute } from '@tanstack/react-router'
 import { reportsApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { FileBarChart, Download, FileText, Activity } from 'lucide-react'
 import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/reports',
+export const Route = createFileRoute('/reports')({
   component: ReportsComponent,
 })
 

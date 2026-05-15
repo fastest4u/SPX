@@ -3,8 +3,8 @@ title: Multi-AI Acceptance Results
 type: reference
 status: active
 last-verified: 2026-05-14
-verified-by: opencode
-source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + terminal:npm run memory:eval + native OpenCode session
+verified-by: codex
+source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + file:.agents/skills + file:.codex/hooks.json + terminal:npm run memory:eval + native OpenCode session
 confidence: high
 created: 2026-05-13
 updated: 2026-05-14
@@ -30,7 +30,7 @@ tags:
 
 | Agent       | Status  | Last tested | Evidence                                                   | Notes                                                                                                                                                 |
 | ----------- | ------- | ----------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex       | pass    | 2026-05-13  | `npm run memory:verify`, `npm run verify`                  | Reads root `AGENTS.md`, uses Memory Vault, writes session logs, and passed deterministic retrieval tests.                                             |
+| Codex       | pass    | 2026-05-14  | `npm run memory:verify`, `npm run verify`, `.agents/skills`, `.codex/hooks.json` | Reads root `AGENTS.md`, uses Memory Vault, writes session logs, passed deterministic retrieval tests, and now has repo-local SPX skills plus automatic hooks. |
 | Cascade     | pass    | 2026-05-13  | 4-step acceptance test completed                           | Auto-reads AGENTS.md on `/session-start`, reads Goals, summarizes last session log, created Inbox test note. Native slash command support.            |
 | Claude Code | pending | 2026-05-13  | CLI not detected in current shell                          | Needs a native Claude Code session in `C:\Users\Server\Desktop\SPX`.                                                                                  |
 | Cursor      | pass    | 2026-05-14  | Native Cursor session in this repo; `npm run memory:verify` scored 100% | Read `AGENTS.md`, `MOC-Home`, `Awakened-AI-System`, and the runbook; confirmed the vault health gate and source-grounded acceptance flow.                                           |

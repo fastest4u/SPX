@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Strict PR Review"
+  short_description: "8-category code review with auto-fix and merge gate"
+  default_prompt: "Use $spx-strict-pr-review to run strict 8-category code review with P0-P3 severity, auto-fix, and merge gate."

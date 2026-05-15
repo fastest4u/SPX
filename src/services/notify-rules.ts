@@ -57,6 +57,11 @@ export interface RuleTripMatch extends RuleMatch {
   need: number;
 }
 
+export interface RulePreviewResult extends RuleTripMatch {
+  sampleSize: number;
+  wouldMatch: boolean;
+}
+
 const RULES_FILE = resolve(process.cwd(), "notify-rules.json");
 
 // ── Utils ────────────────────────────────────────────────────────────────
@@ -348,6 +353,25 @@ export async function matchRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]
   }
 
   return matches;
+}
+
+export function previewRuleAgainstTrips(input: NotifyRuleInput, trips: TripLike[], sampleLimit = 10): RulePreviewResult {
+  const rule = normalizeRules([{ ...input, id: "preview" }])[0];
+  if (!rule) {
+    return { ruleId: "preview", ruleName: "", matchedCount: 0, trips: [], need: 1, sampleSize: trips.length, wouldMatch: false };
+  }
+
+  const matchedTrips = ruleMatchesTrips(rule, trips);
+  const need = Math.max(1, rule.need);
+  return {
+    ruleId: rule.id,
+    ruleName: rule.name,
+    matchedCount: matchedTrips.length,
+    trips: matchedTrips.slice(0, Math.max(1, sampleLimit)),
+    need,
+    sampleSize: trips.length,
+    wouldMatch: matchedTrips.length >= need,
+  };
 }
 
 export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: NotifyRule[]): RuleTripMatch[] {

@@ -16,8 +16,8 @@ const router = createRouter({ routeTree })
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30 * 1000,
-      refetchOnWindowFocus: true,
+      staleTime: 60 * 1000,
+      refetchOnWindowFocus: false,
       // Never retry auth errors (401) — they should redirect to login
       retry: (failureCount, error) => {
         if (error instanceof AuthError) return false

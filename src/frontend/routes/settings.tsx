@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
-import { createRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { rootRoute } from './__root'
 import { settingsApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -10,9 +9,7 @@ import { toast } from 'sonner'
 import { Save, AlertTriangle, Wifi, Bell, MessageCircle, Gauge, Settings2, ShieldCheck, Database, Clock, KeyRound, Activity, Bot, Lock } from 'lucide-react'
 import { SettingsLineBotSection } from '../components/SettingsLineBotSection'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/settings',
+export const Route = createFileRoute('/settings')({
   component: SettingsComponent,
 })
 
@@ -55,6 +52,7 @@ function SettingsComponent() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
+    staleTime: 5 * 60 * 1000,
   })
 
   useEffect(() => {

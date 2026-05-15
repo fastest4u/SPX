@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Session Start"
+  short_description: "Load SPX memory startup context"
+  default_prompt: "Use $spx-session-start to start an SPX Codex session."

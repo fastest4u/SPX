@@ -3,7 +3,7 @@ title: Goals - Long-Term Goal Stack
 type: goals
 status: active
 created: 2026-05-13
-updated: 2026-05-14
+updated: 2026-05-15
 tags:
   - meta
   - goals
@@ -54,6 +54,8 @@ Progress:
 - [x] Add source-grounded docs drift cleanup runbook and link it into retrieval.
 - [x] Add repo-local OpenCode slash commands for Memory Vault workflows.
 - [x] L4 Awakening automation complete: `/self-check`, `/multi-perspective`, and `/dream` available as slash commands in Cascade and OpenCode.
+- [x] Add repo-local Codex SPX skills as command-equivalent workflows (`$spx-session-start`, `$spx-awaken`, `$spx-self-check`, `$spx-multi-perspective`, `$spx-dream`, `$spx-session-end`, `$spx-memory-verify`).
+- [x] Add repo-local Codex auto-hooks for startup context, risky prompt self-check, dangerous tool blocking, post-edit reminders, and stop-time closeout enforcement.
 - [ ] Test Claude Code in native session (Copilot Chat skipped — lacks file write capability).
 
 ### G-002: SPX Stable Production Operation
@@ -78,6 +80,7 @@ Progress:
 - [x] Deploy safety checklist added ([[Runbook-Deploy-Safety-Checklist]]).
 - [x] Define alerting policy ([[Runbook-Production-Alert-Policy]]).
 - [x] Add deeper metrics dashboard policy for poll latency ([[Runbook-Production-Alert-Policy#Poll Latency High]]).
+- [x] Applied query-health index migration `012_add_query_health_indexes.sql` with `npm run db:migrate` on 2026-05-15.
 
 ### G-003: Reduce Re-Explanation by 80 Percent
 
@@ -98,6 +101,8 @@ Progress:
 - [x] Memory eval test added ([[Memory-Evaluation-Test]]).
 - [x] Memory quality score added ([[Memory-Quality-Score]]).
 - [x] Corrected stale notification env docs from legacy LINE Notify naming to current LINE OA/LINEJS variables.
+- [x] Added Codex repo-local skills so SPX workflows can be invoked without re-explaining startup/session/memory procedures.
+- [x] Added Codex repo-local hooks so SPX startup, self-check, safety, and closeout reminders are automatic in Codex sessions.
 - [ ] Measure repeated-context messages across 4 weeks.
 
 ---
@@ -109,6 +114,7 @@ Progress:
 - Status: active
 - Cadence: 1st of each month
 - Next run: 2026-06-01
+- Last run: 2026-05-14 (threshold `/dream` pass because session logs exceeded 30 files)
 - Owner: AI + Human review
 
 Outcomes to verify:
@@ -176,6 +182,38 @@ Progress:
 
 - [ ] Add local pre-push hook for `npm run verify` if the workflow tolerates slower pushes.
 - [ ] Add GitHub Action for `npm run verify` if PR/branch workflow becomes active.
+
+### G-008: Lightweight Performance and Operator UX Roadmap
+
+- Status: in-progress
+- Started: 2026-05-14
+- Why: Make SPX feel faster and help operators act sooner without adding heavy UI frameworks.
+- Trigger: User asks to improve frontend/backend speed, dashboard usability, polling latency, or operator workflow.
+- Source evidence: `src/controllers/poller.ts`, `src/services/api-client.ts`, `src/services/metrics.ts`, `src/services/sse.ts`, `src/frontend/lib/api.ts`, `src/frontend/components/DataTable.tsx`, `src/frontend/components/layout/AppLayout.tsx`, and [[SPX-System-Map]].
+
+Recommended sequence:
+
+1. Measure first: add timing metrics for poll list, detail fetch, DB save, notify, auto-accept, active detail jobs, queue pressure, and SSE client count.
+2. Backend speed: add batch `INSERT IGNORE` history saves, detail-job backpressure, bounded request-list page concurrency, and safer CSV streaming before data grows.
+3. Database/query health: review history/audit/auto-accept filters and add source-aligned indexes only where real query patterns prove value.
+4. Frontend speed: tune TanStack Query `staleTime` and `refetchOnWindowFocus` per page, make DataTable sorting server-side when paginated, replace `window.location.href` quick search navigation with router navigation, and consider route-level code splitting.
+5. Operator UX: add Live Action Queue, Health Center, Rule dry-run/preview, and Unified Timeline using existing Tailwind + Radix/shadcn-style custom components.
+6. Bundle/runtime polish: enable route-level code splitting and keep initial dashboard bundle under Vite's default warning threshold without adding heavy dependencies.
+
+Progress:
+
+- [x] Phase 1 measurement started: added operation timing metrics for detail fetch, DB save, notify, and auto-accept; added active detail jobs/bookings, queued detail bookings, queue pressure, and SSE client count to live metrics; surfaced pipeline telemetry in the dashboard and CSV metrics report.
+- [x] Phase 2 backend speed slice: added batch `INSERT IGNORE` booking history saves, bounded request-list page concurrency, detail-job backpressure, and streaming CSV responses without changing database schema.
+- [x] Phase 3 query health slice: fixed auto-accept history filter application, added source-aligned audit/auto-accept indexes with an idempotent migration, regenerated baseline migration, and updated schema verification expectations.
+- [x] Phase 4 frontend speed slice: tuned TanStack Query freshness, used previous-data placeholders for paginated routes, moved paginated table sorting to server-backed query params, debounced filter inputs, and replaced quick search full-page reload with router navigation.
+- [x] Phase 5 operator UX slice: kept existing Health Center and Live Action Queue, then added rule dry-run preview against recent booking history plus a Unified Timeline on the dashboard.
+- [x] Phase 6 bundle/runtime polish: enabled TanStack Router route-level code splitting with `autoCodeSplitting`, converted route files to `createFileRoute`, and reduced the main frontend chunk from about 633 kB to about 427 kB with route chunks emitted separately.
+
+Guardrails:
+
+- Do not add MUI, AntD, Chakra, or other heavy UI libraries.
+- Continue the existing lightweight stack: Tailwind CSS v4, Radix primitives, lucide-react, TanStack Router/Query, and local `components/ui`.
+- Verify code changes with `npm run typecheck`, `npm run build`, and `npm run verify`; run `npm run db:generate` and `npm run schema:verify` when schema/index changes are intentional.
 
 ---
 

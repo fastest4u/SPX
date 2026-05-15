@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Multi Perspective"
+  short_description: "Compare options before decisions"
+  default_prompt: "Use $spx-multi-perspective to evaluate SPX technical options."

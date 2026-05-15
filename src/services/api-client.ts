@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import type {
   AcceptBookingRequest,
   AcceptBookingResponse,
@@ -13,6 +14,7 @@ import type {
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
+const REQUEST_LIST_PAGE_CONCURRENCY = 5;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -293,27 +295,31 @@ export class ApiClient {
       extraPages: pageNumbers.length,
     });
 
-    const pageResults = await Promise.all(pageNumbers.map(async (pageNo) => {
-      try {
-        const response = await this.fetchBiddingListPage(pageNo);
-        if (!response.ok) {
-          logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
+    const pageResults = await mapWithConcurrency(
+      pageNumbers,
+      REQUEST_LIST_PAGE_CONCURRENCY,
+      async (pageNo) => {
+        try {
+          const response = await this.fetchBiddingListPage(pageNo);
+          if (!response.ok) {
+            logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
+            return null;
+          }
+
+          const data: unknown = await response.json();
+          const page = normalizeApiResponse(data);
+          if (!page) {
+            logger.warn("bidding-list-page-unexpected-shape", { pageNo });
+            return null;
+          }
+
+          return page;
+        } catch (err) {
+          logger.warn("bidding-list-page-error", { pageNo, error: err instanceof Error ? err.message : String(err) });
           return null;
         }
-
-        const data: unknown = await response.json();
-        const page = normalizeApiResponse(data);
-        if (!page) {
-          logger.warn("bidding-list-page-unexpected-shape", { pageNo });
-          return null;
-        }
-
-        return page;
-      } catch (err) {
-        logger.warn("bidding-list-page-error", { pageNo, error: err instanceof Error ? err.message : String(err) });
-        return null;
       }
-    }));
+    );
 
     const allList = [...firstList];
     for (const page of pageResults) {
@@ -362,8 +368,10 @@ export class ApiClient {
     for (let p = 2; p <= totalPages; p++) pageNumbers.push(p);
 
     if (pageNumbers.length > 0) {
-      const pages = await Promise.all(
-        pageNumbers.map((p) => this.fetchBookingRequestListPage(bookingId, p))
+      const pages = await mapWithConcurrency(
+        pageNumbers,
+        REQUEST_LIST_PAGE_CONCURRENCY,
+        (p) => this.fetchBookingRequestListPage(bookingId, p)
       );
       for (const page of pages) {
         if (page && page.data.request_list.length > 0) {

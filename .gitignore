@@ -3,7 +3,9 @@ node_modules
 dist
 data
 logs
-.agents
+.agents/*
+!.agents/skills/
+!.agents/skills/**
 notify-rules.json
 
 # Editors / IDEs

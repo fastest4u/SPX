@@ -240,6 +240,10 @@ async function createDashboardTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
 
+  await ensureMysqlIndex(pool, "audit_logs", "audit_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_created_at_idx (created_at)");
+  await ensureMysqlIndex(pool, "audit_logs", "audit_username_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_username_created_at_idx (username, created_at)");
+  await ensureMysqlIndex(pool, "audit_logs", "audit_action_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_action_created_at_idx (action, created_at)");
+
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS notify_rules (
       id VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -272,9 +276,12 @@ async function createDashboardTables(): Promise<void> {
       error_message VARCHAR(1000) NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY aah_created_at_idx (created_at),
-      KEY aah_rule_id_idx (rule_id)
+      KEY aah_rule_id_idx (rule_id),
+      KEY aah_status_created_at_idx (status, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_status_created_at_idx (status, created_at)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
@@ -296,4 +303,14 @@ async function createDashboardTables(): Promise<void> {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+}
+
+async function ensureMysqlIndex(pool: Pool, tableName: string, indexName: string, ddl: string): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT 1 FROM information_schema.STATISTICS WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1",
+    [tableName, indexName]
+  );
+  if ((rows as unknown[]).length === 0) {
+    await pool.query(ddl);
+  }
 }

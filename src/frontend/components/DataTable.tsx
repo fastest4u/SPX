@@ -31,6 +31,11 @@ export interface DataTableProps<T> {
   renderMobile?: (item: T) => ReactNode
   className?: string
   pagination?: PaginationState
+  sorting?: {
+    sortKey: string | null
+    sortDir: SortDirection
+    onSortChange: (sortKey: string | null, sortDir: SortDirection) => void
+  }
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -62,25 +67,37 @@ export function DataTable<T>({
   renderMobile,
   className,
   pagination,
+  sorting,
 }: DataTableProps<T>) {
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<SortDirection>(null)
+  const [localSortKey, setLocalSortKey] = useState<string | null>(null)
+  const [localSortDir, setLocalSortDir] = useState<SortDirection>(null)
+  const sortKey = sorting?.sortKey ?? localSortKey
+  const sortDir = sorting?.sortDir ?? localSortDir
 
   const handleSort = (key: string) => {
+    let nextSortKey: string | null = key
+    let nextSortDir: SortDirection = 'asc'
+
     if (sortKey === key) {
       if (sortDir === 'asc') {
-        setSortDir('desc')
+        nextSortDir = 'desc'
       } else if (sortDir === 'desc') {
-        setSortKey(null)
-        setSortDir(null)
+        nextSortKey = null
+        nextSortDir = null
       }
-    } else {
-      setSortKey(key)
-      setSortDir('asc')
     }
+
+    if (sorting) {
+      sorting.onSortChange(nextSortKey, nextSortDir)
+      return
+    }
+
+    setLocalSortKey(nextSortKey)
+    setLocalSortDir(nextSortDir)
   }
 
   const data = useMemo(() => {
+    if (sorting) return rawData
     if (!sortKey || !sortDir) return rawData
     const col = columns.find(c => c.sortKey === sortKey || c.header === sortKey)
     return [...rawData].sort((a, b) => {
@@ -89,7 +106,7 @@ export function DataTable<T>({
       const cmp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' })
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rawData, sortKey, sortDir, columns])
+  }, [rawData, sortKey, sortDir, columns, sorting])
 
   if (data.length === 0) {
     return (
@@ -121,7 +138,7 @@ export function DataTable<T>({
               {columns.map((col) => {
                 const columnSortKey = col.sortKey || col.header
                 const isSorted = sortKey === columnSortKey
-                const isSortable = col.sortable !== false && Boolean(col.sortKey || col.header)
+                const isSortable = col.sortable !== false && (sorting ? Boolean(col.sortKey) : Boolean(col.sortKey || col.header))
                 return (
                   <th
                     key={col.header}

@@ -3,7 +3,7 @@ title: Session Threads - Session Log Navigation
 type: reference
 status: active
 last-verified: 2026-05-14
-verified-by: opencode
+verified-by: cascade
 source: file:memory/05_Agent_Session_Logs/
 confidence: high
 created: 2026-05-13
@@ -84,7 +84,7 @@ aliases:
 
 ### Thread 5: Memory Hardening & Tooling
 
-> Follow-up memory improvements after OpenCode adoption: native-tool acceptance, docs drift cleanup, and command parity.
+> Follow-up memory improvements after OpenCode adoption: native-tool acceptance, docs drift cleanup, command parity, and compactor hygiene.
 
 | # | Session | Agent | Focus |
 |---|---|---|---|
@@ -92,6 +92,8 @@ aliases:
 | 2 | [[2026-05-14-Awakened-AI-Memory-Enhancement]] | opencode | Docs drift runbook, strict review visibility, env docs cleanup |
 | 3 | [[2026-05-14-OpenCode-Slash-Commands]] | opencode | Repo-local OpenCode slash commands |
 | 4 | [[2026-05-14-Memory-Compactor-Followup-Cleanup]] | opencode | Follow-up debt cleanup, source-map refresh, insight promotion |
+| 5 | [[2026-05-14-Mistake-ID-Deduplication]] | cascade | Mistake ID collision cleanup |
+| 6 | [[2026-05-14-Dream-Compactor-Threshold-Pass]] | cascade | Threshold `/dream` compactor pass |
 
 ---
 

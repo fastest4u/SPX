@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Awaken"
+  short_description: "Assess SPX state and next actions"
+  default_prompt: "Use $spx-awaken to assess SPX memory state and next actions."

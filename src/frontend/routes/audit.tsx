@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { createRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { rootRoute } from './__root'
+import { createFileRoute } from '@tanstack/react-router'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { auditApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -10,11 +9,10 @@ import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Search } from 'lucide-react'
-import type { AuditLog } from '../types'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import type { AuditLog, AuditQuery } from '../types'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/audit',
+export const Route = createFileRoute('/audit')({
   component: AuditComponent,
 })
 
@@ -29,6 +27,7 @@ function UserBadge({ username }: { username: string }) {
 const AUDIT_COLUMNS: DataTableColumn<AuditLog>[] = [
   {
     header: 'ID',
+    sortKey: 'id',
     render: (log) => <span className="text-muted-foreground">{log.id}</span>,
   },
   {
@@ -49,6 +48,7 @@ const AUDIT_COLUMNS: DataTableColumn<AuditLog>[] = [
   },
   {
     header: 'เวลา',
+    sortKey: 'created_at',
     render: (log) => <span className="text-muted-foreground">{formatDateTime(log.createdAt)}</span>,
   },
 ]
@@ -59,17 +59,26 @@ function AuditComponent() {
   const [action, setAction] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [sortKey, setSortKey] = useState<NonNullable<AuditQuery['sortBy']>>('created_at')
+  const [sortDir, setSortDir] = useState<NonNullable<AuditQuery['sortDir']>>('desc')
+  const debouncedSearch = useDebouncedValue(search.trim(), 400)
+  const debouncedUsername = useDebouncedValue(username.trim(), 300)
+  const debouncedAction = useDebouncedValue(action.trim(), 300)
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['audit', { search, username, action, page, pageSize }],
+    queryKey: ['audit', { search: debouncedSearch, username: debouncedUsername, action: debouncedAction, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       auditApi.paginated({
-        search: search || undefined,
-        username: username || undefined,
-        action: action || undefined,
+        search: debouncedSearch || undefined,
+        username: debouncedUsername || undefined,
+        action: debouncedAction || undefined,
+        sortBy: sortKey,
+        sortDir,
         page,
         pageSize,
       }),
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   })
 
   if (isLoading) {
@@ -112,7 +121,7 @@ function AuditComponent() {
                   id="audit-search"
                   placeholder={'ค้นหารายละเอียด'}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                 />
               </div>
               <div className="space-y-2">
@@ -121,7 +130,7 @@ function AuditComponent() {
                   id="audit-username"
                   placeholder={'ผู้ใช้'}
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => { setUsername(e.target.value); setPage(1) }}
                 />
               </div>
               <div className="space-y-2">
@@ -130,7 +139,7 @@ function AuditComponent() {
                   id="audit-action"
                   placeholder={'แอคชัน'}
                   value={action}
-                  onChange={(e) => setAction(e.target.value)}
+                  onChange={(e) => { setAction(e.target.value); setPage(1) }}
                 />
               </div>
               <div className="flex items-end">
@@ -166,6 +175,15 @@ function AuditComponent() {
                   }
                 : undefined
             }
+            sorting={{
+              sortKey,
+              sortDir,
+              onSortChange: (nextSortKey, nextSortDir) => {
+                setSortKey((nextSortKey as AuditQuery['sortBy'] | null) ?? 'created_at')
+                setSortDir(nextSortDir ?? 'desc')
+                setPage(1)
+              },
+            }}
           />
         </CardContent>
       </Card>

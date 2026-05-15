@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Session End"
+  short_description: "Write SPX session log and verify"
+  default_prompt: "Use $spx-session-end to close a meaningful SPX work session."

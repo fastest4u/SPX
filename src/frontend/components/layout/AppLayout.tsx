@@ -1,4 +1,4 @@
-import { Outlet, Link, useRouterState } from '@tanstack/react-router'
+import { Outlet, Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { AuthUser } from '../../types'
 import { cn } from '../../lib/utils'
 import {
@@ -53,6 +53,7 @@ const pageLabels: Record<string, string> = {
 }
 
 export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
+  const navigate = useNavigate()
   const routerState = useRouterState()
   const currentPath = routerState.location.pathname
   const [collapsed, setCollapsed] = useState(false)
@@ -355,7 +356,8 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
                           i.label.toLowerCase().includes((e.target as HTMLInputElement).value.toLowerCase())
                         )
                         if (match) {
-                          window.location.href = match.path
+                          setSearchOpen(false)
+                          void navigate({ to: match.path })
                         }
                       }
                     }}

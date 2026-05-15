@@ -1,8 +1,7 @@
-import { createRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { rootRoute } from './__root'
 import { usersApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -40,9 +39,7 @@ function getRoleBadge(role: string) {
   )
 }
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/users',
+export const Route = createFileRoute('/users')({
   component: UsersComponent,
 })
 
@@ -52,6 +49,7 @@ function UsersComponent() {
   const { data: users = [], isLoading, isError, error } = useQuery({
     queryKey: ['users'],
     queryFn: usersApi.list,
+    staleTime: 5 * 60 * 1000,
   })
 
   if (isLoading) {
