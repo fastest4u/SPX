@@ -30,7 +30,7 @@ const defaultFormData: RuleInput = {
   vehicle_types: [],
   need: 1,
   enabled: true,
-  auto_accept: false,
+  auto_accept: true,
 }
 
 export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) {
@@ -77,6 +77,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       ...formData,
       origins: splitCsv(originsText),
       destinations: splitCsv(destinationsText),
+      auto_accept: true,
     })
   }
 
@@ -96,7 +97,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
               <div>
                 <DialogTitle className="text-white">เพิ่มรายการค้นหาใหม่</DialogTitle>
                 <DialogDescription>
-                  สร้าง rule สำหรับค้นหาและแจ้งเตือนงานอัตโนมัติ
+                  สร้าง rule สำหรับค้นหาและรับงานอัตโนมัติ
                 </DialogDescription>
               </div>
             </div>
@@ -179,18 +180,6 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
               </Label>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="create-auto-accept"
-                checked={formData.auto_accept ?? false}
-                onChange={e => setFormData(prev => ({ ...prev, auto_accept: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
-              />
-              <Label htmlFor="create-auto-accept" className="cursor-pointer">
-                รับงานอัตโนมัติเมื่อ match
-              </Label>
-            </div>
           </div>
 
           <DialogFooter className="gap-2">

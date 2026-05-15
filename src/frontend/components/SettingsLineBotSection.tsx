@@ -69,7 +69,6 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
     isMaskedValue(value) ? `ตั้งค่าไว้แล้ว (${shortTarget(value)})` : `ตั้งค่าเอง (${shortTarget(value)})`
 
   const routingRows = [
-    { key: 'LINEJS_TEST_TARGET_ID_RULE_MATCH', label: 'Rule match', desc: 'LINEJS → LINE OA fallback', color: '#06C755' },
     { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS', label: 'Auto-accept สำเร็จ', desc: 'LINEJS → LINE OA fallback', color: '#3b82f6' },
     { key: 'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE', label: 'Auto-accept ล้มเหลว', desc: 'LINEJS → LINE OA fallback', color: '#f43f5e' },
   ] as const

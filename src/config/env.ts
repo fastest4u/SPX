@@ -110,7 +110,6 @@ export const env = {
   LINE_USER_ID: process.env.LINE_USER_ID || "",
   LINEJS_TEST_ENABLED: process.env.LINEJS_TEST_ENABLED === "true",
   LINEJS_TEST_TARGET_ID: process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
-  LINEJS_TEST_TARGET_ID_RULE_MATCH: process.env.LINEJS_TEST_TARGET_ID_RULE_MATCH || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
   LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
   LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
   LINEJS_TEST_DEVICE: process.env.LINEJS_TEST_DEVICE || "IOSIPAD",
@@ -173,19 +172,16 @@ export function validateRuntimeConfig(): void {
     if (!isPositiveInteger(env.DB_PORT) || env.DB_PORT > 65535) invalid.push("DB_PORT must be an integer from 1 to 65535");
   }
 
-  if (env.NOTIFY_ENABLED) {
-    if (!env.LINE_CHANNEL_ACCESS_TOKEN && !env.DISCORD_WEBHOOK_URL && !env.LINEJS_TEST_ENABLED) invalid.push("NOTIFY_ENABLED=true but neither LINE_CHANNEL_ACCESS_TOKEN, DISCORD_WEBHOOK_URL, nor LINEJS_TEST_ENABLED is set");
-    if (env.LINE_CHANNEL_ACCESS_TOKEN && !env.LINE_USER_ID) invalid.push("LINE_CHANNEL_ACCESS_TOKEN is set but LINE_USER_ID is not");
-    if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
-    if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
-  }
+  if (env.LINE_CHANNEL_ACCESS_TOKEN && !env.LINE_USER_ID) invalid.push("LINE_CHANNEL_ACCESS_TOKEN is set but LINE_USER_ID is not");
+  if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
+  if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
 
   if (env.LINEJS_TEST_ENABLED) {
     if (!env.LINEJS_TEST_DEVICE.trim()) invalid.push("LINEJS_TEST_DEVICE must not be empty");
     if (!env.LINEJS_TEST_STORAGE_PATH.trim()) invalid.push("LINEJS_TEST_STORAGE_PATH must not be empty");
   }
 
-  if (env.NOTIFY_ENABLED && env.LINEJS_TEST_ENABLED && !env.LINEJS_TEST_TARGET_ID) {
+  if (env.LINEJS_TEST_ENABLED && !env.LINEJS_TEST_TARGET_ID) {
     // Not fatal — target can be set later via UI or .env
     console.warn("⚠ LINEJS_TEST_TARGET_ID is empty; LINE Bot notifications won't work until it is set");
   }

@@ -1,30 +1,21 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { rulesApi, metricsApi, lineApi, historyApi, auditApi, autoAcceptHistoryApi } from '../lib/api'
+import { rulesApi, metricsApi, lineApi } from '../lib/api'
 import { useSse } from '../hooks/useSse'
-import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Skeleton, SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
-import { Sparkline } from '../components/Sparkline'
-import { Activity, AlertTriangle, CheckCircle2, Clock, Database, Eye, FileText, Gauge, PauseCircle, Plus, Radio, Search, ShieldCheck, SignalHigh, Target, Truck, WifiOff, MessageSquare, Zap } from 'lucide-react'
-import { formatDuration } from '../lib/utils'
-import { useEffect, useState, useMemo } from 'react'
+import { AlertTriangle, Eye, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff, MessageSquare } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import type { AuditLog, AutoAcceptHistoryItem, BookingHistory, NotifyRule, MetricsHistoryRow, TimingSummary, MetricsSnapshot, LineQuota } from '../types'
+import type { NotifyRule, TimingSummary } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
 import { useMutation } from '@tanstack/react-query'
-
-const SPARKLINE_COLORS = {
-  success: '#86efac',
-  latency: '#7dd3fc',
-  trips: '#e8c76a',
-}
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -32,8 +23,6 @@ export const Route = createFileRoute('/')({
 
 function DashboardComponent() {
   const queryClient = useQueryClient()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<NotifyRule | null>(null)
   const [deletingRule, setDeletingRule] = useState<NotifyRule | null>(null)
@@ -51,36 +40,10 @@ function DashboardComponent() {
     staleTime: 5 * 1000,
   })
 
-  const { data: historyData } = useQuery({
-    queryKey: ['metrics-history'],
-    queryFn: () => metricsApi.history(),
-    staleTime: 5 * 60 * 1000,
-  })
-
   const { data: lineQuota } = useQuery({
     queryKey: ['line-quota'],
     queryFn: lineApi.quota,
     refetchInterval: 60_000,
-    staleTime: 60_000,
-  })
-
-  const { data: recentHistory = [] } = useQuery({
-    queryKey: ['history', 'timeline'],
-    queryFn: () => historyApi.list({ limit: 5, sortBy: 'created_at', sortDir: 'desc' }),
-    staleTime: 60_000,
-  })
-
-  const { data: recentAudit = [] } = useQuery({
-    queryKey: ['audit', 'timeline'],
-    queryFn: () => auditApi.list({ limit: 5, sortBy: 'created_at', sortDir: 'desc' }),
-    enabled: isAdmin,
-    staleTime: 60_000,
-  })
-
-  const { data: recentAutoAccept = [] } = useQuery({
-    queryKey: ['autoAcceptHistory', 'timeline'],
-    queryFn: () => autoAcceptHistoryApi.list({ limit: 5, sortBy: 'created_at', sortDir: 'desc' }),
-    enabled: isAdmin,
     staleTime: 60_000,
   })
 
@@ -113,28 +76,11 @@ function DashboardComponent() {
     })
   }, [sessionAlertTimestamp])
 
-  const { activeRules, fulfilledRules, disabledRules } = rules.reduce(
-    (acc, r) => {
-      if (r.enabled && !r.fulfilled) acc.activeRules++
-      else if (r.fulfilled) acc.fulfilledRules++
-      else if (!r.enabled) acc.disabledRules++
-      return acc
-    },
-    { activeRules: 0, fulfilledRules: 0, disabledRules: 0 }
-  )
+  const activeRules = rules.filter((r) => r.enabled && !r.fulfilled).length
 
   const quotaPercent = lineQuota?.limit
     ? Math.min(100, (lineQuota.totalUsage / lineQuota.limit) * 100)
     : 0
-
-  const sparklineData = useMemo(() => {
-    const rows: MetricsHistoryRow[] = Array.isArray(historyData) ? historyData : []
-    return {
-      success: rows.map((r: MetricsHistoryRow) => r.successRate ?? 0),
-      latency: rows.map((r: MetricsHistoryRow) => Math.min(r.latencyP95, 5000)),
-      trips: rows.map((r: MetricsHistoryRow) => r.requestCount ?? 0),
-    }
-  }, [historyData])
 
   if (rulesLoading) {
     return (
@@ -199,22 +145,6 @@ function DashboardComponent() {
         </div>
       ) : null}
 
-      {/* Stats Grid with Sparklines */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <MiniStat label="Active" value={activeRules} color="cyan" />
-        <MiniStat label="Fulfilled" value={fulfilledRules} color="emerald" />
-        <MiniStat label="Disabled" value={disabledRules} color="slate" />
-        <MiniStat label="Success Rate" value={`${metrics?.polling?.successRate || 0}%`} color="emerald" sparkline={sparklineData.success} sparklineColor={SPARKLINE_COLORS.success} />
-        <MiniStat label="P95 Latency" value={`${metrics?.polling?.latency?.p95 || 0}ms`} color="cyan" sparkline={sparklineData.latency} sparklineColor={SPARKLINE_COLORS.latency} />
-        <MiniStat label="Uptime" value={formatDuration(metrics?.uptime || 0)} color="blue" />
-      </div>
-
-      {/* Health Center + Live Action Queue */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <HealthCenter metrics={metrics} lineQuota={lineQuota} rules={rules} />
-        <LiveActionQueue metrics={metrics} rules={rules} hasSessionExpired={hasSessionExpired} />
-      </div>
-
       <Card className="glass border-white/10">
         <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -240,14 +170,6 @@ function DashboardComponent() {
           </div>
         </CardContent>
       </Card>
-
-      <UnifiedTimeline
-        metrics={metrics}
-        history={recentHistory}
-        auditLogs={recentAudit}
-        autoAcceptHistory={recentAutoAccept}
-        isAdmin={isAdmin}
-      />
 
       {/* Rules Section */}
       <Card className="glass border-white/10">
@@ -313,312 +235,10 @@ function DashboardComponent() {
   )
 }
 
-function HealthCenter({ metrics, lineQuota, rules }: {
-  metrics: MetricsSnapshot | null | undefined
-  lineQuota: LineQuota | null | undefined
-  rules: NotifyRule[]
-}) {
-  const checks = useMemo(() => {
-    const items: { label: string; status: 'ok' | 'warning' | 'critical'; icon: typeof CheckCircle2 }[] = []
-
-    const sessionOk = metrics?.lastPoll?.status !== 'session_expired'
-    items.push({
-      label: sessionOk ? 'SPX Session' : 'SPX Session หมดอายุ',
-      status: sessionOk ? 'ok' : 'critical',
-      icon: sessionOk ? CheckCircle2 : AlertTriangle,
-    })
-
-    const pollingOk = metrics && !metrics.isPaused && metrics.lastPoll?.status !== 'error'
-    items.push({
-      label: pollingOk ? 'Polling' : metrics?.isPaused ? 'Polling paused' : 'Polling error',
-      status: pollingOk ? 'ok' : metrics?.isPaused ? 'warning' : 'critical',
-      icon: pollingOk ? CheckCircle2 : AlertTriangle,
-    })
-
-    const pool = metrics?.database
-    const dbOk = !pool || (pool.queuedRequests === 0 && pool.acquiredConnections < pool.connectionLimit)
-    items.push({
-      label: dbOk ? 'Database pool' : 'DB pool pressured',
-      status: dbOk ? 'ok' : 'warning',
-      icon: dbOk ? CheckCircle2 : Database,
-    })
-
-    const pressure = metrics?.runtime?.detailQueuePressure ?? 0
-    const queueOk = pressure < 100
-    items.push({
-      label: queueOk ? 'Detail queue' : `Queue pressure ${pressure}%`,
-      status: queueOk ? 'ok' : pressure >= 150 ? 'critical' : 'warning',
-      icon: queueOk ? CheckCircle2 : Gauge,
-    })
-
-    const lineOk = !lineQuota?.limit || lineQuota.totalUsage < lineQuota.limit
-    items.push({
-      label: lineOk ? 'LINE Quota' : 'LINE Quota near limit',
-      status: lineOk ? 'ok' : 'warning',
-      icon: lineOk ? CheckCircle2 : MessageSquare,
-    })
-
-    const autoAcceptRules = rules.filter((r) => r.enabled && !r.fulfilled && r.auto_accept).length
-    items.push({
-      label: autoAcceptRules > 0 ? `${autoAcceptRules} auto-accept active` : 'No auto-accept rules',
-      status: autoAcceptRules > 0 ? 'ok' : 'warning',
-      icon: autoAcceptRules > 0 ? CheckCircle2 : ShieldCheck,
-    })
-
-    return items
-  }, [metrics, lineQuota, rules])
-
-  const okCount = checks.filter((c) => c.status === 'ok').length
-  const overall = okCount === checks.length ? 'ok' : okCount >= checks.length - 2 ? 'warning' : 'critical'
-
-  return (
-    <Card className="glass border-white/10">
-      <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-cyan-300" />
-          <CardTitle className="text-base text-white">Health Center</CardTitle>
-        </div>
-        <Badge variant={overall === 'ok' ? 'emerald' : overall === 'warning' ? 'amber' : 'rose'}>
-          {overall === 'ok' ? 'Healthy' : overall === 'warning' ? 'Degraded' : 'Critical'}
-        </Badge>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-2">
-          {checks.map((c) => (
-            <div key={c.label} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-              <c.icon className={`h-4 w-4 shrink-0 ${c.status === 'ok' ? 'text-emerald-300' : c.status === 'warning' ? 'text-amber-300' : 'text-rose-300'}`} />
-              <span className="flex-1 text-sm text-slate-200">{c.label}</span>
-              <span className={`text-[0.65rem] font-bold uppercase tracking-[0.12em] ${c.status === 'ok' ? 'text-emerald-300' : c.status === 'warning' ? 'text-amber-300' : 'text-rose-300'}`}>
-                {c.status === 'ok' ? 'OK' : c.status === 'warning' ? 'WARN' : 'CRIT'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function LiveActionQueue({ metrics, rules, hasSessionExpired }: {
-  metrics: MetricsSnapshot | null | undefined
-  rules: NotifyRule[]
-  hasSessionExpired: boolean
-}) {
-  const items = useMemo(() => {
-    const queue: { label: string; action: string; to: string; variant: 'rose' | 'amber' | 'cyan' }[] = []
-
-    if (hasSessionExpired) {
-      queue.push({ label: 'SPX session หมดอายุ', action: 'อัปเดต COOKIE', to: '/settings', variant: 'rose' })
-    }
-
-    if (metrics?.isPaused) {
-      queue.push({ label: 'Poller หยุดอยู่', action: 'Resume polling', to: '/settings', variant: 'amber' })
-    }
-
-    const pressure = metrics?.runtime?.detailQueuePressure ?? 0
-    if (pressure >= 100) {
-      queue.push({ label: `Queue pressure ${pressure}%`, action: 'รอเคลียร์', to: '/history', variant: 'amber' })
-    }
-
-    const failed = metrics?.autoAccept?.failureCount ?? 0
-    if (failed > 0) {
-      queue.push({ label: `Auto-accept failed ${failed} ครั้ง`, action: 'ตรวจสอบ', to: '/auto-accept-history', variant: 'amber' })
-    }
-
-    const fulfilledRules = rules.filter((r) => r.fulfilled)
-    if (fulfilledRules.length > 0) {
-      queue.push({ label: `${fulfilledRules.length} rule ครบจำนวนแล้ว`, action: 'ตรวจสอบ rule', to: '/history', variant: 'cyan' })
-    }
-
-    const activeRules = rules.filter((r) => r.enabled && !r.fulfilled)
-    if (activeRules.length === 0 && rules.length > 0) {
-      queue.push({ label: 'ไม่มี rule ที่เปิดอยู่', action: 'เปิด rule', to: '/', variant: 'cyan' })
-    }
-
-    return queue
-  }, [metrics, rules, hasSessionExpired])
-
-  return (
-    <Card className="glass border-white/10">
-      <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Zap className="h-4 w-4 text-amber-300" />
-          <CardTitle className="text-base text-white">Live Action Queue</CardTitle>
-        </div>
-        <Badge variant={items.length > 0 ? 'amber' : 'emerald'}>
-          {items.length > 0 ? `${items.length} pending` : 'All clear'}
-        </Badge>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {items.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-white/10 bg-white/[0.03] py-8 text-muted-foreground">
-            <ShieldCheck className="h-8 w-8 text-emerald-300 opacity-50" />
-            <p className="text-sm">ไม่มี action ที่ต้องทำตอนนี้</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <Link
-                key={item.label}
-                to={item.to}
-                className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 transition-colors hover:bg-white/[0.06]"
-              >
-                <span className="flex-1 text-sm text-slate-200">{item.label}</span>
-                <span className={`text-[0.65rem] font-bold uppercase tracking-[0.12em] ${item.variant === 'rose' ? 'text-rose-300' : item.variant === 'amber' ? 'text-amber-300' : 'text-cyan-300'}`}>
-                  {item.action}
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-type TimelineTone = 'cyan' | 'emerald' | 'amber' | 'rose' | 'slate'
-
-interface TimelineItem {
-  key: string
-  timeMs: number
-  title: string
-  detail: string
-  tone: TimelineTone
-  icon: typeof Clock
-}
-
-function parseTimeMs(value: string | null | undefined) {
-  if (!value) return 0
-  const time = new Date(value).getTime()
-  return Number.isFinite(time) ? time : 0
-}
-
-function formatTimelineTime(timeMs: number) {
-  if (!timeMs) return 'n/a'
-  return new Intl.DateTimeFormat('th-TH', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timeMs))
-}
-
-function timelineToneClasses(tone: TimelineTone) {
-  return {
-    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200',
-    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200',
-    amber: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
-    rose: 'border-rose-300/20 bg-rose-300/10 text-rose-200',
-    slate: 'border-slate-300/20 bg-slate-300/10 text-slate-200',
-  }[tone]
-}
-
-function UnifiedTimeline({ metrics, history, auditLogs, autoAcceptHistory, isAdmin }: {
-  metrics: MetricsSnapshot | null | undefined
-  history: BookingHistory[]
-  auditLogs: AuditLog[]
-  autoAcceptHistory: AutoAcceptHistoryItem[]
-  isAdmin: boolean
-}) {
-  const items = useMemo<TimelineItem[]>(() => {
-    const timeline: TimelineItem[] = []
-
-    if (metrics?.lastPoll?.timestamp) {
-      const status = metrics.lastPoll.status || 'unknown'
-      timeline.push({
-        key: 'poll-last',
-        timeMs: parseTimeMs(metrics.lastPoll.timestamp),
-        title: `Poll ${status}`,
-        detail: `${metrics.lastPoll.latencyMs ?? 0}ms · ${metrics.lastPoll.recordCount ?? 0} records`,
-        tone: status === 'session_expired' ? 'rose' : status === 'error' ? 'amber' : 'emerald',
-        icon: Radio,
-      })
-    }
-
-    for (const row of history.slice(0, 5)) {
-      timeline.push({
-        key: `history-${row.requestId}`,
-        timeMs: parseTimeMs(row.createdAt),
-        title: row.bookingName || row.route || `Request ${row.requestId}`,
-        detail: `${row.origin || '—'} -> ${row.destination || '—'} · ${row.vehicleType || '—'}`,
-        tone: 'cyan',
-        icon: Truck,
-      })
-    }
-
-    for (const row of autoAcceptHistory.slice(0, 5)) {
-      timeline.push({
-        key: `auto-${row.id}`,
-        timeMs: parseTimeMs(row.createdAt),
-        title: `${row.status === 'success' ? 'Auto accepted' : 'Auto accept failed'} · ${row.ruleName}`,
-        detail: `${row.acceptedCount} accepted · ${row.origin || '—'} -> ${row.destination || '—'}`,
-        tone: row.status === 'success' ? 'emerald' : 'rose',
-        icon: Target,
-      })
-    }
-
-    for (const row of auditLogs.slice(0, 5)) {
-      timeline.push({
-        key: `audit-${row.id}`,
-        timeMs: parseTimeMs(row.createdAt),
-        title: row.action,
-        detail: `${row.username}${row.details ? ` · ${row.details}` : ''}`,
-        tone: 'slate',
-        icon: FileText,
-      })
-    }
-
-    return timeline.sort((a, b) => b.timeMs - a.timeMs).slice(0, 8)
-  }, [auditLogs, autoAcceptHistory, history, metrics])
-
-  return (
-    <Card className="glass border-white/10">
-      <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2 text-base text-white">
-            <Clock className="h-4 w-4 text-cyan-300" />
-            Unified Timeline
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">รวม poll ล่าสุด, งานเข้า, auto-accept และ audit ในจุดเดียว</p>
-        </div>
-        <Badge variant={isAdmin ? 'cyan' : 'slate'}>{isAdmin ? 'Admin view' : 'Operator view'}</Badge>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {items.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-5 text-sm text-muted-foreground">
-            ยังไม่มี timeline event ให้แสดง
-          </div>
-        ) : (
-          <div className="relative space-y-2 before:absolute before:left-5 before:top-3 before:h-[calc(100%-1.5rem)] before:w-px before:bg-white/10">
-            {items.map((item) => (
-              <div key={item.key} className="relative flex gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.035] p-3">
-                <div className={`z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${timelineToneClasses(item.tone)}`}>
-                  <item.icon className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="truncate text-sm font-bold text-white">{item.title}</div>
-                    <Badge variant={item.tone === 'rose' ? 'rose' : item.tone === 'amber' ? 'amber' : item.tone === 'emerald' ? 'emerald' : item.tone === 'cyan' ? 'cyan' : 'slate'}>
-                      {formatTimelineTime(item.timeMs)}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.detail}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function MiniStat({ label, value, color, sparkline, sparklineColor }: {
+function MiniStat({ label, value, color }: {
   label: string
   value: string | number
   color: 'cyan' | 'emerald' | 'slate' | 'amber' | 'blue'
-  sparkline?: number[]
-  sparklineColor?: string
 }) {
   const colorClasses: Record<string, string> = {
     cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-300',
@@ -632,9 +252,6 @@ function MiniStat({ label, value, color, sparkline, sparklineColor }: {
     <div className={`rounded-xl border px-3 py-2.5 ${colorClasses[color]}`}>
       <div className="flex items-center justify-between gap-1">
         <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60">{label}</div>
-        {sparkline && sparkline.length > 0 && (
-          <Sparkline data={sparkline} width={48} height={20} color={sparklineColor} />
-        )}
       </div>
       <div className="text-lg font-black tracking-tight font-mono">{value}</div>
     </div>

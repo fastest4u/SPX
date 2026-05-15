@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
-import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, markRulesFulfilled, applyAutoAcceptProgress, type NotifyRule, type RuleMatch, type RuleTripMatch, type TripLike } from "./notify-rules.js";
+import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, applyAutoAcceptProgress, type NotifyRule, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
 import { isLineBotEnabled, sendNotification as sendLineBotNotification, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
@@ -24,10 +24,6 @@ function hasNotificationTarget(): boolean {
   return Boolean(env.LINE_CHANNEL_ACCESS_TOKEN || env.DISCORD_WEBHOOK_URL || isLineBotEnabled());
 }
 
-function dedupeRuleIds(matches: Array<{ ruleId: string }>): string[] {
-  return [...new Set(matches.map((match) => match.ruleId))];
-}
-
 function textValue(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "-";
 }
@@ -35,35 +31,6 @@ function textValue(value: unknown): string {
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength - 3)}...`;
-}
-
-function buildNotificationMessage(matches: RuleMatch[], trips: TripLike[], forceTest: boolean): string {
-  if (forceTest && matches.length === 0) {
-    return "Test notification from SPX Bidding Poller.";
-  }
-
-  const primaryMatch = matches[0];
-  const sampleTrip = trips[0];
-  const matchedCount = matches.reduce((sum, match) => sum + match.matchedCount, 0);
-
-  const sampleLines = sampleTrip
-    ? [
-        `request_id: ${typeof sampleTrip.request_id === "number" ? sampleTrip.request_id : "-"}`,
-        `เส้นทาง: ${textValue(sampleTrip.origin ?? sampleTrip["ต้นทาง"])} → ${textValue(sampleTrip.destination ?? sampleTrip["ปลายทาง"])}`,
-        `ประเภทรถ: ${textValue(sampleTrip.vehicle_type ?? sampleTrip["ประเภทรถ"])}`,
-      ]
-    : ["- none"];
-
-  return [
-    "SPX แจ้งเตือนงานที่ตรงเงื่อนไข",
-    `พบ ${matchedCount} งานที่ตรง rule`,
-    "",
-    "Matched rule",
-    primaryMatch ? primaryMatch.ruleName : "- none",
-    "",
-    "ตัวอย่างงานที่ match",
-    ...sampleLines,
-  ].join("\n");
 }
 
 async function sendDiscordNotification(title: string, message: string): Promise<void> {
@@ -221,42 +188,7 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
     return { matches, sent: false, dryRun: true };
   }
 
-  if (!env.NOTIFY_ENABLED && !options?.forceTest) {
-    return { matches, sent: false, skipped: true };
-  }
-
-  if (matches.length === 0 && !options?.forceTest) {
-    return { matches, sent: false };
-  }
-
-  try {
-    const forceTest = Boolean(options?.forceTest);
-    const title = forceTest ? "SPX Notification Test" : "SPX แจ้งเตือนงานที่ตรงเงื่อนไข";
-    logger.info("notification-sending", { matches: matches.length, forceTest: !!options?.forceTest });
-
-    const notifyGroupMid = env.LINEJS_TEST_TARGET_ID_RULE_MATCH || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
-    const matchLines = matches.map((m) => `• ${m.ruleName} (${m.matchedCount} รายการ)`);
-    const notifyAlertText = [
-      `🔔 ${title}`,
-      `เวลา: ${new Date().toLocaleString("th-TH")}`,
-      "",
-      ...matchLines,
-    ].join("\n");
-
-    const sent = await sendLineJsThenOa(title, notifyAlertText, {
-      lineJsTarget: notifyGroupMid,
-      logPrefix: "rule-match-alert",
-    });
-
-    if (sent && !forceTest) {
-      await markRulesFulfilled(dedupeRuleIds(matches));
-    }
-
-    return { matches, sent };
-  } catch (error) {
-    logger.error("notification-failed", error instanceof Error ? error : new Error(String(error)));
-    return { matches, sent: false, error: true };
-  }
+  return { matches, sent: false, skipped: true, disabled: true };
 }
 
 // ── Auto-accept + Notify flow ──────────────────────────────────────────

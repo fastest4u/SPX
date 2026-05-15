@@ -62,13 +62,12 @@ Backend route: `POST /api/notifications/test`
 
 ## Required State
 
-- `NOTIFY_ENABLED=true`
 - At least one channel configured:
   - LINE OA token + user/group ID
   - Discord webhook URL
   - LINEJS enabled with target ID
-- For rule matches, at least one enabled rule must match a trip.
-- For auto-accept result notifications, `AUTO_ACCEPT_ENABLED=true` and matching rule must have `auto_accept=true`.
+- Rule-match-only job notifications are disabled in current source.
+- For auto-accept result notifications, `AUTO_ACCEPT_ENABLED=true` and a matching enabled rule is required.
 
 ---
 
@@ -85,7 +84,6 @@ WHERE setting_key IN (
   'LINE_USER_ID',
   'LINEJS_TEST_ENABLED',
   'LINEJS_TEST_TARGET_ID',
-  'LINEJS_TEST_TARGET_ID_RULE_MATCH',
   'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS',
   'LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE',
   'DISCORD_WEBHOOK_URL'

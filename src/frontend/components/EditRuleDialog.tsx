@@ -49,7 +49,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
         vehicle_types: rule.vehicle_types,
         need: rule.need,
         enabled: rule.enabled,
-        auto_accept: rule.auto_accept,
+        auto_accept: true,
       })
       setOriginsText(rule.origins.join(', '))
       setDestinationsText(rule.destinations.join(', '))
@@ -84,6 +84,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
       ...formData,
       origins: splitCsv(originsText),
       destinations: splitCsv(destinationsText),
+      auto_accept: true,
     })
   }
 
@@ -184,19 +185,6 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
               />
               <Label htmlFor="enabled" className="cursor-pointer">
                 เปิดใช้งานรายการนี้
-              </Label>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="auto_accept"
-                checked={formData.auto_accept ?? rule.auto_accept}
-                onChange={e => setFormData(prev => ({ ...prev, auto_accept: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
-              />
-              <Label htmlFor="auto_accept" className="cursor-pointer">
-                รับงานอัตโนมัติเมื่อ match
               </Label>
             </div>
 
