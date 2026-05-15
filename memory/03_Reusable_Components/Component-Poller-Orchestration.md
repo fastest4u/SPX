@@ -26,7 +26,7 @@ tags:
 # Component - Poller Orchestration
 
 > [!abstract] Purpose
-> The `Poller` class coordinates periodic SPX API polling, detail fetching, DB writes, notifications, auto-accept, metrics, SSE, HTTP lifecycle, and graceful shutdown.
+> The `Poller` class coordinates periodic SPX API polling, detail fetching, DB writes, auto-accept, result alerts, metrics, SSE, HTTP lifecycle, and graceful shutdown.
 
 ---
 
@@ -56,7 +56,7 @@ Source: `src/controllers/poller.ts`
 | Detail jobs | Fetches request list and optional overview per booking. |
 | Concurrency | Bounded `mapWithConcurrency` using `BOOKING_DETAIL_CONCURRENCY`. |
 | Persistence | Calls `saveBookingRequest()` when `SAVE_TO_DB=true`. |
-| Notify | Calls notifier rule matching when enabled. |
+| Alerts | Sends auto-accept success/failure and session-expiry alerts through notifier channels. |
 | Auto-accept | Uses rule matching and `NeedBudget` before accept calls. |
 | Metrics | Records latency, status, data counts, auto-accept results. |
 | SSE | Broadcasts metrics, rules, and session-expired events. |
@@ -93,7 +93,6 @@ Detail processing is active when any of these features are enabled:
 
 - `FETCH_DETAILS`
 - `SAVE_TO_DB`
-- `NOTIFY_ENABLED`
 - `AUTO_ACCEPT_ENABLED`
 
 The poller:
@@ -103,8 +102,8 @@ The poller:
 3. Optionally fetches overview for enriched fields.
 4. Extracts normalized trip info.
 5. Saves to DB if enabled.
-6. Applies auto-accept before normal notifications when needed.
-7. Sends remaining notifications.
+6. Applies auto-accept for enabled rules when `AUTO_ACCEPT_ENABLED=true`.
+7. Sends only auto-accept success/failure alerts; normal rule-match-only notifications are disabled.
 
 Auto-accept can use a fast/deferred split so likely matching origins are processed earlier.
 
@@ -114,7 +113,7 @@ Auto-accept can use a fast/deferred split so likely matching origins are process
 
 Source: `src/services/notifier.ts` and `src/controllers/poller.ts`
 
-- Only enabled rules with `auto_accept=true` are candidates.
+- Enabled, unfulfilled rules with `need > 0` are candidates; `auto_accept` is retained for schema/API compatibility and normalized true for enabled rules.
 - Auto-accept works on upstream `request_id` values from `booking/bidding/request/list`.
 - `NeedBudget` tracks how many requests each rule can still accept during the current poll cycle.
 - Requests already accepted in memory are deduped by request key.

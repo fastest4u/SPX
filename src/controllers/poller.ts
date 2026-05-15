@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { saveBookingRequests } from "../services/db-service.js";
-import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters } from "../services/notify-rules.js";
@@ -82,7 +82,6 @@ export class Poller {
     const features: string[] = [];
     if (env.FETCH_DETAILS) features.push("FETCH_DETAILS");
     if (env.SAVE_TO_DB) features.push("SAVE_TO_DB");
-    if (env.NOTIFY_ENABLED) features.push(`NOTIFY(${env.NOTIFY_MODE})`);
     if (env.HTTP_ENABLED) features.push(`HTTP(:${env.HTTP_PORT})`);
     if (env.AUTO_ACCEPT_ENABLED) features.push("AUTO_ACCEPT");
     if (features.length > 0 && !env.HTTP_ENABLED) {
@@ -189,7 +188,7 @@ export class Poller {
       logger.info("poll-summary", summary);
     }
 
-    if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.NOTIFY_ENABLED || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
+    if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
       this.scheduleBookingDetails(result.data.data.list);
     }
   }
@@ -224,7 +223,6 @@ export class Poller {
     let fastLaneBookings = [...bookings];
     let deferredBookings: Booking[] = [];
 
-    const acceptedRequestIds = new Set<number>();
     let autoAcceptRules: NotifyRule[] = [];
 
     if (env.AUTO_ACCEPT_ENABLED) {
@@ -252,15 +250,12 @@ export class Poller {
       if (autoAcceptRules.length === 0) return;
 
       const startedAt = Date.now();
-      const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+      await acceptAndNotifyMatchedRules(trips, this.apiClient, {
         autoAcceptRules,
         deferSideEffects: true,
         needBudget,
       }).finally(() => {
         metrics.recordOperation("autoAccept", Date.now() - startedAt);
-      });
-      autoResult.accepted.forEach((a) => {
-        if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
       });
     };
 
@@ -365,15 +360,7 @@ export class Poller {
       await Promise.allSettled(autoAcceptTasks);
     }
 
-    if (env.NOTIFY_ENABLED && allTrips.length > 0) {
-      const remainingTrips = allTrips.filter((trip) => !acceptedRequestIds.has(trip.request_id));
-      if (remainingTrips.length > 0) {
-        const startedAt = Date.now();
-        await notifyMatchedRules(remainingTrips).finally(() => {
-          metrics.recordOperation("notify", Date.now() - startedAt);
-        });
-      }
-    }
+    // Normal rule-match notifications are intentionally disabled; enabled rules auto-accept instead.
   }
 
   async stop(exitCode = 0): Promise<void> {

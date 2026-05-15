@@ -114,7 +114,7 @@ The client fetches additional pages when API response `total > count`. Retrying 
 
 ---
 
-## Detail, Save, Notify, Auto-Accept
+## Detail, Save, Auto-Accept
 
 Source: `src/controllers/poller.ts`, `src/services/db-service.ts`, `src/services/notifier.ts`
 
@@ -123,8 +123,8 @@ For each booking from the list:
 1. Fetch request-list rows from `booking/bidding/request/list`.
 2. Extract normalized trip info from request-list rows plus booking-list metadata.
 3. Save rows to DB when enabled.
-4. Evaluate notify rules and auto-accept rules.
-5. Send notification results to Discord, LINE OA, and/or LINEJS.
+4. Evaluate enabled rules for auto-accept when `AUTO_ACCEPT_ENABLED=true`.
+5. Send auto-accept success/failure and session-expiry alerts to Discord, LINE OA, and/or LINEJS.
 
 Important details:
 
@@ -133,6 +133,7 @@ Important details:
 - Auto-accept uses `NeedBudget` to keep each rule from over-accepting within the same tick.
 - Accept calls are grouped by booking and use a reduced retry budget because the endpoint mutates upstream state.
 - Auto-accept results are recorded in `auto_accept_history`.
+- Normal rule-match-only job notifications are disabled; enabled rules are auto-accept candidates.
 
 ---
 
@@ -236,7 +237,7 @@ Channels:
 
 Notification paths:
 
-- Rule matches can send batch or per-match messages.
+- Rule-match-only job notifications are disabled; enabled rules auto-accept instead.
 - Auto-accept success/failure messages can use separate LINEJS targets.
 - Session expiry alerts are throttled and also broadcast over SSE.
 - LINE quota lookup is cached for 60 seconds.

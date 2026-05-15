@@ -27,6 +27,7 @@ tags:
 
 > [!abstract] Purpose
 > `notify-rules.ts` supports local JSON rules in development and MySQL-backed rules in production, while exposing the same async API to the rest of the app.
+> Current runtime policy: enabled rules are auto-accept candidates; rule-match-only notifications are disabled.
 
 ---
 
@@ -96,6 +97,8 @@ type NotifyRule = {
   auto_accepted: boolean;
 };
 ```
+
+`auto_accept` remains in the shape for schema/API compatibility, but enabled rules are normalized and evaluated as auto-accept rules. The UI no longer exposes a separate "notify only" mode.
 
 DB serialization:
 

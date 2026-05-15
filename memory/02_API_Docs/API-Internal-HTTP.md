@@ -99,6 +99,7 @@ Prefix: `/api/rules`
 | `DELETE` | `/api/rules/:id` | Delete a rule. |
 
 Body fields: `name`, `origins`, `destinations`, `vehicle_types`, `need`, `enabled`, `fulfilled`, `auto_accept`, `auto_accepted`.
+`auto_accept` remains accepted for compatibility; current source treats enabled rules as auto-accept candidates and no longer supports rule-match-only job notifications.
 
 Source: `src/controllers/rules-controller.ts`
 

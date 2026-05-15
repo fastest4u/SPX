@@ -24,8 +24,8 @@ tags:
 
 ## Symptoms
 
-- A booking request matches an enabled rule with `auto_accept: true`
-- Discord/LINE shows a "match found" notification but no "auto-accepted" event
+- A booking request matches an enabled rule
+- Discord/LINE does not show an "auto-accepted" event
 - `auto_accept_history` table has no row for the request
 - Or: notification missing entirely
 
@@ -57,7 +57,7 @@ WHERE id = '<rule-id>';
 
 **Check:**
 - `enabled = 1` (else rule is paused)
-- `auto_accept = 1` (else only notify, don't accept)
+- `auto_accept` is retained for compatibility; enabled rules are treated as auto-accept candidates by current source
 - `auto_accepted = 0` (if 1, rule fired but didn't re-fire — see § Rule already accepted)
 - `origins`, `destinations`, `vehicle_types` arrays match the booking's actual values
 
@@ -138,10 +138,10 @@ If manual accept returns 409 or another conflict-style error → treat it as pro
 | Symptom | Likely Cause | Action |
 |---|---|---|
 | Rule never matches | Case mismatch in origin/destination | Lowercase comparison? Check `notify-rules.ts` |
-| Match found, no accept call | `auto_accept = 0` in DB | Update via Web UI or SQL |
+| Match found, no accept call | `AUTO_ACCEPT_ENABLED=false`, rule disabled/fulfilled, or `need <= 0` | Enable auto-accept globally and ensure rule is active |
 | Accept call fails 401 | Session expired | [[Runbook-API-Session-Expired]] |
 | Accept call fails 409 / conflict-like response | Provider may consider the request already handled | Inspect response body/message, then check `auto_accept_history` and provider UI |
-| Notification missing | `NOTIFY_ENABLED=false` | Check `.env` |
+| Notification missing | LINEJS/LINE OA/Discord target missing or LINEJS auth required | Check Settings and [[Runbook-Notify-Failure]] |
 | `notify-rules.json` out of sync with DB | Dual-storage migration issue | See [[ADR-001-Dual-Storage-Notify-Rules]] |
 
 ### Rule already accepted

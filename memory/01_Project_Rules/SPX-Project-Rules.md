@@ -108,8 +108,8 @@ Required when `SAVE_TO_DB=true`, `HTTP_ENABLED=true`, or `AUTO_ACCEPT_ENABLED=tr
 ### Optional feature toggles
 
 - `POLL_INTERVAL_MS` in milliseconds; CLI interval arg is seconds and overrides it.
-- `FETCH_DETAILS`, `SAVE_TO_DB`, `NOTIFY_ENABLED`
-- `NOTIFY_MODE` as `batch` or `each`
+- `FETCH_DETAILS`, `SAVE_TO_DB`
+- `NOTIFY_ENABLED` and `NOTIFY_MODE` are legacy normal-notify settings; rule-match-only job notifications are disabled in current source
 - `AUTO_ACCEPT_ENABLED`
 - LINE OA: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_USER_ID`
 - LINEJS routing: `LINEJS_TEST_ENABLED` + target IDs

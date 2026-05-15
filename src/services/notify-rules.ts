@@ -111,6 +111,8 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
     }
     seenIds.add(id);
 
+    const enabled = candidate.enabled !== false;
+
     return [{
       id,
       name,
@@ -118,9 +120,9 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
       destinations: toStringArray(candidate.destinations),
       vehicle_types: toStringArray(candidate.vehicle_types),
       need: Math.max(0, need),
-      enabled: candidate.enabled !== false,
+      enabled,
       fulfilled: candidate.fulfilled === true,
-      auto_accept: candidate.auto_accept === true,
+      auto_accept: enabled ? true : candidate.auto_accept === true,
       auto_accepted: candidate.auto_accepted === true,
     }];
   });
@@ -147,6 +149,8 @@ function dbRowToRule(row: DbRow): NotifyRule {
     try { return JSON.parse(val) as string[]; } catch { return []; }
   };
 
+  const enabled = row.enabled === 1;
+
   return {
     id: row.id,
     name: row.name,
@@ -154,9 +158,9 @@ function dbRowToRule(row: DbRow): NotifyRule {
     destinations: parseArray(row.destinations),
     vehicle_types: parseArray(row.vehicleTypes),
     need: row.need,
-    enabled: row.enabled === 1,
+    enabled,
     fulfilled: row.fulfilled === 1,
-    auto_accept: row.autoAccept === 1,
+    auto_accept: enabled ? true : row.autoAccept === 1,
     auto_accepted: row.autoAccepted === 1,
   };
 }
@@ -306,7 +310,7 @@ export async function matchRules(trips: TripLike[]): Promise<RuleMatch[]> {
 export async function getActiveAutoAcceptRules(): Promise<NotifyRule[]> {
   const rules = await readRules();
   return rules.filter((rule) =>
-    rule.enabled && !rule.fulfilled && rule.auto_accept && rule.need > 0
+    rule.enabled && !rule.fulfilled && rule.need > 0
   );
 }
 
@@ -314,7 +318,7 @@ export function getAutoAcceptOriginFilters(rules: NotifyRule[]): string[] {
   const origins = new Set<string>();
 
   for (const rule of rules) {
-    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
+    if (!rule.enabled || rule.fulfilled || rule.need <= 0) continue;
     if (rule.origins.length === 0) return [];
 
     for (const origin of rule.origins) {
@@ -378,7 +382,7 @@ export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: Noti
   const matches: RuleTripMatch[] = [];
 
   for (const rule of rules) {
-    if (!rule.enabled || rule.fulfilled || !rule.auto_accept || rule.need <= 0) continue;
+    if (!rule.enabled || rule.fulfilled || rule.need <= 0) continue;
 
     const matchedTrips = ruleMatchesTrips(rule, trips);
     if (matchedTrips.length > 0) {
