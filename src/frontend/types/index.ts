@@ -83,6 +83,27 @@ export interface RulePatch {
   auto_accepted?: boolean;
 }
 
+export interface RulePreviewMatch {
+  origin?: string;
+  destination?: string;
+  vehicle_type?: string;
+  request_id?: number;
+  booking_id?: number | null;
+  standby_datetime?: string | null;
+  created_at?: string;
+}
+
+export interface RulePreviewResult {
+  ruleId: string;
+  ruleName: string;
+  matchedCount: number;
+  need: number;
+  sampleSize: number;
+  scannedCount: number;
+  wouldMatch: boolean;
+  trips: RulePreviewMatch[];
+}
+
 // History/Booking Types
 export interface BookingHistory {
   id: number;
@@ -90,6 +111,7 @@ export interface BookingHistory {
   bookingId: number;
   bookingName?: string;
   agencyName?: string;
+  route?: string;
   origin: string;
   destination: string;
   vehicleType: string;
@@ -190,14 +212,45 @@ export interface LineQuota {
 }
 
 // Metrics Types
+export type TimedOperation = 'detailFetch' | 'dbSave' | 'notify' | 'autoAccept'
+
+export interface TimingSummary {
+  count: number
+  avg: number
+  min: number
+  max: number
+  p50: number
+  p95: number
+  p99: number
+  lastMs: number | null
+}
+
+export interface RuntimeMetrics {
+  activeDetailJobs: number
+  activeDetailBookings: number
+  detailConcurrency: number
+  queuedDetailBookings: number
+  detailQueuePressure: number
+  sseClients: number
+}
+
+export interface PoolStats {
+  totalConnections: number
+  idleConnections: number
+  acquiredConnections: number
+  queuedRequests: number
+  connectionLimit: number
+}
+
 export interface MetricsSnapshot {
   isPaused?: boolean;
   uptime: number;
   startedAt: string;
   lastPoll: {
-    timestamp: string;
-    status: string;
-    latencyMs: number;
+    timestamp: string | null;
+    status: string | null;
+    latencyMs: number | null;
+    recordCount: number | null;
   };
   polling: {
     totalRequests: number;
@@ -206,29 +259,32 @@ export interface MetricsSnapshot {
     successRate: number;
     latency: {
       avg: number;
+      min: number;
+      max: number;
+      p50: number;
       p95: number;
+      p99: number;
     };
   };
   session: {
     isHealthy: boolean;
     consecutiveErrors: number;
-    lastSessionWarning?: string;
+    lastSessionWarning: string | null;
   };
-  database: {
-    poolSize: number;
-    acquiredConnections: number;
-    pendingConnections: number;
-  };
+  database: PoolStats | null;
   data: {
+    totalRecordsSeen: number;
     changesDetected: number;
     tripsInserted: number;
     tripsSkipped: number;
   };
   autoAccept: {
-    enabled: boolean;
-    acceptedCount: number;
-    lastAcceptedAt?: string;
+    totalAttempts: number;
+    successCount: number;
+    failureCount: number;
   };
+  operations: Record<TimedOperation, TimingSummary>;
+  runtime: RuntimeMetrics;
 }
 
 export interface MetricsHistoryRow {
@@ -250,17 +306,13 @@ export interface HealthResponse {
   session: {
     healthy: boolean;
     consecutiveErrors: number;
-    lastSessionWarning?: string;
+    lastSessionWarning: string | null;
   };
-  database: {
-    poolSize: number;
-    acquiredConnections: number;
-    pendingConnections: number;
-  };
+  database: PoolStats | null;
   autoAccept: {
-    enabled: boolean;
-    acceptedCount: number;
-    lastAcceptedAt?: string;
+    totalAttempts: number;
+    successCount: number;
+    failureCount: number;
   };
 }
 

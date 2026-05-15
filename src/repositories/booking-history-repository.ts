@@ -1,4 +1,4 @@
-import { getDb } from "../db/client.js";
+import { getDb, getPool } from "../db/client.js";
 import { spxBookingHistory } from "../db/schema.js";
 import { and, count, desc, asc, eq, like, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
@@ -70,15 +70,29 @@ function buildHistoryOrderBy(query: HistoryFilterQuery) {
     : (query.sortDir === "asc" ? asc(spxBookingHistory.createdAt) : desc(spxBookingHistory.createdAt));
 }
 
+const historyColumns = ["request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
+
+function historyValues(record: BookingHistoryRecord): unknown[] {
+  return [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
+}
+
 export async function insertBookingHistory(record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
-  const pool = (await import("../db/client.js")).getPool();
-  const cols = ["request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
-  const values = [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
-  const placeholders = cols.map(() => "?").join(", ");
-  const query = `INSERT IGNORE INTO spx_booking_history (${cols.join(", ")}, created_at) VALUES (${placeholders}, UTC_TIMESTAMP())`;
+  const { inserted } = await insertBookingHistories([record]);
+  return { action: inserted > 0 ? "inserted" : "skipped" };
+}
+
+export async function insertBookingHistories(records: BookingHistoryRecord[]): Promise<{ inserted: number; skipped: number }> {
+  if (records.length === 0) {
+    return { inserted: 0, skipped: 0 };
+  }
+
+  const pool = getPool();
+  const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
+  const values = records.flatMap(historyValues);
+  const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${records.map(() => placeholders).join(", ")}`;
   const [result] = await pool!.query(query, values);
-  const affectedRows = (result as { affectedRows: number }).affectedRows;
-  return { action: affectedRows > 0 ? "inserted" : "skipped" };
+  const inserted = (result as { affectedRows: number }).affectedRows;
+  return { inserted, skipped: records.length - inserted };
 }
 
 export async function getBookingHistory(query: BookingHistoryQuery | number = 100): Promise<Array<typeof spxBookingHistory.$inferSelect>> {

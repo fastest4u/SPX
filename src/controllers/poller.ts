@@ -2,7 +2,7 @@ import { env } from "../config/env.js";
 import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
-import { saveBookingRequest } from "../services/db-service.js";
+import { saveBookingRequests } from "../services/db-service.js";
 import { notifyMatchedRules, acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
@@ -62,6 +62,7 @@ export class Poller {
   private lastSessionAlertTime = 0;
   private activeDetailJobs = new Set<Promise<void>>();
   private activeDetailBookingIds = new Set<number>();
+  private static readonly MAX_ACTIVE_DETAIL_JOBS = 2;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
 
   constructor(intervalSec?: number) {
@@ -77,6 +78,15 @@ export class Poller {
 
   private getIntervalMs(): number {
     return this.cliIntervalMs ?? env.POLL_INTERVAL_MS;
+  }
+
+  private recordDetailRuntime(queuedDetailBookings = 0): void {
+    metrics.recordRuntimeState({
+      activeDetailJobs: this.activeDetailJobs.size,
+      activeDetailBookings: this.activeDetailBookingIds.size,
+      detailConcurrency: env.BOOKING_DETAIL_CONCURRENCY,
+      queuedDetailBookings,
+    });
   }
 
   async start(): Promise<void> {
@@ -204,6 +214,15 @@ export class Poller {
 
   private scheduleBookingDetails(bookings: Booking[]): void {
     if (this.stopped || bookings.length === 0) return;
+    if (this.activeDetailJobs.size >= Poller.MAX_ACTIVE_DETAIL_JOBS) {
+      this.recordDetailRuntime(bookings.length);
+      logger.warn("booking-detail-backpressure", {
+        activeJobs: this.activeDetailJobs.size,
+        maxActiveJobs: Poller.MAX_ACTIVE_DETAIL_JOBS,
+        skippedBookings: bookings.length,
+      });
+      return;
+    }
 
     const job = this.processBookingDetails(bookings)
       .catch((err) => {
@@ -211,9 +230,11 @@ export class Poller {
       })
       .finally(() => {
         this.activeDetailJobs.delete(job);
+        this.recordDetailRuntime();
       });
 
     this.activeDetailJobs.add(job);
+    this.recordDetailRuntime(bookings.length);
   }
 
   private async processBookingDetails(bookings: Booking[]): Promise<void> {
@@ -248,10 +269,13 @@ export class Poller {
     const runAutoAcceptConcurrent = async (trips: ExtractedTripInfo[]): Promise<void> => {
       if (autoAcceptRules.length === 0) return;
 
+      const startedAt = Date.now();
       const autoResult = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
         autoAcceptRules,
         deferSideEffects: true,
         needBudget,
+      }).finally(() => {
+        metrics.recordOperation("autoAccept", Date.now() - startedAt);
       });
       autoResult.accepted.forEach((a) => {
         if (a.requestId > 0) acceptedRequestIds.add(a.requestId);
@@ -266,6 +290,7 @@ export class Poller {
         });
       }).finally(() => {
         this.activeDetailBookingIds.delete(bookingId);
+        this.recordDetailRuntime();
       });
       autoAcceptTasks.push(task);
     };
@@ -282,6 +307,7 @@ export class Poller {
       }
 
       const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, availableBookings.length);
+      this.recordDetailRuntime(Math.max(0, availableBookings.length - detailConcurrency));
       if (availableBookings.length > detailConcurrency) {
         logger.info("booking-detail-concurrency", { bookings: availableBookings.length, concurrency: detailConcurrency, lane: options.lane });
       }
@@ -290,7 +316,10 @@ export class Poller {
         let releasedByAutoAccept = false;
 
         try {
-          const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id);
+          const startedAt = Date.now();
+          const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id).finally(() => {
+            metrics.recordOperation("detailFetch", Date.now() - startedAt);
+          });
           if (!requestList) {
             logger.warn("request-list-missing", { bookingId: booking.booking_id });
             return [] as ExtractedTripInfo[];
@@ -318,6 +347,7 @@ export class Poller {
         } finally {
           if (!releasedByAutoAccept) {
             this.activeDetailBookingIds.delete(booking.booking_id);
+            this.recordDetailRuntime();
           }
         }
       });
@@ -335,10 +365,17 @@ export class Poller {
       if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
         console.log("\n" + formatTripInfo(trip));
       }
+    }
 
-      if (env.SAVE_TO_DB) {
-        const dbResult = await saveBookingRequest(trip);
-        metrics.recordTrip(dbResult.action);
+    if (env.SAVE_TO_DB && allTrips.length > 0) {
+      const startedAt = Date.now();
+      const dbResult = await saveBookingRequests(allTrips).finally(() => {
+        metrics.recordOperation("dbSave", Date.now() - startedAt);
+      });
+      for (let i = 0; i < dbResult.inserted; i++) metrics.recordTrip("inserted");
+      for (let i = 0; i < dbResult.skipped; i++) metrics.recordTrip("skipped");
+      if (dbResult.errors > 0) {
+        logger.warn("booking-history-batch-save-failed", { errors: dbResult.errors, message: dbResult.message });
       }
     }
 
@@ -349,7 +386,10 @@ export class Poller {
     if (env.NOTIFY_ENABLED && allTrips.length > 0) {
       const remainingTrips = allTrips.filter((trip) => !acceptedRequestIds.has(trip.request_id));
       if (remainingTrips.length > 0) {
-        await notifyMatchedRules(remainingTrips);
+        const startedAt = Date.now();
+        await notifyMatchedRules(remainingTrips).finally(() => {
+          metrics.recordOperation("notify", Date.now() - startedAt);
+        });
       }
     }
   }

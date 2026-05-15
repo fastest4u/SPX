@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Dream"
+  short_description: "Compact memory and promote lessons"
+  default_prompt: "Use $spx-dream to compact SPX memory and surface durable lessons."

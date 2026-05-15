@@ -3,8 +3,8 @@ title: AI Tool Profiles - How Each Agent Reads the Vault
 type: reference
 status: active
 last-verified: 2026-05-14
-verified-by: opencode
-source: file:memory/AGENTS.md + file:opencode.json + project experience
+verified-by: codex
+source: file:memory/AGENTS.md + file:opencode.json + file:.agents/skills + file:.codex/hooks.json + project experience
 confidence: high
 created: 2026-05-13
 updated: 2026-05-14
@@ -28,12 +28,12 @@ aliases:
 
 ## Cascade (Windsurf)
 
-| Feature            | Support                                                                         |
-| ------------------ | ------------------------------------------------------------------------------- |
+| Feature            | Support                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
 | **Slash commands** | `/session-start`, `/session-end`, `/awaken`, `/self-check`, `/multi-perspective`, `/dream`, `/review` |
-| **Auto-log**       | Yes — mandatory after meaningful work                                           |
-| **Workflow files** | Reads `.windsurf/workflows/*.md`                                                |
-| **Best practice**  | Always run `/session-start` before work; agent auto-reads vault                 |
+| **Auto-log**       | Yes — mandatory after meaningful work                                                                 |
+| **Workflow files** | Reads `.windsurf/workflows/*.md`                                                                      |
+| **Best practice**  | Always run `/session-start` before work; agent auto-reads vault                                       |
 
 **Setup:** No manual setup needed. Cascade auto-detects `.windsurf/workflows/`.
 
@@ -105,14 +105,34 @@ Before working, read these files in order:
 
 ## Codex (OpenAI)
 
-| Feature | Support |
-|---|---|
-| **Slash commands** | No |
-| **Auto-log** | Manual — must prompt agent to write session log |
-| **Workflow files** | Can read if explicitly pointed to file |
-| **Best practice** | Explicit prompt with file list |
+| Feature            | Support                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Slash commands** | Built-in Codex commands plus repo-local SPX skills (`$spx-*`); Codex app may list enabled skills in the slash menu                  |
+| **Auto-log**       | Hook-assisted closeout via `.codex/hooks.json`; still writes session logs through normal agent work, not silent file writes         |
+| **Workflow files** | Reads root `AGENTS.md`, Memory Vault files, `.agents/skills/*/SKILL.md`, and `.codex/hooks.json`                                    |
+| **Best practice**  | Start Codex from the repo root so hooks and skills are discovered; hooks inject startup/self-check/closeout reminders automatically |
 
-**Setup:** Same as Claude Code — explicit prompt to read AGENTS.md, MOC-Home, Goals, and recent sessions.
+**Setup:** Repo-local Codex skills live under `.agents/skills/`. Codex scans `.agents/skills` from the working directory up to the repo root, so start Codex from `C:\Users\Server\Desktop\SPX` or a subfolder inside the repo.
+
+**SPX skill commands:**
+```
+$spx-session-start
+$spx-awaken
+$spx-self-check
+$spx-multi-perspective
+$spx-dream
+$spx-session-end
+$spx-memory-verify
+```
+
+**Note:** These are Codex Agent Skills, not custom CLI-native slash commands. In CLI/IDE, invoke them with `$skill-name` or mention the name naturally. In the Codex app, enabled skills can appear in the slash command list.
+
+**Auto-hooks:**
+- `SessionStart` -> injects SPX Memory Vault startup context and recent session names.
+- `UserPromptSubmit` -> injects retrieval/self-check context and blocks obvious pasted secrets.
+- `PreToolUse` / `PermissionRequest` -> blocks dangerous commands such as `git reset --hard`, recursive deletes, `.env` reads, secret env prints, and destructive DB DDL.
+- `PostToolUse` -> reminds after file edits or verification commands.
+- `Stop` -> continues the turn if meaningful repo changes need a fresh session log or verification before final response.
 
 ---
 
@@ -169,7 +189,7 @@ Before working, read these files in order:
 | **Cascade** | Yes (7 workflows) | Yes | Automatic | ⭐ Primary |
 | **Claude Code** | No | Manual | Explicit prompt | ✅ Good |
 | **Cursor** | Yes (6 commands) | Semi-auto via hooks | Automatic via hooks + rules | ✅ Good |
-| **Codex** | No | Manual | Explicit prompt | ✅ Good |
+| **Codex** | Built-in + 7 SPX skills | Hook-assisted | Automatic via `AGENTS.md` + `.agents/skills` + `.codex/hooks.json` | ✅ Good |
 | **OpenCode** | Yes (7 commands) | Command-assisted | Automatic via `AGENTS.md` + commands | ✅ Good |
 | **Copilot Chat** | Limited | No | Limited | ❌ Skipped — lacks file write and arbitrary read |
 

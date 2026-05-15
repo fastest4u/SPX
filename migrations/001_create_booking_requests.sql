@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS auto_accept_history (
   error_message VARCHAR(1000) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY aah_created_at_idx (created_at),
-  KEY aah_rule_id_idx (rule_id)
+  KEY aah_rule_id_idx (rule_id),
+  KEY aah_status_created_at_idx (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 

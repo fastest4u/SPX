@@ -5,15 +5,15 @@ session-date: 2026-05-13
 agent: cascade
 duration-minutes: 15
 outcomes:
-  - Created Mistake-003: PowerShell Bash Syntax on Windows
-  - Created Mistake-004: Edit Without Verifying File Contents
+  - Created Mistake-006: PowerShell Bash Syntax on Windows
+  - Created Mistake-007: Edit Without Verifying File Contents
   - Added Confidence Log section to session log template (Template-Session-Log.md)
   - Added Confidence Log rules to AGENTS.md with when-to-log / when-to-skip criteria
   - Added mistake escalation threshold to Mistakes README (1st=session log, 2nd=mistake, 3rd=runbook/ADR)
   - User explicitly requested: "ทุกครั้งที่ AI ผิด ให้บันทึกทันที"
   - memory:check clean on 83 files
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - session-log
   - project/spx
@@ -28,7 +28,7 @@ related-sessions:
 # 2026-05-13 — Mistake Registry + Confidence Tracking System
 
 > [!abstract] TL;DR
-> User asked for two systems to make AI "self-aware" of its own errors: (1) record every mistake immediately, and (2) track confidence vs correctness. Created Mistake-003 (PowerShell syntax) and Mistake-004 (edit without reading file), added Confidence Log to session log template and AGENTS.md, and defined escalation rules for recurring errors.
+> User asked for two systems to make AI "self-aware" of its own errors: (1) record every mistake immediately, and (2) track confidence vs correctness. Created Mistake-006 (PowerShell syntax) and Mistake-007 (edit without reading file), added Confidence Log to session log template and AGENTS.md, and defined escalation rules for recurring errors.
 
 ---
 
@@ -42,14 +42,14 @@ User requested:
 
 ## What Was Done
 
-### #1 Mistake-003: PowerShell Bash Syntax on Windows
+### #1 Mistake-006: PowerShell Bash Syntax on Windows
 
 Recorded from today's session where `&&`, `tail`, and bash-isms failed in PowerShell:
 - `cd ... && npm run ...` → `The token '&&' is not a valid statement separator`
 - `... | tail -30` → `tail: The term 'tail' is not recognized`
 - Resolution: use `Set-Location; command` and `Select-Object -Last`
 
-### #2 Mistake-004: Edit Without Verifying File Contents
+### #2 Mistake-007: Edit Without Verifying File Contents
 
 Recorded from today's session where editing `Awakened-AI-System.md` failed because `old_string` didn't match:
 - Assumed file content without reading
@@ -106,8 +106,8 @@ Added to `08_Mistakes/README.md`:
 ## Files Touched
 
 ### Created (2)
-- `memory/08_Mistakes/Mistake-003-PowerShell-Bash-Syntax-On-Windows.md`
-- `memory/08_Mistakes/Mistake-004-Edit-Without-Verifying-File.md`
+- `memory/08_Mistakes/Mistake-006-PowerShell-Bash-Syntax-On-Windows.md`
+- `memory/08_Mistakes/Mistake-007-Edit-Without-Verifying-File.md`
 
 ### Modified (3)
 - `memory/99_Templates/Template-Session-Log.md` — added Confidence Log section
@@ -127,7 +127,7 @@ Added to `08_Mistakes/README.md`:
 ## Open Issues / Follow-ups
 
 - [x] Backfill Confidence Log into session logs from today that were written before this system existed.
-- [x] Monitor if AI actually uses Mistake-003 and Mistake-004 to avoid recurrence.
+- [x] Monitor if AI actually uses Mistake-006 and Mistake-007 to avoid recurrence.
 
 ---
 
@@ -145,8 +145,8 @@ Added to `08_Mistakes/README.md`:
 
 ## References
 
-- [[Mistake-003-PowerShell-Bash-Syntax-On-Windows]]
-- [[Mistake-004-Edit-Without-Verifying-File]]
+- [[Mistake-006-PowerShell-Bash-Syntax-On-Windows]]
+- [[Mistake-007-Edit-Without-Verifying-File]]
 - [[08_Mistakes/README]] — mistake registry index
 - [[AGENTS]] — confidence log rules
 - [[Template-Session-Log]] — updated template

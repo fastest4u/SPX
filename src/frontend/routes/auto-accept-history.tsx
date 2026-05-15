@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { createRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { rootRoute } from './__root'
+import { createFileRoute } from '@tanstack/react-router'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { autoAcceptHistoryApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -10,11 +9,10 @@ import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
 import { Search, CheckCircle2, XCircle, Truck } from 'lucide-react'
-import type { AutoAcceptHistoryItem } from '../types'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import type { AutoAcceptHistoryItem, AutoAcceptHistoryQuery } from '../types'
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/auto-accept-history',
+export const Route = createFileRoute('/auto-accept-history')({
   component: AutoAcceptHistoryComponent,
 })
 
@@ -27,6 +25,7 @@ const STATUS_OPTIONS = [
 const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryItem>[] = [
   {
     header: 'ID',
+    sortKey: 'id',
     render: (item) => <span className="text-muted-foreground">{item.id}</span>,
   },
   {
@@ -74,6 +73,7 @@ const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryItem>[] = [
   },
   {
     header: 'เวลา',
+    sortKey: 'created_at',
     render: (item) => <span className="text-muted-foreground text-sm">{formatDateTime(item.createdAt)}</span>,
   },
 ]
@@ -84,17 +84,25 @@ function AutoAcceptHistoryComponent() {
   const [ruleName, setRuleName] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [sortKey, setSortKey] = useState<NonNullable<AutoAcceptHistoryQuery['sortBy']>>('created_at')
+  const [sortDir, setSortDir] = useState<NonNullable<AutoAcceptHistoryQuery['sortDir']>>('desc')
+  const debouncedSearch = useDebouncedValue(search.trim(), 400)
+  const debouncedRuleName = useDebouncedValue(ruleName.trim(), 300)
 
   const { data: result, isLoading } = useQuery({
-    queryKey: ['autoAcceptHistory', { search, status, ruleName, page, pageSize }],
+    queryKey: ['autoAcceptHistory', { search: debouncedSearch, status, ruleName: debouncedRuleName, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       autoAcceptHistoryApi.paginated({
-        search: search || undefined,
+        search: debouncedSearch || undefined,
         status: status || undefined,
-        ruleName: ruleName || undefined,
+        ruleName: debouncedRuleName || undefined,
+        sortBy: sortKey,
+        sortDir,
         page,
         pageSize,
       }),
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   })
 
   if (isLoading) {
@@ -140,7 +148,7 @@ function AutoAcceptHistoryComponent() {
                   id="aah-search"
                   placeholder={'ค้นหาเส้นทาง, ประเภทรถ'}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1) }}
                 />
               </div>
               <div className="space-y-2">
@@ -149,7 +157,7 @@ function AutoAcceptHistoryComponent() {
                   id="aah-rule"
                   placeholder={'ชื่อ Rule'}
                   value={ruleName}
-                  onChange={(e) => setRuleName(e.target.value)}
+                  onChange={(e) => { setRuleName(e.target.value); setPage(1) }}
                 />
               </div>
               <div className="space-y-2">
@@ -157,7 +165,7 @@ function AutoAcceptHistoryComponent() {
                 <select
                   id="aah-status"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => { setStatus(e.target.value); setPage(1) }}
                   className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
                   {STATUS_OPTIONS.map((opt) => (
@@ -200,6 +208,15 @@ function AutoAcceptHistoryComponent() {
                   }
                 : undefined
             }
+            sorting={{
+              sortKey,
+              sortDir,
+              onSortChange: (nextSortKey, nextSortDir) => {
+                setSortKey((nextSortKey as AutoAcceptHistoryQuery['sortBy'] | null) ?? 'created_at')
+                setSortDir(nextSortDir ?? 'desc')
+                setPage(1)
+              },
+            }}
           />
         </CardContent>
       </Card>

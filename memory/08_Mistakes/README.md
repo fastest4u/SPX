@@ -3,7 +3,7 @@ title: Mistakes Registry
 type: index
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - meta
   - mistakes
@@ -54,8 +54,10 @@ aliases:
 Mistake-NNN-Short-Kebab-Topic.md
 ```
 
-- `NNN` = zero-padded 3-digit sequential
-- **Never renumber** — once given, mistake ID is permanent
+- `NNN` = zero-padded 3-digit sequential; choose the next unused ID after listing existing files.
+- **Never reuse** an ID for a different mistake.
+- **Treat referenced IDs as permanent** once linked from runbooks, session logs, goals, or commits.
+- If a collision is discovered, preserve the more widely referenced canonical ID, move the duplicate to the next unused ID, and update links in source notes.
 - Short title in kebab-case
 
 **Examples:**

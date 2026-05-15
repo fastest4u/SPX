@@ -93,6 +93,10 @@ function initSchema(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE INDEX IF NOT EXISTS audit_created_at_idx ON audit_logs(created_at);
+    CREATE INDEX IF NOT EXISTS audit_username_created_at_idx ON audit_logs(username, created_at);
+    CREATE INDEX IF NOT EXISTS audit_action_created_at_idx ON audit_logs(action, created_at);
+
     CREATE TABLE IF NOT EXISTS metrics_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       uptime INTEGER NOT NULL,
@@ -145,6 +149,10 @@ function initSchema(db: Database.Database): void {
       error_message TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS aah_created_at_idx ON auto_accept_history(created_at);
+    CREATE INDEX IF NOT EXISTS aah_rule_id_idx ON auto_accept_history(rule_id);
+    CREATE INDEX IF NOT EXISTS aah_status_created_at_idx ON auto_accept_history(status, created_at);
 
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

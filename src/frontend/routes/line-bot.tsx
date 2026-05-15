@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { createRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { rootRoute } from './__root'
 import { lineBotApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -15,12 +14,11 @@ function useLineBotGroups(enabled: boolean) {
     queryKey: ['line-bot-groups'],
     queryFn: lineBotApi.getGroups,
     enabled,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
-export const Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/line-bot',
+export const Route = createFileRoute('/line-bot')({
   component: LineBotComponent,
 })
 
@@ -33,6 +31,7 @@ function LineBotComponent() {
     queryKey: ['line-bot-status'],
     queryFn: lineBotApi.status,
     refetchInterval: 5000,
+    staleTime: 5 * 1000,
   })
 
   const status: LineBotStatus | undefined = statusQuery.data

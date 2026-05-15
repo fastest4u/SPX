@@ -1,0 +1,80 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs SessionStart",
+            "timeout": 10,
+            "statusMessage": "Loading SPX Memory Vault context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs UserPromptSubmit",
+            "timeout": 10,
+            "statusMessage": "Checking SPX prompt context"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs PreToolUse",
+            "timeout": 10,
+            "statusMessage": "Checking SPX safety rules"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs PermissionRequest",
+            "timeout": 10,
+            "statusMessage": "Checking SPX approval policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs PostToolUse",
+            "timeout": 10,
+            "statusMessage": "Reviewing SPX tool result"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/spx-hook.mjs Stop",
+            "timeout": 10,
+            "statusMessage": "Checking SPX closeout"
+          }
+        ]
+      }
+    ]
+  }
+}

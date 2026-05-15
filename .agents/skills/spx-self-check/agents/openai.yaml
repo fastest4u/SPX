@@ -1,0 +1,4 @@
+interface:
+  display_name: "SPX Self Check"
+  short_description: "Run SPX risk and evidence checks"
+  default_prompt: "Use $spx-self-check before risky SPX work."

@@ -13,9 +13,30 @@ import type {
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
+const REQUEST_LIST_PAGE_CONCURRENCY = 5;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+
+  return results;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -362,8 +383,10 @@ export class ApiClient {
     for (let p = 2; p <= totalPages; p++) pageNumbers.push(p);
 
     if (pageNumbers.length > 0) {
-      const pages = await Promise.all(
-        pageNumbers.map((p) => this.fetchBookingRequestListPage(bookingId, p))
+      const pages = await mapWithConcurrency(
+        pageNumbers,
+        REQUEST_LIST_PAGE_CONCURRENCY,
+        (p) => this.fetchBookingRequestListPage(bookingId, p)
       );
       for (const page of pages) {
         if (page && page.data.request_list.length > 0) {

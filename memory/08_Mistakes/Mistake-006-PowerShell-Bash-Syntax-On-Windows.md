@@ -1,18 +1,18 @@
 ---
-title: Mistake-003 — PowerShell Bash Syntax on Windows
+title: Mistake-006 — PowerShell Bash Syntax on Windows
 type: mistake
 severity: low
 status: resolved
 occurred-date: 2026-05-13
 resolved-date: 2026-05-13
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 agent: cascade
 area: topic/tooling
 confidence: high
 aliases:
-  - Mistake-003
-  - M-003
+  - Mistake-006
+  - M-006
   - PowerShell Syntax
 tags:
   - mistake
@@ -21,7 +21,7 @@ tags:
   - severity/low
 ---
 
-# Mistake-003 — PowerShell Bash Syntax on Windows
+# Mistake-006 — PowerShell Bash Syntax on Windows
 
 > [!abstract] One-liner
 > Used `&&`, `tail`, `cd && cmd`, and other POSIX shell idioms in PowerShell commands on Windows, causing repeated command failures.

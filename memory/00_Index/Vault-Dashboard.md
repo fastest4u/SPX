@@ -3,7 +3,7 @@ title: Vault Dashboard
 type: dashboard
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 tags:
   - meta
   - dashboard
@@ -104,6 +104,14 @@ TABLE
 FROM "05_Agent_Session_Logs"
 WHERE row["session-date"] >= date(today) - dur(30 days)
 SORT row["session-date"] DESC
+```
+
+### Compactor trigger
+
+```dataviewjs
+const count = dv.pages('"05_Agent_Session_Logs"').length;
+const status = count > 30 ? "⚠️ threshold active" : "✅ below threshold";
+dv.paragraph(`${status}: ${count} session logs (trigger: >30)`);
 ```
 
 ---

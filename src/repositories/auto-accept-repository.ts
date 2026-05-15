@@ -93,16 +93,8 @@ export async function getAutoAcceptHistory(query: AutoAcceptHistoryQuery) {
     ? (query.sortDir === "asc" ? asc(autoAcceptHistory.id) : desc(autoAcceptHistory.id))
     : (query.sortDir === "asc" ? asc(autoAcceptHistory.createdAt) : desc(autoAcceptHistory.createdAt));
 
-  const q = db.select()
-    .from(autoAcceptHistory)
-    .orderBy(orderBy)
-    .limit(limit);
-
-  if (filters.length > 0) {
-    q.where(and(...filters));
-  }
-
-  const rows = await q;
+  const whereClause = filters.length > 0 ? and(...filters) : undefined;
+  const rows = await db.select().from(autoAcceptHistory).where(whereClause).orderBy(orderBy).limit(limit);
   return rows.map(dbRowToItem);
 }
 

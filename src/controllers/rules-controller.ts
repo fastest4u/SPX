@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { createRule, deleteRule, readRules, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
+import { createRule, deleteRule, previewRuleAgainstTrips, readRules, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
+import { getBookingHistory } from "../repositories/booking-history-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
@@ -61,10 +62,48 @@ const ruleSchema = {
   },
 } as const;
 
+const rulePreviewSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rule"],
+  properties: {
+    rule: ruleSchema,
+    limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+    sampleLimit: { type: "integer", minimum: 1, maximum: 20, default: 8 },
+  },
+} as const;
+
+type RulePreviewBody = {
+  rule: NotifyRuleInput;
+  limit?: number;
+  sampleLimit?: number;
+};
+
 export const rulesController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
     const rules = await readRules();
     return sendSuccess(reply, rules);
+  });
+
+  app.post<{ Body: RulePreviewBody }>("/preview", { schema: { body: rulePreviewSchema } }, async (req, reply) => {
+    const limit = req.body.limit ?? 200;
+    const sampleLimit = req.body.sampleLimit ?? 8;
+    const historyRows = await getBookingHistory({ limit, sortBy: "created_at", sortDir: "desc" });
+    const trips = historyRows.map((row) => ({
+      origin: row.origin ?? "",
+      destination: row.destination ?? "",
+      vehicle_type: row.vehicleType ?? "",
+      request_id: row.requestId,
+      booking_id: row.bookingId,
+      standby_datetime: row.standbyDateTime,
+      created_at: row.createdAt,
+    }));
+
+    const preview = previewRuleAgainstTrips(req.body.rule, trips, sampleLimit);
+    return sendSuccess(reply, {
+      ...preview,
+      scannedCount: historyRows.length,
+    });
   });
 
   app.post<{ Body: Partial<NotifyRuleInput> }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {

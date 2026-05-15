@@ -1,18 +1,18 @@
 ---
-title: Mistake-004 — Edit Without Verifying File Contents
+title: Mistake-007 — Edit Without Verifying File Contents
 type: mistake
 severity: low
 status: resolved
 occurred-date: 2026-05-13
 resolved-date: 2026-05-13
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-14
 agent: cascade
 area: topic/memory-vault
 confidence: high
 aliases:
-  - Mistake-004
-  - M-004
+  - Mistake-007
+  - M-007
   - Blind Edit
 tags:
   - mistake
@@ -21,7 +21,7 @@ tags:
   - severity/low
 ---
 
-# Mistake-004 — Edit Without Verifying File Contents
+# Mistake-007 — Edit Without Verifying File Contents
 
 > [!abstract] One-liner
 > Attempted to edit `Awakened-AI-System.md` using an `old_string` that did not exist in the file, causing an edit failure. Did not read the relevant lines before attempting the replacement.

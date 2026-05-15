@@ -11,6 +11,30 @@ export interface LatencyBucket {
   values: number[]; // kept for percentile calculations, capped
 }
 
+export type TimedOperation = "detailFetch" | "dbSave" | "notify" | "autoAccept";
+
+export interface TimingSummary {
+  count: number;
+  avg: number;
+  min: number;
+  max: number;
+  p50: number;
+  p95: number;
+  p99: number;
+  lastMs: number | null;
+}
+
+export interface RuntimeMetrics {
+  activeDetailJobs: number;
+  activeDetailBookings: number;
+  detailConcurrency: number;
+  queuedDetailBookings: number;
+  detailQueuePressure: number;
+  sseClients: number;
+}
+
+type RuntimeState = Omit<RuntimeMetrics, "detailQueuePressure">;
+
 export interface MetricsSnapshot {
   isPaused: boolean;
   uptime: number;
@@ -52,6 +76,8 @@ export interface MetricsSnapshot {
     successCount: number;
     failureCount: number;
   };
+  operations: Record<TimedOperation, TimingSummary>;
+  runtime: RuntimeMetrics;
 }
 
 const MAX_LATENCY_SAMPLES = 1000;
@@ -75,6 +101,19 @@ export class MetricsCollector {
   private autoAcceptAttempts = 0;
   private autoAcceptSuccess = 0;
   private autoAcceptFailures = 0;
+  private operationLatencies: Record<TimedOperation, number[]> = {
+    detailFetch: [],
+    dbSave: [],
+    notify: [],
+    autoAccept: [],
+  };
+  private runtime: RuntimeState = {
+    activeDetailJobs: 0,
+    activeDetailBookings: 0,
+    detailConcurrency: 0,
+    queuedDetailBookings: 0,
+    sseClients: 0,
+  };
 
   recordPoll(latencyMs: number, success: boolean, status: string, recordCount: number | null): void {
     this.totalRequests++;
@@ -126,9 +165,38 @@ export class MetricsCollector {
     }
   }
 
-  snapshot(): MetricsSnapshot {
-    const sorted = [...this.latencies].sort((a, b) => a - b);
+  recordOperation(operation: TimedOperation, latencyMs: number): void {
+    const samples = this.operationLatencies[operation];
+    samples.push(Math.max(0, Math.round(latencyMs)));
+    if (samples.length > MAX_LATENCY_SAMPLES) {
+      this.operationLatencies[operation] = samples.slice(-MAX_LATENCY_SAMPLES);
+    }
+  }
+
+  recordRuntimeState(state: Partial<RuntimeState>): void {
+    this.runtime = { ...this.runtime, ...state };
+  }
+
+  private summarize(values: number[]): TimingSummary {
+    const sorted = [...values].sort((a, b) => a - b);
     const len = sorted.length;
+    return {
+      count: len,
+      avg: len > 0 ? Math.round(sorted.reduce((a, b) => a + b, 0) / len) : 0,
+      min: len > 0 ? sorted[0] : 0,
+      max: len > 0 ? sorted[len - 1] : 0,
+      p50: len > 0 ? sorted[Math.floor(len * 0.5)] : 0,
+      p95: len > 0 ? sorted[Math.floor(len * 0.95)] : 0,
+      p99: len > 0 ? sorted[Math.floor(len * 0.99)] : 0,
+      lastMs: len > 0 ? values[values.length - 1] : null,
+    };
+  }
+
+  snapshot(): MetricsSnapshot {
+    const pollingLatency = this.summarize(this.latencies);
+    const detailQueuePressure = this.runtime.detailConcurrency > 0
+      ? Math.round((this.runtime.activeDetailBookings / this.runtime.detailConcurrency) * 100)
+      : 0;
 
     return {
       isPaused: pollerControl.isPaused,
@@ -142,12 +210,12 @@ export class MetricsCollector {
           ? Math.round((this.successCount / this.totalRequests) * 10000) / 100
           : 0,
         latency: {
-          avg: len > 0 ? Math.round(sorted.reduce((a, b) => a + b, 0) / len) : 0,
-          min: len > 0 ? sorted[0] : 0,
-          max: len > 0 ? sorted[len - 1] : 0,
-          p50: len > 0 ? sorted[Math.floor(len * 0.5)] : 0,
-          p95: len > 0 ? sorted[Math.floor(len * 0.95)] : 0,
-          p99: len > 0 ? sorted[Math.floor(len * 0.99)] : 0,
+          avg: pollingLatency.avg,
+          min: pollingLatency.min,
+          max: pollingLatency.max,
+          p50: pollingLatency.p50,
+          p95: pollingLatency.p95,
+          p99: pollingLatency.p99,
         },
       },
       data: {
@@ -172,6 +240,16 @@ export class MetricsCollector {
         totalAttempts: this.autoAcceptAttempts,
         successCount: this.autoAcceptSuccess,
         failureCount: this.autoAcceptFailures,
+      },
+      operations: {
+        detailFetch: this.summarize(this.operationLatencies.detailFetch),
+        dbSave: this.summarize(this.operationLatencies.dbSave),
+        notify: this.summarize(this.operationLatencies.notify),
+        autoAccept: this.summarize(this.operationLatencies.autoAccept),
+      },
+      runtime: {
+        ...this.runtime,
+        detailQueuePressure,
       },
     };
   }

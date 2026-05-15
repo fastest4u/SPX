@@ -38,7 +38,11 @@ export const auditLogs = mysqlTable("audit_logs", {
   action: varchar("action", { length: 100 }).notNull(),
   details: varchar("details", { length: 1000 }),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => ({
+  createdAtIdx: index("audit_created_at_idx").on(table.createdAt),
+  usernameCreatedAtIdx: index("audit_username_created_at_idx").on(table.username, table.createdAt),
+  actionCreatedAtIdx: index("audit_action_created_at_idx").on(table.action, table.createdAt),
+}));
 
 export const notifyRules = mysqlTable("notify_rules", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -71,6 +75,7 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
 }, (table) => ({
   createdAtIdx: index("aah_created_at_idx").on(table.createdAt),
   ruleIdIdx: index("aah_rule_id_idx").on(table.ruleId),
+  statusCreatedAtIdx: index("aah_status_created_at_idx").on(table.status, table.createdAt),
 }));
 
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {

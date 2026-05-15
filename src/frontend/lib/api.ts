@@ -31,6 +31,7 @@ import type {
   RoleInput,
   RuleInput,
   RulePatch,
+  RulePreviewResult,
   User,
 } from '../types'
 
@@ -167,6 +168,24 @@ export const rulesApi = {
     fetchJson<NotifyRule>(`${API_BASE}/rules`, {
       method: 'POST',
       body: JSON.stringify(rule),
+    }),
+
+  preview: (rule: RuleInput | NotifyRule, options?: { limit?: number; sampleLimit?: number }): Promise<RulePreviewResult> =>
+    fetchJson<RulePreviewResult>(`${API_BASE}/rules/preview`, {
+      method: 'POST',
+      body: JSON.stringify({
+        rule: {
+          name: rule.name,
+          origins: rule.origins,
+          destinations: rule.destinations,
+          vehicle_types: rule.vehicle_types,
+          need: rule.need,
+          enabled: rule.enabled,
+          auto_accept: rule.auto_accept,
+        },
+        limit: options?.limit ?? 200,
+        sampleLimit: options?.sampleLimit ?? 8,
+      }),
     }),
 
   update: (id: string, patch: RulePatch): Promise<NotifyRule> =>

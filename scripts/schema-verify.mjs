@@ -64,6 +64,9 @@ const EXPECTED_SCHEMA = {
     },
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "audit_created_at_idx", unique: false, columns: ["created_at"] },
+      { name: "audit_username_created_at_idx", unique: false, columns: ["username", "created_at"] },
+      { name: "audit_action_created_at_idx", unique: false, columns: ["action", "created_at"] },
     ],
   },
   notify_rules: {
@@ -104,6 +107,7 @@ const EXPECTED_SCHEMA = {
       { name: "PRIMARY", unique: true, columns: ["id"] },
       { name: "aah_created_at_idx", unique: false, columns: ["created_at"] },
       { name: "aah_rule_id_idx", unique: false, columns: ["rule_id"] },
+      { name: "aah_status_created_at_idx", unique: false, columns: ["status", "created_at"] },
     ],
   },
   metrics_snapshots: {
