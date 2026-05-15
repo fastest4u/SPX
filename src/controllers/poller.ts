@@ -23,25 +23,7 @@ import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { pollerControl } from "../services/poller-control.js";
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), items.length);
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await mapper(items[index], index);
-    }
-  }));
-
-  return results;
-}
+import { mapWithConcurrency } from "../utils/concurrency.js";
 
 function bookingMatchesOriginFilters(booking: Booking, originFilters: string[]): boolean {
   if (originFilters.length === 0) return true;

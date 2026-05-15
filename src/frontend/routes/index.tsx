@@ -128,8 +128,7 @@ function DashboardComponent() {
     : 0
 
   const sparklineData = useMemo(() => {
-    const raw = historyData as any
-    const rows: MetricsHistoryRow[] = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : []
+    const rows: MetricsHistoryRow[] = Array.isArray(historyData) ? historyData : []
     return {
       success: rows.map((r: MetricsHistoryRow) => r.successRate ?? 0),
       latency: rows.map((r: MetricsHistoryRow) => Math.min(r.latencyP95, 5000)),

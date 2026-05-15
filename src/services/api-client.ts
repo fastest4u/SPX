@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import type {
   AcceptBookingRequest,
   AcceptBookingResponse,
@@ -17,26 +18,6 @@ const REQUEST_LIST_PAGE_CONCURRENCY = 5;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), items.length);
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await mapper(items[index], index);
-    }
-  }));
-
-  return results;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -314,27 +295,31 @@ export class ApiClient {
       extraPages: pageNumbers.length,
     });
 
-    const pageResults = await Promise.all(pageNumbers.map(async (pageNo) => {
-      try {
-        const response = await this.fetchBiddingListPage(pageNo);
-        if (!response.ok) {
-          logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
+    const pageResults = await mapWithConcurrency(
+      pageNumbers,
+      REQUEST_LIST_PAGE_CONCURRENCY,
+      async (pageNo) => {
+        try {
+          const response = await this.fetchBiddingListPage(pageNo);
+          if (!response.ok) {
+            logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
+            return null;
+          }
+
+          const data: unknown = await response.json();
+          const page = normalizeApiResponse(data);
+          if (!page) {
+            logger.warn("bidding-list-page-unexpected-shape", { pageNo });
+            return null;
+          }
+
+          return page;
+        } catch (err) {
+          logger.warn("bidding-list-page-error", { pageNo, error: err instanceof Error ? err.message : String(err) });
           return null;
         }
-
-        const data: unknown = await response.json();
-        const page = normalizeApiResponse(data);
-        if (!page) {
-          logger.warn("bidding-list-page-unexpected-shape", { pageNo });
-          return null;
-        }
-
-        return page;
-      } catch (err) {
-        logger.warn("bidding-list-page-error", { pageNo, error: err instanceof Error ? err.message : String(err) });
-        return null;
       }
-    }));
+    );
 
     const allList = [...firstList];
     for (const page of pageResults) {
