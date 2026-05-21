@@ -429,32 +429,93 @@ async function acceptAutoAcceptMatch(
 
     const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
 
-    return { bookingId, entry, requestIds, result };
+    // When the SPX API returns an error, it may still have partially accepted some
+    // requests in the batch (e.g. "Time-out or accept by other agency" for one request
+    // while others succeeded). Verify the actual status of each request so we report
+    // and notify based on what really happened rather than the raw retcode.
+    let verifiedAcceptedIds: number[] = result.ok ? requestIds : [];
+    let verifiedFailedIds: number[] = result.ok ? [] : requestIds;
+
+    if (!result.ok) {
+      try {
+        const reqList = await apiClient.fetchBookingRequestList(bookingId);
+        if (reqList) {
+          const acceptedSet = new Set(
+            reqList.data.request_list
+              .filter((r) => r.request_acceptance_status === 2)
+              .map((r) => r.request_id)
+          );
+          verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
+          verifiedFailedIds = requestIds.filter((id) => !acceptedSet.has(id));
+          if (verifiedAcceptedIds.length > 0) {
+            logger.info("auto-accept-partial-verified", {
+              bookingId,
+              acceptedIds: verifiedAcceptedIds,
+              failedIds: verifiedFailedIds,
+              ruleId: entry.ruleId,
+              originalError: result.error,
+            });
+          }
+        }
+      } catch (verifyErr) {
+        logger.warn("auto-accept-verify-failed", {
+          bookingId,
+          ruleId: entry.ruleId,
+          error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+        });
+      }
+    }
+
+    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds };
   }));
 
-  for (const { bookingId, entry, requestIds, result } of acceptResults) {
-    if (result.ok) {
-      logger.info("auto-accept-success", { bookingId, requestIds, ruleId: entry.ruleId, httpStatus: result.httpStatus });
+  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds } of acceptResults) {
+    if (verifiedAcceptedIds.length > 0) {
+      const logLevel = result.ok ? "auto-accept-success" : "auto-accept-partial-success";
+      logger.info(logLevel, { bookingId, requestIds: verifiedAcceptedIds, ruleId: entry.ruleId, httpStatus: result.httpStatus });
       for (const trip of entry.trips) {
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
-        accepted.push({ trip, bookingId, requestId });
-        if (requestId > 0) {
+        if (requestId > 0 && verifiedAcceptedIds.includes(requestId)) {
+          accepted.push({ trip, bookingId, requestId });
           rememberAcceptedRequest(entry.ruleId, requestId);
         }
       }
-      acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: requestIds.length });
+      acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: verifiedAcceptedIds.length });
       historyWrites.push(() => insertAutoAcceptHistory({
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
-        requestIds,
-        acceptedCount: requestIds.length,
+        requestIds: verifiedAcceptedIds,
+        acceptedCount: verifiedAcceptedIds.length,
         origin: textValue(entry.trips[0]?.origin ?? entry.trips[0]?.["ต้นทาง"]),
         destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "success",
       }));
-    } else {
+    }
+
+    if (verifiedFailedIds.length > 0) {
+      for (const requestId of verifiedFailedIds) {
+        releaseAutoAcceptRequest(bookingId, requestId);
+      }
+      logger.error("auto-accept-failed", { bookingId, requestIds: verifiedFailedIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
+      failed.push({ bookingId, requestIds: verifiedFailedIds, error: result.error || "Unknown error" });
+      historyWrites.push(() => insertAutoAcceptHistory({
+        ruleId: entry.ruleId,
+        ruleName: entry.ruleName,
+        bookingId,
+        requestIds: verifiedFailedIds,
+        acceptedCount: 0,
+        origin: textValue(entry.trips[0]?.origin ?? entry.trips[0]?.["ต้นทาง"]),
+        destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
+        vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
+        status: "failed",
+        errorMessage: result.error,
+      }));
+    }
+
+    if (verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
+      // Verification returned an empty list — treat original batch as fully failed
       for (const requestId of requestIds) {
         releaseAutoAcceptRequest(bookingId, requestId);
       }
