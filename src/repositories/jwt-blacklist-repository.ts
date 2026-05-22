@@ -1,0 +1,107 @@
+import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
+import { getPool } from "../db/client.js";
+
+/**
+ * Server-side JWT invalidation via jti (JWT ID) blacklist.
+ * Stores revoked jti values with their original expiry so the table self-prunes.
+ *
+ * In-memory mode keeps a Map; production uses MySQL.
+ */
+
+interface BlacklistEntry {
+    jti: string;
+    revokedAt: number;
+    expiresAt: number;
+}
+
+const memoryBlacklist = new Map<string, BlacklistEntry>();
+let pruneTimer: ReturnType<typeof setInterval> | null = null;
+
+function pruneMemory(now: number = Date.now()): void {
+    for (const [jti, entry] of memoryBlacklist) {
+        if (entry.expiresAt <= now) memoryBlacklist.delete(jti);
+    }
+}
+
+function ensurePruneTimer(): void {
+    if (pruneTimer) return;
+    pruneTimer = setInterval(() => pruneMemory(), 60_000);
+    if (typeof pruneTimer.unref === "function") pruneTimer.unref();
+}
+
+let tableEnsured = false;
+let tableEnsurePromise: Promise<void> | null = null;
+
+async function ensureTable(): Promise<void> {
+    if (tableEnsured) return;
+    if (env.DB_MODE === "memory") {
+        tableEnsured = true;
+        return;
+    }
+    if (tableEnsurePromise) {
+        await tableEnsurePromise;
+        return;
+    }
+    tableEnsurePromise = (async () => {
+        const pool = getPool();
+        if (!pool) return;
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS jwt_blacklist (
+        jti VARCHAR(64) NOT NULL PRIMARY KEY,
+        revoked_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        KEY jwt_blacklist_expires_idx (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    `);
+        tableEnsured = true;
+    })().catch((err) => {
+        tableEnsurePromise = null;
+        throw err;
+    });
+    await tableEnsurePromise;
+}
+
+export async function revokeJti(jti: string, expiresAtMs: number): Promise<void> {
+    if (!jti) return;
+    const now = Date.now();
+    if (expiresAtMs <= now) return;
+
+    if (env.DB_MODE === "memory") {
+        memoryBlacklist.set(jti, { jti, revokedAt: now, expiresAt: expiresAtMs });
+        ensurePruneTimer();
+        return;
+    }
+
+    try {
+        await ensureTable();
+        const pool = getPool();
+        if (!pool) return;
+        await pool.query(
+            "INSERT INTO jwt_blacklist (jti, revoked_at, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE revoked_at = VALUES(revoked_at), expires_at = VALUES(expires_at)",
+            [jti, now, expiresAtMs],
+        );
+        // Best-effort prune of expired entries
+        await pool.query("DELETE FROM jwt_blacklist WHERE expires_at <= ?", [now]);
+    } catch (err) {
+        logger.warn("jwt-blacklist-revoke-failed", { jti, error: err instanceof Error ? err.message : String(err) });
+    }
+}
+
+export async function isJtiRevoked(jti: string | undefined): Promise<boolean> {
+    if (!jti) return false;
+    if (env.DB_MODE === "memory") {
+        pruneMemory();
+        return memoryBlacklist.has(jti);
+    }
+
+    try {
+        await ensureTable();
+        const pool = getPool();
+        if (!pool) return false;
+        const [rows] = await pool.query("SELECT 1 FROM jwt_blacklist WHERE jti = ? AND expires_at > ? LIMIT 1", [jti, Date.now()]);
+        return (rows as unknown[]).length > 0;
+    } catch {
+        return false;
+    }
+}

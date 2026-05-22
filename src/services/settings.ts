@@ -1,4 +1,5 @@
-import { env } from "../config/env.js";
+import { env, validateRuntimeConfig } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
 
 const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
@@ -70,7 +71,15 @@ function pickKnownSettings(settings: Record<string, string>): EnvSettings {
 function syncEnvObjectFromProcess(): void {
   const mutableEnv = env as unknown as Record<string, unknown>;
   mutableEnv.API_URL = process.env.API_URL || "";
-  mutableEnv.POLL_INTERVAL_MS = readIntegerSetting("POLL_INTERVAL_MS", 30000);
+  // Guard POLL_INTERVAL_MS against NaN — a non-finite interval would put the
+  // poller into a busy loop. Fall back to a safe default and surface a warning.
+  const pollInterval = readIntegerSetting("POLL_INTERVAL_MS", 30000);
+  if (!Number.isFinite(pollInterval) || pollInterval <= 0) {
+    console.warn(`POLL_INTERVAL_MS is invalid (${process.env.POLL_INTERVAL_MS}); falling back to 30000`);
+    mutableEnv.POLL_INTERVAL_MS = 30000;
+  } else {
+    mutableEnv.POLL_INTERVAL_MS = pollInterval;
+  }
   mutableEnv.COOKIE = process.env.COOKIE || "";
   mutableEnv.DEVICE_ID = process.env.DEVICE_ID || "";
   mutableEnv.LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
@@ -82,7 +91,14 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.LINEJS_TEST_DEVICE = process.env.LINEJS_TEST_DEVICE || "IOSIPAD";
   mutableEnv.LINEJS_TEST_STORAGE_PATH = process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json";
   mutableEnv.DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
-  mutableEnv.BOOKING_DETAIL_CONCURRENCY = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 8);
+  // Cap detail concurrency at runtime to prevent UI bypass of boot-time validation.
+  const concurrency = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 8);
+  if (!Number.isFinite(concurrency) || concurrency <= 0 || concurrency > 50) {
+    console.warn(`BOOKING_DETAIL_CONCURRENCY out of range (${process.env.BOOKING_DETAIL_CONCURRENCY}); falling back to 8`);
+    mutableEnv.BOOKING_DETAIL_CONCURRENCY = 8;
+  } else {
+    mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
+  }
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
 }
 
@@ -120,13 +136,45 @@ export async function readStoredSettings(): Promise<EnvSettings> {
 
 export async function writeSettings(newSettings: EnvSettings): Promise<void> {
   const settings = pickKnownSettings(newSettings as Record<string, string>);
+
+  // Stage candidate settings into a snapshot of process.env so we can validate
+  // before persisting. This blocks UI updates that would put the poller into a
+  // bad state (invalid URL, zero interval, etc.).
+  const previousProcessEnv: Record<string, string | undefined> = {};
+  for (const key of Object.keys(settings) as SettingsKey[]) {
+    previousProcessEnv[key] = process.env[key];
+    process.env[key] = settings[key];
+  }
+  syncEnvObjectFromProcess();
+
+  try {
+    validateRuntimeConfig();
+  } catch (err) {
+    // Roll back the in-memory mutation so the running process keeps the old config.
+    for (const [key, prev] of Object.entries(previousProcessEnv)) {
+      if (prev === undefined) delete process.env[key];
+      else process.env[key] = prev;
+    }
+    syncEnvObjectFromProcess();
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
   await upsertAppSettings(settings as Record<string, string>);
-  applySettingsToEnv(settings);
 }
 
 export async function reloadSettingsLive(): Promise<void> {
   const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
+  // Validate the live config; surface a loud log if something is wrong but do
+  // NOT throw — the previous process.env values are already replaced. Operators
+  // need an obvious signal to fix it.
+  try {
+    validateRuntimeConfig();
+  } catch (err) {
+    logger.error("settings-live-reload-validation-failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export async function migrateEnvSettingsToDb(): Promise<void> {

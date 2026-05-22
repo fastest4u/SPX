@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
@@ -12,6 +12,7 @@ import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "./authz.js";
 import { sendError } from "../utils/response.js";
 import { isAppError } from "../utils/errors.js";
+import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { resolve } from "node:path";
 
 import { authController } from "../controllers/auth-controller.js";
@@ -42,19 +43,27 @@ const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 let lastBucketCleanup = 0;
 const publicAssetsDir = resolve(process.cwd(), "dist/public");
 const spaIndexHtmlPath = resolve(publicAssetsDir, "index.html");
-let spaIndexHtmlCache: string | null = null;
+let spaIndexHtmlTemplate: string | null = null;
 
-function getSpaIndexHtml(): string {
-  if (!spaIndexHtmlCache) {
-    spaIndexHtmlCache = readFileSync(spaIndexHtmlPath, "utf-8");
+function getSpaIndexTemplate(): string {
+  if (!spaIndexHtmlTemplate) {
+    spaIndexHtmlTemplate = readFileSync(spaIndexHtmlPath, "utf-8");
   }
-  return spaIndexHtmlCache;
+  return spaIndexHtmlTemplate;
+}
+
+function isProd(): boolean {
+  return env.NODE_ENV === "production";
 }
 
 function isAllowedCorsOrigin(origin: string): boolean {
   if (env.HTTP_ALLOWED_ORIGINS.includes(origin)) {
     return true;
   }
+
+  // Localhost is only allowed outside production. In production, every origin
+  // must be on the explicit allowlist.
+  if (isProd()) return false;
 
   try {
     const parsed = new URL(origin);
@@ -115,12 +124,34 @@ function pruneExpiredRateLimitBuckets(now: number): void {
   }
 }
 
-function applySecurityHeaders(reply: FastifyReply): void {
+function applySecurityHeaders(reply: FastifyReply, nonce: string): void {
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Frame-Options", "DENY");
   reply.header("Referrer-Policy", "same-origin");
   reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  reply.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:;");
+
+  // Strict transport in production only (avoids HSTS pinning during local HTTP testing)
+  if (isProd()) {
+    reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+
+  // CSP — script uses per-request nonce so we drop 'unsafe-inline' for scripts.
+  // Style still allows 'unsafe-inline' because Tailwind injects styles at runtime;
+  // narrowing further would require a CSS build pipeline change.
+  reply.header(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "img-src 'self' data: https:",
+      "style-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      "connect-src 'self' https:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; "),
+  );
 }
 
 function sendApiError(reply: FastifyReply, statusCode: number, message: string, code: string, details?: unknown): void {
@@ -150,6 +181,14 @@ function requireRole(required: UserRole) {
   };
 }
 
+function renderSpaIndex(nonce: string): string {
+  const template = getSpaIndexTemplate();
+  // Inject nonce on every <script> tag in the template. Vite emits a few of
+  // them (the entry script and any inline preamble). Adding a nonce on each
+  // is idempotent and matches the CSP header above.
+  return template.replace(/<script(?![^>]*\snonce=)/g, `<script nonce="${nonce}"`);
+}
+
 export async function startHttpServer(port: number): Promise<void> {
   app = Fastify({ logger: false, trustProxy: true });
 
@@ -165,14 +204,21 @@ export async function startHttpServer(port: number): Promise<void> {
   });
   await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
   await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
-  await app.register(fastifyMultipart);
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: 25 * 1024 * 1024, // 25MB per file
+      files: 1,
+      fields: 20,
+    },
+  });
   // Serve SPA static files - explicit file paths only (no wildcard)
-  await app.register(fastifyStatic, { 
-    root: publicAssetsDir, 
-    prefix: "/", 
-    maxAge: "1h", 
+  await app.register(fastifyStatic, {
+    root: publicAssetsDir,
+    prefix: "/",
+    maxAge: "1h",
     immutable: false,
     wildcard: false,
+    index: false,
   });
   await app.register(async (instance) => {
     instance.addHook("preHandler", authenticateRequest);
@@ -182,7 +228,7 @@ export async function startHttpServer(port: number): Promise<void> {
       decorateReply: false,
       maxAge: "1h",
       immutable: false,
-      wildcard: false,
+      wildcard: true,
     });
   });
   await app.register(fastifyFormbody);
@@ -199,8 +245,15 @@ export async function startHttpServer(port: number): Promise<void> {
 
   async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
-      await req.jwtVerify({ onlyCookie: true });
-      const user = req.user as Partial<AuthUser> & { role?: unknown };
+      const decoded = await req.jwtVerify({ onlyCookie: true });
+      const user = decoded as Partial<AuthUser> & { role?: unknown; jti?: unknown };
+
+      // Server-side JWT revocation check.
+      const jti = typeof user.jti === "string" ? user.jti : undefined;
+      if (jti && (await isJtiRevoked(jti))) {
+        return sendApiError(reply, 401, "Token revoked", "TOKEN_REVOKED");
+      }
+
       req.user = { ...user, role: normalizeRole(user.role) } as AuthUser;
     } catch {
       return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
@@ -212,7 +265,9 @@ export async function startHttpServer(port: number): Promise<void> {
   app.decorate("requireRole", requireRole);
 
   app.addHook("onRequest", async (request, reply) => {
-    applySecurityHeaders(reply);
+    const nonce = randomBytes(16).toString("base64");
+    (request as FastifyRequest & { cspNonce?: string }).cspNonce = nonce;
+    applySecurityHeaders(reply, nonce);
 
     const requestId = randomUUID();
     reply.header("X-Request-Id", requestId);
@@ -258,7 +313,14 @@ export async function startHttpServer(port: number): Promise<void> {
   });
 
   await app.register(authController, { prefix: "/api" });
-  await app.register(dashboardController);
+
+  // Operational endpoints — `/health` and `/ready` stay public for load
+  // balancers and monitoring. `/metrics`, `/metrics/history`, `/events`,
+  // `/line-quota`, and `/system/*` are now behind authentication and the
+  // mutating system controls require admin.
+  await app.register(async (opsScope) => {
+    await opsScope.register(dashboardController);
+  });
 
   await app.register(async (apiScope) => {
     apiScope.addHook("preHandler", authenticateRequest);
@@ -297,17 +359,16 @@ export async function startHttpServer(port: number): Promise<void> {
     });
   }, { prefix: "/api" });
 
-  // SPA catch-all: serve index.html for non-API routes (must be registered after API routes)
+  // SPA catch-all: serve index.html with per-request nonce for non-API routes.
   app.get("/*", async (req, reply) => {
-    // Skip API routes and root static files
     if (req.url.startsWith("/api/") || req.url.startsWith("/assets/") || req.url.startsWith("/vite.svg") || req.url.startsWith("/metrics") || req.url.startsWith("/health") || req.url.startsWith("/ready") || req.url.startsWith("/events") || req.url.startsWith("/line-images/")) {
       return reply.callNotFound();
     }
-    // Serve SPA index.html for client-side routes like /history, /users, etc.
+    const nonce = (req as FastifyRequest & { cspNonce?: string }).cspNonce ?? randomBytes(16).toString("base64");
     reply
       .header("Cache-Control", "no-store")
       .type("text/html; charset=utf-8")
-      .send(getSpaIndexHtml());
+      .send(renderSpaIndex(nonce));
   });
 
   await app.listen({ port, host: "0.0.0.0" });

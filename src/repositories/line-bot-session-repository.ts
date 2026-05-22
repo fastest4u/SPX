@@ -1,6 +1,7 @@
 import { getDb } from "../db/client.js";
 import { lineBotSessions } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { decryptString, encryptString } from "../utils/crypto.js";
 
 const DEFAULT_KEY = "default";
 
@@ -10,7 +11,9 @@ export async function getLineBotSession(sessionKey = DEFAULT_KEY): Promise<{ aut
     const rows = await db.select().from(lineBotSessions).where(eq(lineBotSessions.sessionKey, sessionKey)).limit(1);
     const row = rows[0];
     if (!row) return null;
-    return { authToken: row.authToken, device: row.device };
+    const authToken = decryptString(row.authToken);
+    if (!authToken) return null;
+    return { authToken, device: row.device };
   } catch {
     return null;
   }
@@ -19,11 +22,12 @@ export async function getLineBotSession(sessionKey = DEFAULT_KEY): Promise<{ aut
 export async function saveLineBotSession(authToken: string, device: string, sessionKey = DEFAULT_KEY): Promise<boolean> {
   try {
     const db = getDb();
+    const encrypted = encryptString(authToken);
     const rows = await db.select().from(lineBotSessions).where(eq(lineBotSessions.sessionKey, sessionKey)).limit(1);
     if (rows.length > 0) {
-      await db.update(lineBotSessions).set({ authToken, device }).where(eq(lineBotSessions.sessionKey, sessionKey));
+      await db.update(lineBotSessions).set({ authToken: encrypted, device }).where(eq(lineBotSessions.sessionKey, sessionKey));
     } else {
-      await db.insert(lineBotSessions).values({ sessionKey, authToken, device });
+      await db.insert(lineBotSessions).values({ sessionKey, authToken: encrypted, device });
     }
     return true;
   } catch {

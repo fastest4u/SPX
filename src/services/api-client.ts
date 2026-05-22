@@ -15,6 +15,8 @@ import type {
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
 const REQUEST_LIST_PAGE_CONCURRENCY = 5;
+const FETCH_TIMEOUT_MS = 15_000;
+const ACCEPT_TIMEOUT_MS = 10_000;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,13 +30,16 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   label: string,
-  retries = MAX_RETRIES
+  retries = MAX_RETRIES,
+  timeoutMs = FETCH_TIMEOUT_MS,
 ): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, { ...options, signal: controller.signal });
       if (!response.ok && attempt < retries && isRetryableStatus(response.status)) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
         logger.warn(`retryable-response`, { label, url, attempt: attempt + 1, status: response.status, delayMs: Math.round(delay) });
@@ -44,11 +49,20 @@ async function fetchWithRetry(
       return response;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      const isAbort = lastError.name === "AbortError";
       if (attempt < retries) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
-        logger.warn(`retryable-error`, { label, url, attempt: attempt + 1, delayMs: Math.round(delay), error: lastError.message });
+        logger.warn(`retryable-error`, {
+          label,
+          url,
+          attempt: attempt + 1,
+          delayMs: Math.round(delay),
+          error: isAbort ? `timeout after ${timeoutMs}ms` : lastError.message,
+        });
         await sleep(delay);
       }
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -401,7 +415,7 @@ export class ApiClient {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-accept:${bookingId}`, 1);
+      }, `booking-accept:${bookingId}`, 1, ACCEPT_TIMEOUT_MS);
 
       const rawText = await response.text();
       let parsed: unknown = null;

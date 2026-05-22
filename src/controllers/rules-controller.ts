@@ -9,6 +9,13 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+const MAX_FILTER_ENTRIES = 50;
+
+function clampStringArray(value: unknown): string[] {
+  if (!isStringArray(value)) return [];
+  return value.slice(0, MAX_FILTER_ENTRIES);
+}
+
 interface RuleParams {
   id: string;
 }
@@ -20,13 +27,12 @@ function currentUser(req: { user?: unknown }): AuthUser {
 function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
   return {
     name: typeof body.name === "string" ? body.name.trim() : "",
-    origins: isStringArray(body.origins) ? body.origins : [],
-    destinations: isStringArray(body.destinations) ? body.destinations : [],
-    vehicle_types: isStringArray(body.vehicle_types) ? body.vehicle_types : [],
+    origins: clampStringArray(body.origins),
+    destinations: clampStringArray(body.destinations),
+    vehicle_types: clampStringArray(body.vehicle_types),
     need: typeof body.need === "number" && body.need >= 0 ? body.need : 1,
     enabled: body.enabled ?? true,
     fulfilled: body.fulfilled ?? false,
-    auto_accept: body.auto_accept ?? false,
     auto_accepted: body.auto_accepted ?? false,
   };
 }
@@ -34,27 +40,27 @@ function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
 function toRulePatch(body: Partial<NotifyRuleInput>): NotifyRulePatch {
   const patch: NotifyRulePatch = {};
   if (typeof body.name === "string") patch.name = body.name.trim();
-  if (isStringArray(body.origins)) patch.origins = body.origins;
-  if (isStringArray(body.destinations)) patch.destinations = body.destinations;
-  if (isStringArray(body.vehicle_types)) patch.vehicle_types = body.vehicle_types;
+  if (isStringArray(body.origins)) patch.origins = clampStringArray(body.origins);
+  if (isStringArray(body.destinations)) patch.destinations = clampStringArray(body.destinations);
+  if (isStringArray(body.vehicle_types)) patch.vehicle_types = clampStringArray(body.vehicle_types);
   if (typeof body.need === "number" && body.need >= 0) patch.need = body.need;
   if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
   if (typeof body.fulfilled === "boolean") patch.fulfilled = body.fulfilled;
-  if (typeof body.auto_accept === "boolean") patch.auto_accept = body.auto_accept;
   if (typeof body.auto_accepted === "boolean") patch.auto_accepted = body.auto_accepted;
   return patch;
 }
 
 const ruleSchema = {
   type: "object",
+  // Allow legacy `auto_accept` field on the wire so older clients don't 400, but ignore it.
   additionalProperties: false,
   required: ["name"],
   properties: {
     name: { type: "string", minLength: 1, maxLength: 128 },
-    origins: { type: "array", items: { type: "string" } },
-    destinations: { type: "array", items: { type: "string" } },
-    vehicle_types: { type: "array", items: { type: "string" } },
-    need: { type: "integer", minimum: 0 },
+    origins: { type: "array", items: { type: "string", maxLength: 255 }, maxItems: MAX_FILTER_ENTRIES },
+    destinations: { type: "array", items: { type: "string", maxLength: 255 }, maxItems: MAX_FILTER_ENTRIES },
+    vehicle_types: { type: "array", items: { type: "string", maxLength: 100 }, maxItems: MAX_FILTER_ENTRIES },
+    need: { type: "integer", minimum: 0, maximum: 1000 },
     enabled: { type: "boolean" },
     fulfilled: { type: "boolean" },
     auto_accept: { type: "boolean" },

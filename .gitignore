@@ -1,4 +1,6 @@
 .env
+.env.local
+.tmp-*.log
 node_modules
 dist
 data
@@ -7,6 +9,25 @@ logs
 !.agents/skills/
 !.agents/skills/**
 notify-rules.json
+
+# Kiro IDE workspace settings (per-developer)
+.kiro/
+
+# User-specific symlinked skills (Junctions point to absolute Windows paths)
+.agents/skills/find-skills
+.agents/skills/frontend-design
+.agents/skills/laravel-specialist
+.agents/skills/next-best-practices
+.agents/skills/nodejs-backend-patterns
+.agents/skills/nodejs-best-practices
+.agents/skills/obsidian-bases
+.agents/skills/obsidian-markdown
+.agents/skills/tailwind-design-system
+.agents/skills/test-driven-development
+.agents/skills/typescript-advanced-types
+.agents/skills/ui-ux-pro-max
+.agents/skills/vercel-react-best-practices
+.agents/skills/web-design-guidelines
 
 # Editors / IDEs
 

@@ -12,6 +12,20 @@ export { requestQrLogin as requestLineJsQrLogin } from "./line-bot.js";
 
 type NotificationChannel = "line" | "discord" | "linejs_test";
 
+const NOTIFY_FETCH_TIMEOUT_MS = 10_000;
+const LINE_QUOTA_FETCH_TIMEOUT_MS = 5_000;
+
+async function fetchWithTimeout(input: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
+  const { timeoutMs = NOTIFY_FETCH_TIMEOUT_MS, ...options } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type NotificationSendResult = {
   channel: NotificationChannel;
   ok: boolean;
@@ -34,7 +48,7 @@ function truncate(value: string, maxLength: number): string {
 }
 
 async function sendDiscordNotification(title: string, message: string): Promise<void> {
-  const response = await fetch(env.DISCORD_WEBHOOK_URL, {
+  const response = await fetchWithTimeout(env.DISCORD_WEBHOOK_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -62,7 +76,7 @@ async function sendLineOaMessage(title: string, message: string): Promise<void> 
     }],
   });
 
-  const response = await fetch("https://api.line.me/v2/bot/message/push", {
+  const response = await fetchWithTimeout("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
@@ -671,11 +685,13 @@ export async function fetchLineQuota(): Promise<{ totalUsage: number; limit: num
 
   try {
     const [quotaRes, consumptionRes] = await Promise.all([
-      fetch("https://api.line.me/v2/bot/message/quota", {
+      fetchWithTimeout("https://api.line.me/v2/bot/message/quota", {
         headers: { authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+        timeoutMs: LINE_QUOTA_FETCH_TIMEOUT_MS,
       }),
-      fetch("https://api.line.me/v2/bot/message/quota/consumption", {
+      fetchWithTimeout("https://api.line.me/v2/bot/message/quota/consumption", {
         headers: { authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+        timeoutMs: LINE_QUOTA_FETCH_TIMEOUT_MS,
       }),
     ]);
 
