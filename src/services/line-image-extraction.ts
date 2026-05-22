@@ -1,7 +1,7 @@
 import { copyFile, mkdir, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
-import { insertLineImageExtraction } from "../repositories/line-image-extraction-repository.js";
+import { getLineImageExtractionByTripNumber, insertLineImageExtraction } from "../repositories/line-image-extraction-repository.js";
 
 export const REQUIRED_LINE_IMAGE_AGENCY = "LH-PWL";
 
@@ -78,6 +78,14 @@ export async function persistValidLineImageExtraction(input: {
   const validation = validateLineImageExtraction(input.aiText);
   if (!validation.ok) {
     return { saved: false, id: null, reason: validation.reason };
+  }
+
+  // Check for duplicate trip number
+  if (validation.parsed.tripNumber) {
+    const existing = await getLineImageExtractionByTripNumber(validation.parsed.tripNumber);
+    if (existing) {
+      return { saved: false, id: null, reason: `duplicate_trip_number:${validation.parsed.tripNumber}` };
+    }
   }
 
   const now = new Date();

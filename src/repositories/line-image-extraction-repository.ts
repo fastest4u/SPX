@@ -1,7 +1,7 @@
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { lineImageExtractions } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
-import { and, asc, count, desc, gte, like, lt, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, like, lt, lte, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 export interface LineImageExtractionRecord {
@@ -160,3 +160,15 @@ export async function getLineImageExtractionsPaginated(query: LineImageExtractio
     totalPages: Math.ceil(total / pageSize),
   };
 }
+
+export async function getLineImageExtractionByTripNumber(tripNumber: string): Promise<typeof lineImageExtractions.$inferSelect | null> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(lineImageExtractions)
+    .where(eq(lineImageExtractions.tripNumber, tripNumber))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
