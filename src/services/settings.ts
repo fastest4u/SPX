@@ -82,7 +82,7 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.LINEJS_TEST_DEVICE = process.env.LINEJS_TEST_DEVICE || "IOSIPAD";
   mutableEnv.LINEJS_TEST_STORAGE_PATH = process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json";
   mutableEnv.DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
-  mutableEnv.BOOKING_DETAIL_CONCURRENCY = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 20);
+  mutableEnv.BOOKING_DETAIL_CONCURRENCY = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 8);
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
 }
 

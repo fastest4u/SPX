@@ -592,8 +592,6 @@ export async function completeCodexBrowserAuth(input: string): Promise<{ authent
   return { authenticated: true, expiresAt: token.expiresAt };
 }
 
-export const startCodexDeviceAuth = startCodexBrowserAuth;
-export const completeCodexDeviceAuth = completeCodexBrowserAuth;
 
 export async function getCodexDeviceAuthStatus(): Promise<{
   authenticated: boolean;

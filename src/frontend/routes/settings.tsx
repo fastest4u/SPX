@@ -470,11 +470,20 @@ function ApiSection({ formData, setField }: { formData: Record<string, string>; 
                 type="text"
                 placeholder="วาง URL หรือ callback code ที่นี่ (เช่น http://localhost:1455/auth/callback?code=...)"
                 className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white placeholder-muted-foreground/40 focus:border-primary focus:outline-none"
-                onChange={(e) => {
-                  const val = e.target.value.trim();
+                onPaste={(e) => {
+                  const val = e.clipboardData.getData('text').trim();
                   if (val) {
                     completeCodexAuth.mutate({ callbackUrl: val });
-                    e.target.value = '';
+                    e.currentTarget.value = '';
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const val = e.currentTarget.value.trim();
+                    if (val) {
+                      completeCodexAuth.mutate({ callbackUrl: val });
+                      e.currentTarget.value = '';
+                    }
                   }
                 }}
               />

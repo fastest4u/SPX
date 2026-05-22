@@ -158,9 +158,9 @@ function LineImageExtractionsComponent() {
         <CardContent>
           <div className="mb-4 grid gap-2 sm:grid-cols-4">
             <Metric label="Saved records" value={total} icon={FileImage} tone="cyan" />
-            <Metric label="Trips" value={uniqueTripNumbers} icon={CalendarDays} tone="violet" />
-            <Metric label="Routes" value={uniqueRoutes} icon={Map} tone="emerald" />
-            <Metric label="Vehicles" value={uniqueVehicles} icon={Car} tone="amber" />
+            <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="violet" />
+            <Metric label="Routes (page)" value={uniqueRoutes} icon={Map} tone="emerald" />
+            <Metric label="Vehicles (page)" value={uniqueVehicles} icon={Car} tone="amber" />
           </div>
 
           <div className="mb-4 flex items-center gap-2">

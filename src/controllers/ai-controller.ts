@@ -13,7 +13,7 @@ import {
 } from "../services/codex-image-reader.js";
 import {
   clearCodexDeviceAuth,
-  completeCodexDeviceAuth,
+  completeCodexBrowserAuth,
   getCodexDeviceAuthStatus,
   startCodexBrowserAuth,
   startDeviceCodeAuth,
@@ -127,7 +127,7 @@ export const aiController: FastifyPluginAsync = async (app) => {
         return sendError(reply, 400, "CODEX_AUTH_INPUT_REQUIRED", "callbackUrl or code is required.");
       }
       try {
-        return sendSuccess(reply, await completeCodexDeviceAuth(input), "Codex OAuth login completed");
+        return sendSuccess(reply, await completeCodexBrowserAuth(input), "Codex OAuth login completed");
       } catch (error) {
         return sendError(
           reply,

@@ -174,13 +174,16 @@ export async function startHttpServer(port: number): Promise<void> {
     immutable: false,
     wildcard: false,
   });
-  await app.register(fastifyStatic, {
-    root: resolve(process.cwd(), "data", "line-images"),
-    prefix: "/line-images/",
-    decorateReply: false,
-    maxAge: "1h",
-    immutable: false,
-    wildcard: false,
+  await app.register(async (instance) => {
+    instance.addHook("preHandler", authenticateRequest);
+    await instance.register(fastifyStatic, {
+      root: resolve(process.cwd(), "data", "line-images"),
+      prefix: "/line-images/",
+      decorateReply: false,
+      maxAge: "1h",
+      immutable: false,
+      wildcard: false,
+    });
   });
   await app.register(fastifyFormbody);
 
@@ -297,7 +300,7 @@ export async function startHttpServer(port: number): Promise<void> {
   // SPA catch-all: serve index.html for non-API routes (must be registered after API routes)
   app.get("/*", async (req, reply) => {
     // Skip API routes and root static files
-    if (req.url.startsWith("/api/") || req.url.startsWith("/assets/") || req.url.startsWith("/vite.svg") || req.url.startsWith("/metrics") || req.url.startsWith("/health") || req.url.startsWith("/ready") || req.url.startsWith("/events")) {
+    if (req.url.startsWith("/api/") || req.url.startsWith("/assets/") || req.url.startsWith("/vite.svg") || req.url.startsWith("/metrics") || req.url.startsWith("/health") || req.url.startsWith("/ready") || req.url.startsWith("/events") || req.url.startsWith("/line-images/")) {
       return reply.callNotFound();
     }
     // Serve SPA index.html for client-side routes like /history, /users, etc.

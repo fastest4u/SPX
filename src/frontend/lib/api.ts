@@ -66,6 +66,7 @@ async function fetchRaw<T>(url: string, options?: RequestInit): Promise<ApiSucce
     if (!isLoginRequest && !isRedirectingToLogin) {
       isRedirectingToLogin = true
       window.location.replace('/login')
+      setTimeout(() => { isRedirectingToLogin = false }, 1000)
     }
 
     const errorData = data as ApiErrorResponse

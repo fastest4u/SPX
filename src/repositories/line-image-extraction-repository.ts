@@ -1,7 +1,7 @@
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { lineImageExtractions } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
-import { and, asc, count, desc, gte, like, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, gte, like, lt, lte, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 export interface LineImageExtractionRecord {
@@ -75,7 +75,7 @@ function buildLineImageExtractionFilters(query: LineImageExtractionQuery): SQL |
     filters.push(gte(lineImageExtractions.createdAt, new Date(`${query.month}-01T00:00:00Z`)));
     const nextMonth = new Date(`${query.month}-01T00:00:00Z`);
     nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
-    filters.push(lte(lineImageExtractions.createdAt, nextMonth));
+    filters.push(lt(lineImageExtractions.createdAt, nextMonth));
   }
   if (query.createdFrom) filters.push(gte(lineImageExtractions.createdAt, normalizeDateBoundary(query.createdFrom)));
   if (query.createdTo) filters.push(lte(lineImageExtractions.createdAt, normalizeDateBoundary(query.createdTo, true)));
