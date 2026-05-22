@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import fastifyJwt from "@fastify/jwt";
+import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyFormbody from "@fastify/formbody";
 import { env } from "../config/env.js";
@@ -25,6 +26,8 @@ import { biddingController } from "../controllers/bidding-controller.js";
 import { autoAcceptHistoryController } from "../controllers/auto-accept-history-controller.js";
 import { notifyController } from "./notify-controller.js";
 import { lineBotController } from "../controllers/line-bot-controller.js";
+import { aiController } from "../controllers/ai-controller.js";
+import { lineImageExtractionController } from "../controllers/line-image-extraction-controller.js";
 
 let app: FastifyInstance | null = null;
 
@@ -162,11 +165,20 @@ export async function startHttpServer(port: number): Promise<void> {
   });
   await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
   await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
+  await app.register(fastifyMultipart);
   // Serve SPA static files - explicit file paths only (no wildcard)
   await app.register(fastifyStatic, { 
     root: publicAssetsDir, 
     prefix: "/", 
     maxAge: "1h", 
+    immutable: false,
+    wildcard: false,
+  });
+  await app.register(fastifyStatic, {
+    root: resolve(process.cwd(), "data", "line-images"),
+    prefix: "/line-images/",
+    decorateReply: false,
+    maxAge: "1h",
     immutable: false,
     wildcard: false,
   });
@@ -262,6 +274,8 @@ export async function startHttpServer(port: number): Promise<void> {
       await userScope.register(notifyController, { prefix: "/notifications" });
       await userScope.register(biddingController, { prefix: "/bidding" });
       await userScope.register(lineBotController, { prefix: "/line-bot" });
+      await userScope.register(aiController, { prefix: "/ai" });
+      await userScope.register(lineImageExtractionController, { prefix: "/line-image-extractions" });
     });
 
     await apiScope.register(async (adminScope) => {
@@ -295,6 +309,15 @@ export async function startHttpServer(port: number): Promise<void> {
 
   await app.listen({ port, host: "0.0.0.0" });
   logger.info("http-server-started", { url: `http://localhost:${port}` });
+
+  // Start LINE image listener if configured
+  const listenerChatId = env.LINE_IMAGE_LISTENER_CHAT_ID;
+  if (listenerChatId) {
+    const { startImageListener } = await import("./line-bot.js");
+    startImageListener(listenerChatId).catch((error) => {
+      logger.error("line-image-listener-start-failed", { error: error instanceof Error ? error.message : String(error) });
+    });
+  }
 }
 
 export async function stopHttpServer(): Promise<void> {

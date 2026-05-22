@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils'
 import {
   LayoutDashboard, History, FileText, Users, Settings, Bell, FileBarChart,
   LogOut, ChevronLeft, ChevronRight, Truck, MessageCircle,
-  Search, Command, Menu
+  Search, Command, Menu, FileImage
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Avatar } from '../ui/avatar'
@@ -22,6 +22,7 @@ const navItems = [
   { path: '/history', label: 'ประวัติงาน', icon: History, shortcut: '2' },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell, shortcut: '3' },
   { path: '/line-bot', label: 'LINE Bot', icon: MessageCircle, shortcut: '4' },
+  { path: '/line-image-extractions', label: 'LINE Runsheets', icon: FileImage, shortcut: '5' },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart, shortcut: '5' },
 ]
 
@@ -37,6 +38,7 @@ const mobileTabs = [
   { path: '/history', label: 'งาน', icon: History },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell },
   { path: '/line-bot', label: 'LINE', icon: MessageCircle },
+  { path: '/line-image-extractions', label: 'Runsheets', icon: FileImage },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart },
 ]
 
@@ -45,6 +47,7 @@ const pageLabels: Record<string, string> = {
   '/history': 'ประวัติงาน',
   '/notifications': 'แจ้งเตือน',
   '/line-bot': 'LINE Bot',
+  '/line-image-extractions': 'LINE Runsheets',
   '/auto-accept-history': 'ประวัติรับงานอัตโนมัติ',
   '/audit': 'ประวัติการใช้งาน',
   '/users': 'จัดการผู้ใช้',

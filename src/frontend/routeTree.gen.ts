@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LineImageExtractionsRouteImport } from './routes/line-image-extractions'
 import { Route as LineBotRouteImport } from './routes/line-bot'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as AutoAcceptHistoryRouteImport } from './routes/auto-accept-history'
@@ -43,6 +44,11 @@ const NotificationsRoute = NotificationsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LineImageExtractionsRoute = LineImageExtractionsRouteImport.update({
+  id: '/line-image-extractions',
+  path: '/line-image-extractions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LineBotRoute = LineBotRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
   '/line-bot': typeof LineBotRoute
+  '/line-image-extractions': typeof LineImageExtractionsRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
   '/line-bot': typeof LineBotRoute
+  '/line-image-extractions': typeof LineImageExtractionsRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/auto-accept-history': typeof AutoAcceptHistoryRoute
   '/history': typeof HistoryRoute
   '/line-bot': typeof LineBotRoute
+  '/line-image-extractions': typeof LineImageExtractionsRoute
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/auto-accept-history'
     | '/history'
     | '/line-bot'
+    | '/line-image-extractions'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/auto-accept-history'
     | '/history'
     | '/line-bot'
+    | '/line-image-extractions'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/auto-accept-history'
     | '/history'
     | '/line-bot'
+    | '/line-image-extractions'
     | '/login'
     | '/notifications'
     | '/reports'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   AutoAcceptHistoryRoute: typeof AutoAcceptHistoryRoute
   HistoryRoute: typeof HistoryRoute
   LineBotRoute: typeof LineBotRoute
+  LineImageExtractionsRoute: typeof LineImageExtractionsRoute
   LoginRoute: typeof LoginRoute
   NotificationsRoute: typeof NotificationsRoute
   ReportsRoute: typeof ReportsRoute
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/line-image-extractions': {
+      id: '/line-image-extractions'
+      path: '/line-image-extractions'
+      fullPath: '/line-image-extractions'
+      preLoaderRoute: typeof LineImageExtractionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/line-bot': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   AutoAcceptHistoryRoute: AutoAcceptHistoryRoute,
   HistoryRoute: HistoryRoute,
   LineBotRoute: LineBotRoute,
+  LineImageExtractionsRoute: LineImageExtractionsRoute,
   LoginRoute: LoginRoute,
   NotificationsRoute: NotificationsRoute,
   ReportsRoute: ReportsRoute,

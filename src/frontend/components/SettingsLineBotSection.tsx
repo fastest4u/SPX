@@ -114,6 +114,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
           <Button type="button" variant="ghost" size="sm" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 shrink-0 h-8 px-2" onClick={() => { if (window.confirm('ต้องการออกจากระบบ LINE Bot?')) logoutMut.mutate(false) }} disabled={logoutMut.isPending}>
             {logoutMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Logout'}
           </Button>
+          <Button type="button" variant="outline" size="sm" className="h-8 border-amber-400/30 bg-amber-400/10 px-2 text-amber-200 hover:bg-amber-400/20 hover:text-amber-100" onClick={() => { if (window.confirm('Reset LINE login and clear stored auth/E2EE data?')) logoutMut.mutate(true) }} disabled={logoutMut.isPending}>
+            Reset
+          </Button>
         </div>
       )}
 

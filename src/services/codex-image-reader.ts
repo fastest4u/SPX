@@ -1,0 +1,84 @@
+import { readFile } from "node:fs/promises";
+import { generateText } from "ai";
+import { codexExec, type CodexExecSettings } from "ai-sdk-provider-codex-cli";
+import { env } from "../config/env.js";
+import { codexDeviceModel, hasCodexDeviceAuth } from "./codex-device-auth.js";
+
+export const DEFAULT_CODEX_IMAGE_PROMPT = `อ่านข้อมูลจากรูปเอกสาร SPX Linehaul Trip Runsheet แล้วตอบกลับเฉพาะ 6 บรรทัดนี้เท่านั้น ห้ามสรุป ห้ามตัดคำ ห้ามแสดงข้อความอื่น:
+วันที่ : <วันที่ในรูป เช่น 20 May 2026>
+เลขทริป : <เลขทริปในรูป เช่น LT0Q5L2657AJ2>
+ชื่อคนขับ : <คัดลอกค่าทั้งหมดหลัง "ชื่อคนขับ:" รวมรหัส agency เลขทะเบียน ประเภทรถ ชื่อคน และ - SUB ถ้ามี>
+ชื่อ Agency: <ชื่อ Agency ในรูป>
+ประเภทรถ: <ประเภทรถในรูป>
+เส้นทาง : <เส้นทางในรูป เช่น NERC-B > SOCE>
+
+อย่าครอบด้วย Markdown, JSON, หรือโค้ดบล็อก
+ถ้าช่องไหนอ่านไม่ชัดให้ใส่ ไม่ชัด หลังเครื่องหมาย : ของช่องนั้น`;
+export const DEFAULT_CODEX_IMAGE_MODEL = "gpt-5.5";
+export const CODEX_IMAGE_SYSTEM_PROMPT = "Follow the user's image-reading instructions exactly and return only the requested answer.";
+
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+export interface ReadImageWithCodexOptions {
+  imagePath: string;
+  mimeType: string;
+  model?: string;
+  prompt: string;
+  timeoutMs: number;
+}
+
+export function resolveCodexImageModel(model?: string): string {
+  return model?.trim() || DEFAULT_CODEX_IMAGE_MODEL;
+}
+
+export function buildCodexExecSettings(): CodexExecSettings {
+  return {
+    allowNpx: true,
+    skipGitRepoCheck: true,
+    approvalMode: "never",
+    sandboxMode: "read-only",
+    logger: false,
+  };
+}
+
+export function isSupportedImageMimeType(mimeType: string): boolean {
+  return SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase());
+}
+
+export function extensionForMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return ".jpg";
+    case "image/png":
+      return ".png";
+    case "image/webp":
+      return ".webp";
+    default:
+      return ".img";
+  }
+}
+
+export async function readImageWithCodex(options: ReadImageWithCodexOptions): Promise<string> {
+  const image = await readFile(options.imagePath);
+  const modelId = resolveCodexImageModel(options.model);
+  const useCodexDevice = env.CODEX_IMAGE_PROVIDER === "codex-device"
+    || (env.CODEX_IMAGE_PROVIDER === "auto" && await hasCodexDeviceAuth());
+  const { text } = await generateText({
+    model: useCodexDevice
+      ? codexDeviceModel(modelId)
+      : codexExec(modelId, buildCodexExecSettings()),
+    system: CODEX_IMAGE_SYSTEM_PROMPT,
+    abortSignal: AbortSignal.timeout(options.timeoutMs),
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: options.prompt.trim() || DEFAULT_CODEX_IMAGE_PROMPT },
+          { type: "file", data: image, mediaType: options.mimeType },
+        ],
+      },
+    ],
+  });
+
+  return text.trim();
+}

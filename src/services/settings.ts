@@ -18,6 +18,7 @@ export const SETTINGS_KEYS = [
   "DISCORD_WEBHOOK_URL",
   "POLL_INTERVAL_MS",
   "BOOKING_DETAIL_CONCURRENCY",
+  "CODEX_IMAGE_PROVIDER",
 ] as const;
 
 export type SettingsKey = typeof SETTINGS_KEYS[number];
@@ -38,6 +39,7 @@ const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
   DISCORD_WEBHOOK_URL: "",
   POLL_INTERVAL_MS: "30000",
   BOOKING_DETAIL_CONCURRENCY: "8",
+  CODEX_IMAGE_PROVIDER: "auto",
 };
 
 function readIntegerSetting(name: string, defaultValue: number): number {
@@ -81,6 +83,7 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.LINEJS_TEST_STORAGE_PATH = process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json";
   mutableEnv.DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
   mutableEnv.BOOKING_DETAIL_CONCURRENCY = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 20);
+  mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
 }
 
 function applySettingsToEnv(settings: EnvSettings): void {

@@ -130,6 +130,11 @@ export const env = {
   ADMIN_USERNAME: process.env.ADMIN_USERNAME || "admin",
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "",
   ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "user",
+  CODEX_IMAGE_MODEL: process.env.CODEX_IMAGE_MODEL || "",
+  CODEX_IMAGE_PROVIDER: (process.env.CODEX_IMAGE_PROVIDER || "auto") as "auto" | "codex-cli" | "codex-device",
+  CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", 120000),
+  CODEX_IMAGE_MAX_BYTES: readIntegerEnv("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
+  LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
 } as const;
 
 export function validateRuntimeConfig(): void {
@@ -196,6 +201,11 @@ export function validateRuntimeConfig(): void {
     if (!isStrongPassword(env.ADMIN_PASSWORD)) invalid.push("ADMIN_PASSWORD must be set and at least 12 characters long when HTTP_ENABLED=true");
     if (!env.ADMIN_USERNAME || env.ADMIN_USERNAME.trim().length < 3) invalid.push("ADMIN_USERNAME must be at least 3 characters long");
     if (env.ADMIN_ROLE !== "admin" && env.ADMIN_ROLE !== "user") invalid.push("ADMIN_ROLE must be admin or user");
+    if (!isPositiveInteger(env.CODEX_IMAGE_TIMEOUT_MS)) invalid.push("CODEX_IMAGE_TIMEOUT_MS must be a positive integer in milliseconds");
+    if (!isPositiveInteger(env.CODEX_IMAGE_MAX_BYTES)) invalid.push("CODEX_IMAGE_MAX_BYTES must be a positive integer in bytes");
+    if (env.CODEX_IMAGE_PROVIDER !== "auto" && env.CODEX_IMAGE_PROVIDER !== "codex-cli" && env.CODEX_IMAGE_PROVIDER !== "codex-device") {
+      invalid.push("CODEX_IMAGE_PROVIDER must be auto, codex-cli, or codex-device");
+    }
   }
 
   if (missing.length > 0) throw new Error(`Missing required .env values: ${missing.join(", ")}`);

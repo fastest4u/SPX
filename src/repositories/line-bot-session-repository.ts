@@ -30,3 +30,13 @@ export async function saveLineBotSession(authToken: string, device: string, sess
     return false;
   }
 }
+
+export async function deleteLineBotSession(sessionKey = DEFAULT_KEY): Promise<boolean> {
+  try {
+    const db = getDb();
+    await db.delete(lineBotSessions).where(eq(lineBotSessions.sessionKey, sessionKey));
+    return true;
+  } catch {
+    return false;
+  }
+}
