@@ -30,7 +30,6 @@ const defaultFormData: RuleInput = {
   vehicle_types: [],
   need: 1,
   enabled: true,
-  auto_accept: true,
 }
 
 export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) {
@@ -77,7 +76,6 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       ...formData,
       origins: splitCsv(originsText),
       destinations: splitCsv(destinationsText),
-      auto_accept: true,
     })
   }
 

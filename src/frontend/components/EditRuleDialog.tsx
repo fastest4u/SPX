@@ -49,7 +49,6 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
         vehicle_types: rule.vehicle_types,
         need: rule.need,
         enabled: rule.enabled,
-        auto_accept: true,
       })
       setOriginsText(rule.origins.join(', '))
       setDestinationsText(rule.destinations.join(', '))
@@ -84,7 +83,6 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
       ...formData,
       origins: splitCsv(originsText),
       destinations: splitCsv(destinationsText),
-      auto_accept: true,
     })
   }
 

@@ -5,8 +5,14 @@ import { getAuditLogs } from "../repositories/audit-repository.js";
 import { metrics } from "../services/metrics.js";
 
 function csvEscape(value: unknown): string {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) {
+  let text = String(value ?? "");
+  // Excel/Sheets formula injection guard: prefix dangerous leading characters
+  // with a single quote so spreadsheet apps treat them as literals, not formulas.
+  // This must run BEFORE quote wrapping so the apostrophe is preserved.
+  if (text.length > 0 && /^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
+  if (/[",\n\r]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;

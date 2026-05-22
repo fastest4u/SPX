@@ -96,8 +96,13 @@ async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<Ap
 
 async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): Promise<T> {
   let lastError: unknown
+  // Only retry idempotent methods. POST/PUT/DELETE could double-execute side
+  // effects (e.g. /system/pause flip-flopping) so we run them once.
+  const method = (options?.method ?? 'GET').toUpperCase()
+  const isIdempotent = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+  const effectiveRetries = isIdempotent ? retries : 1
 
-  for (let attempt = 0; attempt < retries; attempt += 1) {
+  for (let attempt = 0; attempt < effectiveRetries; attempt += 1) {
     try {
       const response = await fetch(url, {
         ...options,
@@ -106,7 +111,7 @@ async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): P
       })
       const data = await response.json().catch(() => null) as T | ApiErrorResponse | null
       if (!response.ok) {
-        if (response.status >= 500 && attempt < retries - 1) {
+        if (isIdempotent && response.status >= 500 && attempt < effectiveRetries - 1) {
           const delayMs = 250 * 2 ** attempt
           await new Promise(resolve => setTimeout(resolve, delayMs))
           continue
@@ -119,7 +124,7 @@ async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): P
       return data as T
     } catch (error) {
       lastError = error
-      if (attempt < retries - 1) {
+      if (isIdempotent && attempt < effectiveRetries - 1) {
         const delayMs = 250 * 2 ** attempt
         await new Promise(resolve => setTimeout(resolve, delayMs))
         continue
@@ -187,7 +192,6 @@ export const rulesApi = {
           vehicle_types: rule.vehicle_types,
           need: rule.need,
           enabled: rule.enabled,
-          auto_accept: rule.auto_accept,
         },
         limit: options?.limit ?? 200,
         sampleLimit: options?.sampleLimit ?? 8,

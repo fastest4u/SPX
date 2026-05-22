@@ -1,8 +1,66 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-22T01:56:03.325Z",
+  "updatedAt": "2026-05-22T16:28:34.950Z",
   "activeSession": null,
   "recentSessions": [
+    {
+      "id": "memory-1779466033988",
+      "startedAt": "2026-05-22T16:07:13.988Z",
+      "updatedAt": "2026-05-22T16:28:34.948Z",
+      "taskArea": "security/auth/refactor",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-22T16:07:13.988Z",
+          "details": {
+            "taskArea": "system audit"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-22T16:07:13.992Z",
+          "details": {
+            "query": "system audit",
+            "taskArea": "system audit"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-22T16:16:29.864Z",
+          "details": {
+            "task": "แก้ Critical findings ทั้งหมด: auth/CSRF, CORS, login token leak, CSV injection, fetch timeout, memory mode crash, settings revalidation, secrets encryption, deploy safety. Multi-file refactor ใน src/services/ + src/controllers/ + src/repositories/",
+            "area": "security/auth/refactor",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-22T16:28:34.948Z",
+          "details": {
+            "topic": "SPX critical security and rules-engine refactor — remove search-only mode + harden auth, secrets, CSP, CORS, CSV, deploy",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "SPX critical security and rules-engine refactor — remove search-only mode + harden auth, secrets, CSP, CORS, CSV, deploy",
+      "endedAt": "2026-05-22T16:28:34.948Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 90,
+        "grade": "B",
+        "warnings": [
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
     {
       "id": "memory-1779414248197",
       "startedAt": "2026-05-22T01:44:08.197Z",

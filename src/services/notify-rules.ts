@@ -28,7 +28,8 @@ export interface NotifyRule {
   need: number;
   enabled: boolean;
   fulfilled: boolean;
-  auto_accept: boolean;
+  /** Always true — every enabled rule auto-accepts. Kept on the wire for backward compat. */
+  auto_accept: true;
   auto_accepted: boolean;
 }
 
@@ -40,7 +41,6 @@ export interface NotifyRuleInput {
   need?: number;
   enabled?: boolean;
   fulfilled?: boolean;
-  auto_accept?: boolean;
   auto_accepted?: boolean;
 }
 
@@ -122,7 +122,8 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
       need: Math.max(0, need),
       enabled,
       fulfilled: candidate.fulfilled === true,
-      auto_accept: enabled ? true : candidate.auto_accept === true,
+      // Every rule auto-accepts. Field is kept only for wire compatibility.
+      auto_accept: true,
       auto_accepted: candidate.auto_accepted === true,
     }];
   });
@@ -160,7 +161,8 @@ function dbRowToRule(row: DbRow): NotifyRule {
     need: row.need,
     enabled,
     fulfilled: row.fulfilled === 1,
-    auto_accept: enabled ? true : row.autoAccept === 1,
+    // Every rule auto-accepts. DB column kept for backward compatibility.
+    auto_accept: true,
     auto_accepted: row.autoAccepted === 1,
   };
 }
@@ -175,7 +177,7 @@ function ruleToDbRow(rule: NotifyRule) {
     need: rule.need,
     enabled: rule.enabled ? 1 : 0,
     fulfilled: rule.fulfilled ? 1 : 0,
-    autoAccept: rule.auto_accept ? 1 : 0,
+    autoAccept: 1,
     autoAccepted: rule.auto_accepted ? 1 : 0,
   };
 }

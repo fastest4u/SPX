@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
+import { randomUUID } from "node:crypto";
 import { getUserByUsername, verifyPassword } from "../repositories/user-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
+import { revokeJti, isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { env } from "../config/env.js";
-import type { AuthUser } from "../services/authz.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 interface LoginBody {
@@ -20,11 +21,32 @@ const loginSchema = {
   },
 };
 
-function isAuthUser(value: unknown): value is AuthUser {
-  return typeof value === "object"
-    && value !== null
-    && "username" in value
-    && typeof (value as Record<string, unknown>).username === "string";
+const TOKEN_TTL_SECONDS = 86_400; // 1 day
+
+interface AuthTokenPayload {
+  username: string;
+  id: number;
+  role: string;
+  jti: string;
+  iat?: number;
+  exp?: number;
+}
+
+function isAuthTokenPayload(value: unknown): value is AuthTokenPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.username === "string" && typeof v.id === "number" && typeof v.role === "string";
+}
+
+function setAuthCookie(reply: { setCookie: (name: string, value: string, options: object) => void }, token: string): void {
+  reply.setCookie("token", token, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "strict",
+    secure: env.NODE_ENV === "production",
+    signed: true,
+    maxAge: TOKEN_TTL_SECONDS,
+  });
 }
 
 export const authController: FastifyPluginAsync = async (app) => {
@@ -36,33 +58,34 @@ export const authController: FastifyPluginAsync = async (app) => {
       return sendError(reply, 401, "INVALID_CREDENTIALS", "Invalid username or password");
     }
 
-    const token = await reply.jwtSign({ username: user.username, id: user.id, role: user.role }, { expiresIn: "1d" });
+    const jti = randomUUID();
+    const token = await reply.jwtSign(
+      { username: user.username, id: user.id, role: user.role, jti },
+      { expiresIn: `${TOKEN_TTL_SECONDS}s` },
+    );
 
-    reply.setCookie("token", token, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "strict",
-      secure: env.NODE_ENV === "production",
-      signed: true,
-      maxAge: 86400,
-    });
-
+    setAuthCookie(reply, token);
     await insertAuditLog(user.username, "Login", "User logged in");
 
     const isFormPost = req.headers["content-type"]?.includes("application/x-www-form-urlencoded");
     if (isFormPost) {
       return reply.redirect("/");
     }
-    return sendSuccess(reply, { token }, "Login successful", 200);
+
+    // Do NOT return the JWT in the body. Cookie is httpOnly + signed; the body
+    // payload only carries non-sensitive identity info for the SPA.
+    return sendSuccess(reply, { id: user.id, username: user.username, role: user.role }, "Login successful", 200);
   });
 
   app.post("/logout", async (req, reply) => {
-    const token = req.cookies.token;
-    if (token) {
+    if (req.cookies.token) {
       try {
         const decoded = await req.jwtVerify({ onlyCookie: true });
-        if (isAuthUser(decoded)) {
+        if (isAuthTokenPayload(decoded)) {
           await insertAuditLog(decoded.username, "Logout", "User logged out");
+          if (decoded.jti && typeof decoded.exp === "number") {
+            await revokeJti(decoded.jti, decoded.exp * 1000);
+          }
         }
       } catch {
         // ignore invalid token on logout
@@ -72,26 +95,31 @@ export const authController: FastifyPluginAsync = async (app) => {
     return sendSuccess(reply, null, "Logout successful");
   });
 
-  /** Refresh JWT token — extends session without re-entering credentials */
+  /** Refresh JWT — issues a new jti and revokes the old one. */
   app.post("/refresh", async (req, reply) => {
     try {
-      await req.jwtVerify({ onlyCookie: true });
-      const user = req.user as AuthUser;
+      const decoded = await req.jwtVerify({ onlyCookie: true });
+      if (!isAuthTokenPayload(decoded)) {
+        return sendError(reply, 401, "TOKEN_INVALID", "Invalid token");
+      }
 
+      // Reject refresh attempts that present a revoked jti — otherwise a leaked
+      // post-logout token could refresh itself indefinitely.
+      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+        return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
+      }
+
+      // Revoke the old jti so the previous token can't be reused.
+      if (decoded.jti && typeof decoded.exp === "number") {
+        await revokeJti(decoded.jti, decoded.exp * 1000);
+      }
+
+      const newJti = randomUUID();
       const token = await reply.jwtSign(
-        { username: user.username, id: user.id, role: user.role },
-        { expiresIn: "1d" }
+        { username: decoded.username, id: decoded.id, role: decoded.role, jti: newJti },
+        { expiresIn: `${TOKEN_TTL_SECONDS}s` },
       );
-
-      reply.setCookie("token", token, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "strict",
-        secure: env.NODE_ENV === "production",
-        signed: true,
-        maxAge: 86400,
-      });
-
+      setAuthCookie(reply, token);
       return sendSuccess(reply, null, "Token refreshed");
     } catch {
       return sendError(reply, 401, "TOKEN_EXPIRED", "Token expired. Please login again.");
@@ -101,9 +129,14 @@ export const authController: FastifyPluginAsync = async (app) => {
   /** Get current user info */
   app.get("/me", async (req, reply) => {
     try {
-      await req.jwtVerify({ onlyCookie: true });
-      const user = req.user as AuthUser;
-      return sendSuccess(reply, { id: user.id, username: user.username, role: user.role });
+      const decoded = await req.jwtVerify({ onlyCookie: true });
+      if (!isAuthTokenPayload(decoded)) {
+        return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
+      }
+      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+        return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
+      }
+      return sendSuccess(reply, { id: decoded.id, username: decoded.username, role: decoded.role });
     } catch {
       return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }

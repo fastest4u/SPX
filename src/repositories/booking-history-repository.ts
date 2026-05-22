@@ -1,6 +1,7 @@
 import { getDb, getPool } from "../db/client.js";
 import { spxBookingHistory } from "../db/schema.js";
-import { and, count, desc, asc, eq, like, or } from "drizzle-orm";
+import { and, count, desc, asc, eq, like, or, sql } from "drizzle-orm";
+import { env } from "../config/env.js";
 import type { SQL } from "drizzle-orm";
 
 export interface BookingHistoryRecord {
@@ -86,11 +87,48 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
     return { inserted: 0, skipped: 0 };
   }
 
+  // In-memory mode (SQLite) doesn't share the mysql2 pool. Fall back to Drizzle
+  // which routes to the right driver. INSERT IGNORE behaves correctly because
+  // Drizzle uses the underlying database's "ignore" semantics (MySQL: INSERT IGNORE,
+  // SQLite: INSERT OR IGNORE).
+  if (env.DB_MODE === "memory") {
+    const db = await getDb();
+    const rows = records.map((record) => ({
+      requestId: record.requestId,
+      bookingId: record.bookingId ?? null,
+      bookingName: record.bookingName ?? null,
+      agencyName: record.agencyName ?? null,
+      route: record.route,
+      origin: record.origin,
+      destination: record.destination,
+      costType: record.costType,
+      tripType: record.tripType,
+      shiftType: record.shiftType,
+      vehicleType: record.vehicleType,
+      standbyDateTime: record.standbyDateTime,
+      acceptanceStatus: record.acceptanceStatus ?? null,
+      assignmentStatus: record.assignmentStatus ?? null,
+      createdAt: sql`CURRENT_TIMESTAMP`,
+    }));
+    // SQLite/Drizzle: insert one-by-one with onConflictDoNothing semantics
+    let inserted = 0;
+    for (const row of rows) {
+      try {
+        await db.insert(spxBookingHistory).values(row);
+        inserted += 1;
+      } catch {
+        // unique constraint violation = skip
+      }
+    }
+    return { inserted, skipped: records.length - inserted };
+  }
+
   const pool = getPool();
+  if (!pool) throw new Error("Database pool not initialised");
   const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
   const values = records.flatMap(historyValues);
   const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${records.map(() => placeholders).join(", ")}`;
-  const [result] = await pool!.query(query, values);
+  const [result] = await pool.query(query, values);
   const inserted = (result as { affectedRows: number }).affectedRows;
   return { inserted, skipped: records.length - inserted };
 }

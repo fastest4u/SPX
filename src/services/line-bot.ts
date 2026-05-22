@@ -13,7 +13,7 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -21,6 +21,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { decryptString, encryptString } from "../utils/crypto.js";
 import { deleteLineBotSession, getLineBotSession, saveLineBotSession } from "../repositories/line-bot-session-repository.js";
 
 // ── Types (duck-typed to keep @evex/linejs as a lazy dynamic import) ───
@@ -167,11 +168,12 @@ async function readStoredAuthToken(): Promise<{ token: string; device: string } 
   const dbSession = await getLineBotSession();
   if (dbSession) return { token: dbSession.authToken, device: dbSession.device };
 
-  // Fallback to file
+  // Fallback to file (encrypted at rest, falls back to legacy plaintext for migration)
   try {
     const raw = await readFile(getAuthTokenPath(), "utf-8");
     const parsed = JSON.parse(raw) as { token?: string; device?: string };
-    if (parsed.token) return { token: parsed.token, device: parsed.device || env.LINEJS_TEST_DEVICE };
+    const decryptedToken = parsed.token ? decryptString(parsed.token) : "";
+    if (decryptedToken) return { token: decryptedToken, device: parsed.device || env.LINEJS_TEST_DEVICE };
     return null;
   } catch {
     return null;
@@ -179,15 +181,22 @@ async function readStoredAuthToken(): Promise<{ token: string; device: string } 
 }
 
 async function saveAuthToken(token: string, device = env.LINEJS_TEST_DEVICE): Promise<void> {
-  // Always write to file for Docker restart resilience
+  // Always write to file for Docker restart resilience. Token is encrypted at rest;
+  // file mode is locked down to owner-read/write so other users on the host cannot read it.
   try {
     await mkdir(dirname(getAuthTokenPath()), { recursive: true });
-    await writeFile(getAuthTokenPath(), JSON.stringify({ token, device, savedAt: new Date().toISOString() }));
+    const payload = JSON.stringify({
+      token: encryptString(token),
+      device,
+      savedAt: new Date().toISOString(),
+    });
+    await writeFile(getAuthTokenPath(), payload);
+    try { await chmod(getAuthTokenPath(), 0o600); } catch { /* best effort on Windows */ }
   } catch (error) {
     logger.warn("line-bot-auth-token-file-save-failed", { error: error instanceof Error ? error.message : String(error) });
   }
 
-  // Also try DB
+  // Also try DB (encryption handled inside the repository).
   try {
     await saveLineBotSession(token, device);
   } catch {

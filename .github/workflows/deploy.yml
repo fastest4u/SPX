@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: spx-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -47,11 +47,47 @@ jobs:
           key: ${{ secrets.SPX_SSH_KEY }}
           port: ${{ secrets.SPX_PORT || 22 }}
           script: |
-            set -e
+            set -euo pipefail
+
             cd /root/SPX
+
+            # Capture rollback target before fetching new code so we can restore
+            # the exact commit if the new build fails its health check.
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            echo "Previous commit: ${PREVIOUS_COMMIT}"
+
             git fetch origin main
             git reset --hard origin/main
-            docker compose down
-            docker compose up --build -d
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "New commit: ${NEW_COMMIT}"
+
+            # Run DB migrations BEFORE swapping containers. If migrations fail
+            # the running container is untouched.
+            if [ -f docker-compose.yml ] || [ -f compose.yml ]; then
+              docker compose run --rm --no-deps app npm run db:migrate || {
+                echo "Migration failed; aborting deploy."
+                git reset --hard "${PREVIOUS_COMMIT}"
+                exit 1
+              }
+            fi
+
+            # Build new images first; only swap containers if the build succeeds.
+            docker compose build
+
+            # Bring up the new stack. --remove-orphans removes containers from
+            # services that were deleted; --force-recreate ensures the new
+            # image is in use.
+            docker compose up -d --remove-orphans --force-recreate
+
             docker compose ps
-            curl -fsS --retry 10 --retry-delay 3 https://www.pathwaylogistic.com/health >/dev/null
+
+            # Health gate. If the service is not healthy within ~60s, roll back
+            # to the previous commit and redeploy from there.
+            if ! curl -fsS --retry 12 --retry-delay 5 --max-time 90 https://www.pathwaylogistic.com/health >/dev/null; then
+              echo "Health check failed; rolling back to ${PREVIOUS_COMMIT}"
+              git reset --hard "${PREVIOUS_COMMIT}"
+              docker compose up -d --build --remove-orphans
+              exit 1
+            fi
+
+            echo "Deploy succeeded: ${NEW_COMMIT}"
