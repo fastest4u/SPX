@@ -1,0 +1,839 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-22T01:56:03.325Z",
+  "activeSession": null,
+  "recentSessions": [
+    {
+      "id": "memory-1779414248197",
+      "startedAt": "2026-05-22T01:44:08.197Z",
+      "updatedAt": "2026-05-22T01:56:03.324Z",
+      "taskArea": "LINE image OCR / DB schema",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-22T01:44:08.197Z",
+          "details": {
+            "taskArea": "LINE image data persistence / trip number parsing"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-22T01:44:08.199Z",
+          "details": {
+            "query": "LINE image data persistence / trip number parsing",
+            "taskArea": "LINE image data persistence / trip number parsing"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-22T01:44:16.984Z",
+          "details": {
+            "query": "Does the LINE image listener OCR parse and persist the trip number field from images such as เลขทริป LT0Q5L2657AJ2?",
+            "taskArea": "LINE image data persistence / trip number parsing"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-22T01:46:12.114Z",
+          "details": {
+            "task": "Add LINE image OCR trip number persistence to DB and UI/API flow",
+            "area": "LINE image OCR / DB schema",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-22T01:56:03.324Z",
+          "details": {
+            "topic": "Add LINE Image Trip Number Persistence",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Add LINE Image Trip Number Persistence",
+      "endedAt": "2026-05-22T01:56:03.324Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779382934045",
+      "startedAt": "2026-05-21T17:02:14.045Z",
+      "updatedAt": "2026-05-21T17:02:14.046Z",
+      "taskArea": "SPX Codex auth still showing device code 404 after source fix",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T17:02:14.045Z",
+          "details": {
+            "taskArea": "SPX Codex auth still showing device code 404 after source fix"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T17:02:14.046Z",
+          "details": {
+            "query": "SPX Codex auth still showing device code 404 after source fix",
+            "taskArea": "SPX Codex auth still showing device code 404 after source fix"
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "endedAt": "2026-05-22T01:44:08.197Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779382805997",
+      "startedAt": "2026-05-21T17:00:05.997Z",
+      "updatedAt": "2026-05-21T17:01:26.033Z",
+      "taskArea": "auth/codex-device-auth",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T17:00:05.997Z",
+          "details": {
+            "taskArea": "SPX Codex auth device code 404"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T17:00:06.001Z",
+          "details": {
+            "query": "SPX Codex auth device code 404",
+            "taskArea": "SPX Codex auth device code 404"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T17:00:16.218Z",
+          "details": {
+            "task": "Fix SPX Codex auth start 404 by switching from unsupported device-code endpoint to existing browser OAuth start flow",
+            "area": "auth/codex-device-auth",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T17:01:26.033Z",
+          "details": {
+            "topic": "Fix SPX Codex auth device-code 404",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Fix SPX Codex auth device-code 404",
+      "endedAt": "2026-05-21T17:01:26.033Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779382404954",
+      "startedAt": "2026-05-21T16:53:24.954Z",
+      "updatedAt": "2026-05-21T16:58:57.068Z",
+      "taskArea": "auth/codex-device-auth/frontend-settings",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T16:53:24.954Z",
+          "details": {
+            "taskArea": "codex login internal server error"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T16:53:24.955Z",
+          "details": {
+            "query": "codex login internal server error",
+            "taskArea": "codex login internal server error"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T16:55:53.332Z",
+          "details": {
+            "query": "SPX system login shows Codex login failed INTERNAL_SERVER_ERROR where codex CLI auth is called image reading service",
+            "taskArea": "SPX Codex login failed INTERNAL_SERVER_ERROR"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T16:56:27.719Z",
+          "details": {
+            "task": "Fix SPX Codex auth start error handling for INTERNAL_SERVER_ERROR without touching secrets",
+            "area": "auth/codex-device-auth/frontend-settings",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T16:58:57.068Z",
+          "details": {
+            "topic": "Fix SPX Codex auth INTERNAL_SERVER_ERROR handling",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Fix SPX Codex auth INTERNAL_SERVER_ERROR handling",
+      "endedAt": "2026-05-21T16:58:57.068Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779359942731",
+      "startedAt": "2026-05-21T10:39:02.731Z",
+      "updatedAt": "2026-05-21T10:49:54.675Z",
+      "taskArea": "src/services/line-bot.ts + src/services/codex-image-reader.ts + src/app.ts",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T10:39:02.731Z",
+          "details": {
+            "taskArea": "server firewall MySQL access configuration"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T10:39:02.733Z",
+          "details": {
+            "query": "server firewall MySQL access configuration",
+            "taskArea": "server firewall MySQL access configuration"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T10:43:10.585Z",
+          "details": {
+            "task": "Add LINE image listener: receive image from group chat, run Codex OCR, reply with 5-field result",
+            "area": "src/services/line-bot.ts + src/services/codex-image-reader.ts + src/app.ts",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T10:49:54.675Z",
+          "details": {
+            "topic": "Add LINE image listener for SPX group run sheet OCR",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Add LINE image listener for SPX group run sheet OCR",
+      "endedAt": "2026-05-21T10:49:54.675Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779357740240",
+      "startedAt": "2026-05-21T10:02:20.240Z",
+      "updatedAt": "2026-05-21T10:02:33.224Z",
+      "taskArea": "Image OCR API service prompt and smoke test changes",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T10:02:20.241Z",
+          "details": {
+            "task": "Restrict Codex image OCR output to five SPX fields",
+            "area": "Image OCR API service prompt and smoke test changes",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T10:02:33.224Z",
+          "details": {
+            "topic": "Post-task self-check for image OCR output restriction",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "topic": "Post-task self-check for image OCR output restriction",
+      "endedAt": "2026-05-21T10:02:33.224Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 60,
+        "grade": "D",
+        "warnings": [
+          "sessionStart recorded: Every task should begin with memory_sessionStart.",
+          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779357454478",
+      "startedAt": "2026-05-21T09:57:34.478Z",
+      "updatedAt": "2026-05-21T10:02:10.475Z",
+      "taskArea": "Restrict image OCR output fields",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:57:34.479Z",
+          "details": {
+            "taskArea": "Restrict image OCR output fields"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:57:34.480Z",
+          "details": {
+            "query": "Restrict image OCR output fields",
+            "taskArea": "Restrict image OCR output fields"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:57:44.988Z",
+          "details": {
+            "query": "Restrict image OCR output fields to date driver agency vehicle type route",
+            "taskArea": "Restrict image OCR output fields"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T10:02:10.475Z",
+          "details": {
+            "topic": "Restrict Codex image OCR output to five SPX fields",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Restrict Codex image OCR output to five SPX fields",
+      "endedAt": "2026-05-21T10:02:10.475Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779356710386",
+      "startedAt": "2026-05-21T09:45:10.386Z",
+      "updatedAt": "2026-05-21T09:47:09.511Z",
+      "taskArea": "dependency security maintenance",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:45:10.386Z",
+          "details": {
+            "taskArea": "Run npm audit fix and verify dependency changes"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:45:10.387Z",
+          "details": {
+            "query": "Run npm audit fix and verify dependency changes",
+            "taskArea": "Run npm audit fix and verify dependency changes"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T09:45:10.636Z",
+          "details": {
+            "task": "Run npm audit fix and verify dependency/runtime changes",
+            "area": "dependency security maintenance",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T09:47:09.511Z",
+          "details": {
+            "topic": "Run npm audit fix after AI SDK dependency changes",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Run npm audit fix after AI SDK dependency changes",
+      "endedAt": "2026-05-21T09:47:09.511Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779356161626",
+      "startedAt": "2026-05-21T09:36:01.626Z",
+      "updatedAt": "2026-05-21T09:44:04.171Z",
+      "taskArea": "AI provider runtime architecture",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:36:01.626Z",
+          "details": {
+            "taskArea": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:36:01.627Z",
+          "details": {
+            "query": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider",
+            "taskArea": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T09:36:01.655Z",
+          "details": {
+            "task": "Replace image-reading integration with Vercel AI SDK Codex auth provider, touching backend AI/auth integration files",
+            "area": "AI provider runtime architecture",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T09:44:04.171Z",
+          "details": {
+            "topic": "Replace image reading with Vercel AI SDK Codex auth provider",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Replace image reading with Vercel AI SDK Codex auth provider",
+      "endedAt": "2026-05-21T09:44:04.171Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779355906933",
+      "startedAt": "2026-05-21T09:31:46.933Z",
+      "updatedAt": "2026-05-21T09:31:47.042Z",
+      "taskArea": "AI provider runtime architecture",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:31:46.933Z",
+          "details": {
+            "taskArea": "Evaluate Vercel AI SDK replacement for Codex CLI image reading"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:31:46.934Z",
+          "details": {
+            "query": "Evaluate Vercel AI SDK replacement for Codex CLI image reading",
+            "taskArea": "Evaluate Vercel AI SDK replacement for Codex CLI image reading"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:31:47.042Z",
+          "details": {
+            "query": "Vercel AI SDK replace Codex CLI image reading provider OpenAI API key device auth",
+            "taskArea": "AI provider runtime architecture"
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "endedAt": "2026-05-21T09:36:01.626Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779355729151",
+      "startedAt": "2026-05-21T09:28:49.151Z",
+      "updatedAt": "2026-05-21T09:28:49.151Z",
+      "startedBy": "memory_sessionEnd",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T09:28:49.151Z",
+          "details": {
+            "topic": "Test real JPG through Codex image-reading service",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "topic": "Test real JPG through Codex image-reading service",
+      "endedAt": "2026-05-21T09:28:49.151Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 62,
+        "grade": "D",
+        "warnings": [
+          "No active memory lifecycle was recorded before memory_sessionEnd; created an implicit lifecycle for diagnostics.",
+          "sessionStart recorded: Every task should begin with memory_sessionStart.",
+          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779355355128",
+      "startedAt": "2026-05-21T09:22:35.128Z",
+      "updatedAt": "2026-05-21T09:22:51.827Z",
+      "taskArea": "AI provider runtime architecture",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:22:35.128Z",
+          "details": {
+            "taskArea": "Design decision for custom agent runtime using Codex auth provider"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:22:35.129Z",
+          "details": {
+            "query": "Design decision for custom agent runtime using Codex auth provider",
+            "taskArea": "Design decision for custom agent runtime using Codex auth provider"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:22:35.159Z",
+          "details": {
+            "query": "custom agent runtime using Codex auth provider vs Codex CLI vs OpenAI API key",
+            "taskArea": "AI provider runtime architecture"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T09:22:51.827Z",
+          "details": {
+            "topic": "Assess custom agent runtime using Codex auth provider",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Assess custom agent runtime using Codex auth provider",
+      "endedAt": "2026-05-21T09:22:51.827Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779354774442",
+      "startedAt": "2026-05-21T09:12:54.442Z",
+      "updatedAt": "2026-05-21T09:21:30.368Z",
+      "taskArea": "Local test for Codex image-reading service",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T09:12:54.442Z",
+          "details": {
+            "taskArea": "Local test for Codex image-reading service"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:12:54.447Z",
+          "details": {
+            "query": "Local test for Codex image-reading service",
+            "taskArea": "Local test for Codex image-reading service"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T09:12:54.483Z",
+          "details": {
+            "query": "local test Codex image-reading API service",
+            "taskArea": "Local test for Codex image-reading service"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T09:21:30.368Z",
+          "details": {
+            "topic": "Local service smoke test for Codex image API",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Local service smoke test for Codex image API",
+      "endedAt": "2026-05-21T09:21:30.368Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779353411998",
+      "startedAt": "2026-05-21T08:50:11.998Z",
+      "updatedAt": "2026-05-21T08:57:55.411Z",
+      "taskArea": "AI image API auth integration",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T08:50:11.998Z",
+          "details": {
+            "taskArea": "AI image-reading API service using OpenAI authentication"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T08:50:12.000Z",
+          "details": {
+            "query": "AI image-reading API service using OpenAI authentication",
+            "taskArea": "AI image-reading API service using OpenAI authentication"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T08:50:12.132Z",
+          "details": {
+            "query": "AI image-reading API service receive image and use OpenAI or Codex auth",
+            "taskArea": "AI image-reading API service"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-21T08:52:13.317Z",
+          "details": {
+            "task": "Implement image-reading API service using codex-auth first, touching backend auth/AI integration paths",
+            "area": "AI image API auth integration",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T08:57:55.411Z",
+          "details": {
+            "topic": "Codex-auth image-reading API prototype",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Codex-auth image-reading API prototype",
+      "endedAt": "2026-05-21T08:57:55.411Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779331414921",
+      "startedAt": "2026-05-21T02:43:34.921Z",
+      "updatedAt": "2026-05-21T02:47:49.712Z",
+      "taskArea": "auto memory management enhancement",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-21T02:43:34.921Z",
+          "details": {
+            "taskArea": "verify vault config and reindex SPX memory"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T02:43:34.923Z",
+          "details": {
+            "query": "verify vault config and reindex SPX memory",
+            "taskArea": "verify vault config and reindex SPX memory"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-21T02:47:36.363Z",
+          "details": {
+            "query": "memory management session start end selfcheck contextpack",
+            "taskArea": "auto memory management enhancement"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-21T02:47:49.712Z",
+          "details": {
+            "topic": "Enhance Auto Memory Management to 4-Layer System",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Enhance Auto Memory Management to 4-Layer System",
+      "endedAt": "2026-05-21T02:47:49.712Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 72,
+        "grade": "D",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "verification note recorded: Session logs should say what verification was run or why it was skipped.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    }
+  ]
+}

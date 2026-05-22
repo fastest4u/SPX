@@ -165,6 +165,24 @@ function initSchema(db: Database.Database): void {
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_line_bot_sessions_key ON line_bot_sessions(session_key);
 
+    CREATE TABLE IF NOT EXISTS line_image_extractions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      image_path TEXT NOT NULL,
+      date_text TEXT NOT NULL,
+      trip_number TEXT NOT NULL DEFAULT '',
+      driver_name TEXT NOT NULL,
+      agency_name TEXT NOT NULL,
+      vehicle_type TEXT NOT NULL,
+      route TEXT NOT NULL,
+      raw_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS lie_created_at_idx ON line_image_extractions(created_at);
+    CREATE INDEX IF NOT EXISTS lie_agency_created_at_idx ON line_image_extractions(agency_name, created_at);
+
     CREATE TABLE IF NOT EXISTS app_settings (
       setting_key TEXT NOT NULL PRIMARY KEY,
       setting_value TEXT NOT NULL DEFAULT '',

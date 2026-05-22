@@ -10,6 +10,9 @@ import type {
   AutoAcceptHistoryItem,
   AutoAcceptHistoryQuery,
   BookingHistory,
+  CodexDeviceAuthComplete,
+  CodexDeviceAuthStart,
+  CodexDeviceAuthStatus,
   CreateUserInput,
   EnvSettings,
   HealthResponse,
@@ -20,6 +23,8 @@ import type {
   LoginResponse,
   MeResponse,
   MetricsHistoryRow,
+  LineImageExtraction,
+  LineImageExtractionQuery,
   LineQuota,
   MetricsSnapshot,
   NotifyRule,
@@ -61,6 +66,7 @@ async function fetchRaw<T>(url: string, options?: RequestInit): Promise<ApiSucce
     if (!isLoginRequest && !isRedirectingToLogin) {
       isRedirectingToLogin = true
       window.location.replace('/login')
+      setTimeout(() => { isRedirectingToLogin = false }, 1000)
     }
 
     const errorData = data as ApiErrorResponse
@@ -435,5 +441,50 @@ export const lineBotApi = {
     fetchJson(`${API_BASE}/line-bot/logout`, {
       method: 'POST',
       body: JSON.stringify({ clearStorage }),
+    }),
+}
+
+export const lineImageExtractionApi = {
+  paginated: (params?: LineImageExtractionQuery): Promise<ApiPaginatedResponse<LineImageExtraction>> => {
+    const queryParams = new URLSearchParams()
+    if (params?.page) queryParams.set('page', String(params.page))
+    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
+    if (params?.search) queryParams.set('search', params.search)
+    if (params?.agency) queryParams.set('agency', params.agency)
+    if (params?.tripNumber) queryParams.set('tripNumber', params.tripNumber)
+    if (params?.route) queryParams.set('route', params.route)
+    if (params?.vehicleType) queryParams.set('vehicleType', params.vehicleType)
+    if (params?.driver) queryParams.set('driver', params.driver)
+    if (params?.createdFrom) queryParams.set('createdFrom', params.createdFrom)
+    if (params?.createdTo) queryParams.set('createdTo', params.createdTo)
+    if (params?.month) queryParams.set('month', params.month)
+    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
+    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
+
+    const query = queryParams.toString()
+    return fetchPaginated<LineImageExtraction>(`${API_BASE}/line-image-extractions${query ? `?${query}` : ''}`)
+  },
+}
+
+export const aiApi = {
+  codexAuthStatus: (): Promise<CodexDeviceAuthStatus> =>
+    fetchJson<CodexDeviceAuthStatus>(`${API_BASE}/ai/codex-auth/status`),
+
+  codexAuthStart: (input: { mode: 'browser' | 'device' }): Promise<CodexDeviceAuthStart> =>
+    fetchJson<CodexDeviceAuthStart>(`${API_BASE}/ai/codex-auth/start`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  codexAuthComplete: (input: { callbackUrl?: string; code?: string }): Promise<CodexDeviceAuthComplete> =>
+    fetchJson<CodexDeviceAuthComplete>(`${API_BASE}/ai/codex-auth/complete`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  codexAuthLogout: (): Promise<{ loggedOut: boolean }> =>
+    fetchJson<{ loggedOut: boolean }>(`${API_BASE}/ai/codex-auth/logout`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 }

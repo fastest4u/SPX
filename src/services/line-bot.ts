@@ -12,12 +12,16 @@
  * of touching @evex/linejs directly.
  */
 
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { getLineBotSession, saveLineBotSession } from "../repositories/line-bot-session-repository.js";
+import { deleteLineBotSession, getLineBotSession, saveLineBotSession } from "../repositories/line-bot-session-repository.js";
 
 // ── Types (duck-typed to keep @evex/linejs as a lazy dynamic import) ───
 
@@ -33,6 +37,14 @@ type LineJsClient = {
   authToken: string;
   on(event: string, handler: (...args: unknown[]) => void): void;
   listen(opts: { talk?: boolean }): void;
+};
+
+type LineImageMessage = {
+  raw: { contentType?: string };
+  to: { id: string; type: string };
+  from: { id: string };
+  getData(): Promise<Blob>;
+  reply(text: string): Promise<void>;
 };
 
 type LineJsLoginModule = {
@@ -133,7 +145,24 @@ function getAuthTokenPath(): string {
   return resolve(process.cwd(), "data/linejs-auth-token.json");
 }
 
+async function hasStoredE2EEKeys(): Promise<boolean> {
+  try {
+    const raw = await readFile(getStoragePath(), "utf-8");
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    return Object.keys(data).some((key) => key.startsWith("e2eeKeys:"));
+  } catch {
+    return false;
+  }
+}
+
 async function readStoredAuthToken(): Promise<{ token: string; device: string } | null> {
+  if (env.LINE_IMAGE_LISTENER_CHAT_ID && !(await hasStoredE2EEKeys())) {
+    logger.warn("line-bot-skip-token-restore-missing-e2ee-keys", {
+      reason: "image listener requires E2EE keys to read incoming encrypted media",
+    });
+    return null;
+  }
+
   // Try DB first
   const dbSession = await getLineBotSession();
   if (dbSession) return { token: dbSession.authToken, device: dbSession.device };
@@ -499,6 +528,11 @@ export async function logout(clearStorage = false): Promise<void> {
 
   if (clearStorage) {
     try {
+      await deleteLineBotSession();
+    } catch {
+      // ignore
+    }
+    try {
       const storagePath = getStoragePath();
       if (existsSync(storagePath)) {
         await unlink(storagePath);
@@ -517,6 +551,103 @@ export async function logout(clearStorage = false): Promise<void> {
   }
 
   logger.info("line-bot-logout", { clearStorage });
+}
+
+// ── Image listener ────────────────────────────────────────────────────
+
+let imageListenerStarted = false;
+
+function getModuleExport<T>(module: unknown, name: string): T {
+  const record = module as Record<string, unknown>;
+  const direct = record[name];
+  if (direct) return direct as T;
+
+  const defaultRecord = record.default as Record<string, unknown> | undefined;
+  const defaultExport = defaultRecord?.[name];
+  if (defaultExport) return defaultExport as T;
+
+  const cjsRecord = record["module.exports"] as Record<string, unknown> | undefined;
+  const cjsExport = cjsRecord?.[name];
+  if (cjsExport) return cjsExport as T;
+
+  throw new Error(`Module export not found: ${name}`);
+}
+
+export async function startImageListener(targetChatMid: string): Promise<void> {
+  if (!isLineBotEnabled()) return;
+  if (!targetChatMid) return;
+  if (imageListenerStarted) return;
+
+  const c = await getClient();
+
+  c.on("message", async (rawMessage: unknown) => {
+    const msg = rawMessage as LineImageMessage;
+    if (msg.raw?.contentType !== "IMAGE") return;
+    if (msg.to?.id !== targetChatMid) return;
+
+    let tempDir = "";
+    try {
+      const blob = await msg.getData();
+      const buffer = Buffer.from(await blob.arrayBuffer());
+
+      tempDir = await mkdtemp(join(tmpdir(), "spx-line-image-"));
+      const imagePath = join(tempDir, "line-upload.jpg");
+
+      await pipeline(Readable.from(buffer), createWriteStream(imagePath, { flags: "wx" }));
+
+      // Lazy-load to avoid circular import
+      const codexImageReader = await import("./codex-image-reader.js");
+      const readImageWithCodex = getModuleExport<typeof import("./codex-image-reader.js").readImageWithCodex>(
+        codexImageReader,
+        "readImageWithCodex"
+      );
+      const text = await readImageWithCodex({
+        imagePath,
+        mimeType: "image/jpeg",
+        prompt: "", // use default 6-field prompt
+        timeoutMs: 120000,
+      });
+      const lineImageExtraction = await import("./line-image-extraction.js");
+      const persistValidLineImageExtraction = getModuleExport<typeof import("./line-image-extraction.js").persistValidLineImageExtraction>(
+        lineImageExtraction,
+        "persistValidLineImageExtraction"
+      );
+      const saved = await persistValidLineImageExtraction({
+        tempImagePath: imagePath,
+        chatId: msg.to.id,
+        senderId: msg.from.id,
+        aiText: text,
+      });
+
+      const replyText = saved.saved
+        ? `${text}\n\nSaved to DB: #${saved.id}`
+        : `${text}\n\nNot saved to DB: ${saved.reason}`;
+
+      await msg.reply(replyText);
+      logger.info("line-image-listener-reply", {
+        to: msg.to.id,
+        savedToDb: saved.saved,
+        extractionId: saved.id,
+        reason: saved.reason,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.warn("line-image-listener-error", { to: msg.to?.id, error: errMsg });
+      try {
+        await msg.reply(`อ่านรูปไม่สำเร็จ: ${errMsg}`);
+      } catch {
+        // reply may also fail
+      }
+    } finally {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  c.listen({ talk: true });
+  imageListenerStarted = true;
+  logger.info("line-image-listener-started", { targetChatMid });
 }
 
 /**

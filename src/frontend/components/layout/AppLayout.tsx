@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils'
 import {
   LayoutDashboard, History, FileText, Users, Settings, Bell, FileBarChart,
   LogOut, ChevronLeft, ChevronRight, Truck, MessageCircle,
-  Search, Command, Menu
+  Search, Command, Menu, FileImage
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Avatar } from '../ui/avatar'
@@ -22,14 +22,15 @@ const navItems = [
   { path: '/history', label: 'ประวัติงาน', icon: History, shortcut: '2' },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell, shortcut: '3' },
   { path: '/line-bot', label: 'LINE Bot', icon: MessageCircle, shortcut: '4' },
-  { path: '/reports', label: 'รายงาน', icon: FileBarChart, shortcut: '5' },
+  { path: '/line-image-extractions', label: 'LINE Runsheets', icon: FileImage, shortcut: '5' },
+  { path: '/reports', label: 'รายงาน', icon: FileBarChart, shortcut: '6' },
 ]
 
 const adminNavItems = [
-  { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText, shortcut: '6' },
-  { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '7' },
-  { path: '/users', label: 'จัดการผู้ใช้', icon: Users, shortcut: '8' },
-  { path: '/settings', label: 'ตั้งค่า', icon: Settings, shortcut: '9' },
+  { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText, shortcut: '7' },
+  { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '8' },
+  { path: '/users', label: 'จัดการผู้ใช้', icon: Users, shortcut: '9' },
+  { path: '/settings', label: 'ตั้งค่า', icon: Settings, shortcut: '0' },
 ]
 
 const mobileTabs = [
@@ -37,6 +38,7 @@ const mobileTabs = [
   { path: '/history', label: 'งาน', icon: History },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell },
   { path: '/line-bot', label: 'LINE', icon: MessageCircle },
+  { path: '/line-image-extractions', label: 'Runsheets', icon: FileImage },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart },
 ]
 
@@ -45,6 +47,7 @@ const pageLabels: Record<string, string> = {
   '/history': 'ประวัติงาน',
   '/notifications': 'แจ้งเตือน',
   '/line-bot': 'LINE Bot',
+  '/line-image-extractions': 'LINE Runsheets',
   '/auto-accept-history': 'ประวัติรับงานอัตโนมัติ',
   '/audit': 'ประวัติการใช้งาน',
   '/users': 'จัดการผู้ใช้',

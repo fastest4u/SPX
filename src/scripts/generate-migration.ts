@@ -6,6 +6,7 @@ import {
   autoAcceptHistoryMigrationSql,
   metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
+  lineImageExtractionsMigrationSql,
   appSettingsMigrationSql,
 } from "../db/migration-sql.js";
 
@@ -19,6 +20,7 @@ const allMigrations = [
   autoAcceptHistoryMigrationSql,
   metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
+  lineImageExtractionsMigrationSql,
   appSettingsMigrationSql,
 ].join("\n\n");
 

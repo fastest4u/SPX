@@ -3,6 +3,7 @@ title: ADR-001 — Dual-Mode Storage for Notify Rules (JSON in DEV, MySQL in PRO
 type: adr
 status: accepted
 decision-date: 2026-04-25
+confidence: high
 created: 2026-05-13
 updated: 2026-05-13
 supersedes: 

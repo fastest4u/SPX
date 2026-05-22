@@ -142,6 +142,38 @@ export interface PaginatedHistory {
   meta: PaginationMeta;
 }
 
+export interface LineImageExtraction {
+  id: number;
+  chatId: string;
+  senderId: string;
+  imagePath: string;
+  imageUrl: string;
+  dateText: string;
+  tripNumber: string;
+  driverName: string;
+  agencyName: string;
+  vehicleType: string;
+  route: string;
+  rawText: string;
+  createdAt: string;
+}
+
+export interface LineImageExtractionQuery {
+  search?: string;
+  agency?: string;
+  tripNumber?: string;
+  route?: string;
+  vehicleType?: string;
+  driver?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  month?: string;
+  sortBy?: 'created_at' | 'date_text' | 'trip_number' | 'driver_name' | 'route';
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
 // Audit Types
 export interface AuditLog {
   id: number;
@@ -200,6 +232,35 @@ export interface EnvSettings {
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
   BOOKING_DETAIL_CONCURRENCY?: string;
+  CODEX_IMAGE_PROVIDER?: string;
+}
+
+export interface CodexDeviceAuthStatus {
+  authenticated: boolean;
+  hasPendingFlow: boolean;
+  hasPendingDeviceCode: boolean;
+  userCode?: string;
+  verificationUri?: string;
+  verificationUriComplete?: string;
+  expiresAt?: number;
+  accountIdSuffix?: string;
+  authPath?: string;
+}
+
+export interface CodexDeviceAuthStart {
+  mode: 'browser' | 'device';
+  authorizationUrl?: string;
+  state?: string;
+  redirectUri?: string;
+  userCode?: string;
+  verificationUri?: string;
+  verificationUriComplete?: string;
+  expiresIn?: number;
+}
+
+export interface CodexDeviceAuthComplete {
+  authenticated: true;
+  expiresAt: number;
 }
 
 // Line Quota

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { settingsApi } from '../lib/api'
+import { aiApi, settingsApi } from '../lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -26,6 +26,13 @@ function getIntervalSec(pollIntervalMs: string): number {
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 1000)) : 0
 }
 
+function getCodexLoginErrorMessage(error: Error): string {
+  if (/CODEX_AUTH_PROVIDER_UNAVAILABLE|INTERNAL_SERVER_ERROR|Internal server error/i.test(error.message)) {
+    return 'OpenAI/Codex login service is temporarily unavailable. Try the selected login mode again later.'
+  }
+  return error.message
+}
+
 const INITIAL_FORM = {
   API_URL: '',
   POLL_INTERVAL_MS: '30000',
@@ -41,6 +48,7 @@ const INITIAL_FORM = {
   LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
   DISCORD_WEBHOOK_URL: '',
   BOOKING_DETAIL_CONCURRENCY: '8',
+  CODEX_IMAGE_PROVIDER: 'auto',
 }
 
 function SettingsComponent() {
@@ -71,6 +79,7 @@ function SettingsComponent() {
         LINEJS_TEST_STORAGE_PATH: settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
         DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
         BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
+        CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
       })
     }
   }, [settings])
@@ -258,8 +267,56 @@ function SettingsComponent() {
 }
 
 function ApiSection({ formData, setField }: { formData: Record<string, string>; setField: (k: string, v: string) => void }) {
+  const queryClient = useQueryClient()
   const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
   const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
+  const codexStatus = useQuery({
+    queryKey: ['codex-device-auth-status'],
+    queryFn: aiApi.codexAuthStatus,
+    staleTime: 10 * 1000,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      return (data?.hasPendingDeviceCode || data?.hasPendingFlow) ? 3000 : false
+    },
+  })
+  const startCodexAuth = useMutation({
+    mutationFn: aiApi.codexAuthStart,
+    onSuccess: (data) => {
+      const targetUrl = data.authorizationUrl || data.verificationUriComplete || data.verificationUri
+      if (targetUrl) {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer')
+      }
+      toast.success(data.mode === 'device' ? 'OpenAI device-code login started' : 'OpenAI browser login started')
+      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
+    },
+    onError: (error) => toast.error('เริ่ม Codex login ไม่สำเร็จ', {
+      description: getCodexLoginErrorMessage(error),
+      duration: 15_000,
+    }),
+  })
+  const completeCodexAuth = useMutation({
+    mutationFn: aiApi.codexAuthComplete,
+    onSuccess: () => {
+      toast.success('Codex device auth พร้อมใช้งานแล้ว')
+      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
+    },
+    onError: (error) => toast.error('Codex complete failed: ' + error.message),
+  })
+  const logoutCodexAuth = useMutation({
+    mutationFn: aiApi.codexAuthLogout,
+    onSuccess: () => {
+      toast.success('ลบ Codex device auth แล้ว')
+      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
+    },
+    onError: (error) => toast.error('Codex logout failed: ' + error.message),
+  })
+  const isCodexAuthenticated = Boolean(codexStatus.data?.authenticated)
+
+  const promptCodexCallback = () => {
+    const callbackUrl = window.prompt('Paste callback URL หรือ code จากหน้า OpenAI login')
+    if (!callbackUrl?.trim()) return
+    completeCodexAuth.mutate({ callbackUrl: callbackUrl.trim() })
+  }
 
   return (
     <div className="space-y-5">
@@ -296,6 +353,20 @@ function ApiSection({ formData, setField }: { formData: Record<string, string>; 
               <Input id="s-concurrency" value={formData.BOOKING_DETAIL_CONCURRENCY} onChange={e => setField('BOOKING_DETAIL_CONCURRENCY', e.target.value)} placeholder="8" inputMode="numeric" />
               <p className="text-[0.7rem] text-muted-foreground/70">จำนวน request ดึงรายละเอียดงานพร้อมกัน</p>
             </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="s-codex-provider" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">AI Image Provider</label>
+              <select
+                id="s-codex-provider"
+                value={formData.CODEX_IMAGE_PROVIDER}
+                onChange={e => setField('CODEX_IMAGE_PROVIDER', e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="auto">auto</option>
+                <option value="codex-device">codex-device</option>
+                <option value="codex-cli">codex-cli</option>
+              </select>
+              <p className="text-[0.7rem] text-muted-foreground/70">เลือก codex-device เพื่ออ่านรูป LINE ผ่าน OAuth โดยไม่ต้องใช้ Codex CLI หลังจาก login สำเร็จ</p>
+            </div>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <div className="flex items-center gap-2.5 rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2.5">
@@ -320,6 +391,107 @@ function ApiSection({ formData, setField }: { formData: Record<string, string>; 
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="glass border-white/10">
+        <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10">
+            <Bot className="h-4 w-4 text-emerald-300" />
+          </div>
+          <div>
+            <CardTitle className="text-white text-base">Codex Device Auth</CardTitle>
+            <p className="text-xs text-muted-foreground">OpenAI OAuth for image reading</p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-white">
+                {isCodexAuthenticated 
+                  ? 'Authenticated' 
+                  : codexStatus.data?.hasPendingDeviceCode 
+                    ? 'Pending activation' 
+                    : codexStatus.data?.hasPendingFlow 
+                      ? 'Waiting for callback' 
+                      : 'Not authenticated'}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {codexStatus.data?.accountIdSuffix ? `Account ...${codexStatus.data.accountIdSuffix}` : 'Login once, then LINE image OCR can use codex-device without Codex CLI.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => startCodexAuth.mutate({ mode: 'browser' })} disabled={startCodexAuth.isPending}>
+                <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                Browser Login
+              </Button>
+              <Button type="button" variant="outline" onClick={() => startCodexAuth.mutate({ mode: 'device' })} disabled={startCodexAuth.isPending}>
+                Device Code Login
+              </Button>
+              {!codexStatus.data?.hasPendingDeviceCode && (
+                <Button type="button" variant="outline" onClick={promptCodexCallback} disabled={completeCodexAuth.isPending}>
+                  Complete
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => logoutCodexAuth.mutate()} disabled={logoutCodexAuth.isPending || (!isCodexAuthenticated && !codexStatus.data?.hasPendingDeviceCode && !codexStatus.data?.hasPendingFlow)}>
+                Logout
+              </Button>
+            </div>
+          </div>
+
+          {codexStatus.data?.hasPendingDeviceCode && codexStatus.data?.userCode && (
+            <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4">
+              <div className="text-xs font-bold uppercase tracking-[0.14em] text-amber-300/60 mb-2">Enter this code on OpenAI</div>
+              <div className="text-2xl font-black font-mono text-amber-200 tracking-[0.3em] text-center py-2 bg-black/40 rounded-lg">
+                {codexStatus.data.userCode}
+              </div>
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <a href={codexStatus.data.verificationUriComplete || codexStatus.data.verificationUri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-xs text-primary hover:underline font-semibold">
+                  Open verification page →
+                </a>
+              </div>
+              <p className="text-[0.7rem] text-muted-foreground/70 text-center mt-2 flex items-center justify-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                กำลังรอ... จะอัพเดทอัตโนมัติเมื่อ login สำเร็จ
+              </p>
+            </div>
+          )}
+
+          {codexStatus.data?.hasPendingFlow && (
+            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <div className="text-xs font-bold uppercase tracking-[0.14em] text-primary/60 mb-2 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+                กำลังรอระบบรับสิทธิ์กลับมาทำงานโดยอัตโนมัติ...
+              </div>
+              <p className="text-[0.7rem] text-muted-foreground/80 mb-3">
+                หากระบบไม่ต่อกลับอัตโนมัติ (เช่น ปัญหาของเครือข่ายหรือเชื่อมระยะไกล) กรุณาวาง URL หรือรหัสที่ช่องด้านล่างเพื่อเชื่อมต่อทันที:
+              </p>
+              <input
+                type="text"
+                placeholder="วาง URL หรือ callback code ที่นี่ (เช่น http://localhost:1455/auth/callback?code=...)"
+                className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white placeholder-muted-foreground/40 focus:border-primary focus:outline-none"
+                onPaste={(e) => {
+                  const val = e.clipboardData.getData('text').trim();
+                  if (val) {
+                    completeCodexAuth.mutate({ callbackUrl: val });
+                    e.currentTarget.value = '';
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const val = e.currentTarget.value.trim();
+                    if (val) {
+                      completeCodexAuth.mutate({ callbackUrl: val });
+                      e.currentTarget.value = '';
+                    }
+                  }
+                }}
+              />
+              <p className="text-[0.62rem] text-muted-foreground/60 mt-2">
+                * วิธีดึงลิงก์: คัดลอกลิงก์บนแถบ Address Bar ของเบราว์เซอร์หลังจากล็อกอิน OpenAI แล้วมาวางที่นี่
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

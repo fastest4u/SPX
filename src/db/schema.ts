@@ -108,6 +108,24 @@ export const lineBotSessions = mysqlTable("line_bot_sessions", {
   sessionKeyIdx: uniqueIndex("lbs_session_key_idx").on(table.sessionKey),
 }));
 
+export const lineImageExtractions = mysqlTable("line_image_extractions", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  chatId: varchar("chat_id", { length: 255 }).notNull(),
+  senderId: varchar("sender_id", { length: 255 }).notNull(),
+  imagePath: varchar("image_path", { length: 1000 }).notNull(),
+  dateText: varchar("date_text", { length: 100 }).notNull(),
+  tripNumber: varchar("trip_number", { length: 100 }).notNull().default(""),
+  driverName: varchar("driver_name", { length: 500 }).notNull(),
+  agencyName: varchar("agency_name", { length: 100 }).notNull(),
+  vehicleType: varchar("vehicle_type", { length: 100 }).notNull(),
+  route: varchar("route", { length: 255 }).notNull(),
+  rawText: varchar("raw_text", { length: 4000 }).notNull(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  createdAtIdx: index("lie_created_at_idx").on(table.createdAt),
+  agencyCreatedAtIdx: index("lie_agency_created_at_idx").on(table.agencyName, table.createdAt),
+}));
+
 export const appSettings = mysqlTable("app_settings", {
   key: varchar("setting_key", { length: 100 }).primaryKey(),
   value: varchar("setting_value", { length: 4000 }).notNull().default(""),
