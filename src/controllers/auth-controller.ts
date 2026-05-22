@@ -2,9 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 import { getUserByUsername, verifyPassword } from "../repositories/user-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
-import { revokeJti } from "../repositories/jwt-blacklist-repository.js";
+import { revokeJti, isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { env } from "../config/env.js";
-import type { AuthUser } from "../services/authz.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 interface LoginBody {
@@ -104,6 +103,12 @@ export const authController: FastifyPluginAsync = async (app) => {
         return sendError(reply, 401, "TOKEN_INVALID", "Invalid token");
       }
 
+      // Reject refresh attempts that present a revoked jti — otherwise a leaked
+      // post-logout token could refresh itself indefinitely.
+      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+        return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
+      }
+
       // Revoke the old jti so the previous token can't be reused.
       if (decoded.jti && typeof decoded.exp === "number") {
         await revokeJti(decoded.jti, decoded.exp * 1000);
@@ -124,9 +129,14 @@ export const authController: FastifyPluginAsync = async (app) => {
   /** Get current user info */
   app.get("/me", async (req, reply) => {
     try {
-      await req.jwtVerify({ onlyCookie: true });
-      const user = req.user as AuthUser;
-      return sendSuccess(reply, { id: user.id, username: user.username, role: user.role });
+      const decoded = await req.jwtVerify({ onlyCookie: true });
+      if (!isAuthTokenPayload(decoded)) {
+        return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
+      }
+      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+        return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
+      }
+      return sendSuccess(reply, { id: decoded.id, username: decoded.username, role: decoded.role });
     } catch {
       return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }
