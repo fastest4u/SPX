@@ -1,5 +1,7 @@
 .env
 .env.local
+.env.prod-backup
+.env.*.backup
 .tmp-*.log
 node_modules
 dist
