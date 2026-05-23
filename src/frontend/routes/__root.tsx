@@ -3,7 +3,6 @@ import { useAuth } from '../hooks/useAuth'
 import { AppLayout } from '../components/layout/AppLayout'
 import { SseProvider } from '../hooks/useSseContext'
 import { Coachmark } from '../components/ui/coachmark'
-import { Toaster } from 'sonner'
 
 const ADMIN_ONLY_PATHS = new Set(['/users', '/settings', '/audit'])
 
@@ -45,14 +44,11 @@ function RootComponent() {
     return <Navigate to="/" />
   }
 
-  // Login page without layout
+  // Login page without layout. The global <Toaster> already lives in main.tsx,
+  // so do not double-mount it here (would cause two stacked toast containers
+  // with mismatched styling on /login).
   if (currentPath === '/login') {
-    return (
-      <>
-        <Outlet />
-        <Toaster position="bottom-right" />
-      </>
-    )
+    return <Outlet />
   }
 
   // Protected pages with layout

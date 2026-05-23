@@ -310,24 +310,6 @@ function AcceptButton({ item }: { item: BookingHistory }) {
   )
 }
 
-const SUMMARY_TONES = {
-  info: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
-  success: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
-  warning: 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning',
-  primary: 'border-primary/22 bg-primary/10 text-primary',
-} as const
-
-function SummaryTile() {
-  return null
-}
-void SummaryTile;
-void SUMMARY_TONES;
-
-function FilterChipLegacy() {
-  return null
-}
-void FilterChipLegacy;
-
 function HistoryMobileCardContent({ item }: { item: BookingHistory }) {
   const dateLabel = formatDateTime(item.createdAt).split(' ')[0] || '—'
   return (

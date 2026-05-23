@@ -6,7 +6,6 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { toast } from 'sonner'
 import {
-    Wifi,
     Bell,
     MessageCircle,
     Settings2,
@@ -408,10 +407,10 @@ function CodexAuthSection() {
             rightSlot={
                 <span
                     className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${isAuthenticated
-                            ? 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success'
-                            : isPending
-                                ? 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning'
-                                : 'border-white/10 bg-white/[0.04] text-muted-foreground'
+                        ? 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success'
+                        : isPending
+                            ? 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning'
+                            : 'border-white/10 bg-white/[0.04] text-muted-foreground'
                         }`}
                 >
                     {isAuthenticated ? (
@@ -635,5 +634,3 @@ export function NotifySection({
         </div>
     )
 }
-
-void Wifi
