@@ -28,7 +28,7 @@ export function VehicleTypeMultiSelect({ id, value, onChange }: VehicleTypeMulti
         id={id}
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md border border-white/10 bg-slate-900/50 px-3 py-2 text-left text-sm text-white ring-offset-background transition-colors hover:border-cyan-400/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-foreground ring-offset-background transition-colors hover:border-[color:var(--color-info-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <span className={cn('line-clamp-2', value.length === 0 && 'text-muted-foreground')}>
           {value.length > 0 ? value.join(', ') : 'เลือกประเภทรถ'}
@@ -45,12 +45,12 @@ export function VehicleTypeMultiSelect({ id, value, onChange }: VehicleTypeMulti
                 key={option}
                 type="button"
                 onClick={() => toggleValue(option)}
-                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-slate-200 transition-colors hover:bg-cyan-400/10 hover:text-white"
+                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-[color:var(--color-info-soft)] hover:text-foreground"
               >
                 <span
                   className={cn(
                     'flex h-5 w-5 items-center justify-center rounded-md border transition-colors',
-                    selected ? 'border-cyan-400 bg-cyan-400 text-slate-950' : 'border-white/15 bg-white/5 text-transparent'
+                    selected ? 'border-info bg-info text-[color:var(--color-info-foreground)]' : 'border-white/15 bg-white/5 text-transparent'
                   )}
                 >
                   <Check className="h-3.5 w-3.5" />

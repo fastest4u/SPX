@@ -20,6 +20,9 @@ import { Route as HistoryRouteImport } from './routes/history'
 import { Route as AutoAcceptHistoryRouteImport } from './routes/auto-accept-history'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
+import { Route as SettingsLineBotRouteImport } from './routes/settings.line-bot'
+import { Route as SettingsApiRouteImport } from './routes/settings.api'
 
 const UsersRoute = UsersRouteImport.update({
   id: '/users',
@@ -76,6 +79,21 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsLineBotRoute = SettingsLineBotRouteImport.update({
+  id: '/line-bot',
+  path: '/line-bot',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsApiRoute = SettingsApiRouteImport.update({
+  id: '/api',
+  path: '/api',
+  getParentRoute: () => SettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -87,8 +105,11 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/users': typeof UsersRoute
+  '/settings/api': typeof SettingsApiRoute
+  '/settings/line-bot': typeof SettingsLineBotRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -100,8 +121,11 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/users': typeof UsersRoute
+  '/settings/api': typeof SettingsApiRoute
+  '/settings/line-bot': typeof SettingsLineBotRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -114,8 +138,11 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/users': typeof UsersRoute
+  '/settings/api': typeof SettingsApiRoute
+  '/settings/line-bot': typeof SettingsLineBotRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,6 +158,9 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/users'
+    | '/settings/api'
+    | '/settings/line-bot'
+    | '/settings/notifications'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -144,6 +174,9 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/users'
+    | '/settings/api'
+    | '/settings/line-bot'
+    | '/settings/notifications'
   id:
     | '__root__'
     | '/'
@@ -157,6 +190,9 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/users'
+    | '/settings/api'
+    | '/settings/line-bot'
+    | '/settings/notifications'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -169,7 +205,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   NotificationsRoute: typeof NotificationsRoute
   ReportsRoute: typeof ReportsRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   UsersRoute: typeof UsersRoute
 }
 
@@ -252,8 +288,45 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/line-bot': {
+      id: '/settings/line-bot'
+      path: '/line-bot'
+      fullPath: '/settings/line-bot'
+      preLoaderRoute: typeof SettingsLineBotRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/api': {
+      id: '/settings/api'
+      path: '/api'
+      fullPath: '/settings/api'
+      preLoaderRoute: typeof SettingsApiRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
+
+interface SettingsRouteChildren {
+  SettingsApiRoute: typeof SettingsApiRoute
+  SettingsLineBotRoute: typeof SettingsLineBotRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsApiRoute: SettingsApiRoute,
+  SettingsLineBotRoute: SettingsLineBotRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -265,7 +338,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   NotificationsRoute: NotificationsRoute,
   ReportsRoute: ReportsRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   UsersRoute: UsersRoute,
 }
 export const routeTree = rootRouteImport

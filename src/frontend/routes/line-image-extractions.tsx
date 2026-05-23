@@ -3,10 +3,11 @@ import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { CalendarDays, Car, FileImage, ImageIcon, Map, Search, SlidersHorizontal, X } from 'lucide-react'
 import { lineImageExtractionApi } from '../lib/api'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { PageHeader } from '../components/ui/page-header'
 import { SkeletonTable } from '../components/ui/skeleton'
 import { formatDateTime } from '../lib/utils'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -30,7 +31,7 @@ const COLUMNS: DataTableColumn<LineImageExtraction>[] = [
   {
     header: 'Trip number',
     sortKey: 'trip_number',
-    className: 'font-mono text-xs text-amber-200',
+    className: 'font-mono text-xs text-warning',
     render: (item) => item.tripNumber || '-',
   },
   {
@@ -42,7 +43,7 @@ const COLUMNS: DataTableColumn<LineImageExtraction>[] = [
   {
     header: 'Agency',
     render: (item) => (
-      <span className="inline-flex rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-xs font-bold text-emerald-200">
+      <span className="inline-flex rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-2 py-1 text-xs font-bold text-success">
         {item.agencyName}
       </span>
     ),
@@ -54,7 +55,7 @@ const COLUMNS: DataTableColumn<LineImageExtraction>[] = [
   {
     header: 'Route',
     sortKey: 'route',
-    className: 'min-w-[180px] font-mono text-xs text-cyan-200',
+    className: 'min-w-[180px] font-mono text-xs text-info',
     render: (item) => item.route,
   },
   {
@@ -140,27 +141,20 @@ function LineImageExtractionsComponent() {
   }
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="space-y-5 page-enter sm:space-y-6">
+      <PageHeader
+        icon={FileImage}
+        title="LINE Runsheets"
+        subtitle={total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
+      />
+
       <Card className="glass border-white/10">
-        <CardHeader className="gap-4 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10">
-              <FileImage className="h-5 w-5 text-cyan-300" />
-            </div>
-            <div>
-              <CardTitle className="text-white text-xl">LINE Runsheets</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
-              </p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 grid gap-2 sm:grid-cols-4">
-            <Metric label="Saved records" value={total} icon={FileImage} tone="cyan" />
-            <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="violet" />
-            <Metric label="Routes (page)" value={uniqueRoutes} icon={Map} tone="emerald" />
-            <Metric label="Vehicles (page)" value={uniqueVehicles} icon={Car} tone="amber" />
+        <CardContent className="p-5 sm:p-6">
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Metric label="Saved records" value={total} icon={FileImage} tone="info" />
+            <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="primary" />
+            <Metric label="Routes (page)" value={uniqueRoutes} icon={Map} tone="success" />
+            <Metric label="Vehicles (page)" value={uniqueVehicles} icon={Car} tone="warning" />
           </div>
 
           <div className="mb-4 flex items-center gap-2">
@@ -182,7 +176,7 @@ function LineImageExtractionsComponent() {
                     setSearchInput('')
                     setPage(1)
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -192,7 +186,7 @@ function LineImageExtractionsComponent() {
               type="button"
               variant="outline"
               size="icon"
-              className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-cyan-300/40 bg-cyan-300/10 text-cyan-300' : ''}`}
+              className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info' : ''}`}
               onClick={() => setShowFilters((value) => !value)}
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -232,6 +226,7 @@ function LineImageExtractionsComponent() {
             columns={COLUMNS}
             data={rows}
             keyField={(item) => item.id}
+            densityKey="line-image-extractions"
             minWidth="1160px"
             emptyIcon={<ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />}
             emptyMessage="No saved runsheets found"
@@ -263,17 +258,17 @@ function LineImageExtractionsComponent() {
   )
 }
 
-function Metric({ label, value, icon: Icon, tone }: { label: string; value: number; icon: typeof FileImage; tone: 'cyan' | 'emerald' | 'amber' | 'violet' }) {
+function Metric({ label, value, icon: Icon, tone }: { label: string; value: number; icon: typeof FileImage; tone: 'info' | 'success' | 'warning' | 'primary' }) {
   const tones = {
-    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200',
-    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200',
-    amber: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
-    violet: 'border-violet-300/20 bg-violet-300/10 text-violet-200',
+    info: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
+    success: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
+    warning: 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning',
+    primary: 'border-primary/22 bg-primary/10 text-primary',
   }
   return (
     <div className={`rounded-xl border px-3 py-2.5 ${tones[tone]}`}>
-      <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60">{label}</div>
-      <div className="mt-1 flex items-center gap-2 text-lg font-black">
+      <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-70">{label}</div>
+      <div className="mt-1 flex items-center gap-2 text-lg font-black font-data">
         <Icon className="h-4 w-4" />
         {value}
       </div>
@@ -303,37 +298,42 @@ function ImagePreview({ item }: { item: LineImageExtraction }) {
       <span className="flex h-12 w-12 overflow-hidden rounded-lg border border-white/10 bg-black/20">
         <img src={item.imageUrl} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
       </span>
-      <span className="hidden text-xs text-muted-foreground group-hover:text-cyan-200 lg:inline">Open</span>
+      <span className="hidden text-xs text-muted-foreground group-hover:text-info lg:inline">Open</span>
     </a>
   )
 }
 
 function MobileRunsheet({ item }: { item: LineImageExtraction }) {
+  const route = item.route || '—'
+  const dateLabel = item.dateText || formatDateTime(item.createdAt).split(' ')[0] || '—'
   return (
-    <div className="space-y-4">
-      <div className="flex items-start gap-3">
-        <ImagePreview item={item} />
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{item.dateText}</div>
-          <div className="mt-1 font-mono text-xs text-amber-200">{item.tripNumber || '-'}</div>
-          <div className="mt-1 truncate text-base font-black text-white">{item.driverName}</div>
-          <div className="mt-1 font-mono text-xs text-cyan-200">{item.route}</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Agency</div>
-          <div className="mt-1 text-slate-200">{item.agencyName}</div>
-        </div>
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Vehicle</div>
-          <div className="mt-1 text-slate-200">{item.vehicleType}</div>
-        </div>
-      </div>
-      <div>
-        <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Saved at</div>
-        <div className="mt-1 text-sm text-slate-200">{formatDateTime(item.createdAt)}</div>
-      </div>
-    </div>
+    <a
+      href={item.imageUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mobile-row"
+      aria-label={`Open runsheet ${item.tripNumber || ''} ${item.driverName || ''}`}
+    >
+      <span className="mobile-row-leading flex h-12 w-12 overflow-hidden rounded-lg border border-white/10 bg-black/20">
+        <img src={item.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+      </span>
+      <span className="mobile-row-body">
+        <span className="mobile-row-title">
+          {item.driverName || '(ไม่ทราบชื่อ)'}
+        </span>
+        <span className="mobile-row-subtitle">
+          <span className="font-data text-warning">{item.tripNumber || '-'}</span>
+          <span className="opacity-50"> · </span>
+          <span className="font-data text-info">{route}</span>
+          <span className="opacity-50"> · </span>
+          {item.agencyName || '—'}
+          <span className="opacity-50"> · </span>
+          {item.vehicleType || '—'}
+        </span>
+      </span>
+      <span className="mobile-row-trailing">
+        <span>{dateLabel}</span>
+      </span>
+    </a>
   )
 }

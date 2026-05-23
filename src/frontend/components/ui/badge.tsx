@@ -1,15 +1,29 @@
 import { cn } from '../../lib/utils'
 
+/**
+ * Semantic-only badge variants.
+ *
+ * The previous palette (cyan, emerald, amber, rose, violet, slate) is kept as
+ * aliases that resolve to semantic tokens, so existing call sites keep working
+ * while we migrate JSX to use the semantic names directly.
+ */
 const variants = {
-  default: 'border-white/10 bg-white/5 text-muted-foreground',
-  primary: 'border-primary/20 bg-primary/10 text-primary',
-  accent: 'border-accent/20 bg-accent/10 text-accent',
-  emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200',
-  amber: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
-  rose: 'border-rose-300/20 bg-rose-300/10 text-rose-200',
-  violet: 'border-violet-300/20 bg-violet-300/10 text-violet-200',
-  cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200',
-  slate: 'border-slate-300/20 bg-slate-300/10 text-slate-300',
+  default: 'border-[color:var(--color-neutral-border)] bg-[color:var(--color-neutral-soft)] text-muted-foreground',
+  primary: 'border-primary/22 bg-primary/10 text-primary',
+  accent: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
+  info: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
+  success: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
+  warning: 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning',
+  danger: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
+  neutral: 'border-[color:var(--color-neutral-border)] bg-[color:var(--color-neutral-soft)] text-muted-foreground',
+
+  // ---- Legacy aliases (resolve to semantic tokens) ----
+  emerald: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
+  amber: 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning',
+  rose: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
+  cyan: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
+  slate: 'border-[color:var(--color-neutral-border)] bg-[color:var(--color-neutral-soft)] text-muted-foreground',
+  violet: 'border-primary/22 bg-primary/10 text-primary',
 } as const
 
 type BadgeVariant = keyof typeof variants

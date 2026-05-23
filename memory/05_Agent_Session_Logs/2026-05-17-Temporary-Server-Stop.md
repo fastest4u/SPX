@@ -1,3 +1,20 @@
+---
+title: "2026-05-17 — Temporary Server Stop"
+type: session-log
+session-date: 2026-05-17
+agent: codex
+duration-minutes: 5
+outcomes:
+  - SSH checked production Docker state.
+  - Stopped the SPX app container temporarily.
+  - Restarted the SPX app container and verified it is running healthy.
+created: 2026-05-17
+updated: 2026-05-17
+tags:
+  - session-log
+  - project/spx
+---
+
 # 2026-05-17 Temporary Server Stop
 
 ## Summary

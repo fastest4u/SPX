@@ -1,602 +1,116 @@
-import { useState, useEffect } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { aiApi, settingsApi } from '../lib/api'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Outlet, createFileRoute, redirect, useRouterState } from '@tanstack/react-router'
+import { Settings2, Save } from 'lucide-react'
 import { Button } from '../components/ui/button'
-import { Input } from '../components/ui/input'
-import { toast } from 'sonner'
-import { Save, AlertTriangle, Wifi, Bell, MessageCircle, Gauge, Settings2, ShieldCheck, Database, Clock, KeyRound, Activity, Bot, Lock } from 'lucide-react'
-import { SettingsLineBotSection } from '../components/SettingsLineBotSection'
+import { PageHeader } from '../components/ui/page-header'
+import { SettingsFormProvider, useSettingsForm } from '../lib/settings-shared'
 
 export const Route = createFileRoute('/settings')({
-  component: SettingsComponent,
+  component: SettingsLayoutRoute,
+  beforeLoad: ({ location }) => {
+    // Redirect bare /settings to the first sub-route so the user lands on a
+    // concrete section instead of a blank parent.
+    if (location.pathname === '/settings' || location.pathname === '/settings/') {
+      throw redirect({ to: '/settings/api' })
+    }
+  },
 })
 
-const TABS = [
-  { id: 'api', label: 'API & Polling', description: 'Endpoint, cookie และรอบดึงงาน', icon: Wifi },
-  { id: 'notify', label: 'การแจ้งเตือน', description: 'LINE OA และ Discord webhook', icon: Bell },
-  { id: 'linebot', label: 'LINE Bot', description: 'QR login, routing และทดสอบส่ง', icon: MessageCircle },
-] as const
-
-type TabId = (typeof TABS)[number]['id']
-
-function getIntervalSec(pollIntervalMs: string): number {
-  const ms = Number(pollIntervalMs || 30000)
-  return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 1000)) : 0
-}
-
-function getCodexLoginErrorMessage(error: Error): string {
-  if (/CODEX_AUTH_PROVIDER_UNAVAILABLE|INTERNAL_SERVER_ERROR|Internal server error/i.test(error.message)) {
-    return 'OpenAI/Codex login service is temporarily unavailable. Try the selected login mode again later.'
-  }
-  return error.message
-}
-
-const INITIAL_FORM = {
-  API_URL: '',
-  POLL_INTERVAL_MS: '30000',
-  COOKIE: '',
-  DEVICE_ID: '',
-  LINE_CHANNEL_ACCESS_TOKEN: '',
-  LINE_USER_ID: '',
-  LINEJS_TEST_ENABLED: 'false',
-  LINEJS_TEST_TARGET_ID: '',
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: '',
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: '',
-  LINEJS_TEST_DEVICE: 'IOSIPAD',
-  LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
-  DISCORD_WEBHOOK_URL: '',
-  BOOKING_DETAIL_CONCURRENCY: '8',
-  CODEX_IMAGE_PROVIDER: 'auto',
-}
-
-function SettingsComponent() {
-  const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<TabId>('api')
-  const [formData, setFormData] = useState(INITIAL_FORM)
-
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ['settings'],
-    queryFn: settingsApi.get,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  useEffect(() => {
-    if (settings) {
-      setFormData({
-        API_URL: settings.API_URL || '',
-        POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
-        COOKIE: settings.COOKIE || '',
-        DEVICE_ID: settings.DEVICE_ID || '',
-        LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
-        LINE_USER_ID: settings.LINE_USER_ID || '',
-        LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
-        LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
-        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || '',
-        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || '',
-        LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
-        LINEJS_TEST_STORAGE_PATH: settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
-        DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
-        BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
-        CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
-      })
-    }
-  }, [settings])
-
-  const updateMutation = useMutation({
-    mutationFn: settingsApi.update,
-    onSuccess: () => {
-      toast.success('บันทึกการตั้งค่าแล้ว มีผลทันที')
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      queryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
-    },
-    onError: (error) => toast.error('เกิดข้อผิดพลาด: ' + error.message),
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    updateMutation.mutate(formData)
-  }
-
-  const setField = (key: string, value: string) => {
-    setFormData(prev => ({ ...prev, [key]: value }))
-  }
-
-  const pollSeconds = getIntervalSec(formData.POLL_INTERVAL_MS)
-  const apiReady = Boolean(formData.API_URL.trim() && formData.DEVICE_ID.trim() && formData.COOKIE.trim())
-  const configuredChannels = [
-    formData.LINE_CHANNEL_ACCESS_TOKEN,
-    formData.DISCORD_WEBHOOK_URL,
-    formData.LINEJS_TEST_ENABLED === 'true' ? 'LINEJS' : '',
-  ].filter(value => String(value).trim()).length
-  const settingsSummary = [
-    { label: 'SPX API', value: apiReady ? 'พร้อมใช้งาน' : 'รอค่า', tone: apiReady ? 'emerald' : 'amber' },
-    { label: 'Polling', value: pollSeconds ? `${pollSeconds}s` : '—', tone: 'cyan' },
-    { label: 'Notify', value: `${configuredChannels}/3 ช่องทาง`, tone: configuredChannels > 0 ? 'emerald' : 'slate' },
-    { label: 'Storage', value: 'MySQL', tone: 'primary' },
-  ] as const
-
-  const toneColors: Record<string, string> = {
-    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200',
-    amber: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
-    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200',
-    slate: 'border-slate-300/20 bg-slate-300/10 text-slate-300',
-    primary: 'border-primary/20 bg-primary/10 text-primary',
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">กำลังโหลดการตั้งค่า...</p>
-        </div>
-      </div>
-    )
-  }
-
+function SettingsLayoutRoute() {
   return (
-    <div className="space-y-5 sm:space-y-6">
-      {/* Header + Summary Card */}
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-4 pb-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.7rem] font-semibold text-muted-foreground">
-              <Database className="h-3 w-3" /> DB-backed settings
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.7rem] font-semibold text-muted-foreground">
-              <ShieldCheck className="h-3 w-3" /> Masked secrets
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.7rem] font-semibold text-muted-foreground">
-              <Clock className="h-3 w-3" /> Live reload
-            </span>
-          </div>
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
-              <Settings2 className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-white text-xl sm:text-2xl">ตั้งค่าระบบ</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-                จัดการ API, notification และ LINE Bot จากหน้าจอเดียว พร้อมโครงสร้างที่อ่านง่ายบนมือถือ แท็บเล็ต และเดสก์ท็อป
-              </p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {settingsSummary.map(item => (
-              <div key={item.label} className={`rounded-xl border px-3 py-2.5 ${toneColors[item.tone] || toneColors.slate}`}>
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60">{item.label}</div>
-                <div className="mt-1 text-sm font-black tracking-tight font-mono">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+    <SettingsFormProvider>
+      <SettingsLayoutContent />
+    </SettingsFormProvider>
+  )
+}
 
-      <form onSubmit={handleSubmit}>
-        {/* Warning banner */}
-        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-300/10">
-            <AlertTriangle className="h-4 w-4 text-amber-300" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-amber-100">การบันทึกการตั้งค่าจะมีผลทันที โดยไม่ต้องรีสตาร์ทเซิร์ฟเวอร์</div>
-            <p className="mt-1 text-xs leading-relaxed text-amber-100/70">ค่า secret ที่ถูก masked จะไม่เขียนทับค่าเดิม หากต้องการเปลี่ยนให้กรอกค่าใหม่เต็มรูปแบบ</p>
-          </div>
-        </div>
+function SettingsLayoutContent() {
+  const router = useRouterState()
+  const path = router.location.pathname
+  const subtitle = pathSubtitle(path)
+  return (
+    <div className="space-y-5 page-enter pb-24 lg:pb-0">
+      <PageHeader
+        icon={Settings2}
+        title="ตั้งค่าระบบ"
+        subtitle={subtitle}
+        meta={<DirtyIndicator />}
+        actions={<DesktopSaveButton />}
+      />
 
-        {/* Tab + Content layout */}
-        <div className="flex flex-col lg:flex-row gap-5 lg:gap-6">
-          {/* Tab nav */}
-          <nav className="flex lg:flex-col gap-1.5 overflow-x-auto pb-2 lg:overflow-visible lg:sticky lg:top-4 lg:w-56 lg:shrink-0 lg:p-3 lg:rounded-2xl lg:border lg:border-white/10 lg:glass">
-            {TABS.map(tab => {
-              const Icon = tab.icon
-              const isActive = activeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center lg:w-full gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 whitespace-nowrap shrink-0 text-left ${
-                    isActive
-                      ? 'bg-primary/10 text-primary border border-primary/20 shadow-[0_0_18px_-8px_var(--color-primary)]'
-                      : 'text-muted-foreground hover:text-white hover:bg-white/[0.04] border border-transparent'
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="hidden sm:inline lg:inline truncate">{tab.label}</span>
-                </button>
-              )
-            })}
+      <Outlet />
 
-            {/* Desktop save section */}
-            <div className="hidden lg:block mt-2 pt-3 border-t border-white/10">
-              <div className="mb-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-white">
-                  <Lock className="h-3.5 w-3.5 text-primary" />
-                  Secure update
-                </div>
-                <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
-                  บันทึกเฉพาะค่าที่แก้ไขและคงค่า secret เดิมเมื่อยังเป็น masked
-                </p>
-              </div>
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:from-emerald-300 hover:to-cyan-300 text-xs h-11 rounded-xl"
-                disabled={updateMutation.isPending}
-              >
-                <Save className="h-3.5 w-3.5 mr-1.5" />
-                {updateMutation.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
-              </Button>
-            </div>
-          </nav>
-
-          {/* Content area */}
-          <div className="flex-1 min-w-0 space-y-5">
-            {activeTab === 'api' && <ApiSection formData={formData} setField={setField} />}
-            {activeTab === 'notify' && <NotifySection formData={formData} setField={setField} />}
-            {activeTab === 'linebot' && (
-              <SettingsLineBotSection
-                formData={formData}
-                setField={setField}
-                onSave={() => updateMutation.mutate(formData)}
-                isSaving={updateMutation.isPending}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Mobile floating save */}
-        <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-white/10 glass p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <Button
-            type="submit"
-            className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/25 hover:from-emerald-300 hover:to-cyan-300 rounded-xl h-11"
-            disabled={updateMutation.isPending}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {updateMutation.isPending ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'}
-          </Button>
-        </div>
-        <div className="lg:hidden h-20" />
-      </form>
+      <MobileSaveBar />
     </div>
   )
 }
 
-function ApiSection({ formData, setField }: { formData: Record<string, string>; setField: (k: string, v: string) => void }) {
-  const queryClient = useQueryClient()
-  const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
-  const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
-  const codexStatus = useQuery({
-    queryKey: ['codex-device-auth-status'],
-    queryFn: aiApi.codexAuthStatus,
-    staleTime: 10 * 1000,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      return (data?.hasPendingDeviceCode || data?.hasPendingFlow) ? 3000 : false
-    },
-  })
-  const startCodexAuth = useMutation({
-    mutationFn: aiApi.codexAuthStart,
-    onSuccess: (data) => {
-      const targetUrl = data.authorizationUrl || data.verificationUriComplete || data.verificationUri
-      if (targetUrl) {
-        window.open(targetUrl, '_blank', 'noopener,noreferrer')
-      }
-      toast.success(data.mode === 'device' ? 'OpenAI device-code login started' : 'OpenAI browser login started')
-      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
-    },
-    onError: (error) => toast.error('เริ่ม Codex login ไม่สำเร็จ', {
-      description: getCodexLoginErrorMessage(error),
-      duration: 15_000,
-    }),
-  })
-  const completeCodexAuth = useMutation({
-    mutationFn: aiApi.codexAuthComplete,
-    onSuccess: () => {
-      toast.success('Codex device auth พร้อมใช้งานแล้ว')
-      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
-    },
-    onError: (error) => toast.error('Codex complete failed: ' + error.message),
-  })
-  const logoutCodexAuth = useMutation({
-    mutationFn: aiApi.codexAuthLogout,
-    onSuccess: () => {
-      toast.success('ลบ Codex device auth แล้ว')
-      queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
-    },
-    onError: (error) => toast.error('Codex logout failed: ' + error.message),
-  })
-  const isCodexAuthenticated = Boolean(codexStatus.data?.authenticated)
+function pathSubtitle(path: string): string {
+  if (path.startsWith('/settings/api')) return 'API & Polling — เชื่อมต่อ SPX และตั้งรอบดึงงาน'
+  if (path.startsWith('/settings/notifications')) return 'การแจ้งเตือน — LINE OA และ Discord webhook'
+  if (path.startsWith('/settings/line-bot')) return 'LINE Bot — QR login และ routing'
+  return 'API, การแจ้งเตือน, และ LINE Bot'
+}
 
-  const promptCodexCallback = () => {
-    const callbackUrl = window.prompt('Paste callback URL หรือ code จากหน้า OpenAI login')
-    if (!callbackUrl?.trim()) return
-    completeCodexAuth.mutate({ callbackUrl: callbackUrl.trim() })
-  }
-
+function DirtyIndicator() {
+  const { isDirty } = useSettingsForm()
   return (
-    <div className="space-y-5">
-      {/* Polling Config */}
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10">
-            <Gauge className="h-4 w-4 text-cyan-300" />
-          </div>
-          <div>
-            <CardTitle className="text-white text-base">Polling Configuration</CardTitle>
-            <p className="text-xs text-muted-foreground">Automation</p>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="s-poll" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Poll Interval</label>
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] font-bold text-muted-foreground font-mono">
-                  ≈ {intervalSec || '—'}s
-                </span>
-              </div>
-              <Input id="s-poll" value={formData.POLL_INTERVAL_MS} onChange={e => setField('POLL_INTERVAL_MS', e.target.value)} placeholder="30000" inputMode="numeric" />
-              <p className="text-[0.7rem] text-muted-foreground/70">ความถี่ในการเช็คงานใหม่ (มิลลิวินาที)</p>
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="s-concurrency" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Concurrency</label>
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] font-bold text-muted-foreground font-mono">
-                  {Number.isFinite(concurrency) && concurrency > 0 ? `${concurrency} jobs` : '—'}
-                </span>
-              </div>
-              <Input id="s-concurrency" value={formData.BOOKING_DETAIL_CONCURRENCY} onChange={e => setField('BOOKING_DETAIL_CONCURRENCY', e.target.value)} placeholder="8" inputMode="numeric" />
-              <p className="text-[0.7rem] text-muted-foreground/70">จำนวน request ดึงรายละเอียดงานพร้อมกัน</p>
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label htmlFor="s-codex-provider" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">AI Image Provider</label>
-              <select
-                id="s-codex-provider"
-                value={formData.CODEX_IMAGE_PROVIDER}
-                onChange={e => setField('CODEX_IMAGE_PROVIDER', e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <option value="auto">auto</option>
-                <option value="codex-device">codex-device</option>
-                <option value="codex-cli">codex-cli</option>
-              </select>
-              <p className="text-[0.7rem] text-muted-foreground/70">เลือก codex-device เพื่ออ่านรูป LINE ผ่าน OAuth โดยไม่ต้องใช้ Codex CLI หลังจาก login สำเร็จ</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <div className="flex items-center gap-2.5 rounded-xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2.5">
-              <Clock className="h-4 w-4 shrink-0 text-cyan-300" />
-              <div className="min-w-0">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-cyan-300/60">รอบเช็คงาน</div>
-                <div className="text-sm font-black text-cyan-200 font-mono">{intervalSec ? `${intervalSec}s` : '—'}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2.5">
-              <Activity className="h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-primary/60">Parallel load</div>
-                <div className="text-sm font-black text-primary font-mono">{Number.isFinite(concurrency) && concurrency > 0 ? `${concurrency}` : '—'}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2.5">
-              <Database className="h-4 w-4 shrink-0 text-emerald-300" />
-              <div className="min-w-0">
-                <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-emerald-300/60">Config source</div>
-                <div className="text-sm font-black text-emerald-200 font-mono">app_settings</div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <span className="inline-flex items-center gap-1.5 text-[0.7rem] text-muted-foreground">
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-primary animate-pulse' : 'bg-muted-foreground/40'
+          }`}
+        aria-hidden="true"
+      />
+      {isDirty ? 'มีการเปลี่ยนแปลง' : 'บันทึกแล้ว'}
+    </span>
+  )
+}
 
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10">
-            <Bot className="h-4 w-4 text-emerald-300" />
-          </div>
-          <div>
-            <CardTitle className="text-white text-base">Codex Device Auth</CardTitle>
-            <p className="text-xs text-muted-foreground">OpenAI OAuth for image reading</p>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-white">
-                {isCodexAuthenticated 
-                  ? 'Authenticated' 
-                  : codexStatus.data?.hasPendingDeviceCode 
-                    ? 'Pending activation' 
-                    : codexStatus.data?.hasPendingFlow 
-                      ? 'Waiting for callback' 
-                      : 'Not authenticated'}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {codexStatus.data?.accountIdSuffix ? `Account ...${codexStatus.data.accountIdSuffix}` : 'Login once, then LINE image OCR can use codex-device without Codex CLI.'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => startCodexAuth.mutate({ mode: 'browser' })} disabled={startCodexAuth.isPending}>
-                <KeyRound className="h-3.5 w-3.5 mr-1.5" />
-                Browser Login
-              </Button>
-              <Button type="button" variant="outline" onClick={() => startCodexAuth.mutate({ mode: 'device' })} disabled={startCodexAuth.isPending}>
-                Device Code Login
-              </Button>
-              {!codexStatus.data?.hasPendingDeviceCode && (
-                <Button type="button" variant="outline" onClick={promptCodexCallback} disabled={completeCodexAuth.isPending}>
-                  Complete
-                </Button>
-              )}
-              <Button type="button" variant="outline" onClick={() => logoutCodexAuth.mutate()} disabled={logoutCodexAuth.isPending || (!isCodexAuthenticated && !codexStatus.data?.hasPendingDeviceCode && !codexStatus.data?.hasPendingFlow)}>
-                Logout
-              </Button>
-            </div>
-          </div>
-
-          {codexStatus.data?.hasPendingDeviceCode && codexStatus.data?.userCode && (
-            <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4">
-              <div className="text-xs font-bold uppercase tracking-[0.14em] text-amber-300/60 mb-2">Enter this code on OpenAI</div>
-              <div className="text-2xl font-black font-mono text-amber-200 tracking-[0.3em] text-center py-2 bg-black/40 rounded-lg">
-                {codexStatus.data.userCode}
-              </div>
-              <div className="flex items-center justify-center gap-2 mt-3">
-                <a href={codexStatus.data.verificationUriComplete || codexStatus.data.verificationUri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-xs text-primary hover:underline font-semibold">
-                  Open verification page →
-                </a>
-              </div>
-              <p className="text-[0.7rem] text-muted-foreground/70 text-center mt-2 flex items-center justify-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
-                กำลังรอ... จะอัพเดทอัตโนมัติเมื่อ login สำเร็จ
-              </p>
-            </div>
-          )}
-
-          {codexStatus.data?.hasPendingFlow && (
-            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-              <div className="text-xs font-bold uppercase tracking-[0.14em] text-primary/60 mb-2 flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
-                กำลังรอระบบรับสิทธิ์กลับมาทำงานโดยอัตโนมัติ...
-              </div>
-              <p className="text-[0.7rem] text-muted-foreground/80 mb-3">
-                หากระบบไม่ต่อกลับอัตโนมัติ (เช่น ปัญหาของเครือข่ายหรือเชื่อมระยะไกล) กรุณาวาง URL หรือรหัสที่ช่องด้านล่างเพื่อเชื่อมต่อทันที:
-              </p>
-              <input
-                type="text"
-                placeholder="วาง URL หรือ callback code ที่นี่ (เช่น http://localhost:1455/auth/callback?code=...)"
-                className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white placeholder-muted-foreground/40 focus:border-primary focus:outline-none"
-                onPaste={(e) => {
-                  const val = e.clipboardData.getData('text').trim();
-                  if (val) {
-                    completeCodexAuth.mutate({ callbackUrl: val });
-                    e.currentTarget.value = '';
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const val = e.currentTarget.value.trim();
-                    if (val) {
-                      completeCodexAuth.mutate({ callbackUrl: val });
-                      e.currentTarget.value = '';
-                    }
-                  }
-                }}
-              />
-              <p className="text-[0.62rem] text-muted-foreground/60 mt-2">
-                * วิธีดึงลิงก์: คัดลอกลิงก์บนแถบ Address Bar ของเบราว์เซอร์หลังจากล็อกอิน OpenAI แล้วมาวางที่นี่
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* API Credentials */}
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
-            <KeyRound className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <CardTitle className="text-white text-base">API Credentials</CardTitle>
-            <p className="text-xs text-muted-foreground">SPX Access</p>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="s-api-url" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">SPX API URL</label>
-              <Input id="s-api-url" value={formData.API_URL} onChange={e => setField('API_URL', e.target.value)} placeholder="https://..." />
-              <p className="text-[0.7rem] text-muted-foreground/70">URL สำหรับเรียก booking/bidding/list</p>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="s-cookie" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Cookie</label>
-              <textarea
-                id="s-cookie"
-                value={formData.COOKIE}
-                onChange={e => setField('COOKIE', e.target.value)}
-                className="flex min-h-[7rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-y"
-                placeholder="fms_user_id=..."
-              />
-              <p className="text-[0.7rem] text-muted-foreground/70">Session cookie จาก SPX — ค่าจะ masked ถ้าไม่เปลี่ยนจะไม่ถูกเขียนทับ</p>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="s-device-id" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Device ID</label>
-              <Input id="s-device-id" value={formData.DEVICE_ID} onChange={e => setField('DEVICE_ID', e.target.value)} placeholder="device-uuid" />
-              <p className="text-[0.7rem] text-muted-foreground/70">อุปกรณ์ที่ผูกกับ session ปัจจุบัน</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+function DesktopSaveButton() {
+  const { isDirty, isSaving, save, reset } = useSettingsForm()
+  return (
+    <div className="hidden items-center gap-2 sm:flex">
+      {isDirty ? (
+        <Button type="button" variant="ghost" size="sm" onClick={reset} disabled={isSaving}>
+          ย้อน
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        onClick={save}
+        disabled={!isDirty || isSaving}
+      >
+        <Save className="h-3.5 w-3.5" />
+        {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+      </Button>
     </div>
   )
 }
 
-function NotifySection({ formData, setField }: { formData: Record<string, string>; setField: (k: string, v: string) => void }) {
+function MobileSaveBar() {
+  const { isDirty, isSaving, save } = useSettingsForm()
   return (
-    <div className="space-y-5">
-      <div className="grid gap-5 xl:grid-cols-2">
-        {/* LINE OA */}
-        <Card className="glass border-white/10">
-          <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10">
-              <MessageCircle className="h-4 w-4 text-emerald-300" />
-            </div>
-            <div>
-              <CardTitle className="text-white text-base">LINE Official Account</CardTitle>
-              <p className="text-xs text-muted-foreground">LINE Messaging API</p>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label htmlFor="s-line-token" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Channel Access Token</label>
-                <Input id="s-line-token" value={formData.LINE_CHANNEL_ACCESS_TOKEN} onChange={e => setField('LINE_CHANNEL_ACCESS_TOKEN', e.target.value)} placeholder="********xxxx" />
-                <p className="text-[0.7rem] text-muted-foreground/70">Token สำหรับส่ง Push Message ผ่าน LINE Messaging API</p>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="s-line-uid" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">User / Group ID</label>
-                <Input id="s-line-uid" value={formData.LINE_USER_ID} onChange={e => setField('LINE_USER_ID', e.target.value)} placeholder="Uxxx... หรือ Cxxx..." />
-                <p className="text-[0.7rem] text-muted-foreground/70">เพิ่มบอทเข้ากลุ่มแล้วใช้ Group ID (ขึ้นต้นด้วย C)</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Discord */}
-        <Card className="glass border-white/10">
-          <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/10">
-              <Bell className="h-4 w-4 text-violet-300" />
-            </div>
-            <div>
-              <CardTitle className="text-white text-base">Discord</CardTitle>
-              <p className="text-xs text-muted-foreground">Webhook Channel</p>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1.5">
-              <label htmlFor="s-discord" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Webhook URL</label>
-              <Input id="s-discord" value={formData.DISCORD_WEBHOOK_URL} onChange={e => setField('DISCORD_WEBHOOK_URL', e.target.value)} placeholder="https://discord.com/api/webhooks/..." />
-              <p className="text-[0.7rem] text-muted-foreground/70">สร้าง Webhook ในช่อง Discord ที่ต้องการรับแจ้งเตือน</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Callout */}
-      <div className="flex items-start gap-3 rounded-2xl border border-accent/20 bg-accent/5 p-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/10">
-          <Bot className="h-4 w-4 text-accent" />
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-white">ต้องการ routing แบบละเอียด?</div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">ไปที่แท็บ LINE Bot เพื่อกำหนดปลายทางแยกตาม rule match, auto-accept สำเร็จ และ auto-accept ล้มเหลว</p>
-        </div>
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-popover/95 px-4 py-3 backdrop-blur-md sm:hidden pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex flex-1 items-center gap-1.5 text-xs">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${isDirty ? 'bg-primary animate-pulse' : 'bg-muted-foreground/40'
+              }`}
+            aria-hidden="true"
+          />
+          <span className="text-muted-foreground">
+            {isDirty ? 'มีการเปลี่ยนแปลง' : 'บันทึกแล้ว'}
+          </span>
+        </span>
+        <Button
+          type="button"
+          className="h-10"
+          onClick={save}
+          disabled={!isDirty || isSaving}
+        >
+          <Save className="h-4 w-4" />
+          {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+        </Button>
       </div>
     </div>
   )

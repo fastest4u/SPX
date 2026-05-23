@@ -121,6 +121,20 @@ async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): P
         }
         throw new Error(`REQUEST_ERROR: ${response.statusText || 'Request failed'}`)
       }
+      // The auth/dashboard controllers wrap responses in a `{status, message, data}`
+      // envelope (see `sendSuccess` in `src/utils/response.ts`). Unwrap automatically
+      // so callers can declare the inner payload as their `T` and access fields
+      // directly. Fall back to the raw body for legacy endpoints that return JSON
+      // without the envelope.
+      if (
+        data &&
+        typeof data === 'object' &&
+        'status' in data &&
+        (data as { status?: unknown }).status === 'success' &&
+        'data' in data
+      ) {
+        return (data as { data: T }).data
+      }
       return data as T
     } catch (error) {
       lastError = error

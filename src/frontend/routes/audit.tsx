@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { auditApi } from '../lib/api'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { PageHeader } from '../components/ui/page-header'
 import { formatDateTime } from '../lib/utils'
-import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
-import { Search } from 'lucide-react'
+import { SkeletonTable } from '../components/ui/skeleton'
+import { FileText, Search } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { AuditLog, AuditQuery } from '../types'
 
@@ -18,7 +19,7 @@ export const Route = createFileRoute('/audit')({
 
 function UserBadge({ username }: { username: string }) {
   return (
-    <span className="status-pill border-cyan-300/20 bg-cyan-300/10 text-cyan-300">
+    <span className="status-pill border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info">
       {username}
     </span>
   )
@@ -103,17 +104,17 @@ function AuditComponent() {
   }
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="space-y-5 page-enter sm:space-y-6">
+      <PageHeader
+        icon={FileText}
+        title="ประวัติการใช้งาน"
+        subtitle="ค้นหาและกรองกิจกรรมผู้ใช้"
+      />
+
       <Card className="glass border-white/10">
-        <CardHeader>
-          <CardTitle className="text-white">{'ประวัติการใช้งาน'}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {'ค้นหาและกรองกิจกรรมผู้ใช้'}
-          </p>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-5 sm:p-6">
           {/* Filters */}
-          <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+          <div className="mb-6 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
               <div className="space-y-2">
                 <label htmlFor="audit-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ค้นหา'}</label>
@@ -155,6 +156,7 @@ function AuditComponent() {
             columns={AUDIT_COLUMNS}
             data={logs}
             keyField={(log) => log.id}
+            densityKey="audit"
             emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
             emptyMessage={'ไม่พบประวัติการใช้งาน'}
             renderMobile={(log) => (
@@ -163,16 +165,16 @@ function AuditComponent() {
             pagination={
               logs.length > 0
                 ? {
-                    page,
-                    pageSize,
-                    totalItems: total,
-                    totalPages,
-                    onPageChange: setPage,
-                    onPageSizeChange: (size) => {
-                      setPageSize(size)
-                      setPage(1)
-                    },
-                  }
+                  page,
+                  pageSize,
+                  totalItems: total,
+                  totalPages,
+                  onPageChange: setPage,
+                  onPageSizeChange: (size) => {
+                    setPageSize(size)
+                    setPage(1)
+                  },
+                }
                 : undefined
             }
             sorting={{
@@ -192,28 +194,25 @@ function AuditComponent() {
 }
 
 function AuditMobileCardContent({ log }: { log: AuditLog }) {
+  const dateLabel = formatDateTime(log.createdAt).split(' ')[0] || '—'
   return (
-    <>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <UserBadge username={log.username} />
-        <span className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black text-slate-200">
-          #{log.id}
+    <div className="mobile-row">
+      <span className="mobile-row-body">
+        <span className="mobile-row-title">{log.action}</span>
+        <span className="mobile-row-subtitle">
+          <span className="text-info">{log.username}</span>
+          {log.details ? (
+            <>
+              <span className="opacity-50"> · </span>
+              <span className="text-foreground/70">{log.details}</span>
+            </>
+          ) : null}
         </span>
-      </div>
-      <div className="grid gap-3 text-sm">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'แอคชัน'}</div>
-          <div className="mt-1 font-semibold text-white">{log.action}</div>
-        </div>
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'รายละเอียด'}</div>
-          <div className="mt-1 break-words text-slate-200">{log.details || '\u2014'}</div>
-        </div>
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'เวลา'}</div>
-          <div className="mt-1 text-slate-200">{formatDateTime(log.createdAt)}</div>
-        </div>
-      </div>
-    </>
+      </span>
+      <span className="mobile-row-trailing">
+        <span>{dateLabel}</span>
+        <span className="font-data text-muted-foreground/60">#{log.id}</span>
+      </span>
+    </div>
   )
 }

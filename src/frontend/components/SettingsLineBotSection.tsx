@@ -74,10 +74,10 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
   ] as const
 
   const statusIcon = isAuth
-    ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+    ? <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
     : isFormOn
-      ? <QrCode className="h-5 w-5 text-amber-400 shrink-0" />
-      : <XCircle className="h-5 w-5 text-rose-400/50 shrink-0" />
+      ? <QrCode className="h-5 w-5 text-warning shrink-0" />
+      : <XCircle className="h-5 w-5 text-danger/50 shrink-0" />
   const statusTitle = isAuth ? '✅ เชื่อมต่อแล้ว' : isFormOn ? '⏳ พร้อม Login' : '⬛ ปิดใช้งาน'
   const statusDesc = isAuth ? status?.message : needsSave ? 'กดบันทึกก่อน แล้วจึง Login QR' : status?.message || 'กำลังตรวจสอบ...'
 
@@ -98,23 +98,23 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
       <div className="flex items-center gap-3 rounded-2xl border border-white/10 glass p-4">
         {statusIcon}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-white">{statusTitle}</div>
+          <div className="text-sm font-medium text-foreground">{statusTitle}</div>
           <div className="text-xs text-muted-foreground sm:truncate">{statusDesc}</div>
         </div>
       </div>
 
       {/* Profile */}
       {isAuth && profileQuery.data && (
-        <div className="flex items-center gap-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] p-4">
           <div className="h-10 w-10 rounded-full bg-[#06C755]/20 flex items-center justify-center text-lg shrink-0">👤</div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-white truncate">{profileQuery.data.displayName}</div>
+            <div className="text-sm font-medium text-foreground truncate">{profileQuery.data.displayName}</div>
             <div className="text-[11px] text-slate-400 font-mono truncate">{profileQuery.data.mid}</div>
           </div>
-          <Button type="button" variant="ghost" size="sm" className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 shrink-0 h-8 px-2" onClick={() => { if (window.confirm('ต้องการออกจากระบบ LINE Bot?')) logoutMut.mutate(false) }} disabled={logoutMut.isPending}>
+          <Button type="button" variant="ghost" size="sm" className="text-danger hover:text-danger hover:bg-[color:var(--color-danger-soft)] shrink-0 h-8 px-2" onClick={() => { if (window.confirm('ต้องการออกจากระบบ LINE Bot?')) logoutMut.mutate(false) }} disabled={logoutMut.isPending}>
             {logoutMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Logout'}
           </Button>
-          <Button type="button" variant="outline" size="sm" className="h-8 border-amber-400/30 bg-amber-400/10 px-2 text-amber-200 hover:bg-amber-400/20 hover:text-amber-100" onClick={() => { if (window.confirm('Reset LINE login and clear stored auth/E2EE data?')) logoutMut.mutate(true) }} disabled={logoutMut.isPending}>
+          <Button type="button" variant="outline" size="sm" className="h-8 border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] px-2 text-warning hover:bg-[color:var(--color-warning-soft)] hover:text-warning" onClick={() => { if (window.confirm('Reset LINE login and clear stored auth/E2EE data?')) logoutMut.mutate(true) }} disabled={logoutMut.isPending}>
             Reset
           </Button>
         </div>
@@ -124,9 +124,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
       {isAuth && storageQuery.data && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(['hasE2EEKeys', 'hasAuthState'] as const).map(k => (
-            <div key={k} className={`rounded-xl border p-2.5 text-center ${storageQuery.data![k] ? 'border-emerald-500/20 bg-emerald-500/[0.05]' : 'border-amber-500/20 bg-amber-500/[0.05]'}`}>
+            <div key={k} className={`rounded-xl border p-2.5 text-center ${storageQuery.data![k] ? 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)]' : 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)]'}`}>
               <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{k === 'hasE2EEKeys' ? 'E2EE Keys' : 'Auth State'}</div>
-              <div className={`text-xs font-semibold mt-0.5 ${storageQuery.data![k] ? 'text-emerald-400' : 'text-amber-400'}`}>{storageQuery.data![k] ? '✅ มี' : '⚠️ ไม่มี'}</div>
+              <div className={`text-xs font-semibold mt-0.5 ${storageQuery.data![k] ? 'text-success' : 'text-warning'}`}>{storageQuery.data![k] ? '✅ มี' : '⚠️ ไม่มี'}</div>
             </div>
           ))}
         </div>
@@ -137,7 +137,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
         <CardContent className="pt-5">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-medium text-white">เปิดใช้งาน LINE Bot</div>
+              <div className="text-sm font-medium text-foreground">เปิดใช้งาน LINE Bot</div>
               <div className="text-xs text-muted-foreground">login QR ครั้งเดียว ส่งข้อความได้ตลอด</div>
             </div>
             <button
@@ -166,18 +166,18 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                   <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded self-start" style={{ background: row.color + '33', color: row.color }}>{row.label}</span>
                   <div className="flex-1 min-w-0 space-y-1">
-                    <div className="text-white font-medium text-sm">{row.desc}</div>
+                    <div className="text-foreground font-medium text-sm">{row.desc}</div>
                     {isAuth && chats.length > 0 ? (
                       <select
                         value={formData[row.key] || ''}
                         onChange={e => setField(row.key, e.target.value)}
-                        className="mt-1.5 w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                        className="mt-1.5 w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
                       >
                         {currentValue && !hasCurrentOption && (
-                          <option value={currentValue} className="bg-slate-900">{currentTargetLabel(currentValue)}</option>
+                          <option value={currentValue} className="bg-popover">{currentTargetLabel(currentValue)}</option>
                         )}
-                        <option value="" className="bg-slate-900">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
-                        {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                        <option value="" className="bg-popover">{formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${(formData.LINEJS_TEST_TARGET_ID || formData.LINE_USER_ID).slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+                        {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-popover">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
                       </select>
                     ) : (
                       <Input value={formData[row.key] || ''} onChange={e => setField(row.key, e.target.value)} placeholder="Target MID (ปล่อยว่าง = ค่าเริ่มต้น)" className="mt-1.5 h-9 text-xs" />
@@ -204,13 +204,13 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                   id="linejs-target-mid"
                   value={formData.LINEJS_TEST_TARGET_ID || ''}
                   onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)}
-                  className="w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                  className="w-full min-h-[2.25rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
                 >
                   {formData.LINEJS_TEST_TARGET_ID && !chats.some(c => c.chatMid === formData.LINEJS_TEST_TARGET_ID) && (
-                    <option value={formData.LINEJS_TEST_TARGET_ID} className="bg-slate-900">{currentTargetLabel(formData.LINEJS_TEST_TARGET_ID)}</option>
+                    <option value={formData.LINEJS_TEST_TARGET_ID} className="bg-popover">{currentTargetLabel(formData.LINEJS_TEST_TARGET_ID)}</option>
                   )}
-                  <option value="" className="bg-slate-900">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
-                  {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                  <option value="" className="bg-popover">{formData.LINE_USER_ID ? `ใช้ค่าเริ่มต้น (${formData.LINE_USER_ID.slice(-8)})` : 'เลือกกลุ่ม...'}</option>
+                  {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-popover">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
                 </select>
               ) : (
                 <Input value={formData.LINEJS_TEST_TARGET_ID} onChange={e => setField('LINEJS_TEST_TARGET_ID', e.target.value)} placeholder={`Uxxx... หรือ Cxxx... (ค่าเริ่มต้น: ${formData.LINE_USER_ID || 'LINE_USER_ID'})`} />
@@ -236,20 +236,20 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
       {/* QR Login */}
       {showQr && (
         <div className="space-y-4">
-          {needsSave && <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-200">⚠️ กรุณา <strong>บันทึกการตั้งค่า</strong> ก่อน แล้วรอ restart</div>}
-          <Button type="button" onClick={() => { if (needsSave) { toast.error('กรุณาบันทึกก่อน'); return } loginMut.mutate() }} disabled={loginMut.isPending} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-white font-medium shadow-lg shadow-[#06C755]/20">
+          {needsSave && <div className="rounded-2xl border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] p-4 text-sm text-warning">⚠️ กรุณา <strong>บันทึกการตั้งค่า</strong> ก่อน แล้วรอ restart</div>}
+          <Button type="button" onClick={() => { if (needsSave) { toast.error('กรุณาบันทึกก่อน'); return } loginMut.mutate() }} disabled={loginMut.isPending} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-foreground font-medium shadow-lg shadow-[#06C755]/20">
             {loginMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <QrCode className="h-4 w-4 mr-2" />}
             {loginMut.isPending ? 'กำลังสร้าง QR Code...' : 'Login ด้วย QR Code'}
           </Button>
           {qrUrl && (
-            <div className="flex flex-col items-center gap-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-5 text-center">
-              <span className="font-medium text-white">สแกน QR Code เพื่อ Login</span>
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] p-5 text-center">
+              <span className="font-medium text-foreground">สแกน QR Code เพื่อ Login</span>
               <div className="bg-white p-4 rounded-xl shadow-lg"><QRCodeSVG value={qrUrl} size={200} level="H" includeMargin /></div>
-              <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={qrUrl} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">{qrUrl}</a>)</p>
+              <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={qrUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">{qrUrl}</a>)</p>
               {pincode && (
-                <div className="text-sm text-slate-300 w-full pt-2 border-t border-white/10">
+                <div className="text-sm text-foreground w-full pt-2 border-t border-white/10">
                   <p>กรอก PIN ในแอป LINE:</p>
-                  <div className="mt-2 inline-block rounded-lg bg-white/10 px-5 py-3 font-mono text-3xl font-bold text-white tracking-[0.4em] shadow-inner">{pincode}</div>
+                  <div className="mt-2 inline-block rounded-lg bg-white/10 px-5 py-3 font-mono text-3xl font-bold text-foreground tracking-[0.4em] shadow-inner">{pincode}</div>
                 </div>
               )}
             </div>
@@ -259,20 +259,20 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
 
       {/* Send test message */}
       {isAuth && (
-        <Card className="glass border-emerald-300/20 bg-emerald-300/5">
+        <Card className="glass border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)]">
           <CardContent className="pt-5">
             <div className="space-y-3">
-              <h4 className="text-sm font-medium text-white">ทดสอบส่งข้อความ</h4>
+              <h4 className="text-sm font-medium text-foreground">ทดสอบส่งข้อความ</h4>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Target MID</label>
                 {isAuth && chats.length > 0 ? (
                   <select
                     value={testMid}
                     onChange={e => setTestMid(e.target.value)}
-                    className="w-full min-h-[2.5rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
+                    className="w-full min-h-[2.5rem] rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none"
                   >
-                    <option value="" className="bg-slate-900">เลือกกลุ่ม...</option>
-                    {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-slate-900">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
+                    <option value="" className="bg-popover">เลือกกลุ่ม...</option>
+                    {chats.map(c => <option key={c.chatMid} value={c.chatMid} className="bg-popover">{c.chatName || 'ไม่ทราบชื่อ'} ({c.chatMid.slice(-8)})</option>)}
                   </select>
                 ) : (
                   <Input value={testMid} onChange={e => setTestMid(e.target.value)} placeholder="Target MID (uxxx... / cxxx...)" />
@@ -282,7 +282,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
                 <label className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ข้อความ</label>
                 <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} placeholder="ข้อความ..." rows={2} className="flex min-h-[5rem] w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" />
               </div>
-              <Button type="button" onClick={() => { if (!testMid.trim() || !testMsg.trim()) { toast.error('กรุณากรอก MID และข้อความ'); return } sendMut.mutate({ to: testMid.trim(), text: testMsg.trim() }) }} disabled={sendMut.isPending || !testMid.trim() || !testMsg.trim()} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-white">
+              <Button type="button" onClick={() => { if (!testMid.trim() || !testMsg.trim()) { toast.error('กรุณากรอก MID และข้อความ'); return } sendMut.mutate({ to: testMid.trim(), text: testMsg.trim() }) }} disabled={sendMut.isPending || !testMid.trim() || !testMsg.trim()} className="w-full bg-[#06C755] hover:bg-[#05b34c] text-foreground">
                 {sendMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
                 {sendMut.isPending ? 'กำลังส่ง...' : 'ส่งข้อความทดสอบ'}
               </Button>

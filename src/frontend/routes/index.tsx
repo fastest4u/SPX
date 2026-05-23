@@ -1,13 +1,25 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { rulesApi, metricsApi, lineApi } from '../lib/api'
-import { useSse } from '../hooks/useSse'
+import { useSseStream } from '../hooks/useSseContext'
 import { Button } from '../components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
-import { Skeleton, SkeletonCard } from '../components/ui/skeleton'
+import { SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
-import { AlertTriangle, Eye, PauseCircle, Plus, Radio, Search, SignalHigh, Target, WifiOff, MessageSquare } from 'lucide-react'
+import { PageHeader } from '../components/ui/page-header'
+import { Sparkline } from '../components/Sparkline'
+import {
+  AlertTriangle,
+  Eye,
+  LayoutDashboard,
+  PauseCircle,
+  Plus,
+  Radio,
+  Search,
+  WifiOff,
+  ChevronRight,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { NotifyRule, TimingSummary } from '../types'
@@ -15,7 +27,6 @@ import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
-import { useMutation } from '@tanstack/react-query'
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -47,19 +58,31 @@ function DashboardComponent() {
     staleTime: 60_000,
   })
 
-  const { data: sseMetrics, rules: sseRules, sessionAlert } = useSse('/events')
+  const { data: history = [] } = useQuery({
+    queryKey: ['metrics-history', 60],
+    queryFn: () => metricsApi.history(60),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  const { data: sseMetrics, rules: sseRules, sessionAlert } = useSseStream()
   const metrics = sseMetrics || initialMetrics
   const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
   const sessionAlertTimestamp = sessionAlert?.timestamp
 
   const togglePollerMutation = useMutation({
-    mutationFn: () => metrics?.isPaused ? metricsApi.resume() : metricsApi.pause(),
+    mutationFn: () =>
+      metrics?.isPaused ? metricsApi.resume() : metricsApi.pause(),
     onSuccess: (data) => {
-      toast.success(data.paused ? 'หยุดการทำงาน (Pause) เรียบร้อย' : 'เริ่มทำงาน (Resume) เรียบร้อย')
+      toast.success(
+        data.paused
+          ? 'หยุดการทำงาน (Pause) เรียบร้อย'
+          : 'เริ่มทำงาน (Resume) เรียบร้อย'
+      )
     },
     onError: (error) => {
       toast.error('ไม่สามารถเปลี่ยนสถานะได้: ' + error.message)
-    }
+    },
   })
 
   useEffect(() => {
@@ -71,7 +94,8 @@ function DashboardComponent() {
   useEffect(() => {
     if (!sessionAlertTimestamp) return
     toast.error('SPX session หมดอายุ', {
-      description: 'อัปเดต COOKIE ใหม่ใน Settings เพื่อให้ระบบ poll และ auto-accept กลับมาทำงาน',
+      description:
+        'อัปเดต COOKIE ใหม่ใน Settings เพื่อให้ระบบ poll และ auto-accept กลับมาทำงาน',
       duration: 20_000,
     })
   }, [sessionAlertTimestamp])
@@ -85,149 +109,132 @@ function DashboardComponent() {
   if (rulesLoading) {
     return (
       <div className="space-y-3 sm:space-y-4">
-        <Card className="glass border-white/10"><SkeletonCard lines={3} /></Card>
-        <Card className="glass border-white/10"><SkeletonCard lines={5} /></Card>
+        <Card className="bg-card border-white/10"><SkeletonCard lines={3} /></Card>
+        <Card className="bg-card border-white/10"><SkeletonCard lines={5} /></Card>
       </div>
     )
   }
 
-  return (
-    <div className="space-y-3 sm:space-y-4">
-      {/* Top Bar: Title + Stats */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <button
-            onClick={() => togglePollerMutation.mutate()}
-            disabled={togglePollerMutation.isPending}
-            className={`mb-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors hover:brightness-110 disabled:opacity-50 ${metrics?.isPaused ? 'border-amber-300/20 bg-amber-300/10 text-amber-300 hover:bg-amber-300/20' : 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200 hover:bg-cyan-300/20'}`}
-          >
-            {metrics?.isPaused ? (
-              <><PauseCircle className="h-3 w-3" />Paused</>
-            ) : (
-              <><Radio className="h-3 w-3 animate-pulse" />Live</>
-            )}
-          </button>
-          <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">
-            ภาพรวมระบบ
-          </h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {lineQuota?.limit ? (
-            <div className="flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5">
-              <MessageSquare className="h-3.5 w-3.5 text-emerald-300" />
-              <span className="text-xs font-bold text-emerald-300">{lineQuota.totalUsage}/{lineQuota.limit}</span>
-              <div className="h-1.5 w-12 rounded-full bg-white/20 overflow-hidden">
-                <div className="h-full rounded-full bg-emerald-400 transition-[width] duration-500" style={{ width: `${Math.max(2, quotaPercent)}%` }} />
-              </div>
-            </div>
-          ) : null}
-          <Badge variant={metrics?.session?.isHealthy ? 'emerald' : 'amber'}>
-            {metrics?.session?.isHealthy ? <SignalHigh className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-            {metrics?.session?.isHealthy ? 'Healthy' : 'Degraded'}
-          </Badge>
-          <Badge variant="cyan">
-            <Target className="h-3 w-3" />
-            {activeRules} active
-          </Badge>
-        </div>
-      </div>
+  const statusGroup = (
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-0.5 pr-2">
+      <button
+        onClick={() => togglePollerMutation.mutate()}
+        disabled={togglePollerMutation.isPending}
+        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-50 ${metrics?.isPaused
+          ? 'bg-[color:var(--color-warning-soft)] text-warning'
+          : 'bg-[color:var(--color-info-soft)] text-info'
+          }`}
+        title={metrics?.isPaused ? 'กดเพื่อเริ่มทำงาน' : 'กดเพื่อหยุดทำงาน'}
+      >
+        {metrics?.isPaused ? (
+          <>
+            <PauseCircle className="h-3 w-3" />
+            Paused
+          </>
+        ) : (
+          <>
+            <Radio className="h-3 w-3 animate-pulse" />
+            Live
+          </>
+        )}
+      </button>
+      <span className="h-3 w-px bg-white/10" aria-hidden="true" />
+      {metrics?.session?.isHealthy ? (
+        <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
+          Healthy
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-warning">
+          <WifiOff className="h-3 w-3" />
+          Degraded
+        </span>
+      )}
+    </div>
+  )
 
-      {/* Session Expired Alert */}
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        icon={LayoutDashboard}
+        title="ภาพรวมระบบ"
+        subtitle="Pipeline telemetry และ rule ที่กำลังทำงาน"
+        meta={statusGroup}
+      />
+
       {hasSessionExpired ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-red-50 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-3 text-foreground sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-red-300" />
+            <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />
             <span className="text-sm font-bold">SPX session หมดอายุ — อัปเดต COOKIE ใน Settings</span>
           </div>
-          <Button asChild variant="outline" size="sm" className="border-red-300/40 text-red-50 hover:bg-red-400/10">
+          <Button asChild variant="outline" size="sm">
             <Link to="/settings">Settings</Link>
           </Button>
         </div>
       ) : null}
 
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="text-base text-white">Pipeline telemetry</CardTitle>
-            <p className="text-xs text-muted-foreground">เวลาของแต่ละช่วงและแรงดันคิว detail แบบ real-time</p>
-          </div>
-          <Badge variant={metrics?.runtime?.queuedDetailBookings ? 'amber' : 'slate'}>
-            {metrics?.runtime?.queuedDetailBookings ?? 0} queued
-          </Badge>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <PipelineMetric label="Detail fetch" summary={metrics?.operations?.detailFetch} color="cyan" />
-            <PipelineMetric label="DB save" summary={metrics?.operations?.dbSave} color="blue" />
-            <PipelineMetric label="Notify" summary={metrics?.operations?.notify} color="amber" />
-            <PipelineMetric label="Auto accept" summary={metrics?.operations?.autoAccept} color="emerald" />
-          </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <MiniStat label="Detail jobs" value={metrics?.runtime ? `${metrics.runtime.activeDetailJobs}` : '—'} color="cyan" />
-            <MiniStat label="Active bookings" value={metrics?.runtime ? `${metrics.runtime.activeDetailBookings}/${metrics.runtime.detailConcurrency || 0}` : '—'} color="blue" />
-            <MiniStat label="Queue pressure" value={`${metrics?.runtime?.detailQueuePressure ?? 0}%`} color={(metrics?.runtime?.detailQueuePressure ?? 0) > 100 ? 'amber' : 'slate'} />
-            <MiniStat label="SSE clients" value={metrics?.runtime?.sseClients ?? 0} color="emerald" />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Pipeline timeline — 4 stages as connected flow, not 4 lonely tiles. */}
+      <PipelineTimeline metrics={metrics} history={history} />
 
-      {/* Rules Section */}
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Rules table */}
+      <Card className="bg-card border-white/10">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
           <div>
-            <CardTitle className="text-base text-white">รายการค้นหา</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              จัดการ rule และดูสถานะได้ทันที
-            </p>
+            <h2 className="section-title">รายการค้นหา</h2>
+            <p className="section-subtitle">จัดการ rule และดูสถานะได้ทันที</p>
           </div>
-          <Button
-            size="sm"
-            className="bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:from-emerald-300 hover:to-cyan-300"
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
             เพิ่มรายการ
           </Button>
           <CreateRuleDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
-        </CardHeader>
-        <CardContent className="pt-0">
+        </div>
+        <CardContent className="p-0">
           {rules.length === 0 ? (
-            <EmptyState icon={Search} title="ไม่มีรายการค้นหา" description="เพิ่ม rule แรกเพื่อเริ่มค้นหางาน bidding" action={
-              <Button size="sm" className="bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950" onClick={() => setCreateDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-1.5" />เพิ่มรายการ
-              </Button>
-            } />
+            <EmptyState
+              icon={Search}
+              title="ยังไม่มีกฎค้นหา"
+              description="เริ่มจากกฎแรกเพื่อให้บอทเริ่มมองหางาน bidding ให้คุณ"
+              action={
+                <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  เพิ่มกฎแรก
+                </Button>
+              }
+              className="py-16"
+            />
           ) : (
-            <>
-              <div className="grid gap-2 md:hidden">
-                {rules.map((rule) => (
-                  <RuleCard key={rule.id} rule={rule} onEdit={() => setEditingRule(rule)} onDelete={() => setDeletingRule(rule)} onPreview={() => setPreviewingRule(rule)} />
-                ))}
-              </div>
-              <div className="data-scroll hidden md:block">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>สถานะ</th>
-                      <th>ชื่อรายการ</th>
-                      <th>ต้นทาง</th>
-                      <th>ปลายทาง</th>
-                      <th className="hidden lg:table-cell">ประเภทรถ</th>
-                      <th>ต้องการ</th>
-                      <th>จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rules.map((rule) => (
-                      <RuleRow key={rule.id} rule={rule} onEdit={() => setEditingRule(rule)} onDelete={() => setDeletingRule(rule)} onPreview={() => setPreviewingRule(rule)} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            <div className="data-scroll border-0 rounded-none">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>สถานะ</th>
+                    <th>ชื่อรายการ</th>
+                    <th>ต้นทาง</th>
+                    <th>ปลายทาง</th>
+                    <th>ประเภทรถ</th>
+                    <th>ต้องการ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules.map((rule) => (
+                    <RuleRow
+                      key={rule.id}
+                      rule={rule}
+                      onEdit={() => setEditingRule(rule)}
+                      onDelete={() => setDeletingRule(rule)}
+                      onPreview={() => setPreviewingRule(rule)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
+
       <EditRuleDialog rule={editingRule} open={editingRule !== null} onOpenChange={(open) => { if (!open) setEditingRule(null) }} />
       <DeleteConfirmDialog rule={deletingRule} open={deletingRule !== null} onOpenChange={(open) => { if (!open) setDeletingRule(null) }} />
       <RulePreviewDialog rule={previewingRule} open={previewingRule !== null} onOpenChange={(open) => { if (!open) setPreviewingRule(null) }} />
@@ -235,91 +242,153 @@ function DashboardComponent() {
   )
 }
 
-function MiniStat({ label, value, color }: {
-  label: string
-  value: string | number
-  color: 'cyan' | 'emerald' | 'slate' | 'amber' | 'blue'
+/* ─────────────────────────────────────────────────────────────
+   Pipeline timeline
+   Renders 4 stages connected by a flowing line. Each stage shows
+   its p95 latency + inline sparkline of last 60 polls' avg latency.
+   ───────────────────────────────────────────────────────────── */
+function PipelineTimeline({
+  metrics,
+  history,
+}: {
+  metrics?: ReturnType<typeof useSseStream>['data']
+  history: Array<{ latencyAvg: number; latencyP95: number; createdAt: string }>
 }) {
-  const colorClasses: Record<string, string> = {
-    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-300',
-    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-300',
-    slate: 'border-slate-300/20 bg-slate-300/10 text-slate-300',
-    amber: 'border-amber-300/20 bg-amber-300/10 text-amber-300',
-    blue: 'border-blue-300/20 bg-blue-300/10 text-blue-300',
-  }
+  const sparkData = history
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .map((row) => row.latencyAvg)
+
+  const stages: Array<{ label: string; summary?: TimingSummary; tone: string }> = [
+    { label: 'Detail fetch', summary: metrics?.operations?.detailFetch, tone: 'var(--color-info)' },
+    { label: 'DB save', summary: metrics?.operations?.dbSave, tone: 'var(--color-info)' },
+    { label: 'Notify', summary: metrics?.operations?.notify, tone: 'var(--color-warning)' },
+    { label: 'Auto accept', summary: metrics?.operations?.autoAccept, tone: 'var(--color-success)' },
+  ]
+
+  const queued = metrics?.runtime?.queuedDetailBookings ?? 0
 
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${colorClasses[color]}`}>
-      <div className="flex items-center justify-between gap-1">
-        <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-60">{label}</div>
+    <Card className="bg-card border-white/10">
+      <div className="flex items-center justify-between gap-3 px-5 pt-4">
+        <div>
+          <h2 className="section-title">Pipeline telemetry</h2>
+          <p className="section-subtitle">
+            จาก fetch → save → notify → accept · real-time
+          </p>
+        </div>
+        <Badge variant={queued ? 'warning' : 'neutral'}>
+          {queued.toLocaleString()} queued
+        </Badge>
       </div>
-      <div className="text-lg font-black tracking-tight font-mono">{value}</div>
-    </div>
+      <CardContent className="p-5 pt-3">
+        {/* Mobile: vertical timeline. Desktop: horizontal flow. */}
+        <ol className="relative grid gap-3 lg:grid-cols-4 lg:gap-0">
+          {stages.map((stage, i) => (
+            <PipelineStage
+              key={stage.label}
+              label={stage.label}
+              summary={stage.summary}
+              tone={stage.tone}
+              sparkData={sparkData}
+              isLast={i === stages.length - 1}
+              index={i}
+            />
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   )
 }
 
-function PipelineMetric({ label, summary, color }: {
+function PipelineStage({
+  label,
+  summary,
+  tone,
+  sparkData,
+  isLast,
+  index,
+}: {
   label: string
   summary?: TimingSummary
-  color: 'cyan' | 'emerald' | 'amber' | 'blue'
+  tone: string
+  sparkData: number[]
+  isLast: boolean
+  index: number
 }) {
-  const tone: Record<string, string> = {
-    cyan: 'from-cyan-300/20 to-cyan-300/5 text-cyan-200',
-    emerald: 'from-emerald-300/20 to-emerald-300/5 text-emerald-200',
-    amber: 'from-amber-300/20 to-amber-300/5 text-amber-200',
-    blue: 'from-blue-300/20 to-blue-300/5 text-blue-200',
-  }
+  const p95 = summary?.p95 ?? 0
+  const avg = summary?.avg ?? 0
+  const count = summary?.count ?? 0
 
   return (
-    <div className={`rounded-xl border border-white/10 bg-gradient-to-br ${tone[color]} px-3 py-2.5`}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[0.6rem] font-bold uppercase tracking-[0.14em] opacity-70">{label}</div>
-        <div className="font-mono text-[0.65rem] opacity-60">{summary?.count ?? 0}x</div>
+    <li className="relative flex flex-1 items-stretch gap-3 lg:flex-col lg:gap-2">
+      {/* Connector — small arrow between stages on desktop */}
+      {!isLast ? (
+        <span
+          aria-hidden="true"
+          className="absolute right-0 top-1/2 hidden -translate-y-1/2 translate-x-1/2 text-muted-foreground/30 lg:inline-flex"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </span>
+      ) : null}
+
+      {/* Stage marker dot — keeps vertical mobile timeline anchored */}
+      <span className="flex flex-col items-center gap-1 lg:hidden">
+        <span
+          className="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ background: tone, boxShadow: `0 0 14px -3px ${tone}` }}
+          aria-hidden="true"
+        />
+        {!isLast ? <span className="w-px flex-1 bg-white/10" aria-hidden="true" /> : null}
+      </span>
+
+      <div className="flex-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 transition-colors hover:border-white/[0.12] lg:mr-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[0.6rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            <span aria-hidden="true" className="opacity-50">0{index + 1}.</span>{' '}{label}
+          </span>
+          <span className="font-data text-[0.65rem] text-muted-foreground/60">{count}x</span>
+        </div>
+        <div className="mt-1.5 flex items-end justify-between gap-3">
+          <div>
+            <div className="font-data text-2xl font-black leading-none tracking-tight" style={{ color: tone }}>
+              {p95}
+              <span className="ml-0.5 text-xs font-semibold opacity-60">ms</span>
+            </div>
+            <div className="mt-1 text-[0.65rem] text-muted-foreground/80">
+              avg {avg}ms
+            </div>
+          </div>
+          {sparkData.length > 1 ? (
+            <Sparkline data={sparkData} width={60} height={28} color={tone} />
+          ) : (
+            <div className="h-7 w-15 rounded bg-white/[0.03]" aria-hidden="true" />
+          )}
+        </div>
       </div>
-      <div className="mt-1 font-mono text-xl font-black tracking-tight">{summary?.p95 ?? 0}ms</div>
-      <div className="mt-1 flex items-center justify-between text-[0.65rem] text-muted-foreground">
-        <span>avg {summary?.avg ?? 0}ms</span>
-        <span>last {summary?.lastMs ?? 0}ms</span>
-      </div>
-    </div>
+    </li>
   )
 }
 
 function getStatusBadge(rule: NotifyRule) {
-  if (!rule.enabled) return <Badge variant="slate">ปิดอยู่</Badge>
-  if (rule.fulfilled) return <Badge variant="emerald">ครบแล้ว</Badge>
-  return <Badge variant="cyan">กำลังค้นหา</Badge>
+  if (!rule.enabled) return <Badge variant="neutral">ปิดอยู่</Badge>
+  if (rule.fulfilled) return <Badge variant="success">ครบแล้ว</Badge>
+  return <Badge variant="info">กำลังค้นหา</Badge>
 }
 
 function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs text-cyan-200 hover:text-cyan-100 whitespace-nowrap" onClick={onPreview}><Eye className="h-3.5 w-3.5" />Preview</Button>
-      <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs whitespace-nowrap" onClick={onEdit}>แก้ไข</Button>
-      <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs text-red-300 hover:text-red-200 whitespace-nowrap" onClick={onDelete}>ลบ</Button>
-    </div>
-  )
-}
-
-function RuleCard({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
-  return (
-    <div className="mobile-record">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <div className="mb-1">{getStatusBadge(rule)}</div>
-          <div className="text-sm font-bold text-white">{rule.name}</div>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-right">
-          <div className="text-[0.6rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">Need</div>
-          <div className="text-base font-black text-cyan-200">{rule.need}</div>
-        </div>
-      </div>
-      <div className="grid gap-2 text-xs">
-        <div className="flex gap-2"><span className="text-muted-foreground">ต้นทาง:</span><span className="text-slate-200">{rule.origins.join(', ') || '—'}</span></div>
-        <div className="flex gap-2"><span className="text-muted-foreground">ปลายทาง:</span><span className="text-slate-200">{rule.destinations.join(', ') || '—'}</span></div>
-        <div className="flex gap-2"><span className="text-muted-foreground">ประเภทรถ:</span><span className="text-slate-200">{rule.vehicle_types.join(', ') || '—'}</span></div>
-      </div>
-      <div className="mt-3 border-t border-white/10 pt-3"><RuleActions onEdit={onEdit} onDelete={onDelete} onPreview={onPreview} /></div>
+    <div className="flex flex-wrap items-center gap-1">
+      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-info hover:text-info" onClick={onPreview}>
+        <Eye className="h-3.5 w-3.5" />
+        Preview
+      </Button>
+      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={onEdit}>
+        แก้ไข
+      </Button>
+      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-danger hover:text-danger" onClick={onDelete}>
+        ลบ
+      </Button>
     </div>
   )
 }
@@ -328,12 +397,14 @@ function RuleRow({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEd
   return (
     <tr>
       <td>{getStatusBadge(rule)}</td>
-      <td className="font-semibold text-white">{rule.name}</td>
+      <td className="font-semibold text-foreground">{rule.name}</td>
       <td className="text-muted-foreground">{rule.origins.join(', ') || '—'}</td>
       <td className="text-muted-foreground">{rule.destinations.join(', ') || '—'}</td>
-      <td className="hidden text-muted-foreground lg:table-cell">{rule.vehicle_types.join(', ') || '—'}</td>
-      <td className="text-muted-foreground">{rule.need} คัน</td>
-      <td><RuleActions onEdit={onEdit} onDelete={onDelete} onPreview={onPreview} /></td>
+      <td className="text-muted-foreground">{rule.vehicle_types.join(', ') || '—'}</td>
+      <td className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></td>
+      <td>
+        <RuleActions onEdit={onEdit} onDelete={onDelete} onPreview={onPreview} />
+      </td>
     </tr>
   )
 }

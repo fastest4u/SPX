@@ -42,11 +42,11 @@ function LoginComponent() {
       <div className="grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         {/* Hero Section */}
         <div className="reveal-up text-center lg:text-left">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-200">
-            <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.75)]"></span>
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-3 py-2 text-sm font-semibold text-success">
+            <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_14px_color-mix(in_oklab,var(--color-success)_50%,transparent)]"></span>
             Logistics command center
           </div>
-          <h1 className="mx-auto max-w-2xl text-4xl font-black tracking-tight text-white sm:text-5xl lg:mx-0 lg:text-6xl">
+          <h1 className="mx-auto max-w-2xl text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:mx-0 lg:text-6xl">
             SPX Control Center
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg lg:mx-0">
@@ -57,18 +57,18 @@ function LoginComponent() {
         {/* Feature Cards */}
         <div className="grid gap-3 sm:grid-cols-3 lg:col-start-1">
           <div className="glass rounded-2xl p-4 text-left">
-            <Activity className="mb-3 h-5 w-5 text-cyan-300" />
-            <div className="mb-1 text-sm font-bold text-white">Live Metrics</div>
+            <Activity className="mb-3 h-5 w-5 text-info" />
+            <div className="mb-1 text-sm font-bold text-foreground">Live Metrics</div>
             <div className="text-xs leading-5 text-muted-foreground">สถานะระบบและ latency</div>
           </div>
           <div className="glass rounded-2xl p-4 text-left">
-            <BellRing className="mb-3 h-5 w-5 text-emerald-300" />
-            <div className="mb-1 text-sm font-bold text-white">Smart Alerts</div>
+            <BellRing className="mb-3 h-5 w-5 text-success" />
+            <div className="mb-1 text-sm font-bold text-foreground">Smart Alerts</div>
             <div className="text-xs leading-5 text-muted-foreground">LINE และ Discord</div>
           </div>
           <div className="glass rounded-2xl p-4 text-left">
-            <ShieldCheck className="mb-3 h-5 w-5 text-violet-300" />
-            <div className="mb-1 text-sm font-bold text-white">Audit Ready</div>
+            <ShieldCheck className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-bold text-foreground">Audit Ready</div>
             <div className="text-xs leading-5 text-muted-foreground">ตรวจสอบย้อนหลังได้</div>
           </div>
         </div>
@@ -76,7 +76,7 @@ function LoginComponent() {
         {/* Login Form */}
         <Card className="glass border-white/10 reveal-up lg:row-span-2 lg:col-start-2">
           <CardHeader>
-            <CardTitle className="text-white">เข้าสู่ระบบ</CardTitle>
+            <CardTitle className="text-foreground">เข้าสู่ระบบ</CardTitle>
             <CardDescription className="text-muted-foreground">
               ใช้บัญชีที่มีสิทธิ์เข้าถึงระบบ
             </CardDescription>
@@ -84,13 +84,13 @@ function LoginComponent() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="rounded-xl border border-destructive/25 bg-destructive/10 p-3 text-sm text-red-200" role="alert">
+                <div className="rounded-xl border border-destructive/25 bg-destructive/10 p-3 text-sm text-danger" role="alert">
                   {error}
                 </div>
               )}
 
               <div className="space-y-2">
-                <label htmlFor="login-username" className="text-sm font-semibold text-slate-200">Username</label>
+                <label htmlFor="login-username" className="text-sm font-semibold text-foreground">Username</label>
                 <Input
                   id="login-username"
                   type="text"
@@ -102,7 +102,7 @@ function LoginComponent() {
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="login-password" className="text-sm font-semibold text-slate-200">Password</label>
+                <label htmlFor="login-password" className="text-sm font-semibold text-foreground">Password</label>
                 <Input
                   id="login-password"
                   type="password"
@@ -115,7 +115,7 @@ function LoginComponent() {
 
               <Button
                 type="submit"
-                className="w-full bg-linear-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:from-emerald-300 hover:to-cyan-300"
+                className="w-full"
                 disabled={isLoggingIn}
               >
                 {isLoggingIn ? (

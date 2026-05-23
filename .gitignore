@@ -7,6 +7,7 @@ node_modules
 dist
 data
 logs
+.tanstack/
 .agents/*
 !.agents/skills/
 !.agents/skills/**
@@ -16,6 +17,7 @@ notify-rules.json
 .kiro/
 
 # User-specific symlinked skills (Junctions point to absolute Windows paths)
+.agents/skills/fastify-best-practices
 .agents/skills/find-skills
 .agents/skills/frontend-design
 .agents/skills/laravel-specialist

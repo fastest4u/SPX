@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-22T16:07:14.137Z",
+  "updatedAt": "2026-05-23T07:41:14.584Z",
   "records": {
     "05_Agent_Session_Logs/2026-05-13-Memory-Quality-And-Deploy-Safety.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Memory-Quality-And-Deploy-Safety.md",
-      "selectedCount": 2,
+      "selectedCount": 3,
       "contexts": {
         "verify": 2,
         "vault": 2,
@@ -16,7 +16,7 @@
         "system": 2,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "05_Agent_Session_Logs/2026-05-13-Memory-Verify-Gate.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Memory-Verify-Gate.md",
@@ -95,7 +95,7 @@
     },
     "08_Mistakes/Mistake-007-Edit-Without-Verifying-File.md": {
       "path": "08_Mistakes/Mistake-007-Edit-Without-Verifying-File.md",
-      "selectedCount": 3,
+      "selectedCount": 4,
       "contexts": {
         "verify": 2,
         "vault": 2,
@@ -120,7 +120,7 @@
         "service": 1,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md": {
       "path": "09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md",
@@ -437,7 +437,7 @@
     },
     "02_API_Docs/API-Internal-HTTP.md": {
       "path": "02_API_Docs/API-Internal-HTTP.md",
-      "selectedCount": 5,
+      "selectedCount": 6,
       "contexts": {
         "ai": 6,
         "image-reading": 6,
@@ -469,9 +469,13 @@
         "restrict": 2,
         "ocr": 2,
         "output": 2,
-        "fields": 2
+        "fields": 2,
+        "frontend": 2,
+        "ui": 2,
+        "ux": 2,
+        "redesign": 2
       },
-      "lastSelectedAt": "2026-05-21T09:57:34.602Z"
+      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
     },
     "07_Insights/Defense-In-Depth-Vault-Architecture.md": {
       "path": "07_Insights/Defense-In-Depth-Vault-Architecture.md",
@@ -698,7 +702,7 @@
     },
     "05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype.md": {
       "path": "05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype.md",
-      "selectedCount": 13,
+      "selectedCount": 14,
       "contexts": {
         "404": 4,
         "local": 4,
@@ -760,13 +764,17 @@
         "showing": 2,
         "after": 2,
         "source": 2,
-        "fix": 2
+        "fix": 2,
+        "frontend": 2,
+        "ui": 2,
+        "ux": 2,
+        "redesign": 2
       },
-      "lastSelectedAt": "2026-05-21T17:02:14.136Z"
+      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
     },
     "08_Mistakes/Mistake-005-Local-Obsidian-State-Staged.md": {
       "path": "08_Mistakes/Mistake-005-Local-Obsidian-State-Staged.md",
-      "selectedCount": 3,
+      "selectedCount": 4,
       "contexts": {
         "local": 4,
         "test": 4,
@@ -789,7 +797,7 @@
         "image": 1,
         "reading": 1
       },
-      "lastSelectedAt": "2026-05-21T16:55:53.426Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "09_Runbooks/Runbook-Auto-Accept-Debug.md": {
       "path": "09_Runbooks/Runbook-Auto-Accept-Debug.md",
@@ -876,7 +884,7 @@
     },
     "05_Agent_Session_Logs/2026-05-21-local-service-smoke-test-for-codex-image-api.md": {
       "path": "05_Agent_Session_Logs/2026-05-21-local-service-smoke-test-for-codex-image-api.md",
-      "selectedCount": 11,
+      "selectedCount": 12,
       "contexts": {
         "404": 2,
         "design": 2,
@@ -936,9 +944,13 @@
         "persistence": 2,
         "trip": 2,
         "number": 2,
-        "parsing": 2
+        "parsing": 2,
+        "frontend": 2,
+        "ui": 2,
+        "ux": 2,
+        "redesign": 2
       },
-      "lastSelectedAt": "2026-05-22T01:44:08.320Z"
+      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
     },
     "AGENTS.md": {
       "path": "AGENTS.md",
@@ -971,7 +983,7 @@
     },
     "05_Agent_Session_Logs/2026-05-21-test-real-jpg-through-codex-image-reading-service.md": {
       "path": "05_Agent_Session_Logs/2026-05-21-test-real-jpg-through-codex-image-reading-service.md",
-      "selectedCount": 7,
+      "selectedCount": 8,
       "contexts": {
         "evaluate": 2,
         "vercel": 5,
@@ -1017,9 +1029,13 @@
         "where": 1,
         "is": 1,
         "called": 1,
-        "service": 1
+        "service": 1,
+        "frontend": 2,
+        "ui": 2,
+        "ux": 2,
+        "redesign": 2
       },
-      "lastSelectedAt": "2026-05-21T16:55:53.426Z"
+      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
     },
     "05_Agent_Session_Logs/2026-05-21-assess-custom-agent-runtime-using-codex-auth-provider.md": {
       "path": "05_Agent_Session_Logs/2026-05-21-assess-custom-agent-runtime-using-codex-auth-provider.md",
@@ -1122,7 +1138,7 @@
     },
     "03_Reusable_Components/Component-Poller-Orchestration.md": {
       "path": "03_Reusable_Components/Component-Poller-Orchestration.md",
-      "selectedCount": 2,
+      "selectedCount": 3,
       "contexts": {
         "restrict": 4,
         "image": 4,
@@ -1135,9 +1151,13 @@
         "agency": 1,
         "vehicle": 1,
         "type": 1,
-        "route": 1
+        "route": 1,
+        "frontend": 2,
+        "ui": 2,
+        "ux": 2,
+        "redesign": 2
       },
-      "lastSelectedAt": "2026-05-21T09:57:45.092Z"
+      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
     },
     "03_Reusable_Components/Component-Dual-Storage-Notify-Rules.md": {
       "path": "03_Reusable_Components/Component-Dual-Storage-Notify-Rules.md",
@@ -1432,12 +1452,12 @@
     },
     "00_Index/Memory-Quality-Score.md": {
       "path": "00_Index/Memory-Quality-Score.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "system": 2,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "05_Agent_Session_Logs/2026-05-13-Mistake-Confidence-System.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Mistake-Confidence-System.md",
@@ -1450,30 +1470,36 @@
     },
     "05_Agent_Session_Logs/2026-05-14-Multi-AI-Acceptance-Verification.md": {
       "path": "05_Agent_Session_Logs/2026-05-14-Multi-AI-Acceptance-Verification.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "system": 2,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "05_Agent_Session_Logs/2026-05-13-Strict-Review-Workflow-Gate.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Strict-Review-Workflow-Gate.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "system": 2,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     },
     "08_Mistakes/Mistake-004-Push-Main-Without-Full-Verify.md": {
       "path": "08_Mistakes/Mistake-004-Push-Main-Without-Full-Verify.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "system": 2,
         "audit": 2
       },
-      "lastSelectedAt": "2026-05-22T16:07:14.137Z"
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
+    },
+    "05_Agent_Session_Logs/2026-05-23-frontend-redesign-quality-gate-closeout-selfcheck-vault-verify.md": {
+      "path": "05_Agent_Session_Logs/2026-05-23-frontend-redesign-quality-gate-closeout-selfcheck-vault-verify.md",
+      "selectedCount": 1,
+      "contexts": {},
+      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
     }
   }
 }

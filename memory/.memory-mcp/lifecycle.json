@@ -1,8 +1,171 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-22T16:28:34.950Z",
-  "activeSession": null,
+  "updatedAt": "2026-05-23T07:41:14.457Z",
+  "activeSession": {
+    "id": "memory-1779522074455",
+    "startedAt": "2026-05-23T07:41:14.455Z",
+    "updatedAt": "2026-05-23T07:41:14.457Z",
+    "startedBy": "memory_sessionStart",
+    "counts": {
+      "sessionStart": 1,
+      "contextPack": 1,
+      "selfCheck": 0,
+      "sessionEnd": 0
+    },
+    "events": [
+      {
+        "tool": "memory_sessionStart",
+        "at": "2026-05-23T07:41:14.455Z",
+        "details": {}
+      },
+      {
+        "tool": "memory_contextPack",
+        "at": "2026-05-23T07:41:14.457Z",
+        "details": {}
+      }
+    ],
+    "missingSessionStart": false
+  },
   "recentSessions": [
+    {
+      "id": "memory-1779517592555",
+      "startedAt": "2026-05-23T06:26:32.555Z",
+      "updatedAt": "2026-05-23T07:32:41.316Z",
+      "taskArea": "production-database-connection",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 2,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-23T06:26:32.555Z",
+          "details": {
+            "task": "Retrospective self-check for Frontend Design System v2 redesign (Phase 1-4): semantic tokens overhaul, PageHeader extraction across 11 routes, DataTable v3 with column visibility + bulk actions + useTransition, SseProvider consolidation (was: each consumer opening its own EventSource), Coachmark first-login tour, recharts integration in Reports.",
+            "area": "frontend ui/ux redesign",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-23T07:32:41.316Z",
+          "details": {
+            "task": "Connect local dev frontend to production MySQL DB so /settings page shows real production data. Risk: dev environment can read/write production secrets, production data leakage to dev logs, accidental schema/data corruption.",
+            "area": "production-database-connection",
+            "riskLevel": "high"
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "endedAt": "2026-05-23T07:41:14.454Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779512675944",
+      "startedAt": "2026-05-23T05:04:35.944Z",
+      "updatedAt": "2026-05-23T06:26:15.002Z",
+      "taskArea": "frontend ui/ux redesign",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-23T05:04:35.944Z",
+          "details": {
+            "taskArea": "frontend ui/ux redesign"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-23T05:04:35.946Z",
+          "details": {
+            "query": "frontend ui/ux redesign",
+            "taskArea": "frontend ui/ux redesign"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-23T06:26:15.002Z",
+          "details": {
+            "topic": "Frontend UI/UX redesign Phase 1-4 (semantic tokens + PageHeader + DataTable v3 + SseProvider + Coachmark)",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Frontend UI/UX redesign Phase 1-4 (semantic tokens + PageHeader + DataTable v3 + SseProvider + Coachmark)",
+      "endedAt": "2026-05-23T06:26:15.002Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 72,
+        "grade": "D",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "verification note recorded: Session logs should say what verification was run or why it was skipped.",
+          "vault warnings reviewed: Vault grade C with score 80."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779468401185",
+      "startedAt": "2026-05-22T16:46:41.185Z",
+      "updatedAt": "2026-05-22T17:16:30.861Z",
+      "taskArea": "deploy",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-22T16:46:41.185Z",
+          "details": {
+            "task": "SSH เป็น root เข้า production server เพื่อ pull latest, run migrations, set SECRETS_KEY env, restart docker compose, verify health",
+            "area": "deploy",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-22T17:16:30.861Z",
+          "details": {
+            "topic": "SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-env templates, verify LINEJS auto-accept on production",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "topic": "SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-env templates, verify LINEJS auto-accept on production",
+      "endedAt": "2026-05-22T17:16:30.861Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 62,
+        "grade": "D",
+        "warnings": [
+          "sessionStart recorded: Every task should begin with memory_sessionStart.",
+          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
     {
       "id": "memory-1779466033988",
       "startedAt": "2026-05-22T16:07:13.988Z",

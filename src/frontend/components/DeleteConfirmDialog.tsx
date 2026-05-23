@@ -56,15 +56,15 @@ export function DeleteConfirmDialog({ rule, open, onOpenChange }: DeleteConfirmD
       >
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-full bg-red-500/10">
-              <AlertTriangle className="h-6 w-6 text-red-400" />
+            <div className="p-2 rounded-full bg-[color:var(--color-danger-soft)]">
+              <AlertTriangle className="h-6 w-6 text-danger" />
             </div>
-            <DialogTitle className="text-white">ยืนยันการลบ</DialogTitle>
+            <DialogTitle className="text-foreground">ยืนยันการลบ</DialogTitle>
           </div>
           <DialogDescription className="pt-2">
-            คุณแน่ใจหรือไม่ที่จะลบรายการ <strong className="text-white">{rule.name}</strong>?
+            คุณแน่ใจหรือไม่ที่จะลบรายการ <strong className="text-foreground">{rule.name}</strong>?
             <br />
-            <span className="text-red-400">การกระทำนี้ไม่สามารถย้อนกลับได้</span>
+            <span className="text-danger">การกระทำนี้ไม่สามารถย้อนกลับได้</span>
           </DialogDescription>
         </DialogHeader>
 
