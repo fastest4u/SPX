@@ -47,9 +47,9 @@ Restrict Codex image OCR output to five SPX fields
 - [ ] Consider a later switch from codexExec to createCodexAppServer if per-request startup becomes too slow.
 
 ## References
-- 05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype.md
-- 05_Agent_Session_Logs/2026-05-21-local-service-smoke-test-for-codex-image-api.md
-- 05_Agent_Session_Logs/2026-05-21-replace-image-reading-with-vercel-ai-sdk-codex-auth-provider.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test.md
+- 05_Agent_Session_Logs/2026-05-21-Replace-Image-Reader-Vercel-AI-SDK.md
 
 ## Verification
 npx tsx tests/codex-image-reader.test.ts passed; npm run typecheck passed; npx tsx tests/ai-local-service-smoke.ts "C:\Users\Server\Downloads\35706.jpg" returned only the five requested fields with the full driver line.

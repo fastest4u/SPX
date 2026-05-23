@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-23T07:41:14.584Z",
+  "updatedAt": "2026-05-23T08:00:01.730Z",
   "records": {
     "05_Agent_Session_Logs/2026-05-13-Memory-Quality-And-Deploy-Safety.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Memory-Quality-And-Deploy-Safety.md",
@@ -324,7 +324,7 @@
     },
     "00_Index/Plugin-Setup.md": {
       "path": "00_Index/Plugin-Setup.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "memory": 2,
         "management": 2,
@@ -334,9 +334,10 @@
         "selfcheck": 1,
         "contextpack": 1,
         "auto": 1,
-        "enhancement": 1
+        "enhancement": 1,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-21T02:47:36.433Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "04_Architecture_Decisions/ADR-002-DB-Backed-Live-Settings.md": {
       "path": "04_Architecture_Decisions/ADR-002-DB-Backed-Live-Settings.md",
@@ -423,7 +424,7 @@
     },
     "02_API_Docs/API-SSE-Events.md": {
       "path": "02_API_Docs/API-SSE-Events.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "ai": 2,
         "image-reading": 2,
@@ -431,13 +432,14 @@
         "service": 2,
         "using": 2,
         "openai": 2,
-        "authentication": 2
+        "authentication": 2,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-21T08:50:12.128Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "02_API_Docs/API-Internal-HTTP.md": {
       "path": "02_API_Docs/API-Internal-HTTP.md",
-      "selectedCount": 6,
+      "selectedCount": 7,
       "contexts": {
         "ai": 6,
         "image-reading": 6,
@@ -473,9 +475,10 @@
         "frontend": 2,
         "ui": 2,
         "ux": 2,
-        "redesign": 2
+        "redesign": 2,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-23T05:04:36.122Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "07_Insights/Defense-In-Depth-Vault-Architecture.md": {
       "path": "07_Insights/Defense-In-Depth-Vault-Architecture.md",
@@ -517,7 +520,7 @@
     },
     "02_API_Docs/API-Bidding-Endpoints.md": {
       "path": "02_API_Docs/API-Bidding-Endpoints.md",
-      "selectedCount": 4,
+      "selectedCount": 5,
       "contexts": {
         "ai": 5,
         "image-reading": 2,
@@ -545,13 +548,14 @@
         "image": 2,
         "ocr": 2,
         "output": 2,
-        "fields": 2
+        "fields": 2,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-21T09:57:34.602Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "02_API_Docs/README.md": {
       "path": "02_API_Docs/README.md",
-      "selectedCount": 1,
+      "selectedCount": 2,
       "contexts": {
         "ai": 2,
         "image-reading": 2,
@@ -559,9 +563,10 @@
         "service": 2,
         "using": 2,
         "openai": 2,
-        "authentication": 2
+        "authentication": 2,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-21T08:50:12.128Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "05_Agent_Session_Logs/2026-05-13-System-Survey-Awakened-AI-Update.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-System-Survey-Awakened-AI-Update.md",
@@ -1452,12 +1457,13 @@
     },
     "00_Index/Memory-Quality-Score.md": {
       "path": "00_Index/Memory-Quality-Score.md",
-      "selectedCount": 2,
+      "selectedCount": 3,
       "contexts": {
         "system": 2,
-        "audit": 2
+        "audit": 2,
+        "memory-lifecycle-automation": 2
       },
-      "lastSelectedAt": "2026-05-23T07:41:14.584Z"
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     },
     "05_Agent_Session_Logs/2026-05-13-Mistake-Confidence-System.md": {
       "path": "05_Agent_Session_Logs/2026-05-13-Mistake-Confidence-System.md",
@@ -1500,6 +1506,22 @@
       "selectedCount": 1,
       "contexts": {},
       "lastSelectedAt": "2026-05-23T07:41:14.584Z"
+    },
+    "09_Runbooks/Runbook-Docs-Drift-Cleanup.md": {
+      "path": "09_Runbooks/Runbook-Docs-Drift-Cleanup.md",
+      "selectedCount": 1,
+      "contexts": {
+        "memory-lifecycle-automation": 2
+      },
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
+    },
+    "07_Insights/Source-Grounded-Documentation.md": {
+      "path": "07_Insights/Source-Grounded-Documentation.md",
+      "selectedCount": 1,
+      "contexts": {
+        "memory-lifecycle-automation": 2
+      },
+      "lastSelectedAt": "2026-05-23T08:00:01.730Z"
     }
   }
 }

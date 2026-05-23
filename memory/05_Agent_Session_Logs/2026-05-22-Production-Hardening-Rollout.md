@@ -61,7 +61,7 @@ SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-
 - [ ] Confirm LINE group c0...c858 received the three test messages sent at ~00:12 ICT 23 May 2026
 - [ ] Consider promoting NODE_ENV=production guard so isProduction() in settings.ts cannot drift accidentally — right now any process.env.NODE_ENV mutation flips precedence rules
 - [ ] Document in runbook: production .env now has SECRETS_KEY; rotating SECRETS_KEY invalidates encrypted LINE bot session + app_settings secrets (must re-paste through Settings UI)
-- [ ] PR #33 (chore: deploy workflow + env templates) merged → 25e0d4f deployed and healthy. No further deploy work needed unless workflow changes again.
+- [x] PR #33 (chore: deploy workflow + env templates) merged → 25e0d4f deployed and healthy. No further deploy work needed unless workflow changes again.
 
 ## References
 - src/services/notifier.ts
@@ -70,7 +70,7 @@ SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-
 - src/services/settings.ts
 - src/utils/crypto.ts
 - .github/workflows/deploy.yml
-- memory/05_Agent_Session_Logs/2026-05-22-spx-critical-security-and-rules-engine-refactor-remove-search-only-mode-harden-auth-secrets-csp-cors-csv-deploy.md
+- memory/05_Agent_Session_Logs/2026-05-22-SPX-Security-Rules-Engine-Refactor.md
 
 ## Verification
 npm run typecheck (pass), production /health (ok, errorRate 0), curl POST /api/notifications/test (HTTP 200 ×3 with notification-linejs-sent in app logs)

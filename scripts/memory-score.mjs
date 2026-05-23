@@ -150,7 +150,7 @@ function findBrokenLinks(notes) {
 function findMultiAiAcceptance(notes) {
   const note = notes.find((item) => item.base === "Multi-AI-Acceptance-Results");
   if (!note) {
-    return { present: false, passed: 0, pending: 0, failed: 0 };
+    return { present: false, passed: 0, pending: 0, failed: 0, skipped: 0 };
   }
 
   const rows = note.content
@@ -160,15 +160,17 @@ function findMultiAiAcceptance(notes) {
   let passed = 0;
   let pending = 0;
   let failed = 0;
+  let skipped = 0;
   for (const row of rows) {
     const cells = row.split("|").map((cell) => cell.trim().toLowerCase());
     const status = cells[2] ?? "";
     if (status.includes("pass")) passed += 1;
     else if (status.includes("fail")) failed += 1;
+    else if (status.includes("skip")) skipped += 1;
     else pending += 1;
   }
 
-  return { present: true, passed, pending, failed };
+  return { present: true, passed, pending, failed, skipped };
 }
 
 function grade(score) {
@@ -271,7 +273,7 @@ console.log(`Stale updated dates (>90d): ${staleUpdated.length}`);
 console.log(`Stale last-verified dates (>90d): ${staleVerified.length}`);
 console.log(`Open mistakes: ${openMistakes.length}`);
 console.log(`Unchecked session follow-ups: ${sessionFollowUpCount}`);
-console.log(`Multi-AI acceptance: ${multiAi.passed} pass, ${multiAi.pending} pending, ${multiAi.failed} fail`);
+console.log(`Multi-AI acceptance: ${multiAi.passed} pass, ${multiAi.pending} pending, ${multiAi.failed} fail, ${multiAi.skipped} skipped`);
 console.log("-".repeat(60));
 console.log("Notes by type:");
 for (const [type, count] of typeRows) {

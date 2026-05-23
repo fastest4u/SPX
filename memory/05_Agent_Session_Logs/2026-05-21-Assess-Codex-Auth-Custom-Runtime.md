@@ -37,8 +37,8 @@ Assess custom agent runtime using Codex auth provider
 - [ ] If the user asks to proceed, design a minimal Provider interface and add an experimental `codex-runtime` provider behind a feature flag.
 
 ## References
-- 05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype.md
-- 05_Agent_Session_Logs/2026-05-21-local-service-smoke-test-for-codex-image-api.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test.md
 
 ## Verification
 Planning-only; no code changes. Used memory context and multi-perspective review skill.

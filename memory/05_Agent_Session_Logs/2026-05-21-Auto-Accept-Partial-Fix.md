@@ -52,3 +52,14 @@ Fix auto-accept notification reporting based on actual accepted status, not API 
 ## References
 
 - [[Runbook-Production-Deploy]]
+- `src/services/notifier.ts` — `acceptAutoAcceptMatch`
+- `src/services/api-client.ts` — `fetchBookingRequestList`
+- `src/models/types.ts` — `AcceptanceStatus`
+
+## Confidence Log
+
+| Claim / Question | Confidence Stated | Actual Result | Lesson |
+|---|---|---|---|
+| `package.json` was committed in prior session | high | wrong — local copy missing, had to `git restore` | Verify file presence before editing dependent code; assume nothing about working tree freshness |
+
+> Merged from duplicate log `2026-05-21-Auto-Accept-Partial-Fix.md` (deleted 2026-05-23 vault cleanup pass).

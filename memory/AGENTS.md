@@ -4,7 +4,7 @@ type: rules
 version: 1.0.0
 status: active
 created: 2026-05-13
-updated: 2026-05-14
+updated: 2026-05-23
 tags:
   - meta
   - agent-rules
@@ -263,6 +263,24 @@ AGENT-IDENTITY.md          # Who I am on this project (Level 3 Identity)
 > - **Folders** — `NN_PascalCase/` (numeric prefix = display order).
 > - **Dates** — ISO format `YYYY-MM-DD` only.
 > - **One topic per file** (Atomic Markdown principle).
+>
+> **Per-folder filename schema (ENFORCED by `npm run memory:check`):**
+>
+> | Folder | Pattern | Example |
+> |---|---|---|
+> | `04_Architecture_Decisions/` | `ADR-NNN-Title-Case-Words.md` | `ADR-003-Frontend-Design-System-V2.md` |
+> | `05_Agent_Session_Logs/` | `YYYY-MM-DD-Title-Case-Words.md` (max 8 words) | `2026-05-23-Frontend-Design-System-V2-Merge.md` |
+> | `08_Mistakes/` | `Mistake-NNN-Title-Case-Words.md` | `Mistake-007-Edit-Without-Verifying-File.md` |
+> | `09_Runbooks/` | `Runbook-Title-Case-Words.md` | `Runbook-Production-Deploy.md` |
+> | `07_Insights/` | `Title-Case-Words.md` | `Memory-Vault-Principles.md` |
+> | `03_Reusable_Components/` | `Component-Title-Case-Words.md` | `Component-Poller-Orchestration.md` |
+>
+> **Rules for session log titles:**
+> 1. Use Title-Case (each significant word capitalized).
+> 2. Hyphens between words, no underscores or spaces.
+> 3. Maximum **8 words** after the date — distill the topic, do not paste the full task description.
+> 4. Bad: `2026-05-21-add-line-image-listener-for-spx-group-run-sheet-ocr.md` (10 lowercase words).
+> 5. Good: `2026-05-21-LINE-Image-Listener-OCR-Persistence.md` (6 Title-Case words).
 
 ## Frontmatter Schema (Required)
 
