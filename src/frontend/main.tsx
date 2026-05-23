@@ -38,13 +38,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster 
+      <Toaster
         position="bottom-right"
+        theme="dark"
         toastOptions={{
           style: {
-            background: 'oklch(0.08 0.02 260)',
-            border: '1px solid oklch(0.2 0.02 260)',
-            color: 'oklch(0.9 0.02 260)',
+            background: 'var(--popover)',
+            border: '1px solid var(--border)',
+            color: 'var(--popover-foreground)',
+            borderRadius: 'var(--radius-md)',
           },
         }}
       />

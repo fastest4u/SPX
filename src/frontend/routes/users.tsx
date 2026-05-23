@@ -1,12 +1,14 @@
+import { ErrorState } from './../components/ui/error-state'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { usersApi } from '../lib/api'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { PageHeader } from '../components/ui/page-header'
 import {
   Dialog,
   DialogContent,
@@ -16,7 +18,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog'
 import { formatDateTime } from '../lib/utils'
-import { SkeletonTable, SkeletonCard } from '../components/ui/skeleton'
+import { SkeletonTable } from '../components/ui/skeleton'
 import { AlertTriangle, Loader2, Lock, Plus, Trash2, UserCog, Users as UsersIcon } from 'lucide-react'
 import type { User } from '../types'
 import { useAuth } from '../hooks/useAuth'
@@ -25,12 +27,12 @@ type UserRole = User['role']
 
 const MIN_PASSWORD_LENGTH = 12
 const roles: UserRole[] = ['user', 'admin']
-const selectClassName = 'flex h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-base text-white transition-all duration-200 hover:border-white/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-sm'
+const selectClassName = 'flex h-11 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-base text-foreground transition-all duration-200 hover:border-white/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-sm'
 
 function getRoleBadge(role: string) {
   const colors: Record<string, string> = {
-    admin: 'border-rose-400/20 bg-rose-400/10 text-rose-300',
-    user: 'border-cyan-400/20 bg-cyan-400/10 text-cyan-300',
+    admin: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
+    user: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
   }
   return (
     <span className={`status-pill ${colors[role] || colors.user}`}>
@@ -46,7 +48,7 @@ export const Route = createFileRoute('/users')({
 function UsersComponent() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const { user: currentUser } = useAuth()
-  const { data: users = [], isLoading, isError, error } = useQuery({
+  const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['users'],
     queryFn: usersApi.list,
     staleTime: 5 * 60 * 1000,
@@ -63,80 +65,67 @@ function UsersComponent() {
   }
 
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <Card className="glass border-white/10">
-        <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="text-white">จัดการผู้ใช้งาน</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              เพิ่มผู้ใช้ใหม่ เปลี่ยนรหัสผ่าน กำหนด role และลบผู้ใช้ที่ไม่ต้องใช้งานแล้ว
-            </p>
-          </div>
-          <Button
-            className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20 hover:from-emerald-300 hover:to-cyan-300 sm:w-auto"
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            <Plus className="h-4 w-4 mr-2" />
+    <div className="space-y-5 page-enter sm:space-y-6">
+      <PageHeader
+        icon={UsersIcon}
+        title="จัดการผู้ใช้งาน"
+        subtitle="เพิ่มผู้ใช้ใหม่ เปลี่ยนรหัสผ่าน กำหนด role และลบผู้ใช้ที่ไม่ต้องใช้งานแล้ว"
+        actions={
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4" />
             เพิ่มผู้ใช้
           </Button>
-        </CardHeader>
-        <CardContent>
+        }
+      />
+
+      <Card className="glass border-white/10">
+        <CardContent className="p-5 sm:p-6">
           {isLoading ? (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
-              <Loader2 className="h-10 w-10 mx-auto mb-4 animate-spin text-cyan-300" />
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
+              <Loader2 className="h-10 w-10 mx-auto mb-4 animate-spin text-info" />
               <p>กำลังโหลดผู้ใช้งาน...</p>
             </div>
           ) : isError ? (
-            <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-5 text-red-200">
-              <div className="mb-2 flex items-center gap-2 font-semibold">
-                <AlertTriangle className="h-5 w-5" />
-                โหลดข้อมูลผู้ใช้ไม่สำเร็จ
-              </div>
-              <p className="text-sm text-red-100/80">
-                {error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'}
-              </p>
-            </div>
+            <ErrorState
+              title="โหลดข้อมูลผู้ใช้ไม่สำเร็จ"
+              description="ลองกดปุ่มด้านล่างเพื่อลองโหลดอีกครั้ง"
+              error={error}
+              onRetry={() => refetch()}
+            />
           ) : users.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
+            <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
               <UsersIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>ไม่พบผู้ใช้งาน</p>
             </div>
           ) : (
-            <>
-              <div className="grid gap-3 md:hidden">
-                {users.map((user) => (
-                  <UserMobileCard key={user.id} user={user} currentUserId={currentUser?.id} />
-                ))}
-              </div>
-              <div className="data-scroll hidden md:block">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>ชื่อผู้ใช้</th>
-                      <th>Role</th>
-                      <th>วันที่สร้าง</th>
-                      <th>จัดการ</th>
+            <div className="data-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>ชื่อผู้ใช้</th>
+                    <th>Role</th>
+                    <th>วันที่สร้าง</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id}>
+                      <td className="text-muted-foreground">{user.id}</td>
+                      <td>
+                        <UserIdentity user={user} currentUserId={currentUser?.id} />
+                      </td>
+                      <td>{getRoleBadge(user.role)}</td>
+                      <td className="text-muted-foreground">{formatDateTime(user.createdAt)}</td>
+                      <td>
+                        <UserActions user={user} currentUserId={currentUser?.id} />
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id}>
-                        <td className="text-muted-foreground">{user.id}</td>
-                        <td>
-                          <UserIdentity user={user} currentUserId={currentUser?.id} />
-                        </td>
-                        <td>{getRoleBadge(user.role)}</td>
-                        <td className="text-muted-foreground">{formatDateTime(user.createdAt)}</td>
-                        <td>
-                          <UserActions user={user} currentUserId={currentUser?.id} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -158,10 +147,10 @@ function UserActions({ user, currentUserId }: { user: User; currentUserId?: numb
         <Button
           variant="ghost"
           size="sm"
-          className="h-10 text-xs text-amber-300 hover:text-amber-200"
+          className="h-10 text-xs text-warning hover:text-warning"
           onClick={() => setPasswordDialogOpen(true)}
         >
-          <Lock className="h-3 w-3 mr-1" />
+          <Lock className="h-3 w-3" />
           รหัสผ่าน
         </Button>
         <Button
@@ -171,17 +160,17 @@ function UserActions({ user, currentUserId }: { user: User; currentUserId?: numb
           onClick={() => setRoleDialogOpen(true)}
           disabled={isCurrentUser}
         >
-          <UserCog className="h-3 w-3 mr-1" />
+          <UserCog className="h-3 w-3" />
           Role
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-10 text-xs text-red-300 hover:text-red-200"
+          className="h-10 text-xs text-danger hover:text-danger"
           onClick={() => setDeleteDialogOpen(true)}
           disabled={isCurrentUser}
         >
-          <Trash2 className="h-3 w-3 mr-1" />
+          <Trash2 className="h-3 w-3" />
           ลบ
         </Button>
       </div>
@@ -196,33 +185,39 @@ function UserActions({ user, currentUserId }: { user: User; currentUserId?: numb
 function UserIdentity({ user, currentUserId }: { user: User; currentUserId?: number }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="font-semibold text-white">{user.username}</span>
-      {user.id === currentUserId && (
-        <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-xs font-bold text-emerald-300">
+      <span className="font-semibold text-foreground">{user.username}</span>
+      {user.id === currentUserId ? (
+        <span className="rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-2 py-0.5 text-xs font-bold text-success">
           คุณ
         </span>
-      )}
+      ) : null}
     </div>
   )
 }
 
 function UserMobileCard({ user, currentUserId }: { user: User; currentUserId?: number }) {
+  const isCurrentUser = user.id === currentUserId
   return (
-    <div className="mobile-record">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ผู้ใช้</div>
-          <div className="mt-1">
-            <UserIdentity user={user} currentUserId={currentUserId} />
-          </div>
-        </div>
-        {getRoleBadge(user.role)}
+    <div className="mobile-row flex-col gap-2">
+      <div className="flex items-start gap-3">
+        <span className="mobile-row-body">
+          <span className="mobile-row-title flex items-center gap-2">
+            {user.username}
+            {isCurrentUser ? (
+              <span className="rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-1.5 py-0.5 text-[0.55rem] font-bold uppercase text-success">
+                คุณ
+              </span>
+            ) : null}
+          </span>
+          <span className="mobile-row-subtitle">
+            <span className="font-data">#{user.id}</span>
+            <span className="opacity-50"> · </span>
+            สร้าง {formatDateTime(user.createdAt).split(' ')[0]}
+          </span>
+        </span>
+        <span className="mobile-row-trailing">{getRoleBadge(user.role)}</span>
       </div>
-      <div className="grid gap-3 text-sm">
-        <InfoItem label="ID" value={String(user.id)} />
-        <InfoItem label="วันที่สร้าง" value={formatDateTime(user.createdAt)} />
-      </div>
-      <div className="mt-4 border-t border-white/10 pt-4">
+      <div className="border-t border-white/[0.06] pt-2">
         <UserActions user={user} currentUserId={currentUserId} />
       </div>
     </div>
@@ -233,7 +228,7 @@ function InfoItem({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-slate-200">{value}</div>
+      <div className="mt-1 text-foreground">{value}</div>
     </div>
   )
 }
@@ -354,7 +349,7 @@ function CreateUserDialog({
             </Button>
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 hover:from-emerald-300 hover:to-cyan-300 sm:w-auto"
+              className="w-full sm:w-auto"
               disabled={createMutation.isPending}
             >
               {createMutation.isPending ? (
@@ -473,7 +468,7 @@ function PasswordDialog({
             </Button>
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 hover:from-emerald-300 hover:to-cyan-300 sm:w-auto"
+              className="w-full sm:w-auto"
               disabled={passwordMutation.isPending}
             >
               {passwordMutation.isPending ? (
@@ -570,7 +565,7 @@ function RoleDialog({
             </Button>
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 hover:from-emerald-300 hover:to-cyan-300 sm:w-auto"
+              className="w-full sm:w-auto"
               disabled={roleMutation.isPending || role === user.role}
             >
               {roleMutation.isPending ? (
@@ -621,15 +616,15 @@ function DeleteUserDialog({
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className="rounded-full bg-red-500/10 p-2">
-              <AlertTriangle className="h-6 w-6 text-red-400" />
+            <div className="rounded-full bg-[color:var(--color-danger-soft)] p-2">
+              <AlertTriangle className="h-6 w-6 text-danger" />
             </div>
             <DialogTitle>ยืนยันการลบผู้ใช้</DialogTitle>
           </div>
           <DialogDescription className="pt-2">
-            คุณแน่ใจหรือไม่ที่จะลบ <strong className="text-white">{user.username}</strong>?
+            คุณแน่ใจหรือไม่ที่จะลบ <strong className="text-foreground">{user.username}</strong>?
             <br />
-            <span className="text-red-300">การกระทำนี้ไม่สามารถย้อนกลับได้</span>
+            <span className="text-danger">การกระทำนี้ไม่สามารถย้อนกลับได้</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -646,7 +641,7 @@ function DeleteUserDialog({
           <Button
             type="button"
             variant="destructive"
-            className="w-full bg-red-600 hover:bg-red-500 sm:w-auto"
+            className="w-full sm:w-auto"
             onClick={() => deleteMutation.mutate()}
             disabled={deleteMutation.isPending}
           >

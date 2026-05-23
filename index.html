@@ -1,15 +1,28 @@
 <!doctype html>
 <html lang="th" dir="ltr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="description" content="SPX Bidding Control Center - Real-time booking and bidding management" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <title>SPX Bidding Control Center</title>
-  </head>
-  <body class="bg-background text-foreground antialiased min-h-screen">
-    <div id="root"></div>
-    <script type="module" src="/src/frontend/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#1a1a1c" />
+  <meta name="description" content="SPX Bidding Control Center - Real-time booking and bidding management" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+
+  <!-- Performance: preconnect + preload fonts (avoid render-blocking @import in CSS) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Fira+Code:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Fira+Code:wght@400;500;600;700&display=swap" />
+
+  <title>SPX Bidding Control Center</title>
+</head>
+
+<body class="bg-background text-foreground antialiased min-h-screen">
+  <div id="root"></div>
+  <script type="module" src="/src/frontend/main.tsx"></script>
+</body>
+
 </html>

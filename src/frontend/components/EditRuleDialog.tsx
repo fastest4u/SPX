@@ -112,7 +112,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 value={formData.name ?? rule.name}
                 onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="เช่น สุวรรณภูมิ 4ล้อ"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/5 border-white/10"
               />
             </div>
 
@@ -124,7 +124,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 value={originsText}
                 onChange={e => setOriginsText(e.target.value)}
                 placeholder="เช่น NERC-C, สุวรรณภูมิ"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/5 border-white/10"
               />
             </div>
 
@@ -136,7 +136,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 value={destinationsText}
                 onChange={e => setDestinationsText(e.target.value)}
                 placeholder="เช่น สุวรรณภูมิ, ดอนเมือง"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/5 border-white/10"
               />
             </div>
 
@@ -168,7 +168,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                       : { fulfilled: true, auto_accepted: true }),
                   }))
                 }}
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/5 border-white/10"
               />
             </div>
 
@@ -179,7 +179,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 id="enabled"
                 checked={formData.enabled ?? rule.enabled}
                 onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
+                className="h-4 w-4 rounded border-white/15 bg-white/10 text-info focus:ring-info focus:ring-offset-background"
               />
               <Label htmlFor="enabled" className="cursor-pointer">
                 เปิดใช้งานรายการนี้
@@ -200,9 +200,9 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                       ...(fulfilled ? {} : { auto_accepted: false }),
                     }))
                   }}
-                  className="h-4 w-4 rounded border-amber-600 bg-slate-900 text-amber-500 focus:ring-amber-500 focus:ring-offset-slate-900"
+                  className="h-4 w-4 rounded border-white/15 bg-white/10 text-warning focus:ring-warning focus:ring-offset-background"
                 />
-                <Label htmlFor="fulfilled" className="cursor-pointer text-amber-300">
+                <Label htmlFor="fulfilled" className="cursor-pointer text-warning">
                   ครบแล้ว (ยกเลิกเพื่อให้หาใหม่)
                 </Label>
               </div>
@@ -222,7 +222,7 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
             <Button
               type="submit"
               disabled={updateMutation.isPending}
-              className="bg-linear-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500"
+              className=""
             >
               {updateMutation.isPending ? (
                 <>

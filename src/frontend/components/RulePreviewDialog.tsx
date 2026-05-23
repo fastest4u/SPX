@@ -44,7 +44,7 @@ export function RulePreviewDialog({ rule, open, onOpenChange }: RulePreviewDialo
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-[720px]">
         <DialogHeader>
           <div className="flex items-start gap-3">
-            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-2 text-cyan-200">
+            <div className="rounded-2xl border border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] p-2 text-info">
               <Eye className="h-5 w-5" />
             </div>
             <div>
@@ -62,16 +62,16 @@ export function RulePreviewDialog({ rule, open, onOpenChange }: RulePreviewDialo
             กำลังคำนวณ dry-run...
           </div>
         ) : previewQuery.isError ? (
-          <div className="rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+          <div className="rounded-2xl border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-4 text-sm text-foreground">
             โหลด preview ไม่สำเร็จ: {previewQuery.error.message}
           </div>
         ) : preview ? (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-linear-to-br from-cyan-300/10 via-white/[0.03] to-emerald-300/10 p-4">
+            <div className="rounded-2xl border border-white/10 bg-linear-to-br from-[color:var(--color-info-soft)] via-white/[0.03] to-[color:var(--color-success-soft)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Testing rule</div>
-                  <div className="mt-1 text-lg font-black text-white">{rule.name}</div>
+                  <div className="mt-1 text-lg font-black text-foreground">{rule.name}</div>
                 </div>
                 <Badge variant={preview.wouldMatch ? 'emerald' : 'amber'}>
                   {preview.wouldMatch ? 'Would trigger' : 'No trigger'}
@@ -85,8 +85,8 @@ export function RulePreviewDialog({ rule, open, onOpenChange }: RulePreviewDialo
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <Truck className="h-4 w-4 text-cyan-200" />
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <Truck className="h-4 w-4 text-info" />
                 ตัวอย่างงานที่ match
               </div>
               {preview.trips.length === 0 ? (
@@ -126,9 +126,9 @@ export function RulePreviewDialog({ rule, open, onOpenChange }: RulePreviewDialo
 
 function PreviewMetric({ label, value, tone }: { label: string; value: string; tone: 'cyan' | 'emerald' | 'slate' }) {
   const classes = {
-    cyan: 'border-cyan-300/20 bg-cyan-300/10 text-cyan-200',
-    emerald: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200',
-    slate: 'border-slate-300/20 bg-slate-300/10 text-slate-200',
+    cyan: 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info',
+    emerald: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
+    slate: 'border-slate-300/20 bg-slate-300/10 text-foreground',
   }
 
   return (

@@ -1,6 +1,8 @@
 import { Outlet, createRootRoute, Navigate, useRouterState } from '@tanstack/react-router'
 import { useAuth } from '../hooks/useAuth'
 import { AppLayout } from '../components/layout/AppLayout'
+import { SseProvider } from '../hooks/useSseContext'
+import { Coachmark } from '../components/ui/coachmark'
 import { Toaster } from 'sonner'
 
 const ADMIN_ONLY_PATHS = new Set(['/users', '/settings', '/audit'])
@@ -55,8 +57,16 @@ function RootComponent() {
 
   // Protected pages with layout
   return (
-    <AppLayout user={user} onLogout={logout}>
-      <Outlet />
-    </AppLayout>
+    <>
+      <a href="#main-content" className="skip-link">
+        ข้ามไปยังเนื้อหา
+      </a>
+      <SseProvider url="/events">
+        <AppLayout user={user} onLogout={logout}>
+          <Outlet />
+        </AppLayout>
+      </SseProvider>
+      <Coachmark />
+    </>
   )
 }

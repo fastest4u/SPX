@@ -89,11 +89,11 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-cyan-500/10">
-                <Plus className="h-5 w-5 text-cyan-400" />
+              <div className="p-2 rounded-full bg-[color:var(--color-info-soft)]">
+                <Plus className="h-5 w-5 text-info" />
               </div>
               <div>
-                <DialogTitle className="text-white">เพิ่มรายการค้นหาใหม่</DialogTitle>
+                <DialogTitle className="text-foreground">เพิ่มรายการค้นหาใหม่</DialogTitle>
                 <DialogDescription>
                   สร้าง rule สำหรับค้นหาและรับงานอัตโนมัติ
                 </DialogDescription>
@@ -105,7 +105,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
             {/* Rule Name */}
             <div className="grid gap-2">
               <Label htmlFor="create-name">
-                ชื่อรายการ <span className="text-red-400">*</span>
+                ชื่อรายการ <span className="text-danger">*</span>
               </Label>
               <Input
                 id="create-name"
@@ -171,7 +171,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 id="create-enabled"
                 checked={formData.enabled}
                 onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
+                className="h-4 w-4 rounded border-white/15 bg-white/10 text-info focus:ring-info focus:ring-offset-background"
               />
               <Label htmlFor="create-enabled" className="cursor-pointer">
                 เปิดใช้งานทันที
@@ -193,7 +193,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
             <Button
               type="submit"
               disabled={createMutation.isPending || !formData.name.trim()}
-              className="bg-linear-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500"
+              className=""
             >
               {createMutation.isPending ? (
                 <>
