@@ -45,7 +45,7 @@ Enhance Auto Memory Management to 4-Layer System
 - writeInsight triggers when same pattern appears in 2+ previous sessions
 
 ## Open Follow-ups
-- [ ] Commit AGENTS.md + workflow changes
+- [x] Commit AGENTS.md + workflow changes (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
 - [ ] Monitor auto-accept-partial-verified in production
 
 ## References

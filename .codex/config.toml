@@ -5,3 +5,16 @@ hooks = true
 [mcp_servers.context7]
 command = "npx"
 args = ["-y","@upstash/context7-mcp","--api-key","ctx7sk-6a8af5d2-8e3b-434b-97a2-fafb6baca29d"]
+
+[mcp_servers.project-memory]
+command = "node"
+args = ["C:/Users/Server/Desktop/Awakened-AI-System/dist/index.js"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled = true
+
+[mcp_servers.project-memory.env]
+MEMORY_PROJECT_ROOT = "dynamic"
+
+[mcp_servers.project-memory.tools.memory_sessionStart]
+approval_mode = "approve"

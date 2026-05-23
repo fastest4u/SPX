@@ -44,7 +44,7 @@ Setup Auto project-memory MCP Session Management
 - Never auto-commit or auto-deploy — user controls when to push to production
 
 ## Open Follow-ups
-- [ ] User to commit AGENTS.md + workflow changes when ready
+- [x] User to commit AGENTS.md + workflow changes when ready (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
 
 ## References
 - None

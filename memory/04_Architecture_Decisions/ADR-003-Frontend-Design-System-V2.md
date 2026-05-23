@@ -1,5 +1,5 @@
 ---
-title: "Frontend Design System v2 - Semantic Tokens, PageHeader, Shared SSE Provider"
+title: "ADR-003 — Frontend Design System v2: Semantic Tokens, PageHeader, Shared SSE Provider"
 type: adr
 status: accepted
 decision-date: 2026-05-23
@@ -7,6 +7,9 @@ confidence: high
 supersedes: []
 created: 2026-05-23
 updated: 2026-05-23
+aliases:
+  - ADR-003
+  - Frontend Design System v2
 tags:
   - frontend
   - design-system
@@ -15,6 +18,9 @@ tags:
   - ui-ux
   - accessibility
 ---
+
+# ADR-003 — Frontend Design System v2
+
 ## Context
 SPX dashboard frontend (React 19 + Vite + Tailwind v4) had drifted into 12 routes with inconsistent visual language. Symptoms:
 - Each route hand-rolled its own header (`<CardTitle className="text-white">`, ad-hoc icon chip, no breadcrumb).

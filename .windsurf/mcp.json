@@ -2,7 +2,7 @@
   "mcpServers": {
     "project-memory": {
       "env": {
-        "MEMORY_PROJECT_ROOT": "C:/Users/Server/Desktop/SPX"
+        "MEMORY_PROJECT_ROOT": "dynamic"
       }
     }
   }

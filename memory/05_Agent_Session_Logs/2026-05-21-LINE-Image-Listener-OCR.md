@@ -54,7 +54,7 @@ Add LINE image listener for SPX group run sheet OCR
 - [ ] Consider adding a reaction emoji when processing starts (e.g., message.react('NICE')).
 
 ## References
-- 05_Agent_Session_Logs/2026-05-21-restrict-codex-image-ocr-output-to-five-spx-fields.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-OCR-Output-Five-SPX-Fields.md
 
 ## Verification
 npm run typecheck passed; test-line-listener.ts confirmed listener starts and connects to SPX group with restored auth token.

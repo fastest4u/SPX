@@ -1,32 +1,136 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-23T07:41:14.457Z",
-  "activeSession": {
-    "id": "memory-1779522074455",
-    "startedAt": "2026-05-23T07:41:14.455Z",
-    "updatedAt": "2026-05-23T07:41:14.457Z",
-    "startedBy": "memory_sessionStart",
-    "counts": {
-      "sessionStart": 1,
-      "contextPack": 1,
-      "selfCheck": 0,
-      "sessionEnd": 0
-    },
-    "events": [
-      {
-        "tool": "memory_sessionStart",
-        "at": "2026-05-23T07:41:14.455Z",
-        "details": {}
-      },
-      {
-        "tool": "memory_contextPack",
-        "at": "2026-05-23T07:41:14.457Z",
-        "details": {}
-      }
-    ],
-    "missingSessionStart": false
-  },
+  "updatedAt": "2026-05-23T08:01:01.372Z",
+  "activeSession": null,
   "recentSessions": [
+    {
+      "id": "memory-1779523201652",
+      "startedAt": "2026-05-23T08:00:01.652Z",
+      "updatedAt": "2026-05-23T08:01:01.371Z",
+      "taskArea": "memory-lifecycle-automation",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-23T08:00:01.652Z",
+          "details": {
+            "taskArea": "memory-lifecycle-automation"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-23T08:00:01.654Z",
+          "details": {
+            "query": "memory-lifecycle-automation",
+            "taskArea": "memory-lifecycle-automation"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-23T08:01:01.371Z",
+          "details": {
+            "topic": "Bake project-memory MCP lifecycle into Kiro hooks + steering",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Bake project-memory MCP lifecycle into Kiro hooks + steering",
+      "endedAt": "2026-05-23T08:01:01.371Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 80."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779523201617",
+      "startedAt": "2026-05-23T08:00:01.617Z",
+      "updatedAt": "2026-05-23T08:00:01.617Z",
+      "taskArea": "memory-lifecycle-automation",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 1,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-23T08:00:01.617Z",
+          "details": {
+            "task": "Bake the full project-memory lifecycle (sessionStart → contextPack → followUpRadar → selfCheck → work → sessionEnd + writeADR/Mistake/Insight) into Kiro hook + steering so every session uses it without manual reminder.",
+            "area": "memory-lifecycle-automation",
+            "riskLevel": "medium"
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "endedAt": "2026-05-23T08:00:01.652Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779522074455",
+      "startedAt": "2026-05-23T07:41:14.455Z",
+      "updatedAt": "2026-05-23T07:51:49.614Z",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-23T07:41:14.455Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-23T07:41:14.457Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-23T07:51:49.614Z",
+          "details": {
+            "topic": "spx-review flow — squash-merge frontend design system v2 (PR #34)",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "spx-review flow — squash-merge frontend design system v2 (PR #34)",
+      "endedAt": "2026-05-23T07:51:49.614Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 80."
+        ]
+      }
+    },
     {
       "id": "memory-1779517592555",
       "startedAt": "2026-05-23T06:26:32.555Z",
@@ -927,131 +1031,6 @@
         "grade": "C",
         "warnings": [
           "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779353411998",
-      "startedAt": "2026-05-21T08:50:11.998Z",
-      "updatedAt": "2026-05-21T08:57:55.411Z",
-      "taskArea": "AI image API auth integration",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T08:50:11.998Z",
-          "details": {
-            "taskArea": "AI image-reading API service using OpenAI authentication"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T08:50:12.000Z",
-          "details": {
-            "query": "AI image-reading API service using OpenAI authentication",
-            "taskArea": "AI image-reading API service using OpenAI authentication"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T08:50:12.132Z",
-          "details": {
-            "query": "AI image-reading API service receive image and use OpenAI or Codex auth",
-            "taskArea": "AI image-reading API service"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T08:52:13.317Z",
-          "details": {
-            "task": "Implement image-reading API service using codex-auth first, touching backend auth/AI integration paths",
-            "area": "AI image API auth integration",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T08:57:55.411Z",
-          "details": {
-            "topic": "Codex-auth image-reading API prototype",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Codex-auth image-reading API prototype",
-      "endedAt": "2026-05-21T08:57:55.411Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779331414921",
-      "startedAt": "2026-05-21T02:43:34.921Z",
-      "updatedAt": "2026-05-21T02:47:49.712Z",
-      "taskArea": "auto memory management enhancement",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T02:43:34.921Z",
-          "details": {
-            "taskArea": "verify vault config and reindex SPX memory"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T02:43:34.923Z",
-          "details": {
-            "query": "verify vault config and reindex SPX memory",
-            "taskArea": "verify vault config and reindex SPX memory"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T02:47:36.363Z",
-          "details": {
-            "query": "memory management session start end selfcheck contextpack",
-            "taskArea": "auto memory management enhancement"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T02:47:49.712Z",
-          "details": {
-            "topic": "Enhance Auto Memory Management to 4-Layer System",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Enhance Auto Memory Management to 4-Layer System",
-      "endedAt": "2026-05-21T02:47:49.712Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 72,
-        "grade": "D",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "verification note recorded: Session logs should say what verification was run or why it was skipped.",
           "vault warnings reviewed: Vault grade C with score 78."
         ]
       }

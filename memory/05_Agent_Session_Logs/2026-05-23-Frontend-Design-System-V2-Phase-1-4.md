@@ -124,7 +124,7 @@ Frontend UI/UX redesign Phase 1-4 (semantic tokens + PageHeader + DataTable v3 +
 - [ ] Audit `text-white` hover states left in AppLayout — confirm they read correctly in screen readers (likely fine; cosmetic only).
 
 ## References
-- 04_Architecture_Decisions/frontend-design-system-v2-semantic-tokens-pageheader-shared-sse-provider.md
+- 04_Architecture_Decisions/ADR-003-Frontend-Design-System-V2.md
 - 07_Insights/use-memoized-ui-primitives-shared-provider-hooks-for-multi-route-consistency.md
 
 ## Verification

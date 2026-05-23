@@ -33,7 +33,7 @@ Post-task self-check for image OCR output restriction
 - [ ] For future multi-file service/controller/test work, run memory_selfCheck before editing.
 
 ## References
-- 05_Agent_Session_Logs/2026-05-21-restrict-codex-image-ocr-output-to-five-spx-fields.md
+- 05_Agent_Session_Logs/2026-05-21-Codex-OCR-Output-Five-SPX-Fields.md
 
 ## Verification
 memory_selfCheck completed; no new code verification was needed beyond the already passed unit test, typecheck, and real-image smoke test.

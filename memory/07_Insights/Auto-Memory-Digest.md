@@ -24,14 +24,14 @@ derived-from:
   - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2.md
   - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3.md
   - 05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening.md
-  - 05_Agent_Session_Logs/2026-05-21-add-line-image-listener-for-spx-group-run-sheet-ocr.md
-  - 05_Agent_Session_Logs/2026-05-21-assess-custom-agent-runtime-using-codex-auth-provider.md
-  - 05_Agent_Session_Logs/2026-05-21-auto-accept-partial-accept-bug-fix.md
+  - 05_Agent_Session_Logs/2026-05-21-LINE-Image-Listener-OCR.md
+  - 05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime.md
   - 05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix.md
-  - 05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype.md
-  - 05_Agent_Session_Logs/2026-05-21-enhance-auto-memory-management-to-4-layer-system.md
-  - 05_Agent_Session_Logs/2026-05-21-fix-spx-codex-auth-device-code-404.md
-  - 05_Agent_Session_Logs/2026-05-21-fix-spx-codex-auth-internal-server-error-handling.md
+  - 05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix.md
+  - 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
+  - 05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System.md
+  - 05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Device-Code-404.md
+  - 05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Internal-Error.md
 confidence: medium
 status: active
 created: 2026-05-23
@@ -165,11 +165,11 @@ Generated: 2026-05-23
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2|2026-05-13-Vault-Hardening-Pass-2.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3|2026-05-13-Vault-Hardening-Pass-3.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening|2026-05-13-Vault-Production-Hardening.md]]
-- [[05_Agent_Session_Logs/2026-05-21-add-line-image-listener-for-spx-group-run-sheet-ocr|2026-05-21-add-line-image-listener-for-spx-group-run-sheet-ocr.md]]
-- [[05_Agent_Session_Logs/2026-05-21-assess-custom-agent-runtime-using-codex-auth-provider|2026-05-21-assess-custom-agent-runtime-using-codex-auth-provider.md]]
-- [[05_Agent_Session_Logs/2026-05-21-auto-accept-partial-accept-bug-fix|2026-05-21-auto-accept-partial-accept-bug-fix.md]]
+- [[05_Agent_Session_Logs/2026-05-21-LINE-Image-Listener-OCR|2026-05-21-LINE-Image-Listener-OCR.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime|2026-05-21-Assess-Codex-Auth-Custom-Runtime.md]]
 - [[05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix|2026-05-21-Auto-Accept-Partial-Fix.md]]
-- [[05_Agent_Session_Logs/2026-05-21-codex-auth-image-reading-api-prototype|2026-05-21-codex-auth-image-reading-api-prototype.md]]
-- [[05_Agent_Session_Logs/2026-05-21-enhance-auto-memory-management-to-4-layer-system|2026-05-21-enhance-auto-memory-management-to-4-layer-system.md]]
-- [[05_Agent_Session_Logs/2026-05-21-fix-spx-codex-auth-device-code-404|2026-05-21-fix-spx-codex-auth-device-code-404.md]]
-- [[05_Agent_Session_Logs/2026-05-21-fix-spx-codex-auth-internal-server-error-handling|2026-05-21-fix-spx-codex-auth-internal-server-error-handling.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix|2026-05-21-Auto-Accept-Partial-Fix.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype|2026-05-21-Codex-Auth-Image-API-Prototype.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System|2026-05-21-Auto-Memory-4-Layer-System.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Device-Code-404|2026-05-21-Fix-Codex-Auth-Device-Code-404.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Internal-Error|2026-05-21-Fix-Codex-Auth-Internal-Error.md]]

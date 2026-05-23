@@ -3,7 +3,7 @@ title: Goals - Long-Term Goal Stack
 type: goals
 status: active
 created: 2026-05-13
-updated: 2026-05-15
+updated: 2026-05-23
 tags:
   - meta
   - goals
@@ -182,6 +182,40 @@ Progress:
 
 - [ ] Add local pre-push hook for `npm run verify` if the workflow tolerates slower pushes.
 - [ ] Add GitHub Action for `npm run verify` if PR/branch workflow becomes active.
+
+### G-009: Codex Auth → OpenAI Service Credential Migration
+
+- Status: backlog
+- Started: 2026-05-21
+- Why: LINE image OCR depends on Codex CLI device-code auth, which is unstable for production (404s, internal errors, manual re-login). Service-credential auth or an explicit OpenAI API key removes the human-in-the-loop and fixes the recurring auth-failure tail.
+- Trigger: LINE image OCR becomes production-critical, OR Codex CLI device auth fails in production again.
+- Source evidence: `src/services/ai/`, `src/controllers/ai-controller.ts`, [[2026-05-21-Fix-Codex-Auth-Device-Code-404]], [[2026-05-21-Fix-Codex-Auth-Internal-Error]], [[2026-05-21-Codex-Auth-Image-API-Prototype]], [[2026-05-21-Codex-OCR-Output-Five-SPX-Fields]], [[2026-05-21-Replace-Image-Reader-Vercel-AI-SDK]].
+
+Progress:
+
+- [ ] Decide between (a) explicit OpenAI API key + Vercel AI SDK provider OR (b) custom opencode bridge / app-server.
+- [ ] Replace `codexExec` with the chosen production auth path; keep Codex CLI for local dev only.
+- [ ] Consider switching to `createCodexAppServer` if per-request startup is the dominant cost (only relevant if (a) above is rejected).
+- [ ] Update [[Runbook-Production-Deploy]] with the new auth-rotation procedure once chosen.
+
+### G-010: Frontend Design System v2 — Production E2E Browser Tests
+
+- Status: in-progress
+- Started: 2026-05-23
+- Why: ADR-003 ships a 4-phase frontend redesign across 50+ files. Type-check + build pass, but actual browser behavior (focus order, mobile bottom tabs, ⌘K, ?, coachmark first-login, SSE reconnect, density toggle persistence, column visibility persistence) is not yet verified end-to-end on production hardware.
+- Trigger: User asks to validate the redesign, OR a regression report comes from a real user.
+- Source evidence: [[ADR-003-Frontend-Design-System-V2]], [[2026-05-23-Frontend-Design-System-V2-Phase-1-4]], [[2026-05-23-Review-Flow-PR-34-Merge]].
+
+Progress:
+
+- [ ] Browser-test redesigned dashboard end-to-end on production: focus order, mobile bottom tabs, ⌘K command menu, `?` shortcut overlay, coachmark first-login, SSE reconnect dot.
+- [ ] Verify density toggle (compact/cozy/comfortable) persistence across hard reloads on every paginated table route.
+- [ ] Verify column visibility menu persistence across hard reloads on every paginated table route.
+- [ ] Apply `<DataTable bulkActions={...}>` to History (bulk export) and Users (bulk delete) once product confirms desired actions.
+- [ ] Restructure Settings into proper tab content components — page header is modernized but `SettingsLineBotSection` long form body is unchanged.
+- [ ] Audit `text-white` hover states left in AppLayout for screen-reader contrast (cosmetic; likely fine).
+- [ ] Decide on light theme + system preference; write a follow-up ADR before implementing.
+- [ ] Write Phase 5 plan: drag-and-drop rule reorder, real Dashboard charts, notifications drawer feed.
 
 ### G-008: Lightweight Performance and Operator UX Roadmap
 

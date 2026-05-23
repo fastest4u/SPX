@@ -29,19 +29,19 @@ Frontend redesign quality gate closeout (selfCheck + vault verify)
 - Verification note recorded: `npm run typecheck` (backend + frontend) PASSED at every batch boundary; `npm run build` PASSED at end of each phase. Final bundle: dashboard 69 kB, settings 98 kB, reports 421 kB lazy. Manual browser testing not yet done — flagged in main session's openFollowUps.
 
 ## Files Touched
-- memory/05_Agent_Session_Logs/2026-05-23-frontend-ui-ux-redesign-phase-1-4-semantic-tokens-pageheader-datatable-v3-sseprovider-coachmark.md
-- memory/04_Architecture_Decisions/frontend-design-system-v2-semantic-tokens-pageheader-shared-sse-provider.md
+- memory/05_Agent_Session_Logs/2026-05-23-Frontend-Design-System-V2-Phase-1-4.md
+- memory/04_Architecture_Decisions/ADR-003-Frontend-Design-System-V2.md
 - memory/07_Insights/use-memoized-ui-primitives-shared-provider-hooks-for-multi-route-consistency.md
 
 ## Decisions Made
 - None
 
 ## Open Follow-ups
-- [ ] Exempt `99_Templates/Template-*.md` files from MISSING_FRONTMATTER warnings in `scripts/memory-check.mjs` (or add minimal sentinel frontmatter to silence the noise).
+- [x] Exempt `99_Templates/Template-*.md` files from MISSING_FRONTMATTER warnings in `scripts/memory-check.mjs` — already mitigated via `stripTemplaterPreamble()` in the check script; verified by `memory:check` reporting 0 warnings on the 5 templates after the 2026-05-23 vault cleanup pass.
 - [ ] Always invoke `memory_selfCheck` BEFORE starting multi-file refactors, not retrospectively at session end.
 
 ## References
-- 05_Agent_Session_Logs/2026-05-23-frontend-ui-ux-redesign-phase-1-4-semantic-tokens-pageheader-datatable-v3-sseprovider-coachmark.md
+- 05_Agent_Session_Logs/2026-05-23-Frontend-Design-System-V2-Phase-1-4.md
 
 ## Verification
 Not recorded

@@ -59,6 +59,50 @@ const HYPHENATED_FIELDS = [
 
 const HISTORICAL_TYPES = new Set(["session-log", "source", "mistake", "adr"]);
 
+// Per-folder filename schema (warnings, not errors — see AGENTS.md → Naming Rules)
+// Keys are folder prefixes (relative to vault root); values are RegExp + human description.
+const FILENAME_SCHEMAS = [
+  {
+    folder: "04_Architecture_Decisions/",
+    pattern: /^ADR-\d{3}-[A-Z][A-Za-z0-9]*(?:-[A-Z0-9][A-Za-z0-9]*)*$/,
+    description: "ADR-NNN-Title-Case-Words (e.g. ADR-003-Frontend-Design-System-V2)",
+  },
+  {
+    folder: "05_Agent_Session_Logs/",
+    // YYYY-MM-DD- followed by 1..8 Title-Case (or all-caps acronym) words separated by hyphens
+    pattern: /^\d{4}-\d{2}-\d{2}-([A-Z0-9][A-Za-z0-9]*)(?:-[A-Z0-9][A-Za-z0-9]*){0,7}$/,
+    description: "YYYY-MM-DD-Title-Case-Words, max 8 words (e.g. 2026-05-23-Frontend-Design-System-V2-Merge)",
+  },
+  {
+    folder: "08_Mistakes/",
+    pattern: /^Mistake-\d{3}-[A-Z][A-Za-z0-9]*(?:-[A-Z0-9][A-Za-z0-9]*)*$/,
+    description: "Mistake-NNN-Title-Case-Words (e.g. Mistake-007-Edit-Without-Verifying-File)",
+  },
+  {
+    folder: "09_Runbooks/",
+    pattern: /^Runbook-[A-Z][A-Za-z0-9]*(?:-[A-Z0-9][A-Za-z0-9]*)*$/,
+    description: "Runbook-Title-Case-Words (e.g. Runbook-Production-Deploy)",
+  },
+  {
+    folder: "03_Reusable_Components/",
+    pattern: /^Component-[A-Z][A-Za-z0-9]*(?:-[A-Z0-9][A-Za-z0-9]*)*$/,
+    description: "Component-Title-Case-Words (e.g. Component-Poller-Orchestration)",
+  },
+];
+
+// Files exempt from filename schema (folder READMEs, indexes)
+const FILENAME_EXEMPT = new Set(["README", "index", "_index"]);
+
+function checkFilenameSchema(rel, base) {
+  if (FILENAME_EXEMPT.has(base)) return null;
+  for (const { folder, pattern, description } of FILENAME_SCHEMAS) {
+    if (!rel.startsWith(folder)) continue;
+    if (pattern.test(base)) return null;
+    return `filename does not match schema for ${folder}: expected ${description}`;
+  }
+  return null;
+}
+
 const STALE_TRUTH_PATTERNS = [
   {
     pattern: /\bLINE_NOTIFY_TOKEN\b/,
@@ -254,6 +298,10 @@ for (const file of allFiles) {
     warnings.push(`[${rel}] duplicate filename: also at ${titlesByBasename.get(lower)}`);
   }
   titlesByBasename.set(lower, file);
+
+  // 3b. Filename schema (per-folder convention) — warning, not error
+  const schemaIssue = checkFilenameSchema(rel, base);
+  if (schemaIssue) warnings.push(`[${rel}] ${schemaIssue}`);
 
   // 4. Wikilink resolution — skip templates (placeholders expected)
   if (rel.startsWith("99_Templates/")) {

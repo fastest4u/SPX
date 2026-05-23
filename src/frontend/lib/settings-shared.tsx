@@ -15,8 +15,16 @@ import {
     CheckCircle2,
     XCircle,
     Loader2,
+    ArrowLeft,
+    Plus,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import {
+    Dialog,
+    DialogContent,
+    DialogTitle,
+    DialogDescription,
+} from '../components/ui/dialog'
 
 export const INITIAL_SETTINGS_FORM = {
     API_URL: '',
@@ -347,8 +355,23 @@ export function ApiSection({
     )
 }
 
+function OpenAILogo(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 256 260"
+            fill="currentColor"
+            {...props}
+        >
+            <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205Z"/>
+        </svg>
+    )
+}
+
 function CodexAuthSection() {
     const queryClient = useQueryClient()
+    const [isDialogOpen, setIsDialogOpen] = React.useState(false)
+
     const codexStatus = useQuery({
         queryKey: ['codex-device-auth-status'],
         queryFn: aiApi.codexAuthStatus,
@@ -365,6 +388,7 @@ function CodexAuthSection() {
                 data.authorizationUrl || data.verificationUriComplete || data.verificationUri
             if (targetUrl) window.open(targetUrl, '_blank', 'noopener,noreferrer')
             toast.success(data.mode === 'device' ? 'เริ่ม device-code login' : 'เริ่ม browser login')
+            setIsDialogOpen(true)
             queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
         },
         onError: (error) =>
@@ -377,6 +401,7 @@ function CodexAuthSection() {
         mutationFn: aiApi.codexAuthComplete,
         onSuccess: () => {
             toast.success('Codex device auth พร้อมใช้งาน')
+            setIsDialogOpen(false)
             queryClient.invalidateQueries({ queryKey: ['codex-device-auth-status'] })
         },
         onError: (error) => toast.error('Codex complete failed: ' + error.message),
@@ -391,160 +416,233 @@ function CodexAuthSection() {
     })
 
     const isAuthenticated = Boolean(codexStatus.data?.authenticated)
-    const isPending = codexStatus.data?.hasPendingDeviceCode || codexStatus.data?.hasPendingFlow
+    const isPending = Boolean(codexStatus.data?.hasPendingDeviceCode || codexStatus.data?.hasPendingFlow)
 
-    const promptCodexCallback = () => {
-        const callbackUrl = window.prompt('วาง callback URL หรือ code จากหน้า OpenAI login')
-        if (!callbackUrl?.trim()) return
-        completeCodexAuth.mutate({ callbackUrl: callbackUrl.trim() })
-    }
+    React.useEffect(() => {
+        if (isAuthenticated) {
+            setIsDialogOpen(false)
+        }
+    }, [isAuthenticated])
 
     return (
         <Section
             icon={Bot}
-            title="Codex device auth"
-            description="OpenAI OAuth สำหรับอ่านรูปภาพจาก LINE"
-            rightSlot={
-                <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${isAuthenticated
-                        ? 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success'
-                        : isPending
-                            ? 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning'
-                            : 'border-white/10 bg-white/[0.04] text-muted-foreground'
-                        }`}
-                >
-                    {isAuthenticated ? (
-                        <>
-                            <CheckCircle2 className="h-3 w-3" />
-                            เชื่อมต่อแล้ว
-                        </>
-                    ) : isPending ? (
-                        <>
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            กำลังรอ
-                        </>
-                    ) : (
-                        <>
-                            <XCircle className="h-3 w-3" />
-                            ยังไม่เชื่อมต่อ
-                        </>
-                    )}
-                </span>
-            }
+            title="AI Providers"
+            description="จัดการการเชื่อมต่อบริการ AI สำหรับอ่าน Runsheet"
         >
             <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                    {codexStatus.data?.accountIdSuffix
-                        ? `Account ...${codexStatus.data.accountIdSuffix}`
-                        : 'Login ครั้งเดียว ระบบจะใช้ token นี้อ่านรูปจาก LINE โดยอัตโนมัติ'}
-                </p>
-
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => startCodexAuth.mutate({ mode: 'browser' })}
-                        disabled={startCodexAuth.isPending}
-                    >
-                        <KeyRound className="h-3.5 w-3.5" />
-                        Browser login
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => startCodexAuth.mutate({ mode: 'device' })}
-                        disabled={startCodexAuth.isPending}
-                    >
-                        Device code
-                    </Button>
-                    {!codexStatus.data?.hasPendingDeviceCode ? (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={promptCodexCallback}
-                            disabled={completeCodexAuth.isPending}
-                        >
-                            วาง callback URL
-                        </Button>
-                    ) : null}
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="ml-auto text-danger hover:text-danger"
-                        onClick={() => logoutCodexAuth.mutate()}
-                        disabled={
-                            logoutCodexAuth.isPending ||
-                            (!isAuthenticated &&
-                                !codexStatus.data?.hasPendingDeviceCode &&
-                                !codexStatus.data?.hasPendingFlow)
-                        }
-                    >
-                        Logout
-                    </Button>
+                <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3.5">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-white/[0.08] text-white">
+                            <OpenAILogo className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-semibold text-foreground">OpenAI</h4>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                {isAuthenticated && codexStatus.data?.accountIdSuffix ? (
+                                    <span className="text-success inline-flex items-center gap-1.5">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                                        เชื่อมต่อแล้ว (Account ...{codexStatus.data.accountIdSuffix})
+                                    </span>
+                                ) : isPending ? (
+                                    <span className="text-warning inline-flex items-center gap-1.5">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-warning animate-ping" />
+                                        กำลังรอการเชื่อมต่อ...
+                                    </span>
+                                ) : (
+                                    "GPT models for fast, capable general AI tasks"
+                                )}
+                            </p>
+                        </div>
+                    </div>
+                    <div>
+                        {isAuthenticated ? (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground hover:bg-white/[0.04] hover:text-white"
+                                onClick={() => logoutCodexAuth.mutate()}
+                                disabled={logoutCodexAuth.isPending}
+                            >
+                                Disconnect
+                            </Button>
+                        ) : (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="border-white/[0.1] hover:bg-white/[0.05]"
+                                onClick={() => setIsDialogOpen(true)}
+                            >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                Connect
+                            </Button>
+                        )}
+                    </div>
                 </div>
-
-                {codexStatus.data?.hasPendingDeviceCode && codexStatus.data?.userCode ? (
-                    <div className="rounded-xl border border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] p-4">
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-warning/80">
-                            วางรหัสนี้ที่หน้า OpenAI
-                        </div>
-                        <div className="rounded-lg bg-black/30 py-2 text-center font-data text-2xl font-black tracking-[0.3em] text-warning">
-                            {codexStatus.data.userCode}
-                        </div>
-                        <a
-                            href={
-                                codexStatus.data.verificationUriComplete || codexStatus.data.verificationUri
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                        >
-                            เปิดหน้า verification →
-                        </a>
-                        <p className="mt-2 inline-flex items-center gap-1.5 text-[0.7rem] text-muted-foreground">
-                            <span className="h-1.5 w-1.5 animate-ping rounded-full bg-warning" aria-hidden="true" />
-                            ระบบจะอัปเดตอัตโนมัติเมื่อ login สำเร็จ
-                        </p>
-                    </div>
-                ) : null}
-
-                {codexStatus.data?.hasPendingFlow ? (
-                    <div className="rounded-xl border border-primary/22 bg-primary/[0.06] p-4">
-                        <div className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary/80">
-                            <span className="h-1.5 w-1.5 animate-ping rounded-full bg-primary" aria-hidden="true" />
-                            กำลังรอ callback อัตโนมัติ
-                        </div>
-                        <p className="mb-3 text-xs text-muted-foreground">
-                            ถ้าไม่ต่อกลับเอง ให้คัดลอกลิงก์จาก address bar หลัง login แล้ววางที่นี่:
-                        </p>
-                        <input
-                            type="text"
-                            placeholder="http://localhost:1455/auth/callback?code=..."
-                            className="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none"
-                            onPaste={(e) => {
-                                const val = e.clipboardData.getData('text').trim()
-                                if (val) {
-                                    completeCodexAuth.mutate({ callbackUrl: val })
-                                    e.currentTarget.value = ''
-                                }
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    const val = e.currentTarget.value.trim()
-                                    if (val) {
-                                        completeCodexAuth.mutate({ callbackUrl: val })
-                                        e.currentTarget.value = ''
-                                    }
-                                }
-                            }}
-                        />
-                    </div>
-                ) : null}
             </div>
+
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <DialogContent className="max-w-md bg-slate-950 border border-white/[0.08] text-foreground p-0 overflow-hidden shadow-2xl rounded-2xl">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (isPending) {
+                                        logoutCodexAuth.mutate()
+                                    } else {
+                                        setIsDialogOpen(false)
+                                    }
+                                }}
+                                className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/[0.05] text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                <ArrowLeft className="h-4 w-4" />
+                            </button>
+                            <DialogTitle className="text-sm font-semibold text-foreground">
+                                Connect OpenAI
+                            </DialogTitle>
+                        </div>
+                    </div>
+
+                    {/* Body */}
+                    <div className="px-5 py-6">
+                        {!isPending ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <DialogDescription className="text-xs text-muted-foreground">
+                                        Select login method for OpenAI.
+                                    </DialogDescription>
+                                </div>
+
+                                <div className="rounded-xl border border-white/[0.08] bg-white/[0.01] divide-y divide-white/[0.06] overflow-hidden">
+                                    <button
+                                        type="button"
+                                        onClick={() => startCodexAuth.mutate({ mode: 'browser' })}
+                                        className="w-full flex items-center justify-between p-4 hover:bg-white/[0.03] text-left transition-colors group"
+                                        disabled={startCodexAuth.isPending}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-5 w-5 items-center justify-center rounded border border-white/20 text-transparent group-hover:border-primary">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
+                                            <div>
+                                                <span className="text-sm font-medium text-foreground">ChatGPT Pro/Plus (browser)</span>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => startCodexAuth.mutate({ mode: 'device' })}
+                                        className="w-full flex items-center justify-between p-4 hover:bg-white/[0.03] text-left transition-colors group"
+                                        disabled={startCodexAuth.isPending}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-5 w-5 items-center justify-center rounded border border-white/20 text-transparent group-hover:border-primary">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            </div>
+                                            <div>
+                                                <span className="text-sm font-medium text-foreground">ChatGPT Pro/Plus (headless)</span>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <div
+                                        className="flex items-center justify-between p-4 opacity-40 cursor-not-allowed select-none bg-white/[0.01]"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-5 w-5 items-center justify-center rounded border border-white/10 text-transparent">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-transparent" />
+                                            </div>
+                                            <div>
+                                                <span className="text-sm font-medium text-foreground">API key <span className="text-[10px] text-muted-foreground ml-1.5">(Coming soon)</span></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-5">
+                                {codexStatus.data?.hasPendingFlow && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-start gap-3 rounded-xl border border-primary/22 bg-primary/[0.03] p-4">
+                                            <div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-primary">
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <h5 className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                                                    กำลังรอ Callback อัตโนมัติ
+                                                </h5>
+                                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                                    ระบบเปิดแท็บใหม่เพื่อ Login บัญชี OpenAI แล้ว หากทำสำเร็จแท็บจะปิดเองและเชื่อมต่อทันที
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-medium text-muted-foreground">
+                                                หากเบราว์เซอร์ไม่ปิดอัตโนมัติ ให้คัดลอก URL หรือโค้ดมาวางที่นี่:
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="http://localhost:1455/auth/callback?code=..."
+                                                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none transition-colors"
+                                                onPaste={(e) => {
+                                                    const val = e.clipboardData.getData('text').trim()
+                                                    if (val) {
+                                                        completeCodexAuth.mutate({ callbackUrl: val })
+                                                        e.currentTarget.value = ''
+                                                    }
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        const val = e.currentTarget.value.trim()
+                                                        if (val) {
+                                                            completeCodexAuth.mutate({ callbackUrl: val })
+                                                            e.currentTarget.value = ''
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {codexStatus.data?.hasPendingDeviceCode && codexStatus.data?.userCode && (
+                                    <div className="space-y-4 text-center">
+                                        <div className="space-y-1">
+                                            <span className="text-xs font-semibold text-warning uppercase tracking-wider">
+                                                วางรหัสนี้ที่หน้า OpenAI
+                                            </span>
+                                            <div className="mt-2 rounded-xl bg-black/40 border border-white/[0.06] py-3.5 text-center font-data text-3xl font-black tracking-[0.25em] text-warning shadow-inner">
+                                                {codexStatus.data.userCode}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2.5">
+                                            <a
+                                                href={codexStatus.data.verificationUriComplete || codexStatus.data.verificationUri}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-colors shadow-sm"
+                                            >
+                                                เปิดหน้า verification เพื่อกรอกรหัส →
+                                            </a>
+                                            <p className="inline-flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+                                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+                                                ระบบจะตรวจจับและเชื่อมต่ออัตโนมัติเมื่อกดยืนยันสำเร็จ
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </Section>
     )
 }
