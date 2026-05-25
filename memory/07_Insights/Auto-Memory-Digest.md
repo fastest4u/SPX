@@ -24,18 +24,18 @@ derived-from:
   - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2.md
   - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3.md
   - 05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening.md
-  - 05_Agent_Session_Logs/2026-05-21-LINE-Image-Listener-OCR.md
   - 05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime.md
+  - 05_Agent_Session_Logs/2026-05-21-Audit-Fix-AI-SDK-Dependencies.md
   - 05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix.md
-  - 05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix.md
-  - 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
   - 05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System.md
-  - 05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Device-Code-404.md
-  - 05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Internal-Error.md
+  - 05_Agent_Session_Logs/2026-05-21-Auto-Project-Memory-MCP-Setup.md
+  - 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
+  - 05_Agent_Session_Logs/2026-05-21-Codex-Image-Real-JPG-Test.md
+  - 05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test.md
 confidence: medium
 status: active
-created: 2026-05-23
-updated: 2026-05-23
+created: 2026-05-25
+updated: 2026-05-25
 tags:
   - digest
   - auto-compact
@@ -43,7 +43,7 @@ tags:
 ---
 # Auto Memory Digest
 
-Generated: 2026-05-23
+Generated: 2026-05-25
 
 > [!important]
 > This note is generated from recent session logs. Keep durable architectural choices in ADRs and keep repeated lessons here or in dedicated insight notes.
@@ -113,34 +113,32 @@ Generated: 2026-05-23
 - Multi-AI results must not be faked. Codex is marked pass; other agents remain pending until tested in their native tools.
 
 ## Open Follow-ups
-- [ ] Test end-to-end: send a run sheet photo to the SPX group and verify the 5-field reply.
-- [ ] Handle large images or timeout gracefully — currently hardcoded 120s timeout.
-- [ ] Consider adding a reaction emoji when processing starts (e.g., message.react('NICE')).
 - [ ] If the user asks to proceed, design a minimal Provider interface and add an experimental `codex-runtime` provider behind a feature flag.
-- [ ] User to decide when to commit + deploy the fix
-- [ ] Monitor logs for auto-accept-partial-verified in production
+- [ ] Decide whether to accept `npm audit fix --force` breaking downgrade for `@evex/linejs` or track/upstream a patched thrift dependency.
 - [ ] Deploy to production server
 - [ ] Monitor logs for `auto-accept-partial-verified` to confirm fix works in production
+- [ ] Commit AGENTS.md + workflow changes (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
+- [ ] Monitor auto-accept-partial-verified in production
+- [ ] User to commit AGENTS.md + workflow changes when ready (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
 - [ ] Manually test `/api/ai/read-image` with a real authenticated browser/API session and sample image.
 - [ ] If this endpoint becomes production-critical, replace Codex CLI auth with an explicit OpenAI API key/service credential.
-- [ ] Commit AGENTS.md + workflow changes
-- [ ] Monitor auto-accept-partial-verified in production
-- [ ] User should restart/reload the SPX backend/frontend and test Codex Login again from Settings.
-- [ ] If browser OAuth also proves unstable in production, replace Codex auth dependency with an explicit OpenAI API key/service credential for LINE image OCR.
-- [ ] No commit or deploy was performed.
-- [ ] If Codex auth remains unstable for production LINE image OCR, switch production usage from Codex device/CLI auth to an explicit OpenAI API key or service credential.
-- [ ] User should choose when to commit/deploy these changes; no commit or deploy was performed.
+- [ ] If the user wants to avoid Codex CLI entirely, evaluate either explicit OpenAI API key integration or a custom opencode bridge/plugin/app-server approach.
 
 ## Confidence Lessons
 - Custom runtime via Codex auth is possible but riskier than Codex CLI or OpenAI API key because Codex auth/runtime internals are not a stable backend provider API. -> Keep AI auth integration behind a provider abstraction if experimenting with nonstandard auth boundaries.
+- Non-force audit fixes are applied and the remaining audit issue requires a breaking forced change. -> Avoid force audit fixes on app dependencies without user approval and a targeted regression test plan.
+- `package.json` was committed in prior session -> Verify file presence before editing dependent code; assume nothing about working tree freshness
 - Codex CLI auth can be used by spawning `codex exec` without reading auth token files directly. -> Use Codex CLI as an integration boundary for prototypes, but capture final output via `--output-last-message` because stdout contains banners/logs.
+- The local image-reading service can process the provided real JPG. -> Parameterized smoke tests make real-image validation faster than editing the test fixture each time.
+- The Fastify endpoint works as a local service with Codex CLI and gpt-5.5. -> Codex CLI image calls on Windows need Node entrypoint spawning, prompt before image args, and `--add-dir` for temp files under read-only sandbox.
 
 ## Verification Evidence
-- npm run typecheck passed; test-line-listener.ts confirmed listener starts and connects to SPX group with restored auth token.
 - Planning-only; no code changes. Used memory context and multi-perspective review skill.
+- `npm audit fix` completed; `npm audit --audit-level=moderate` still reports 2 high `thrift` vulnerabilities requiring `--force`; `npm run typecheck` passed; `npm run build` passed with existing Vite NODE_ENV warning.
 - Not recorded
 - `npx tsx tests/codex-image-reader.test.ts`, `npm run typecheck`, and `npm run build` passed. `codex exec --ephemeral --sandbox read-only "Reply only with OK"` verified Codex CLI auth works, but emitted a deprecation warning for codex_hooks config.
-- npm run typecheck passed.
+- `codex exec --ephemeral --sandbox read-only --add-dir C:\Users\Server\Desktop\SPX --model gpt-5.5 ... --image C:\Users\Server\Desktop\SPX\439805.jpg` succeeded. `npx tsx tests/ai-local-service-smoke.ts "C:\Users\Server\Desktop\SPX\439805.jpg" ...` returned HTTP 200. `npx tsx tests/codex-image-reader.test.ts` and `npm run typecheck` passed.
+- `codex exec --ephemeral --sandbox read-only --model gpt-5.5 "Reply only with OK"` passed. `npx tsx tests/codex-image-reader.test.ts`, `npx tsx tests/ai-local-service-smoke.ts`, `npm run typecheck`, and `npm run build` passed. Build still reports existing Vite NODE_ENV warning.
 
 ## Source Sessions
 - [[05_Agent_Session_Logs/2026-05-13-Awaken-Slash-Command|2026-05-13-Awaken-Slash-Command.md]]
@@ -165,11 +163,11 @@ Generated: 2026-05-23
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2|2026-05-13-Vault-Hardening-Pass-2.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3|2026-05-13-Vault-Hardening-Pass-3.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening|2026-05-13-Vault-Production-Hardening.md]]
-- [[05_Agent_Session_Logs/2026-05-21-LINE-Image-Listener-OCR|2026-05-21-LINE-Image-Listener-OCR.md]]
 - [[05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime|2026-05-21-Assess-Codex-Auth-Custom-Runtime.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Audit-Fix-AI-SDK-Dependencies|2026-05-21-Audit-Fix-AI-SDK-Dependencies.md]]
 - [[05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix|2026-05-21-Auto-Accept-Partial-Fix.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix|2026-05-21-Auto-Accept-Partial-Fix.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype|2026-05-21-Codex-Auth-Image-API-Prototype.md]]
 - [[05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System|2026-05-21-Auto-Memory-4-Layer-System.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Device-Code-404|2026-05-21-Fix-Codex-Auth-Device-Code-404.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Fix-Codex-Auth-Internal-Error|2026-05-21-Fix-Codex-Auth-Internal-Error.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Auto-Project-Memory-MCP-Setup|2026-05-21-Auto-Project-Memory-MCP-Setup.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype|2026-05-21-Codex-Auth-Image-API-Prototype.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Codex-Image-Real-JPG-Test|2026-05-21-Codex-Image-Real-JPG-Test.md]]
+- [[05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test|2026-05-21-Codex-Image-Smoke-Test.md]]
