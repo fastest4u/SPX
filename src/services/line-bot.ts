@@ -98,6 +98,7 @@ export type LineBotStorageHealth = {
 const LINEJS_PACKAGE = "@evex/linejs";
 const LINEJS_STORAGE_PACKAGE = "@evex/linejs/storage";
 const QR_WAIT_MS = 2500;
+const LINE_IMAGE_READ_FAILED_PREFIX = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
 
 // ── Singleton state ────────────────────────────────────────────────────
 
@@ -582,6 +583,46 @@ function getModuleExport<T>(module: unknown, name: string): T {
   throw new Error(`Module export not found: ${name}`);
 }
 
+export function isLineImageReadTimeout(error: unknown): boolean {
+  const name = error instanceof Error ? error.name : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return name === "AbortError"
+    || name === "TimeoutError"
+    || /timeout/i.test(message)
+    || /aborted/i.test(message);
+}
+
+export function formatLineImageListenerError(error: unknown, timeoutMs: number): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isLineImageReadTimeout(error)) {
+    const timeoutSeconds = Math.ceil(timeoutMs / 1000);
+    return `${LINE_IMAGE_READ_FAILED_PREFIX}: OCR timeout after ${timeoutSeconds}s. Please resend/crop clearer image.`;
+  }
+  return `${LINE_IMAGE_READ_FAILED_PREFIX}: ${message}`;
+}
+
+async function replyToLineImageMessage(msg: LineImageMessage, text: string): Promise<boolean> {
+  try {
+    await msg.reply(text);
+    return true;
+  } catch (primaryError) {
+    logger.warn("line-image-listener-primary-reply-failed", {
+      to: msg.to?.id,
+      error: primaryError instanceof Error ? primaryError.message : String(primaryError),
+    });
+  }
+
+  const fallback = await sendMessage(msg.to.id, text);
+  if (!fallback.ok) {
+    logger.warn("line-image-listener-fallback-reply-failed", {
+      to: msg.to?.id,
+      error: fallback.error,
+    });
+    return false;
+  }
+  return true;
+}
+
 export async function startImageListener(targetChatMid: string): Promise<void> {
   if (!isLineBotEnabled()) return;
   if (!targetChatMid) return;
@@ -595,6 +636,14 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
     if (msg.to?.id !== targetChatMid) return;
 
     let tempDir = "";
+    const startedAt = Date.now();
+    const timeoutMs = env.CODEX_IMAGE_TIMEOUT_MS;
+    logger.info("line-image-listener-received", {
+      to: msg.to?.id,
+      from: msg.from?.id,
+      contentType: msg.raw?.contentType,
+      timeoutMs,
+    });
     try {
       const blob = await msg.getData();
       const buffer = Buffer.from(await blob.arrayBuffer());
@@ -610,11 +659,22 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
         codexImageReader,
         "readImageWithCodex"
       );
+      const codexStartedAt = Date.now();
+      logger.info("line-image-listener-codex-start", {
+        to: msg.to.id,
+        bytes: buffer.byteLength,
+        timeoutMs,
+      });
       const text = await readImageWithCodex({
         imagePath,
         mimeType: "image/jpeg",
         prompt: "", // use default 6-field prompt
-        timeoutMs: 120000,
+        timeoutMs,
+      });
+      logger.info("line-image-listener-codex-finished", {
+        to: msg.to.id,
+        durationMs: Date.now() - codexStartedAt,
+        textLength: text.length,
       });
       const lineImageExtraction = await import("./line-image-extraction.js");
       const persistValidLineImageExtraction = getModuleExport<typeof import("./line-image-extraction.js").persistValidLineImageExtraction>(
@@ -632,21 +692,25 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
         ? `${text}\n\nSaved to DB: #${saved.id}`
         : `${text}\n\nNot saved to DB: ${saved.reason}`;
 
-      await msg.reply(replyText);
+      const replyDelivered = await replyToLineImageMessage(msg, replyText);
       logger.info("line-image-listener-reply", {
         to: msg.to.id,
         savedToDb: saved.saved,
         extractionId: saved.id,
         reason: saved.reason,
+        replyDelivered,
+        durationMs: Date.now() - startedAt,
       });
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      logger.warn("line-image-listener-error", { to: msg.to?.id, error: errMsg });
-      try {
-        await msg.reply(`อ่านรูปไม่สำเร็จ: ${errMsg}`);
-      } catch {
-        // reply may also fail
-      }
+      logger.warn("line-image-listener-error", {
+        to: msg.to?.id,
+        error: errMsg,
+        timeout: isLineImageReadTimeout(error),
+        durationMs: Date.now() - startedAt,
+        timeoutMs,
+      });
+      await replyToLineImageMessage(msg, formatLineImageListenerError(error, timeoutMs));
     } finally {
       if (tempDir) {
         await rm(tempDir, { recursive: true, force: true });

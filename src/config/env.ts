@@ -132,7 +132,7 @@ export const env = {
   ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "user",
   CODEX_IMAGE_MODEL: process.env.CODEX_IMAGE_MODEL || "",
   CODEX_IMAGE_PROVIDER: (process.env.CODEX_IMAGE_PROVIDER || "auto") as "auto" | "codex-cli" | "codex-device",
-  CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", 120000),
+  CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", 300000),
   CODEX_IMAGE_MAX_BYTES: readIntegerEnv("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
 } as const;
