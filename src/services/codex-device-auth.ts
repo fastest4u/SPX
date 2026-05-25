@@ -274,14 +274,42 @@ function ensureCodexInstructions(url: string, body: BodyInit | null | undefined)
 async function convertSseToJson(response: Response): Promise<Response> {
   const text = await response.text();
   const lines = text.split(/\r?\n/);
+  let streamedText = "";
+
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
     try {
-      const data = JSON.parse(line.slice(6)) as { type?: string; response?: unknown };
+      const data = JSON.parse(line.slice(6)) as {
+        type?: string;
+        delta?: unknown;
+        text?: unknown;
+        response?: unknown;
+      };
+      if (data.type === "response.output_text.delta" && typeof data.delta === "string") {
+        streamedText += data.delta;
+      }
+      if (data.type === "response.output_text.done" && typeof data.text === "string") {
+        streamedText = data.text;
+      }
       if ((data.type === "response.done" || data.type === "response.completed") && data.response) {
         const headers = new Headers(response.headers);
         headers.set("content-type", "application/json; charset=utf-8");
-        return new Response(JSON.stringify(data.response), {
+        const responseBody = typeof data.response === "object" && data.response !== null && streamedText
+          ? {
+            ...data.response,
+            output: Array.isArray((data.response as { output?: unknown }).output)
+              && (data.response as { output?: unknown[] }).output?.length
+              ? (data.response as { output: unknown[] }).output
+              : [{
+                type: "message",
+                id: "msg_codex_stream",
+                role: "assistant",
+                status: "completed",
+                content: [{ type: "output_text", text: streamedText, annotations: [] }],
+              }],
+          }
+          : data.response;
+        return new Response(JSON.stringify(responseBody), {
           status: response.status,
           statusText: response.statusText,
           headers,

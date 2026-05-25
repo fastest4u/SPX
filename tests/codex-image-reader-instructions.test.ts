@@ -78,17 +78,21 @@ async function main(): Promise<void> {
         id: "resp_test",
         created_at: Math.floor(Date.now() / 1000),
         model: capturedBody.model,
-        output: [
-          {
-            type: "message",
-            id: "msg_test",
-            role: "assistant",
-            content: [{ type: "output_text", text: "ok", annotations: [] }],
-          },
-        ],
+        status: "completed",
+        output: [],
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          total_tokens: 2,
+        },
       };
 
-      return new Response(`data: ${JSON.stringify({ type: "response.completed", response })}\n\n`, {
+      return new Response([
+        `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "o" })}`,
+        `data: ${JSON.stringify({ type: "response.output_text.done", text: "ok" })}`,
+        `data: ${JSON.stringify({ type: "response.completed", response })}`,
+        "",
+      ].join("\n"), {
         status: 200,
       });
     };
