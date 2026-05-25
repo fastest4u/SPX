@@ -452,12 +452,31 @@ async function acceptAutoAcceptMatch(
 
     if (!result.ok) {
       try {
-        const reqList = await apiClient.fetchBookingRequestList(bookingId);
-        if (reqList) {
+        // Verify against BOTH tabs because SPX moves accepted requests out of the
+        // "pending confirmation" tab into the "confirmed" tab. Fetching only the
+        // pending tab (the default) misses requests we just accepted, causing
+        // the verify branch to falsely report success=0 and notify failure for
+        // the whole batch.
+        const [pendingList, confirmedList] = await Promise.all([
+          apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: true }),
+          apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: false }),
+        ]);
+        const merged = new Map<number, number>();
+        for (const list of [pendingList, confirmedList]) {
+          if (!list) continue;
+          for (const r of list.data.request_list) {
+            const prev = merged.get(r.request_id);
+            // Prefer the highest-progress status (accepted=2 wins over waiting=1)
+            if (prev === undefined || r.request_acceptance_status > prev) {
+              merged.set(r.request_id, r.request_acceptance_status);
+            }
+          }
+        }
+        if (pendingList || confirmedList) {
           const acceptedSet = new Set(
-            reqList.data.request_list
-              .filter((r) => r.request_acceptance_status === 2)
-              .map((r) => r.request_id)
+            [...merged.entries()]
+              .filter(([, status]) => status === 2)
+              .map(([requestId]) => requestId)
           );
           verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
           verifiedFailedIds = requestIds.filter((id) => !acceptedSet.has(id));

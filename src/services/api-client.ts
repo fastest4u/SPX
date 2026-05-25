@@ -364,8 +364,12 @@ export class ApiClient {
     }
   }
 
-  async fetchBookingRequestList(bookingId: number): Promise<BookingRequestListResponse | null> {
-    const firstPage = await this.fetchBookingRequestListPage(bookingId, 1);
+  async fetchBookingRequestList(
+    bookingId: number,
+    options: { tabPendingConfirmation?: boolean } = {}
+  ): Promise<BookingRequestListResponse | null> {
+    const tabPendingConfirmation = options.tabPendingConfirmation ?? env.REQUEST_TAB_PENDING_CONFIRMATION;
+    const firstPage = await this.fetchBookingRequestListPage(bookingId, 1, tabPendingConfirmation);
     if (!firstPage) {
       return null;
     }
@@ -385,7 +389,7 @@ export class ApiClient {
       const pages = await mapWithConcurrency(
         pageNumbers,
         REQUEST_LIST_PAGE_CONCURRENCY,
-        (p) => this.fetchBookingRequestListPage(bookingId, p)
+        (p) => this.fetchBookingRequestListPage(bookingId, p, tabPendingConfirmation)
       );
       for (const page of pages) {
         if (page && page.data.request_list.length > 0) {
@@ -453,10 +457,11 @@ export class ApiClient {
 
   private async fetchBookingRequestListPage(
     bookingId: number,
-    pageNo: number
+    pageNo: number,
+    tabPendingConfirmation: boolean = env.REQUEST_TAB_PENDING_CONFIRMATION
   ): Promise<BookingRequestListResponse | null> {
     const body: BookingRequestListRequest = {
-      request_tab_pending_confirmation: env.REQUEST_TAB_PENDING_CONFIRMATION,
+      request_tab_pending_confirmation: tabPendingConfirmation,
       booking_id: bookingId,
       pageno: pageNo,
       count: env.BIDDING_PAGE_COUNT,
