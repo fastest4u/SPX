@@ -2,7 +2,7 @@ import { env } from "../config/env.js";
 import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
-import { saveBookingRequests } from "../services/db-service.js";
+import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
 import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
@@ -44,12 +44,34 @@ export class Poller {
   private lastSessionAlertTime = 0;
   private activeDetailJobs = new Set<Promise<void>>();
   private activeDetailBookingIds = new Set<number>();
+  private historySaveQueue: BookingHistorySaveQueue;
   private static readonly MAX_ACTIVE_DETAIL_JOBS = 2;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
 
   constructor(intervalSec?: number) {
     this.apiClient = new ApiClient();
     this.dataProcessor = new DataProcessor();
+    this.historySaveQueue = new BookingHistorySaveQueue({
+      onResult: (dbResult) => {
+        for (let i = 0; i < dbResult.inserted; i++) metrics.recordTrip("inserted");
+        for (let i = 0; i < dbResult.skipped; i++) metrics.recordTrip("skipped");
+        if (dbResult.errors > 0) {
+          logger.warn("booking-history-batch-save-failed", { errors: dbResult.errors, message: dbResult.message });
+        }
+      },
+      onError: (error, trips) => {
+        logger.error("booking-history-async-save-failed", {
+          trips: trips.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+      onLatency: (latencyMs) => {
+        metrics.recordOperation("dbSave", latencyMs);
+      },
+      onDrop: (trips, reason) => {
+        logger.warn("booking-history-queue-drop", { trips: trips.length, reason });
+      },
+    });
     this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
     this.stats = {
       totalRequests: 0,
@@ -345,15 +367,7 @@ export class Poller {
     }
 
     if (env.SAVE_TO_DB && allTrips.length > 0) {
-      const startedAt = Date.now();
-      const dbResult = await saveBookingRequests(allTrips).finally(() => {
-        metrics.recordOperation("dbSave", Date.now() - startedAt);
-      });
-      for (let i = 0; i < dbResult.inserted; i++) metrics.recordTrip("inserted");
-      for (let i = 0; i < dbResult.skipped; i++) metrics.recordTrip("skipped");
-      if (dbResult.errors > 0) {
-        logger.warn("booking-history-batch-save-failed", { errors: dbResult.errors, message: dbResult.message });
-      }
+      this.historySaveQueue.enqueue(allTrips);
     }
 
     if (autoAcceptTasks.length > 0) {
@@ -379,9 +393,6 @@ export class Poller {
       this.metricsTimer = null;
     }
 
-    // Persist final metrics snapshot before shutdown
-    await this.persistMetrics();
-
     if (this.activeTick) {
       await this.activeTick.catch(() => undefined);
     }
@@ -389,6 +400,11 @@ export class Poller {
     if (this.activeDetailJobs.size > 0) {
       await Promise.allSettled([...this.activeDetailJobs]);
     }
+
+    await this.historySaveQueue.flush();
+
+    // Persist final metrics snapshot after active work and async history saves finish.
+    await this.persistMetrics();
 
     formatFooter(this.stats);
 
