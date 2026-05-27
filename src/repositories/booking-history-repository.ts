@@ -3,6 +3,7 @@ import { spxBookingHistory } from "../db/schema.js";
 import { and, count, desc, asc, eq, like, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import type { SQL } from "drizzle-orm";
+import type { Pool } from "mysql2/promise";
 
 export interface BookingHistoryRecord {
   requestId: number;
@@ -72,9 +73,115 @@ function buildHistoryOrderBy(query: HistoryFilterQuery) {
 }
 
 const historyColumns = ["request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
+const requestIdLookupChunkSize = 1000;
+const seenRequestIdTtlMs = 6 * 60 * 60 * 1000;
+const seenRequestIdCacheMax = 100_000;
+const seenRequestIdCache = new Map<number, number>();
 
 function historyValues(record: BookingHistoryRecord): unknown[] {
   return [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
+}
+
+export function dedupeBookingHistoryRecords(records: BookingHistoryRecord[]): { records: BookingHistoryRecord[]; skipped: number } {
+  const seen = new Set<number>();
+  const uniqueRecords: BookingHistoryRecord[] = [];
+
+  for (const record of records) {
+    if (seen.has(record.requestId)) {
+      continue;
+    }
+    seen.add(record.requestId);
+    uniqueRecords.push(record);
+  }
+
+  return { records: uniqueRecords, skipped: records.length - uniqueRecords.length };
+}
+
+export function filterKnownBookingHistoryRecords(
+  records: BookingHistoryRecord[],
+  knownRequestIds: ReadonlySet<number>
+): { records: BookingHistoryRecord[]; skipped: number } {
+  const unknownRecords = records.filter((record) => !knownRequestIds.has(record.requestId));
+  return { records: unknownRecords, skipped: records.length - unknownRecords.length };
+}
+
+function isRequestIdCached(requestId: number, now: number): boolean {
+  const expiresAt = seenRequestIdCache.get(requestId);
+  if (expiresAt === undefined) {
+    return false;
+  }
+
+  if (expiresAt <= now) {
+    seenRequestIdCache.delete(requestId);
+    return false;
+  }
+
+  return true;
+}
+
+function filterCachedBookingHistoryRecords(records: BookingHistoryRecord[], now = Date.now()): { records: BookingHistoryRecord[]; skipped: number } {
+  const uncachedRecords = records.filter((record) => !isRequestIdCached(record.requestId, now));
+  return { records: uncachedRecords, skipped: records.length - uncachedRecords.length };
+}
+
+function pruneExpiredSeenRequestIds(now: number): void {
+  for (const [requestId, expiresAt] of seenRequestIdCache) {
+    if (expiresAt <= now) {
+      seenRequestIdCache.delete(requestId);
+    }
+  }
+}
+
+function rememberBookingHistoryRequestIds(requestIds: Iterable<number>, now = Date.now()): void {
+  const expiresAt = now + seenRequestIdTtlMs;
+  let remembered = 0;
+
+  for (const requestId of requestIds) {
+    if (!Number.isFinite(requestId)) {
+      continue;
+    }
+    seenRequestIdCache.set(requestId, expiresAt);
+    remembered += 1;
+  }
+
+  if (remembered === 0) {
+    return;
+  }
+
+  if (seenRequestIdCache.size > seenRequestIdCacheMax) {
+    pruneExpiredSeenRequestIds(now);
+  }
+
+  while (seenRequestIdCache.size > seenRequestIdCacheMax) {
+    const oldestRequestId = seenRequestIdCache.keys().next().value;
+    if (oldestRequestId === undefined) {
+      break;
+    }
+    seenRequestIdCache.delete(oldestRequestId);
+  }
+}
+
+async function findExistingBookingHistoryRequestIds(pool: Pool, requestIds: number[]): Promise<Set<number>> {
+  const existingRequestIds = new Set<number>();
+
+  for (let index = 0; index < requestIds.length; index += requestIdLookupChunkSize) {
+    const chunk = requestIds.slice(index, index + requestIdLookupChunkSize);
+    if (chunk.length === 0) {
+      continue;
+    }
+
+    const placeholders = chunk.map(() => "?").join(", ");
+    const [rows] = await pool.query(
+      `SELECT request_id FROM spx_booking_history WHERE request_id IN (${placeholders})`,
+      chunk
+    );
+
+    for (const row of rows as Array<{ request_id: number | string | bigint }>) {
+      existingRequestIds.add(Number(row.request_id));
+    }
+  }
+
+  return existingRequestIds;
 }
 
 export async function insertBookingHistory(record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
@@ -87,13 +194,15 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
     return { inserted: 0, skipped: 0 };
   }
 
+  const deduped = dedupeBookingHistoryRecords(records);
+
   // In-memory mode (SQLite) doesn't share the mysql2 pool. Fall back to Drizzle
   // which routes to the right driver. INSERT IGNORE behaves correctly because
   // Drizzle uses the underlying database's "ignore" semantics (MySQL: INSERT IGNORE,
   // SQLite: INSERT OR IGNORE).
   if (env.DB_MODE === "memory") {
     const db = await getDb();
-    const rows = records.map((record) => ({
+    const rows = deduped.records.map((record) => ({
       requestId: record.requestId,
       bookingId: record.bookingId ?? null,
       bookingName: record.bookingName ?? null,
@@ -125,11 +234,30 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
 
   const pool = getPool();
   if (!pool) throw new Error("Database pool not initialised");
+
+  const now = Date.now();
+  const uncached = filterCachedBookingHistoryRecords(deduped.records, now);
+  if (uncached.records.length === 0) {
+    return { inserted: 0, skipped: records.length };
+  }
+
+  const existingRequestIds = await findExistingBookingHistoryRequestIds(
+    pool,
+    uncached.records.map((record) => record.requestId)
+  );
+  rememberBookingHistoryRequestIds(existingRequestIds, now);
+
+  const insertable = filterKnownBookingHistoryRecords(uncached.records, existingRequestIds);
+  if (insertable.records.length === 0) {
+    return { inserted: 0, skipped: records.length };
+  }
+
   const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
-  const values = records.flatMap(historyValues);
-  const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${records.map(() => placeholders).join(", ")}`;
+  const values = insertable.records.flatMap(historyValues);
+  const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${insertable.records.map(() => placeholders).join(", ")}`;
   const [result] = await pool.query(query, values);
   const inserted = (result as { affectedRows: number }).affectedRows;
+  rememberBookingHistoryRequestIds(insertable.records.map((record) => record.requestId));
   return { inserted, skipped: records.length - inserted };
 }
 

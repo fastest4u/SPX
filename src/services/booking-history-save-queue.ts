@@ -1,0 +1,132 @@
+import { saveBookingRequests } from "./db-service.js";
+import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
+
+export type BookingHistorySaveResult = {
+  inserted: number;
+  skipped: number;
+  errors: number;
+  message: string;
+};
+
+export type BookingHistorySaveQueueOptions = {
+  save?: (trips: ExtractedTripInfo[]) => Promise<BookingHistorySaveResult>;
+  onResult?: (result: BookingHistorySaveResult, trips: ExtractedTripInfo[]) => void;
+  onError?: (error: unknown, trips: ExtractedTripInfo[]) => void;
+  onLatency?: (latencyMs: number, trips: ExtractedTripInfo[]) => void;
+  onDrop?: (trips: ExtractedTripInfo[], reason: "overflow") => void;
+  maxPendingTrips?: number;
+};
+
+const defaultMaxPendingTrips = 50_000;
+
+export class BookingHistorySaveQueue {
+  private readonly save: (trips: ExtractedTripInfo[]) => Promise<BookingHistorySaveResult>;
+  private readonly onResult?: (result: BookingHistorySaveResult, trips: ExtractedTripInfo[]) => void;
+  private readonly onError?: (error: unknown, trips: ExtractedTripInfo[]) => void;
+  private readonly onLatency?: (latencyMs: number, trips: ExtractedTripInfo[]) => void;
+  private readonly onDrop?: (trips: ExtractedTripInfo[], reason: "overflow") => void;
+  private readonly maxPendingTrips: number;
+  private pendingTrips = new Map<number, ExtractedTripInfo>();
+  private activeRequestIds = new Set<number>();
+  private activeDrain: Promise<void> | null = null;
+
+  constructor(options: BookingHistorySaveQueueOptions = {}) {
+    this.save = options.save ?? saveBookingRequests;
+    this.onResult = options.onResult;
+    this.onError = options.onError;
+    this.onLatency = options.onLatency;
+    this.onDrop = options.onDrop;
+    this.maxPendingTrips = Math.max(1, options.maxPendingTrips ?? defaultMaxPendingTrips);
+  }
+
+  get pendingCount(): number {
+    return this.pendingTrips.size;
+  }
+
+  get isSaving(): boolean {
+    return this.activeDrain !== null;
+  }
+
+  enqueue(trips: ExtractedTripInfo[]): void {
+    if (trips.length === 0) {
+      return;
+    }
+
+    const droppedTrips: ExtractedTripInfo[] = [];
+
+    for (const trip of trips) {
+      if (this.activeRequestIds.has(trip.request_id)) {
+        continue;
+      }
+
+      this.pendingTrips.set(trip.request_id, trip);
+
+      while (this.pendingTrips.size > this.maxPendingTrips) {
+        const oldestRequestId = this.pendingTrips.keys().next().value;
+        if (oldestRequestId === undefined) {
+          break;
+        }
+        const droppedTrip = this.pendingTrips.get(oldestRequestId);
+        this.pendingTrips.delete(oldestRequestId);
+        if (droppedTrip) {
+          droppedTrips.push(droppedTrip);
+        }
+      }
+    }
+
+    if (droppedTrips.length > 0) {
+      this.onDrop?.(droppedTrips, "overflow");
+    }
+
+    this.startDrain();
+  }
+
+  async flush(): Promise<void> {
+    while (this.pendingTrips.size > 0 || this.activeDrain) {
+      this.startDrain();
+      const activeDrain = this.activeDrain;
+      if (!activeDrain) {
+        return;
+      }
+      await activeDrain;
+    }
+  }
+
+  private startDrain(): void {
+    if (this.activeDrain) {
+      return;
+    }
+
+    const drain = this.drain().finally(() => {
+      if (this.activeDrain === drain) {
+        this.activeDrain = null;
+      }
+      if (this.pendingTrips.size > 0) {
+        this.startDrain();
+      }
+    });
+
+    this.activeDrain = drain;
+  }
+
+  private async drain(): Promise<void> {
+    while (this.pendingTrips.size > 0) {
+      const batch = [...this.pendingTrips.values()];
+      this.pendingTrips.clear();
+      this.activeRequestIds = new Set(batch.map((trip) => trip.request_id));
+      const startedAt = Date.now();
+
+      try {
+        const result = await this.save(batch);
+        this.onResult?.(result, batch);
+      } catch (error) {
+        this.onError?.(error, batch);
+      } finally {
+        for (const trip of batch) {
+          this.activeRequestIds.delete(trip.request_id);
+        }
+        this.onLatency?.(Date.now() - startedAt, batch);
+      }
+    }
+  }
+}
