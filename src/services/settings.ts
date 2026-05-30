@@ -112,7 +112,12 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
   }
   const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
-  mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
+  if (biddingVehicleType !== undefined && (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)) {
+    console.warn(`BIDDING_VEHICLE_TYPE is invalid (${process.env.BIDDING_VEHICLE_TYPE}); falling back to undefined`);
+    mutableEnv.BIDDING_VEHICLE_TYPE = undefined;
+  } else {
+    mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
+  }
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
 }
 

@@ -1,95 +1,184 @@
 ---
 name: spx-review
-description: Full PR flow — commit, branch, push, GitHub PR, strict 8-category code review, auto-fix, and merge. Use when the user invokes `$spx-review`, asks for review, or wants to review and merge code changes.
+description: Unified SPX review-and-fix workflow. Creates or updates a PR, runs strict 8-category review, auto-fixes all findings, pushes fixes, and auto-merges when clean. Use when the user invokes `$spx-review`, asks to review code, or wants a PR created and reviewed.
 ---
 
-# /review — Full Code Review & Merge Flow
+# SPX Review
 
-เมื่อ user สั่ง review ให้ดำเนินการตาม flow ทั้งหมดโดยอัตโนมัติ:
+Single-mode skill: every invocation runs the **full pipeline** — PR → review → auto-fix → push → auto-merge (if clean).
 
-## When To Run
+## Ground Rules
 
-- User wants to review and merge code changes.
-- User says "review", "PR", or "merge".
+- Use local `git` commands for workspace state: status, diff, branch, commit, push.
+- Use GitHub MCP for all remote PR operations: create/read/update PRs, read diff/files/checks/comments, request Copilot review, update branch, submit review, merge.
+- Do not use `gh` CLI, web UI, or browser fallback unless the user explicitly approves.
+- If GitHub MCP is unavailable or unauthenticated, stop and report the blocker.
+- Never read, print, copy, or commit `.env` secret values. Do not edit `dist/`, `data/`, `logs/`, `node_modules/`, generated route trees, or secrets.
+- Review only issues introduced by the current diff. Do not raise unrelated pre-existing issues unless made worse by the change.
+- **Report language**: สรุป issue ทั้งหมดเป็น**ภาษาไทย** รวมถึงชื่อปัญหา, ผลกระทบ, และวิธีแก้ไข (เฉพาะชื่อไฟล์/โค้ดคงเป็นภาษาอังกฤษ).
+- Use `agent: codex` in memory session logs.
 
-## Step 1: ตรวจ Uncommitted Changes
+## Step 1: Memory And Risk Check
+
+1. Run project-memory session/context/follow-up checks required by `AGENTS.md`.
+2. Run `spx-self-check` before production-impacting work, DB schema changes, notifications, auto-accept, auth, secrets, deploy, or broad `src/services/` or `src/controllers/` changes.
+3. Carry relevant open follow-ups into the final response or session end.
+
+## Step 2: Discover Local State
 
 ```bash
 git status --porcelain
-```
-
-- มี uncommitted changes → commit ทันที (`git add -A && git commit -m "<conventional-commit>"`)
-- ไม่มี changes → ตรวจ unpushed commits
-- ไม่มีทั้งคู่ → แจ้ง "ไม่มีอะไรให้ review" แล้วหยุด
-
-## Step 2: ตรวจ Branch
-
-```bash
 git branch --show-current
+git remote get-url origin
+git log --oneline --decorate -n 20
 ```
 
-### อยู่บน `main` หรือ `master`:
-1. นับ unpushed commits: `git log origin/<base>..HEAD --oneline`
-2. ไม่มี → หยุด
-3. มี → สร้าง branch: `<prefix>/<kebab-case-summary>`
+Detect `owner/repo` from `origin`. Detect the base branch by checking `main` first, then `master`.
 
-### อยู่บน branch อื่น:
-- ใช้ branch นั้นเลย
+If the worktree has unrelated dirty files, do not stage them. Stage only files that are clearly in scope. If scope is ambiguous, ask the user.
 
-## Step 3: Push Branch
+## Step 3: Prepare Branch, Commit, And PR
+
+1. If currently on `main` or `master`, create a topic branch: `feat/<kebab-summary>` or `fix/<kebab-summary>`.
+2. Stage and commit only scoped changes with a conventional commit message.
+3. Push the topic branch:
 
 ```bash
 git push -u origin <branch-name>
 ```
 
-## Step 4: สร้าง PR ผ่าน GitHub MCP
+4. Use GitHub MCP to find or create the PR:
+   - Search for an existing PR with `list_pull_requests` using the branch head.
+   - If none exists, create one with `create_pull_request`.
+   - If one exists, use that PR for the rest of the pipeline.
+   - Do not create duplicate PRs.
 
-- ดึง owner/repo จาก `git remote get-url origin`
-- **title**: สรุปสั้นๆ จาก commits (conventional commit style)
-- **head**: `<branch-name>`
-- **base**: `main` หรือ `master` (detect อัตโนมัติ)
+## Step 4: Strict 8-Category Review
 
-## Step 5: Code Review 8 หมวด
+Before reviewing:
 
-Use the `$spx-strict-pr-review` skill for the full 8-category review with P0-P3 severity levels.
+1. Get the full diff and file list (local `git diff` or GitHub MCP `get_files` / `get_diff`).
+2. Read the surrounding function/class/module context, not only the changed lines.
+3. Compare behavior against SPX project rules and runtime config in executable code.
 
-ขั้นตอน:
-1. ดึง diff + file list
-2. อ่านไฟล์ที่เกี่ยวข้องทั้ง context
-3. รีวิว 8 หมวด + severity (P0-P3)
-4. SPX-specific checks:
-   - แก้ไขตรงๆ ใน `dist/` หรือปริ้นค่า secrets → P0
-   - บันทึก DB โดยไม่ใช้ `INSERT IGNORE` → P1
-   - Fetch API ขาด Exponential Backoff → P1
-   - ไม่มี `.js` suffix ใน imports (NodeNext) → P2
+### Severity Levels
 
-## Step 6: แสดงผล + Auto-Fix
+| ระดับ | ความหมาย | ตัวอย่าง |
+| --- | --- | --- |
+| P0 | วิกฤต — ต้องแก้ก่อน merge | secret หลุด, แก้ไฟล์ `dist/` โดยตรง, runtime crash, schema/runtime ไม่ตรงกันจนพัง production |
+| P1 | ผลกระทบสูง | เขียน DB ไม่ปลอดภัย, ไม่มี retry/backoff ตอนเรียก API ภายนอก, ข้อมูลหาย, notification/auto-accept เสีย |
+| P2 | ผลกระทบปานกลาง | import ไม่มี `.js` suffix ใน NodeNext, migration ครอบคลุมไม่ครบ, type/runtime ไม่ตรงกัน |
+| P3 | ผลกระทบต่ำ | maintainability, style, naming, ขาด test เล็กน้อย |
 
-**Auto-Fix Loop:**
-- พบ P0-P3 → แก้ทันที → commit → push → กลับ Step 5 (สูงสุด 3 รอบ)
-- ไม่มี P0-P3 → ไป Step 7
+### Review Categories
 
-## Step 7: Merge
+1. **ความถูกต้องและ Logic**: พฤติกรรม poller/bidding, edge cases, nullish handling, idempotency.
+2. **ความปลอดภัย**: secrets, auth, token handling, logs, `.env`, sensitive payloads.
+3. **ความเสถียรและ Error Handling**: retries, exponential backoff, timeouts, exception handling, partial failures.
+4. **ประสิทธิภาพ**: DB/query loops, memory growth, polling frequency, avoid unnecessary work.
+5. **Maintainability และอ่านง่าย**: local patterns, strict TypeScript, NodeNext `.js` import suffixes, clear ownership.
+6. **สถาปัตยกรรมและ Design**: repository/service boundaries, schema compatibility, no generated/runtime artifact edits.
+7. **Testing และ Quality Gates**: focused checks for touched behavior, migration/runtime risk, typecheck/build results.
+8. **Compatibility และความเสี่ยง Deploy**: env compatibility, migrations, dashboard/API contract, production restart/deploy implications.
 
-- ไม่มี P0-P3 → merge ทันที (`squash`)
-- ยังมี P0-P3 หลัง 3 รอบ → ถาม user
+### SPX-Specific Blockers
 
-หลัง merge:
+- แก้ไข `dist/`, generated files, หรือ commit secret values: P0.
+- อ่านหรือพิมพ์ secret values จาก `.env`: P0.
+- เขียน DB ที่ควร idempotent แต่ไม่ได้ทำ: P1.
+- เรียก API ภายนอกโดยไม่มี retry/backoff ที่เหมาะสม: P1.
+- import ใน TypeScript ไม่มี `.js` suffix ภายใต้ NodeNext: P2.
+
+## Step 5: Auto-Fix And Report
+
+### 5a. Auto-Fix Loop
+
+1. แก้ไข findings ทั้งหมด P0–P3 ในไฟล์ที่อยู่ใน scope.
+2. ถ้า finding มีความคลุมเครือทางธุรกิจ ให้หยุดถามแทนที่จะเดา.
+3. รัน `npm run typecheck` หลังแก้ไขแต่ละรอบ.
+4. Review diff ใหม่ทั้งหมดหลังแก้ไขแต่ละรอบเพื่อยืนยันว่าไม่มี regression.
+5. ทำซ้ำได้สูงสุด **3 รอบ** ถ้ายังแก้ไม่หมดหลัง 3 รอบ ให้รายงานเป็น unresolved.
+6. Commit fix และ push:
+
+```bash
+git add <fixed-files>
+git commit -m "fix: <summary of review fixes>"
+git push
+```
+
+### 5b. Final Verification
+
+รัน `npm run build` เพื่อยืนยันว่า build ผ่านหลังแก้ไขทั้งหมด.
+
+### 5c. Report (ภาษาไทย)
+
+รายงานผลลัพธ์เป็น**ภาษาไทย** เรียงตามความรุนแรง ทุก finding ต้องมีหลักฐาน file/line/function และผลกระทบ.
+
+```markdown
+## สรุปผล Review: <branch-or-pr>
+
+**PR:** #<number>
+**ภาพรวม:** N ไฟล์ | N commits | +X/-Y บรรทัด
+
+### P0 วิกฤต
+- [file:line] ปัญหา | ผลกระทบ | แก้ไขแล้ว ✅ / ยังไม่แก้ ❌
+
+### P1 ผลกระทบสูง
+- ...
+
+### P2 ผลกระทบปานกลาง
+- ...
+
+### P3 ผลกระทบต่ำ
+- ...
+
+### แนวปฏิบัติที่ดี
+- ...
+
+### ผลลัพธ์
+- พบปัญหา: N รายการ, แก้แล้ว: N, ยังไม่แก้: N
+- Build: ✅ ผ่าน / ❌ ไม่ผ่าน
+- พร้อม merge: ใช่ / ไม่ (เหตุผล)
+```
+
+ถ้าไม่พบ finding ให้แจ้งชัดเจนและระบุความเสี่ยง test หรือ deployment ที่เหลืออยู่.
+
+## Step 6: Auto-Merge
+
+หลังจาก Step 5 เสร็จ ให้ตรวจสอบเงื่อนไข merge อัตโนมัติ:
+
+### เงื่อนไข Auto-Merge (ต้องผ่านทุกข้อ)
+
+1. **ไม่มี finding P0–P3 ค้างอยู่** (แก้หมดแล้ว หรือไม่มีตั้งแต่แรก).
+2. `npm run build` ผ่าน.
+3. GitHub check runs/status ผ่าน หรือไม่มี CI configured.
+4. PR ไม่มี unresolved review threads.
+
+### ถ้าผ่านทุกเงื่อนไข → Merge อัตโนมัติ
+
+```bash
+# merge via GitHub MCP
+merge_pull_request with merge_method: squash
+```
+
+หลัง merge สำเร็จ → cleanup branch:
+
 ```bash
 git checkout <base>
 git pull origin <base>
 git branch -d <branch-name>
 ```
 
-แจ้ง: "✅ Merge เรียบร้อย! PR #<number> merged → <base>"
+แจ้งผู้ใช้ว่า merge สำเร็จแล้ว. ไม่ deploy หลัง merge ยกเว้นผู้ใช้สั่งโดยตรง.
 
-## Rules
+### ถ้าไม่ผ่านเงื่อนไข → หยุดและรายงาน
 
-- Base branch: detect อัตโนมัติ (main/master)
-- merge conflict → ถาม user ว่าจะช่วย resolve ไหม
-- ใช้ `agent: codex` ใน session log
+แจ้งผู้ใช้ว่าเงื่อนไขข้อใดยังไม่ผ่าน พร้อมรายละเอียด และรอคำสั่ง.
 
-## Reference
+## Step 7: Session End
 
-- `$spx-strict-pr-review` — detailed 8-category review criteria
-- [[Runbook-Deploy-Safety-Checklist]] — pre-push checks
+หลังจบ pipeline:
+
+1. รัน verification gate ที่เหมาะสม.
+2. เรียก project-memory `memory_sessionEnd`.
+3. บันทึกผลลัพธ์, ไฟล์ที่แก้ไข, verification, decisions, และ open follow-ups.

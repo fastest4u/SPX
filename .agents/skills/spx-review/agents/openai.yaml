@@ -1,4 +1,4 @@
 interface:
   display_name: "SPX Review"
-  short_description: "Full PR flow with code review and merge"
-  default_prompt: "Use $spx-review to run the full commit, branch, push, PR, code review, auto-fix, and merge flow."
+  short_description: "Consolidated GitHub MCP PR review and merge gate"
+  default_prompt: "Use $spx-review to review SPX changes, create or update PRs through GitHub MCP, run the strict 8-category review, fix findings when requested, and merge only after explicit approval."
