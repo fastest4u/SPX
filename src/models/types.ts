@@ -4,6 +4,7 @@ export interface BiddingRequest {
   count: number;
   request_tab_pending_confirmation: boolean;
   request_ctime_start: number;
+  vehicle_type?: number;
 }
 
 export interface BookingRequestListRequest {

@@ -18,3 +18,6 @@ MEMORY_PROJECT_ROOT = "dynamic"
 
 [mcp_servers.project-memory.tools.memory_sessionStart]
 approval_mode = "approve"
+
+[mcp_servers.project-memory.tools.memory_sessionEnd]
+approval_mode = "approve"

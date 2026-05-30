@@ -41,6 +41,7 @@ export const INITIAL_SETTINGS_FORM = {
     LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
     DISCORD_WEBHOOK_URL: '',
     BOOKING_DETAIL_CONCURRENCY: '8',
+    BIDDING_VEHICLE_TYPE: '13',
     CODEX_IMAGE_PROVIDER: 'auto',
 }
 
@@ -96,6 +97,7 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
                 settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
             DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
             BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
+            BIDDING_VEHICLE_TYPE: settings.BIDDING_VEHICLE_TYPE ?? '13',
             CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
         })
         setIsDirty(false)
@@ -327,6 +329,20 @@ export function ApiSection({
                             value={formData.BOOKING_DETAIL_CONCURRENCY}
                             onChange={(e) => setField('BOOKING_DETAIL_CONCURRENCY', e.target.value)}
                             placeholder="8"
+                            inputMode="numeric"
+                        />
+                    </Field>
+
+                    <Field
+                        id="s-bidding-vehicle-type"
+                        label="Bidding vehicle type"
+                        helper="vehicle_type สำหรับ booking/bidding/list; เว้นว่างเพื่อดึงทุกประเภทรถ"
+                    >
+                        <Input
+                            id="s-bidding-vehicle-type"
+                            value={formData.BIDDING_VEHICLE_TYPE}
+                            onChange={(e) => setField('BIDDING_VEHICLE_TYPE', e.target.value)}
+                            placeholder="13"
                             inputMode="numeric"
                         />
                     </Field>

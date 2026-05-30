@@ -19,6 +19,7 @@ export const SETTINGS_KEYS = [
   "DISCORD_WEBHOOK_URL",
   "POLL_INTERVAL_MS",
   "BOOKING_DETAIL_CONCURRENCY",
+  "BIDDING_VEHICLE_TYPE",
   "CODEX_IMAGE_PROVIDER",
 ] as const;
 
@@ -40,6 +41,7 @@ const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
   DISCORD_WEBHOOK_URL: "",
   POLL_INTERVAL_MS: "30000",
   BOOKING_DETAIL_CONCURRENCY: "8",
+  BIDDING_VEHICLE_TYPE: "13",
   CODEX_IMAGE_PROVIDER: "auto",
 };
 
@@ -47,6 +49,16 @@ function readIntegerSetting(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
   if (rawValue === undefined || rawValue.trim() === "") {
     return defaultValue;
+  }
+
+  const value = Number(rawValue);
+  return Number.isInteger(value) ? value : Number.NaN;
+}
+
+function readOptionalIntegerSetting(name: string): number | undefined {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return undefined;
   }
 
   const value = Number(rawValue);
@@ -98,6 +110,13 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = 8;
   } else {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
+  }
+  const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
+  if (biddingVehicleType !== undefined && (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)) {
+    console.warn(`BIDDING_VEHICLE_TYPE is invalid (${process.env.BIDDING_VEHICLE_TYPE}); falling back to undefined`);
+    mutableEnv.BIDDING_VEHICLE_TYPE = undefined;
+  } else {
+    mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
   }
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
 }
