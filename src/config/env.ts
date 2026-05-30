@@ -44,6 +44,19 @@ function readIntegerEnv(name: string, defaultValue: number): number {
   return Number.isInteger(value) ? value : Number.NaN;
 }
 
+function readOptionalIntegerEnv(name: string, defaultValue?: number): number | undefined {
+  const rawValue = process.env[name];
+  if (rawValue === undefined) {
+    return defaultValue;
+  }
+  if (rawValue.trim() === "") {
+    return undefined;
+  }
+
+  const value = Number(rawValue);
+  return Number.isInteger(value) ? value : Number.NaN;
+}
+
 function parseCommaSeparated(value: string | undefined): string[] {
   if (!value || value.trim() === "") return [];
   return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
@@ -98,6 +111,7 @@ export const env = {
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",
   REQUEST_CTIME_START: readIntegerEnv("REQUEST_CTIME_START", 1776358800),
+  BIDDING_VEHICLE_TYPE: readOptionalIntegerEnv("BIDDING_VEHICLE_TYPE", 13),
   DB_MODE: (process.env.DB_MODE || "mysql") as "mysql" | "memory",
   DB_HOST: process.env.DB_HOST,
   DB_PORT: readIntegerEnv("DB_PORT", 3306),
@@ -156,6 +170,7 @@ export function validateRuntimeConfig(): void {
   if (!isPositiveInteger(env.BIDDING_PAGE_NO)) invalid.push("BIDDING_PAGE_NO must be a positive integer");
   if (!isPositiveInteger(env.BIDDING_PAGE_COUNT)) invalid.push("BIDDING_PAGE_COUNT must be a positive integer");
   if (!isNonNegativeInteger(env.REQUEST_CTIME_START)) invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");
+  if (env.BIDDING_VEHICLE_TYPE !== undefined && !isPositiveInteger(env.BIDDING_VEHICLE_TYPE)) invalid.push("BIDDING_VEHICLE_TYPE must be empty or a positive integer");
   if (!isPositiveInteger(env.NOTIFY_MIN_TRIPS)) invalid.push("NOTIFY_MIN_TRIPS must be a positive integer");
   if (!isBooleanString(process.env.DEBUG)) invalid.push("DEBUG must be true or false");
   if (!isBooleanString(process.env.FETCH_DETAILS)) invalid.push("FETCH_DETAILS must be true or false");

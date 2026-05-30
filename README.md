@@ -129,6 +129,7 @@ npm run flow:start     # migrate + build + start
 | `BIDDING_PAGE_NO` | no | 1 | API page start |
 | `BIDDING_PAGE_COUNT` | no | 100 | Items per page |
 | `REQUEST_CTIME_START` | no | 1776358800 | Unix timestamp filter |
+| `BIDDING_VEHICLE_TYPE` | no | 13 | Optional `vehicle_type` filter for bidding list; leave empty to disable |
 
 \* Required when `HTTP_ENABLED=true`, `SAVE_TO_DB=true`, or `AUTO_ACCEPT_ENABLED=true`
 

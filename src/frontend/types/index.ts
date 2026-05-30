@@ -231,6 +231,7 @@ export interface EnvSettings {
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
   BOOKING_DETAIL_CONCURRENCY?: string;
+  BIDDING_VEHICLE_TYPE?: string;
   CODEX_IMAGE_PROVIDER?: string;
 }
 

@@ -80,7 +80,7 @@ function numberOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : defaultValue;
 }
 
-function normalizeApiResponse(value: unknown): ApiResponse | null {
+export function normalizeApiResponse(value: unknown): ApiResponse | null {
   if (!isRecord(value) || !isRecord(value.data)) {
     return null;
   }
@@ -89,14 +89,17 @@ function normalizeApiResponse(value: unknown): ApiResponse | null {
     return null;
   }
 
+  const list = value.data.list as ApiResponse["data"]["list"];
+  const total = numberOrDefault(value.data.total, list.length);
+
   return {
     retcode: value.retcode,
     message: value.message,
     data: {
       pageno: numberOrDefault(value.data.pageno, env.BIDDING_PAGE_NO),
-      count: numberOrDefault(value.data.count, value.data.list.length),
-      total: numberOrDefault(value.data.total, value.data.list.length),
-      list: value.data.list as ApiResponse["data"]["list"],
+      count: numberOrDefault(value.data.count, list.length),
+      total: Math.max(total, list.length),
+      list,
     },
   };
 }
@@ -162,6 +165,21 @@ function buildHeaders(): Record<string, string> {
   };
 }
 
+export function buildBiddingListBody(pageNo: number): BiddingRequest {
+  const body: BiddingRequest = {
+    pageno: pageNo,
+    count: env.BIDDING_PAGE_COUNT,
+    request_tab_pending_confirmation: env.REQUEST_TAB_PENDING_CONFIRMATION,
+    request_ctime_start: env.REQUEST_CTIME_START,
+  };
+
+  if (env.BIDDING_VEHICLE_TYPE !== undefined) {
+    body.vehicle_type = env.BIDDING_VEHICLE_TYPE;
+  }
+
+  return body;
+}
+
 export class ApiClient {
   private cookieOverride: string | null = null;
 
@@ -178,12 +196,7 @@ export class ApiClient {
   }
 
   private get body(): BiddingRequest {
-    return {
-      pageno: env.BIDDING_PAGE_NO,
-      count: env.BIDDING_PAGE_COUNT,
-      request_tab_pending_confirmation: env.REQUEST_TAB_PENDING_CONFIRMATION,
-      request_ctime_start: env.REQUEST_CTIME_START,
-    };
+    return buildBiddingListBody(env.BIDDING_PAGE_NO);
   }
 
   private get overviewBaseUrl(): string {
