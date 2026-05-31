@@ -66,7 +66,8 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     }, undefined, statusCode);
   });
 
-  // Public — Kubernetes-style readiness probe. Returns coarse boolean only.
+  // Public - deploy/load-balancer readiness. Poller/session health stays in
+  // /health so transient upstream SPX errors do not roll back a healthy deploy.
   app.get("/ready", async (_req, reply) => {
     let ready = true;
     try {
@@ -75,7 +76,6 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     } catch {
       ready = false;
     }
-    if (!metrics.snapshot().session.isHealthy) ready = false;
     return sendSuccess(reply, { ready }, ready ? undefined : "Service unavailable", ready ? 200 : 503);
   });
 

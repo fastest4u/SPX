@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -52,7 +52,7 @@ jobs:
             cd /root/SPX
 
             # Capture rollback target before fetching new code so we can restore
-            # the exact commit if the new build or health check fails.
+            # the exact commit if the new build or readiness check fails.
             PREVIOUS_COMMIT=$(git rev-parse HEAD)
             echo "Previous commit: ${PREVIOUS_COMMIT}"
 
@@ -76,10 +76,11 @@ jobs:
 
             docker compose ps
 
-            # Health gate. If /health is not 200 within ~90s, roll back to the
-            # previous commit and bring that stack back up.
-            if ! curl -fsS --retry 12 --retry-delay 5 --max-time 90 https://www.pathwaylogistic.com/health >/dev/null; then
-              echo "Health check failed; rolling back to ${PREVIOUS_COMMIT}"
+            # Readiness gate. /ready checks whether the new app can serve HTTP
+            # and reach the DB without tying deploy success to upstream SPX
+            # poller/session health.
+            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --connect-timeout 5 --max-time 10 --retry-max-time 90 https://www.pathwaylogistic.com/ready >/dev/null; then
+              echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
               docker compose up -d --build --remove-orphans --force-recreate
               exit 1
