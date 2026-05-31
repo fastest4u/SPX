@@ -52,7 +52,7 @@ jobs:
             cd /root/SPX
 
             # Capture rollback target before fetching new code so we can restore
-            # the exact commit if the new build or health check fails.
+            # the exact commit if the new build or readiness check fails.
             PREVIOUS_COMMIT=$(git rev-parse HEAD)
             echo "Previous commit: ${PREVIOUS_COMMIT}"
 
@@ -79,7 +79,7 @@ jobs:
             # Readiness gate. /ready checks whether the new app can serve HTTP
             # and reach the DB without tying deploy success to upstream SPX
             # poller/session health.
-            if ! curl -fsS --retry 12 --retry-delay 5 --max-time 90 https://www.pathwaylogistic.com/ready >/dev/null; then
+            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --connect-timeout 5 --max-time 10 --retry-max-time 90 https://www.pathwaylogistic.com/ready >/dev/null; then
               echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
               docker compose up -d --build --remove-orphans --force-recreate
