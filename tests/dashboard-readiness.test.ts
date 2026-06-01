@@ -1,3 +1,6 @@
+// Must set DB_MODE before any imports because ESM evaluates all imports
+// before top-level code. env.ts reads process.env.DB_MODE at module load
+// time; if imported first, it sees "mysql" (default) instead of "memory".
 process.env.DB_MODE = "memory";
 
 import assert from "node:assert/strict";
