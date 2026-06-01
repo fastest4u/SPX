@@ -41,9 +41,9 @@ npm run verify
 
 Required result:
 
-- `memory:check` passes.
-- `memory:eval` passes.
-- `memory:score` prints a sane quality summary.
+- `memory_verifyVault` returns `ok=true` with no errors.
+- Targeted project-memory MCP validators pass for edited notes or source-backed claims.
+- `memory_lifecycleStatus` shows the session lifecycle was recorded.
 - `build` passes.
 
 If DB schema changed or production drift is suspected, also run:

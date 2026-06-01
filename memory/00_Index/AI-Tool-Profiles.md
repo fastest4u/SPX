@@ -4,7 +4,7 @@ type: reference
 status: active
 last-verified: 2026-05-14
 verified-by: codex
-source: file:memory/AGENTS.md + file:opencode.json + file:.agents/skills + file:.codex/hooks.json + project experience
+source: file:memory/AGENTS.md + file:opencode.json + file:.agents/skills + project-memory MCP + project experience
 confidence: high
 created: 2026-05-13
 updated: 2026-05-14
@@ -108,9 +108,9 @@ Before working, read these files in order:
 | Feature            | Support                                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | **Slash commands** | Built-in Codex commands plus repo-local SPX skills (`$spx-*`); Codex app may list enabled skills in the slash menu                  |
-| **Auto-log**       | Hook-assisted closeout via `.codex/hooks.json`; still writes session logs through normal agent work, not silent file writes         |
-| **Workflow files** | Reads root `AGENTS.md`, Memory Vault files, `.agents/skills/*/SKILL.md`, and `.codex/hooks.json`                                    |
-| **Best practice**  | Start Codex from the repo root so hooks and skills are discovered; hooks inject startup/self-check/closeout reminders automatically |
+| **Auto-log**       | MCP-assisted closeout via `memory_sessionEnd`; still writes session logs through project-memory tools, not silent file writes       |
+| **Workflow files** | Reads root `AGENTS.md`, Memory Vault files, `.agents/skills/*/SKILL.md`, and project-memory MCP retrieval results                   |
+| **Best practice**  | Start Codex from the repo root so skills are discovered; let `AGENTS.md` drive direct project-memory MCP startup/self-check/closeout |
 
 **Setup:** Repo-local Codex skills live under `.agents/skills/`. Codex scans `.agents/skills` from the working directory up to the repo root, so start Codex from `C:\Users\Server\Desktop\SPX` or a subfolder inside the repo.
 
@@ -127,12 +127,10 @@ $spx-memory-verify
 
 **Note:** These are Codex Agent Skills, not custom CLI-native slash commands. In CLI/IDE, invoke them with `$skill-name` or mention the name naturally. In the Codex app, enabled skills can appear in the slash command list.
 
-**Auto-hooks:**
-- `SessionStart` -> injects SPX Memory Vault startup context and recent session names.
-- `UserPromptSubmit` -> injects retrieval/self-check context and blocks obvious pasted secrets.
-- `PreToolUse` / `PermissionRequest` -> blocks dangerous commands such as `git reset --hard`, recursive deletes, `.env` reads, secret env prints, and destructive DB DDL.
-- `PostToolUse` -> reminds after file edits or verification commands.
-- `Stop` -> continues the turn if meaningful repo changes need a fresh session log or verification before final response.
+**Automation model:** Codex hooks are disabled in this workspace. Codex now calls project-memory MCP tools directly:
+- `memory_sessionStart`, `memory_contextPack`, and `memory_followUpRadar` for startup context.
+- `memory_selfCheck` before risky work.
+- `memory_sessionEnd`, `memory_verifyVault`, and targeted validators for closeout and memory health.
 
 ---
 
@@ -189,7 +187,7 @@ $spx-memory-verify
 | **Cascade** | Yes (7 workflows) | Yes | Automatic | ⭐ Primary |
 | **Claude Code** | No | Manual | Explicit prompt | ✅ Good |
 | **Cursor** | Yes (6 commands) | Semi-auto via hooks | Automatic via hooks + rules | ✅ Good |
-| **Codex** | Built-in + 7 SPX skills | Hook-assisted | Automatic via `AGENTS.md` + `.agents/skills` + `.codex/hooks.json` | ✅ Good |
+| **Codex** | Built-in + 7 SPX skills | MCP-assisted | Automatic via `AGENTS.md` + `.agents/skills` + project-memory MCP | ✅ Good |
 | **OpenCode** | Yes (7 commands) | Command-assisted | Automatic via `AGENTS.md` + commands | ✅ Good |
 | **Copilot Chat** | Limited | No | Limited | ❌ Skipped — lacks file write and arbitrary read |
 

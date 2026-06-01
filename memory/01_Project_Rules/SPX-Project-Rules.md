@@ -64,11 +64,8 @@ aliases:
 | `npm run flow:test` | `db:migrate` then `db:test` |
 | `npm run flow:start` | migrate, build, then start `dist/app.js` |
 | `npm run schema:verify` | Read-only MySQL schema drift check against the source schema contract |
-| `npm run memory:check` | Validate Memory Vault frontmatter, wikilinks, Dataview syntax |
-| `npm run memory:eval` | Verify Awakened AI retrieval coverage for core SPX questions |
-| `npm run memory:score` | Print Memory Vault quality score and maintenance signals |
-| `npm run memory:verify` | Run memory check, eval, and score as the default Memory Vault gate |
-| `npm run verify` | Run `memory:verify` plus `build` as the full local gate after code + memory changes |
+| project-memory MCP tools | Verify Memory Vault health, notes, source truth, links, staleness, lifecycle, and follow-ups |
+| `npm run verify` | Run the application production build gate |
 
 > [!warning]
 > `db:test` and `flow:test` require real API auth, network access, and MySQL. They can insert into `spx_booking_history`.

@@ -10,9 +10,10 @@ Single-mode skill: every invocation runs the **full pipeline** — PR → review
 ## Ground Rules
 
 - Use local `git` commands for workspace state: status, diff, branch, commit, push.
-- Use GitHub MCP for all remote PR operations: create/read/update PRs, read diff/files/checks/comments, request Copilot review, update branch, submit review, merge.
-- Do not use `gh` CLI, web UI, or browser fallback unless the user explicitly approves.
-- If GitHub MCP is unavailable or unauthenticated, stop and report the blocker.
+- Use GitHub MCP for remote PR operations by default.
+- If GitHub MCP is unavailable and the user explicitly approves CLI fallback, use GitHub CLI (`gh`) for PR operations: create/read/update PRs, read diff/files/checks/comments, update branch, and merge.
+- Do not use web UI or browser fallback unless the user explicitly approves.
+- If neither GitHub MCP nor an explicitly approved `gh` CLI fallback is available/authenticated, stop and report the blocker.
 - Never read, print, copy, or commit `.env` secret values. Do not edit `dist/`, `data/`, `logs/`, `node_modules/`, generated route trees, or secrets.
 - Review only issues introduced by the current diff. Do not raise unrelated pre-existing issues unless made worse by the change.
 - **Report language**: สรุป issue ทั้งหมดเป็น**ภาษาไทย** รวมถึงชื่อปัญหา, ผลกระทบ, และวิธีแก้ไข (เฉพาะชื่อไฟล์/โค้ดคงเป็นภาษาอังกฤษ).
@@ -47,9 +48,9 @@ If the worktree has unrelated dirty files, do not stage them. Stage only files t
 git push -u origin <branch-name>
 ```
 
-4. Use GitHub MCP to find or create the PR:
-   - Search for an existing PR with `list_pull_requests` using the branch head.
-   - If none exists, create one with `create_pull_request`.
+4. Use GitHub MCP, or explicitly approved `gh` CLI fallback, to find or create the PR:
+   - Search for an existing PR using the branch head.
+   - If none exists, create one.
    - If one exists, use that PR for the rest of the pipeline.
    - Do not create duplicate PRs.
 
@@ -157,8 +158,8 @@ git push
 ### ถ้าผ่านทุกเงื่อนไข → Merge อัตโนมัติ
 
 ```bash
-# merge via GitHub MCP
-merge_pull_request with merge_method: squash
+# merge via GitHub MCP or approved gh CLI fallback
+gh pr merge <number> --squash --delete-branch
 ```
 
 หลัง merge สำเร็จ → cleanup branch:

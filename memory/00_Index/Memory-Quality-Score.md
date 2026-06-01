@@ -1,98 +1,53 @@
 ---
 title: Memory Quality Score
 type: reference
-status: active
-last-verified: 2026-05-13
+status: superseded
+last-verified: 2026-06-01
 verified-by: codex
-source: file:scripts/memory-score.mjs
+source: project-memory MCP tools
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
-aliases:
-  - Memory Score
-  - Vault Quality Score
+updated: 2026-06-01
+superseded-by:
+  - 07_Insights/codex-project-memory-tool-native-auto-protocol.md
 tags:
   - reference
   - meta
   - project/spx
   - topic/memory-vault
   - topic/verification
+aliases:
+  - Memory Score
+  - Vault Quality Score
 ---
 
 # Memory Quality Score
 
-> [!abstract] Purpose
-> `npm run memory:score` summarizes Memory Vault quality as a deterministic score and a set of maintenance signals.
+> [!abstract] Current status
+> The old npm score script has been removed. Memory quality is now checked through project-memory MCP tools.
 
----
+## Current MCP Signals
 
-## Command
+Use:
 
-Run from repo root:
+- `memory_verifyVault` for whole-vault score, grade, errors, warnings, and issue list.
+- `memory_verifyNote` for edited-note structure.
+- `memory_verifySourceTruth` for source-backed claim checks.
+- `memory_findBrokenLinks` for link integrity.
+- `memory_checkStaleness` for stale claims or stale verification dates.
+- `memory_lifecycleStatus` for session lifecycle quality.
+- `memory_followUpRadar` for open follow-up debt.
+- `memory_findDuplicates` for overlapping notes.
 
-```bash
-npm run memory:score
-```
+## Interpreting Results
 
-For a minimum score gate:
-
-```bash
-node scripts/memory-score.mjs --min=80
-```
-
-The default command is informational and exits 0. The `--min=` mode exits non-zero only when the score is below the requested threshold.
-
----
-
-## Metrics
-
-The score currently tracks:
-
-- Total Markdown files and notes by `type`.
-- Files with valid frontmatter.
-- Broken wikilinks.
-- Notes with `updated:` older than 90 days.
-- Notes with `last-verified:` older than 90 days.
-- Source-candidate notes missing `source`, `last-verified`, `verified-by`, or `confidence`.
-- Open mistake entries.
-- Unchecked follow-up tasks in session logs.
-- Multi-AI acceptance pass/pending/fail counts from [[Multi-AI-Acceptance-Results]].
-
----
-
-## Score Meaning
-
-| Score | Meaning |
-|---|---|
-| 95-100 | Excellent. Memory is source-grounded and low-maintenance. |
-| 85-94 | Good. Some pending follow-ups or source fields need cleanup. |
-| 75-84 | Usable but needs maintenance before major production work. |
-| 60-74 | Risky. Re-read source files before trusting memory. |
-| Below 60 | Do not rely on memory without a cleanup pass. |
-
----
-
-## Maintenance Pattern
-
-Use this after memory-heavy sessions:
-
-```bash
-npm run memory:verify
-```
-
-`memory:verify` runs `memory:check`, `memory:eval`, and `memory:score`.
-
-Use this after code + memory changes:
-
-```bash
-npm run verify
-```
-
----
+- Errors must be fixed before calling memory work complete.
+- Warnings should be summarized honestly and either fixed or carried as follow-ups.
+- Template-related warnings under `99_Templates/` may be acceptable when they are known placeholders, but they should still be mentioned.
 
 ## Related
 
-- [[Vault-Dashboard]]
 - [[Memory-Evaluation-Test]]
-- [[Multi-AI-Acceptance-Results]]
-- [[Awakened-AI-System]]
+- [[Vault-Dashboard]]
+- [[Runbook-Multi-AI-Memory-Acceptance]]
+- [[codex-project-memory-tool-native-auto-protocol]]

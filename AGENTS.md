@@ -13,8 +13,7 @@ This is one npm package for a TypeScript SPX bidding poller plus React dashboard
 - `npm run db:generate`: rebuild and regenerate `migrations/001_create_booking_requests.sql`.
 - `npm run db:migrate`: rebuild and apply sorted `migrations/*.sql`.
 - `npm run schema:verify`: read-only MySQL drift check; requires DB env vars.
-- `npm run memory:verify`: Memory Vault check/eval/score.
-- `npm run verify`: full memory gate plus production build.
+- `npm run verify`: production build gate; Memory Vault verification uses project-memory MCP tools.
 
 On PowerShell, POSIX-style scripts such as `test:memory*` may need manual `$env:DB_MODE = "memory"` setup.
 
@@ -36,11 +35,39 @@ Never read, print, copy, or commit secret values from `.env`. Runtime config is 
 
 ### Auto Memory Management (project-memory MCP)
 
-Use `mcp5_*` tools (project-memory MCP) for ALL memory operations. Do NOT use obsidian MCP or manual file writes for memory management.
+Use the `memory_*` project-memory MCP tools for ALL memory operations. Do NOT use obsidian MCP, manual vault file writes, Codex hooks, or removed `npm run memory:*` scripts for Codex memory lifecycle work.
+
+Codex hooks and memory npm scripts are intentionally disabled in this workspace. Do not rely on `.codex/hooks.json` or `scripts/memory-*.mjs` for lifecycle enforcement; call the project-memory MCP tools directly from these instructions and the SPX skills.
+
+#### Project-Memory Tool Map (authoritative for Codex)
+Codex should learn the whole project-memory toolkit and auto-select the right tool by task intent. Do not call every tool every turn; choose the smallest useful set.
+
+- Startup/context: `memory_sessionStart`, `memory_contextPack`, `memory_followUpRadar`, `memory_awaken`, `memory_lifecycleStatus`
+- Read/search: `memory_search`, `memory_get`, `memory_list`, `memory_recent`
+- Risk and verification: `memory_selfCheck`, `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`
+- Maintenance: `memory_findBrokenLinks`, `memory_findDuplicates`, `memory_checkStaleness`, `memory_reindex`, `memory_indexNote`, `memory_compactVault`
+- Structured writing: `memory_sessionEnd`, `memory_writeSessionLog`, `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_createFromTemplate`
+- Vault transfer/bootstrap: `memory_export`, `memory_import`, `memory_bootstrapProject`
+
+Default routing:
+- Start meaningful work with `memory_sessionStart` plus `memory_contextPack`; confirm `vaultRoot` is `C:\Users\Server\Desktop\SPX\memory`.
+- Before work, call `memory_followUpRadar`; before risky work, call `memory_selfCheck`.
+- For memory-only verification, use `memory_verifyVault` and targeted validators such as `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findBrokenLinks`, and `memory_checkStaleness`.
+- For durable learning, use `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_createFromTemplate`, or `memory_sessionEnd` rather than editing vault notes manually.
+- For vault maintenance, use `memory_reindex`, `memory_indexNote`, `memory_compactVault`, `memory_findDuplicates`, `memory_export`, `memory_import`, or `memory_bootstrapProject` only when the task specifically calls for them.
+
+#### Lifecycle Summary
+Every meaningful task should follow this MCP-native loop:
+
+1. Start with `memory_sessionStart`, `memory_contextPack`, and `memory_followUpRadar`.
+2. Run `memory_selfCheck` before risky work.
+3. Use targeted retrieval, verification, maintenance, and writing tools from the tool map as the task requires.
+4. End with `memory_sessionEnd`; include concrete outcomes, decisions, files touched, open follow-ups, and verification evidence.
+5. If `memory_sessionEnd` cannot verify internally, call `memory_verifyVault` and record that result in the final response and session log.
 
 #### Layer 1 — Session Start (every new chat)
-Call `mcp5_memory_sessionStart` automatically on the first substantive user request.
-Then call `mcp5_memory_contextPack` with the appropriate mode and `taskArea` inferred from the request:
+Call `memory_sessionStart` automatically on the first substantive user request.
+Then call `memory_contextPack` with the appropriate mode and `taskArea` inferred from the request:
 - `mode: "coding"` — feature or refactor work
 - `mode: "debugging"` — error or bug investigation
 - `mode: "deploy"` — deploy, commit, push, production tasks
@@ -48,10 +75,10 @@ Then call `mcp5_memory_contextPack` with the appropriate mode and `taskArea` inf
 - `mode: "docs"` — memory, documentation, or vault tasks
 
 #### Layer 2 — Before Starting Work (every task)
-Call `mcp5_memory_followUpRadar` with the current task area to surface related open follow-ups from previous sessions. Mention any relevant unclosed items to the user before proceeding.
+Call `memory_followUpRadar` with the current task area to surface related open follow-ups from previous sessions. Mention any relevant unclosed items to the user before proceeding.
 
 #### Layer 3 — Before Risky Work (conditional)
-Call `mcp5_memory_selfCheck` before any work involving:
+Call `memory_selfCheck` before any work involving:
 - Production deploy, `docker compose`, SSH to server
 - DB schema changes, migrations
 - Auth, secrets, `.env` changes
@@ -59,14 +86,14 @@ Call `mcp5_memory_selfCheck` before any work involving:
 - Any change to `notify-rules.json` or auto-accept logic
 
 #### Layer 4 — Session End (after meaningful work)
-Call `mcp5_memory_sessionEnd` automatically after any of:
+Call `memory_sessionEnd` automatically after any of:
 - Completed a feature, bug fix, or refactor
-- Made an architectural decision → also call `mcp5_memory_writeADR`
-- Resolved a debugging session → also call `mcp5_memory_writeMistake` if a new bug pattern was found
+- Made an architectural decision → also call `memory_writeADR`
+- Resolved a debugging session → also call `memory_writeMistake` if a new bug pattern was found
 - User says "done", "เสร็จแล้ว", "save this", "ship it"
 - Approaching context limit
 
-If the same problem pattern appeared in ≥ 2 previous sessions → also call `mcp5_memory_writeInsight` to promote it as a durable lesson.
+If the same problem pattern appeared in ≥ 2 previous sessions → also call `memory_writeInsight` to promote it as a durable lesson.
 
 ### Commit & Deploy Policy
 

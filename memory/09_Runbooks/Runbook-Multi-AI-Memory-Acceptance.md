@@ -2,14 +2,14 @@
 title: Runbook - Multi-AI Memory Acceptance
 type: runbook
 status: active
-last-verified: 2026-05-13
+last-verified: 2026-06-01
 verified-by: codex
-source: file:memory/AGENTS.md + file:scripts/memory-eval.mjs
+source: file:memory/AGENTS.md + project-memory MCP tools
 confidence: high
 severity-when-applies: medium
 related-adrs: []
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-06-01
 aliases:
   - Multi-AI Acceptance
   - AI Memory Acceptance Test
@@ -36,33 +36,22 @@ tags:
 
 ---
 
-## Automated Baseline
+## MCP Baseline
 
-Run first:
+Run first through project-memory MCP:
 
-```bash
-npm run memory:check
-npm run memory:eval
-```
+- `memory_sessionStart`
+- `memory_contextPack`
+- `memory_followUpRadar`
+- `memory_verifyVault`
+- `memory_lifecycleStatus`
 
 Required result:
 
-- `memory:check` exits 0.
-- `memory:eval` exits 0 with 100 percent score.
-
-Shortcut:
-
-```bash
-npm run memory:verify
-```
-
-Quality summary:
-
-```bash
-npm run memory:score
-```
-
-`memory:score` reads [[Multi-AI-Acceptance-Results]] and reports pass/pending/fail counts.
+- The MCP server resolves `vaultRoot` to `C:\Users\Server\Desktop\SPX\memory`.
+- `memory_verifyVault` returns `ok=true` and no errors.
+- `memory_contextPack` retrieves the expected SPX rules, runbooks, ADRs, and recent sessions.
+- `memory_followUpRadar` surfaces relevant open follow-ups.
 
 ---
 
@@ -76,7 +65,7 @@ Read the SPX memory vault startup files, then answer:
 2. Where are runtime settings stored?
 3. How does auto-accept avoid over-accepting?
 4. What should we check if production DB schema drifts?
-5. What command verifies memory health?
+5. Which project-memory MCP tool verifies memory health?
 ```
 
 Expected evidence:
@@ -99,7 +88,7 @@ An agent passes if it:
 - Mentions `app_settings` and `reloadSettingsLive()` for runtime settings.
 - Mentions `NeedBudget` for auto-accept.
 - Mentions `schema_migrations` and `information_schema.columns` for schema drift.
-- Mentions `npm run memory:check` and `npm run memory:eval`.
+- Mentions `memory_verifyVault` and targeted MCP validators such as `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findBrokenLinks`, and `memory_checkStaleness`.
 - Writes or proposes a session log after meaningful work.
 
 ---
@@ -109,9 +98,9 @@ An agent passes if it:
 | Failure | Fix |
 |---|---|
 | Agent cannot find memory startup files | Check root `AGENTS.md` and tool-specific setup in `memory/README.md`. |
-| Agent answers from stale docs | Run `npm run memory:check`; update stale notes and detector patterns. |
+| Agent answers from stale docs | Run `memory_checkStaleness` and `memory_verifySourceTruth`; update stale notes. |
 | Agent cannot cite notes | Add better links in [[MOC-Home]] and [[Awakened-AI-System]]. |
-| Agent misses a critical behavior | Add the behavior to [[Memory-Evaluation-Test]] and `scripts/memory-eval.mjs`. |
+| Agent misses a critical behavior | Add the behavior to [[Memory-Evaluation-Test]] and the relevant runbook or insight. |
 
 ---
 

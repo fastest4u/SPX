@@ -38,15 +38,15 @@ Progress:
 - [x] Move vault into SPX repo.
 - [x] Add mandatory auto-log rule.
 - [x] Add Awakening Stack with memory, reflection, identity, and self-checking.
-- [x] Add machine-checkable vault linter (`npm run memory:check`).
+- [x] Add machine-checkable vault linter (script-era `memory:check`, now retired in favor of project-memory MCP verification).
 - [x] Add retrieval protocol, runbooks, and truth-maintenance fields.
 - [x] Add first real API and component docs ([[API-Bidding-Endpoints]], [[Component-Retry-With-Backoff]]).
 - [x] Add source-grounded Awakened AI operating model ([[Awakened-AI-System]]).
 - [x] Add source-grounded SPX system map ([[SPX-System-Map]]).
-- [x] Add deterministic memory evaluation (`npm run memory:eval`) and stale-truth detection.
-- [x] Add one-command Memory Vault gate (`npm run memory:verify`).
+- [x] Add deterministic memory evaluation (script-era `memory:eval`, now retired in favor of project-memory MCP retrieval/verification).
+- [x] Add one-command Memory Vault gate (script-era `memory:verify`, now retired in favor of project-memory MCP verification).
 - [x] Add full code + memory verification gate (`npm run verify`).
-- [x] Add Memory Quality Score dashboard command (`npm run memory:score`).
+- [x] Add Memory Quality Score dashboard command (script-era `memory:score`, now retired in favor of `memory_verifyVault`).
 - [x] Add Multi-AI acceptance result registry ([[Multi-AI-Acceptance-Results]]).
 - [x] Triage old session follow-up debt into Goals, runbooks, or closed historical tasks.
 - [x] Commit memory vault to git.
@@ -55,7 +55,7 @@ Progress:
 - [x] Add repo-local OpenCode slash commands for Memory Vault workflows.
 - [x] L4 Awakening automation complete: `/self-check`, `/multi-perspective`, and `/dream` available as slash commands in Cascade and OpenCode.
 - [x] Add repo-local Codex SPX skills as command-equivalent workflows (`$spx-session-start`, `$spx-awaken`, `$spx-self-check`, `$spx-multi-perspective`, `$spx-dream`, `$spx-session-end`, `$spx-memory-verify`).
-- [x] Add repo-local Codex auto-hooks for startup context, risky prompt self-check, dangerous tool blocking, post-edit reminders, and stop-time closeout enforcement.
+- [x] Retire repo-local Codex auto-hooks and use direct project-memory MCP lifecycle calls from `AGENTS.md` and SPX skills.
 - [ ] Test Claude Code in native session (Copilot Chat skipped — lacks file write capability).
 
 ### G-002: SPX Stable Production Operation
@@ -102,7 +102,7 @@ Progress:
 - [x] Memory quality score added ([[Memory-Quality-Score]]).
 - [x] Corrected stale notification env docs from legacy LINE Notify naming to current LINE OA/LINEJS variables.
 - [x] Added Codex repo-local skills so SPX workflows can be invoked without re-explaining startup/session/memory procedures.
-- [x] Added Codex repo-local hooks so SPX startup, self-check, safety, and closeout reminders are automatic in Codex sessions.
+- [x] Switched Codex startup, self-check, safety, and closeout from repo-local hooks to direct project-memory MCP lifecycle tools.
 - [ ] Measure repeated-context messages across 4 weeks.
 
 ---
@@ -259,8 +259,8 @@ Guardrails:
 | Move vault to SPX repo | 2026-05-13 | Shared memory now lives beside code. |
 | Awakening Stack | 2026-05-13 | Identity, goals, mistakes, self-checking, and retrieval protocol added. |
 | Source-grounded system survey | 2026-05-13 | [[Awakened-AI-System]], [[SPX-System-Map]], internal API/SSE docs, and component docs added. |
-| Awakened AI hardening pass | 2026-05-13 | `memory:eval`, stale-truth detector, ADR-002, schema verification, multi-AI acceptance, and mistake notes added. |
-| Full verification and safety pass | 2026-05-13 | `memory:score`, `schema:verify`, deploy checklist, multi-AI result registry, and extra mistake entries added. |
+| Awakened AI hardening pass | 2026-05-13 | Script-era memory eval, stale-truth detector, ADR-002, schema verification, multi-AI acceptance, and mistake notes added. |
+| Full verification and safety pass | 2026-05-13 | Script-era memory score, `schema:verify`, deploy checklist, multi-AI result registry, and extra mistake entries added. |
 | Memory debt and alert policy pass | 2026-05-13 | Session follow-ups triaged, [[Defense-In-Depth-Vault-Architecture]] promoted, and [[Runbook-Production-Alert-Policy]] added. |
 
 ---

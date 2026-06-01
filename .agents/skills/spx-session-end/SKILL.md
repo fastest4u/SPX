@@ -1,128 +1,57 @@
 ---
 name: spx-session-end
-description: Close meaningful SPX work by writing a Memory Vault session log and running the right verification gate. Use when the user invokes `$spx-session-end`, asks for session-end, says done/finished/save this, or after code, docs, memory, or workflow changes.
+description: Close meaningful SPX work by writing a Memory Vault session log and running project-memory MCP verification. Use when the user invokes `$spx-session-end`, asks for session-end, says done/finished/save this, or after code, docs, memory, or workflow changes.
 ---
 
-# /session-end — Save Session to Memory Vault
+# /session-end - Tool-Native Memory Closeout
 
-This workflow persists the current session into long-term memory so the next session can resume seamlessly.
+This workflow persists the current session into long-term memory without hooks, shell memory scripts, or manual vault writes.
 
 ## When To Run
 
+- After a meaningful chunk of work: feature, bug fix, docs update, memory update, or workflow/config change.
 - Before ending a session.
-- After completing a meaningful chunk of work (PR merged, feature done, bug fixed).
-- When the user says "save this" / "log this session" / "we're done" / "เสร็จแล้ว".
+- When the user says "save this", "log this session", "done", "finished", or "ship it".
 
-## Steps
+## MCP Steps
 
-1. **Determine the session topic**
-   - Pick a short kebab-case description: `Fix-Auto-Accept`, `Add-Discord-Embed`, `Refactor-Poller`, etc.
-   - Format: `YYYY-MM-DD-Topic.md` (today's date).
+1. Gather concrete closeout details:
+   - `outcomes[]`
+   - `decisionsMade[]`
+   - `filesTouched[]`
+   - `openFollowUps[]`
+   - precise `verification`
 
-2. **Pick the agent identity**
-   - Use `agent: codex` for Codex sessions.
+2. Call `memory_sessionEnd` with `verify: true`.
+   - Use `autoCompact: true` by default.
+   - If the MCP process has a stale in-memory index and closeout fails during auto-compact, call `memory_reindex`, retry with `autoCompact: false`, then run `memory_verifyVault`.
 
-3. **Create the session log file**
-   - Path: `memory/05_Agent_Session_Logs/YYYY-MM-DD-Topic.md`
-   - Use this template (fill **all** placeholders):
+3. Inspect the returned `qualityGate`.
+   - If it says verification was skipped or missing, call `memory_verifyVault`.
+   - If specific notes changed, call `memory_verifyNote`.
+   - If source-backed claims changed, call `memory_verifySourceTruth`.
+   - If links or stale claims are in scope, call `memory_findBrokenLinks` or `memory_checkStaleness`.
 
-   ```yaml
-   ---
-   title: "<YYYY-MM-DD> — <Topic with spaces>"
-   type: session-log
-   session-date: <YYYY-MM-DD>
-   agent: codex
-   duration-minutes: <estimate>
-   outcomes:
-     - <concrete outcome 1>
-     - <concrete outcome 2>
-   created: <YYYY-MM-DD>
-   updated: <YYYY-MM-DD>
-   tags:
-     - session-log
-     - project/spx
-     - <other relevant tag>
-   ---
-   ```
+4. If a durable lesson emerged:
+   - use `memory_writeADR` for architecture decisions,
+   - use `memory_writeMistake` for reusable failure lessons,
+   - use `memory_writeInsight` for recurring patterns.
 
-4. **Fill the body** (use this skeleton):
+## Output
 
-   ```markdown
-   # <YYYY-MM-DD> — <Topic>
+Report:
 
-   > [!abstract] TL;DR
-   > 1–2 sentences. Future-you reads this first.
-
-   ## Goal
-   What we set out to do.
-
-   ## What Was Done
-   - [x] Task 1 → result
-   - [ ] Task 2 → carried over
-
-   ## Files Touched
-   - `path/to/file.ts` — what changed and why
-
-   ## Decisions Made
-   - Decision 1 — see [[ADR-NNN-...]] *(if formal)*
-
-   ## Insights / Learnings
-   - Learning 1
-   - Learning 2
-
-   ## Confidence Log
-   | Claim / Question | Confidence Stated | Actual Result | Lesson |
-   |---|---|---|---|
-   | ... | ... | ... | ... |
-
-   ## Open Issues / Follow-ups
-   - [ ] Follow-up 1
-   - [ ] Follow-up 2
-
-   ## Quality Checks
-   - [x] All edited notes updated `updated:` field
-   - [x] Wikilinks added to related notes
-   - [x] Tagged with ≥ 2 tags from taxonomy
-   - [x] Session log written (this file)
-
-   ## References
-   - Commits: `<sha>...<sha>`
-   - Related sessions: [[YYYY-MM-DD-previous]]
-   - ADRs touched: [[ADR-NNN-...]]
-   ```
-
-5. **Run the right verification gate:**
-   - Memory-only changes: `npm run memory:verify`
-   - Code + memory changes: `npm run verify`
-
-6. **Check for promotion candidates**
-   - Did any insight repeat from previous sessions?
-   - If yes → consider creating `memory/07_Insights/<Topic>.md`.
-
-7. **Report to user**
-
-   ```
-   ## ✅ Session saved
-
-   **Log:** `memory/05_Agent_Session_Logs/YYYY-MM-DD-Topic.md`
-   **Outcomes:** <count>
-   **Open follow-ups:** <count>
-
-   Next session can resume by running `$spx-session-start`.
-   ```
+```text
+Session saved.
+- Log: <path from memory_sessionEnd>
+- Quality gate: pass/fail, score/grade if returned
+- Vault verification: pass/fail, score/grade if run
+- Follow-ups: <N>
+```
 
 ## Rules
 
-- **Be concrete** — "fixed bug" is bad. "Fixed race condition in poller's tick()" is good.
-- **Link, don't dump** — reference files, ADRs, commits instead of pasting content.
-- **Use wikilinks** `[[...]]` for in-vault references.
-- **Never edit old session logs** — they're append-only history.
+- Do not use removed npm memory scripts for normal Codex closeout.
+- Do not manually create or edit session log files; use `memory_sessionEnd` or `memory_writeSessionLog`.
 - Do not commit or push unless explicitly asked.
 - Do not log secrets or `.env` values.
-
-## Reference
-
-- Template: `memory/99_Templates/Template-Session-Log.md`
-- Vault rules: `memory/AGENTS.md`
-- Why we log: `memory/07_Insights/Memory-Vault-Principles.md`
-- Anti-rot strategy: `memory/07_Insights/Context-Rot-Prevention.md`

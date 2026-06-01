@@ -125,21 +125,15 @@ codex --context-file memory/AGENTS.md
 
 ### 🩺 Health Check
 
-Run the default vault gate to verify everything is consistent:
+AI agents should verify this vault through the project-memory MCP tools, not npm memory scripts.
 
-```bash
-npm run memory:verify
-```
+Use:
+- `memory_verifyVault` for whole-vault health, score, grade, errors, and warnings.
+- `memory_verifyNote` for edited notes.
+- `memory_verifySourceTruth` for source-backed factual claims.
+- `memory_findBrokenLinks`, `memory_checkStaleness`, and `memory_lifecycleStatus` when links, freshness, or lifecycle state are in scope.
 
-This runs structure checks, deterministic retrieval evaluation, and the quality score summary.
-
-For score-only output:
-
-```bash
-npm run memory:score
-```
-
-Reports: missing frontmatter, invalid types, broken wikilinks, Dataview hyphenated-field misuse, source-grounding gaps, open mistakes, session follow-ups, and multi-AI acceptance status.
+The old `npm run memory:*` scripts have been removed. `npm run verify` is now the application build gate only.
 
 ---
 
@@ -179,8 +173,8 @@ Setup details: [`00_Index/Plugin-Setup.md`](./00_Index/Plugin-Setup.md)
 > 5. Skim `memory/00_Index/Open-Followups.md` for pending tasks.
 > 6. Search `memory/05_Agent_Session_Logs/` for recent context.
 > 7. Check `memory/08_Mistakes/` matching task area to avoid repeats.
-> 8. **Log your session** at end → write `memory/05_Agent_Session_Logs/YYYY-MM-DD-topic.md`.
-> 9. **Use templates** from `memory/99_Templates/` for new notes.
+> 8. **Log your session** at end with `memory_sessionEnd`.
+> 9. **Use project-memory MCP writing tools** such as `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, and `memory_createFromTemplate` for durable notes.
 
 ---
 

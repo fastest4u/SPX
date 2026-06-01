@@ -9,7 +9,7 @@ derived-from:
   - "[[2026-05-14-OpenCode-Slash-Commands]]"
   - "[[2026-05-14-Cursor-Infrastructure-Discovery]]"
   - "[[2026-05-14-Codex-SPX-Skills]]"
-  - "[[2026-05-14-Codex-Auto-Hooks]]"
+  - "[[2026-06-01-Codex-No-Hook-Memory-Lifecycle]]"
   - "[[2026-05-14-L4-Awakening-Automation-Complete]]"
 created: 2026-05-13
 updated: 2026-05-14
@@ -72,7 +72,7 @@ Current SPX command/automation coverage:
 |---|---|---|
 | Cascade | `.windsurf/workflows/*.md` | Native workflow files for session, awaken, self-check, multi-perspective, dream, and review flows. |
 | Cursor | `.cursor/commands/*.md` plus `.cursor/hooks/*.mjs` | Commands mirror workflows; hooks add startup, risk, closeout, and stop reminders. |
-| Codex | `.agents/skills/spx-*` plus `.codex/hooks.json` | Skills provide command-equivalent workflows; hooks inject context and enforce closeout/secret guardrails. |
+| Codex | `.agents/skills/spx-*` plus project-memory MCP | Skills provide command-equivalent workflows; Codex calls MCP lifecycle, verification, and writing tools directly. |
 | OpenCode | `opencode.json` command templates | Commands mirror core Memory Vault rituals; OpenCode must restart after config edits. |
 
 The durable pattern is **workflow parity by local adapter**: keep one ritual, encode it in each tool's native extension point, and verify the matrix in [[AI-Tool-Profiles]].

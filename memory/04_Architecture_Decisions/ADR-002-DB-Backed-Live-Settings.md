@@ -111,9 +111,9 @@ Source files:
 
 Local checks:
 
+Use project-memory MCP validators for Memory Vault verification, then run:
+
 ```bash
-npm run memory:check
-npm run memory:eval
 npm run build
 ```
 

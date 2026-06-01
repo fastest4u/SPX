@@ -23,33 +23,18 @@ cssclasses:
 
 ## Automated Checks
 
-Run from repo root:
+Use project-memory MCP tools for Memory Vault verification:
 
-```bash
-npm run memory:verify
-```
+- `memory_verifyVault` for whole-vault health, score, grade, errors, and warnings.
+- `memory_verifyNote` for edited notes.
+- `memory_verifySourceTruth` for source-backed claims.
+- `memory_findBrokenLinks` for link health.
+- `memory_checkStaleness` for stale verification dates.
+- `memory_lifecycleStatus` for lifecycle quality.
 
-To print only the quality summary:
+For application code changes, run `npm run verify` or a narrower build/test gate from root `AGENTS.md`.
 
-```bash
-npm run memory:score
-```
-
-For code + memory changes, run the full repo gate:
-
-```bash
-npm run verify
-```
-
-Expected:
-
-- `memory:check` exits 0 with no frontmatter, wikilink, Dataview, freshness, or stale-truth errors.
-- `memory:eval` exits 0 with 100 percent retrieval coverage.
-- `memory:score` prints quality metrics including source-grounding gaps, open mistakes, session follow-ups, and multi-AI acceptance status.
-- `memory:verify` exits 0 only when memory check and eval pass; it also prints the quality score.
-- `verify` exits 0 only when `memory:verify` and `build` both pass.
-
-See [[Memory-Evaluation-Test]] and [[Memory-Quality-Score]].
+See [[Memory-Evaluation-Test]] and [[Memory-Quality-Score]] for the retired script-era notes and current MCP verification mapping.
 
 ---
 
@@ -242,8 +227,8 @@ GROUP BY file.link
 
 ## Maintenance Checklist
 
-- [ ] Run `npm run memory:verify` for memory-only work, or `npm run verify` for code + memory work.
-- [ ] Review `npm run memory:score` output for source gaps, follow-ups, and multi-AI pending rows.
+- [ ] Run `memory_verifyVault` for memory-only work, or `npm run verify` for application code changes.
+- [ ] Review MCP verification output for source gaps, follow-ups, and multi-AI pending rows.
 - [ ] Review stale notes and update or archive.
 - [ ] Review orphan notes and link them from a hub.
 - [ ] Review open mistake notes.

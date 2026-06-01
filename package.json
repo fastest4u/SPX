@@ -30,11 +30,7 @@
     "frontend:build": "vite build --emptyOutDir",
     "flow:start": "npm run db:migrate && npm run build --silent && node dist/app.js",
     "schema:verify": "node scripts/schema-verify.mjs",
-    "memory:check": "node scripts/memory-check.mjs",
-    "memory:eval": "node scripts/memory-eval.mjs",
-    "memory:score": "node scripts/memory-score.mjs",
-    "memory:verify": "npm run memory:check && npm run memory:eval && npm run memory:score",
-    "verify": "npm run memory:verify && npm run build"
+    "verify": "npm run build"
   },
   "keywords": [
     "spx",

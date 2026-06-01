@@ -4,7 +4,7 @@ type: reference
 status: active
 last-verified: 2026-05-14
 verified-by: codex
-source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + file:.agents/skills + file:.codex/hooks.json + terminal:npm run memory:eval + native OpenCode session
+source: file:memory/09_Runbooks/Runbook-Multi-AI-Memory-Acceptance.md + file:.agents/skills + project-memory MCP tools + native OpenCode session
 confidence: high
 created: 2026-05-13
 updated: 2026-05-14
@@ -30,12 +30,12 @@ tags:
 
 | Agent       | Status  | Last tested | Evidence                                                   | Notes                                                                                                                                                 |
 | ----------- | ------- | ----------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex       | pass    | 2026-05-14  | `npm run memory:verify`, `npm run verify`, `.agents/skills`, `.codex/hooks.json` | Reads root `AGENTS.md`, uses Memory Vault, writes session logs, passed deterministic retrieval tests, and now has repo-local SPX skills plus automatic hooks. |
+| Codex       | pass    | 2026-06-01  | project-memory MCP tools, `.agents/skills`, root `AGENTS.md` | Reads root `AGENTS.md`, uses project-memory MCP lifecycle tools, writes session logs, and no longer depends on Codex hooks or npm memory scripts. |
 | Cascade     | pass    | 2026-05-13  | 4-step acceptance test completed                           | Auto-reads AGENTS.md on `/session-start`, reads Goals, summarizes last session log, created Inbox test note. Native slash command support.            |
 | Claude Code | pending | 2026-05-13  | CLI not detected in current shell                          | Needs a native Claude Code session in `C:\Users\Server\Desktop\SPX`.                                                                                  |
-| Cursor      | pass    | 2026-05-14  | Native Cursor session in this repo; `npm run memory:verify` scored 100% | Read `AGENTS.md`, `MOC-Home`, `Awakened-AI-System`, and the runbook; confirmed the vault health gate and source-grounded acceptance flow.                                           |
+| Cursor      | pass    | 2026-05-14  | Native Cursor session in this repo; historical script gate scored 100% | Read `AGENTS.md`, `MOC-Home`, `Awakened-AI-System`, and the runbook; confirmed the vault health gate and source-grounded acceptance flow.                                           |
 | Copilot     | skipped | 2026-05-14  | Not used by the project owner                              | Copilot Chat lacks file write capability and cannot write session logs or read arbitrary markdown files; not suitable for vault-aware work. |
-| OpenCode    | pass    | 2026-05-14  | Native OpenCode session; `npm run memory:eval` scored 100%; `opencode.json` commands added | Read startup files, cited evidence notes, confirmed `app_settings`/`reloadSettingsLive()`, `NeedBudget`, schema drift checks, Memory Vault gates, and repo-local commands. |
+| OpenCode    | pass    | 2026-05-14  | Native OpenCode session; historical eval scored 100%; `opencode.json` commands added | Read startup files, cited evidence notes, confirmed `app_settings`/`reloadSettingsLive()`, `NeedBudget`, schema drift checks, Memory Vault gates, and repo-local commands. |
 ---
 
 ## Acceptance Prompt
@@ -64,7 +64,7 @@ An agent passes only if it:
 - Mentions `app_settings` and `reloadSettingsLive()` for settings.
 - Mentions `NeedBudget` for auto-accept.
 - Mentions `schema_migrations`, `information_schema.columns`, or `npm run schema:verify` for schema drift.
-- Mentions `npm run memory:verify` or `npm run verify`.
+- Mentions `memory_verifyVault` for memory health and `npm run verify` for application build verification.
 - Writes or proposes a session log after meaningful work.
 
 ---
@@ -76,7 +76,7 @@ After a native tool test:
 1. Update the row status to `pass` or `fail`.
 2. Add the test date and short evidence.
 3. If it failed, create or update a mistake entry.
-4. Run `npm run memory:verify`.
+4. Run `memory_verifyVault` and targeted project-memory MCP validators.
 
 ---
 
