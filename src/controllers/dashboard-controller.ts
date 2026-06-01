@@ -1,3 +1,5 @@
+console.log("[DEBUG] dashboard-controller.ts MODULE LOADED");
+
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { metrics } from "../services/metrics.js";
 import { getPool, getPoolStats } from "../db/client.js";
