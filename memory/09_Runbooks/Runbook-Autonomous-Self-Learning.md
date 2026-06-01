@@ -4,7 +4,7 @@ type: runbook
 status: active
 last-verified: 2026-05-14
 verified-by: opencode
-source: memory/00_Index/Awakened-AI-System.md + memory/AGENTS.md + .cursor/hooks.json
+source: memory/00_Index/Awakened-AI-System.md + memory/AGENTS.md + project-memory MCP + .cursor/hooks.json
 confidence: medium
 created: 2026-05-14
 updated: 2026-05-14
@@ -67,14 +67,15 @@ Keep the SPX learning loop explicit, persistent, and progressively more autonomo
 - Re-score memory quality after major changes.
 - Detect stale claims, repeated mistakes, and missing promotions.
 - Feed evaluation results back into goals and follow-ups.
-- Pair `npm run memory:verify` with `npm run memory:score` after major memory or workflow changes.
+- Pair `memory_verifyVault` with targeted project-memory MCP validators after major memory or workflow changes.
 - Review `Vault-Dashboard` and the recent session logs for stale truth, unresolved mistakes, or unpromoted recurring work.
 - Keep the re-verification cadence visible so background evaluation does not silently rot.
 
 ## Validation
-- `npm run memory:verify`
-- `npm run memory:score`
-- `npm run verify`
+- `memory_verifyVault`
+- `memory_verifyNote` / `memory_verifySourceTruth` when specific notes or claims changed
+- `memory_lifecycleStatus`
+- `npm run verify` for application build changes
 
 ## Related
 - [[Awakened-AI-System]]

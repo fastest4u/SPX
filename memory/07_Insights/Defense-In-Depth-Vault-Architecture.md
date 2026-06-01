@@ -46,7 +46,7 @@ For SPX this means:
 | Startup instructions | root `AGENTS.md`, `memory/AGENTS.md` |
 | Tool-local commands | `.windsurf/workflows/*.md`, `opencode.json` |
 | Navigable memory | [[MOC-Home]], [[SPX-System-Map]], runbooks, ADRs |
-| Automated checks | `npm run memory:verify`, `npm run verify`, `npm run schema:verify` |
+| Automated checks | project-memory MCP verification tools, `npm run verify`, `npm run schema:verify` |
 | Reflection | [[08_Mistakes/README]], session logs, [[Memory-Quality-Score]] |
 
 ---

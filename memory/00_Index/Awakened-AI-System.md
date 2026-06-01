@@ -4,7 +4,7 @@ type: reference
 status: active
 last-verified: 2026-05-14
 verified-by: codex
-source: file:memory/AGENTS.md + file:memory/AGENT-IDENTITY.md + file:memory/00_Index/Goals.md + file:memory/00_Index/Multi-AI-Acceptance-Results.md + file:.agents/skills + file:.codex/hooks.json + terminal:npm run memory:eval
+source: file:memory/AGENTS.md + file:memory/AGENT-IDENTITY.md + file:memory/00_Index/Goals.md + file:memory/00_Index/Multi-AI-Acceptance-Results.md + file:.agents/skills + project-memory MCP verification
 confidence: high
 created: 2026-05-13
 updated: 2026-05-14
@@ -53,7 +53,7 @@ Orient -> Retrieve -> Inspect source -> Act -> Verify -> Log -> Update memory
 | Retrieve | Use the retrieval table in [[AGENTS]] and the map in [[MOC-Home]]. |
 | Inspect source | Prefer `package.json`, `src/`, migrations, and current memory over guesses. |
 | Act | Keep changes scoped to the user request and repo patterns. |
-| Verify | Run targeted checks such as `npm run memory:check`, `npm run build`, focused tests, or `npm run verify` for code + memory changes. |
+| Verify | Use project-memory MCP validators for vault changes, plus `npm run build`, focused tests, or `npm run verify` for application changes. |
 | Log | Write a session log for meaningful work before ending. |
 | Update memory | Add or revise notes when a new durable fact, pattern, or decision is found. |
 
@@ -110,7 +110,7 @@ Minimum self-check questions:
 3. What should I verify locally?
 4. What memory needs to be updated after this?
 
-**Tool automation:** `/self-check` is available in Cascade (`.windsurf/workflows/self-check.md`) and OpenCode (`opencode.json`); Codex uses the repo-local `$spx-self-check` skill in `.agents/skills/` plus automatic prompt/tool/stop hooks in `.codex/hooks.json`.
+**Tool automation:** `/self-check` is available in Cascade (`.windsurf/workflows/self-check.md`) and OpenCode (`opencode.json`); Codex uses the repo-local `$spx-self-check` skill in `.agents/skills/` plus project-memory MCP lifecycle tools called directly from `AGENTS.md` and skills.
 
 ---
 
@@ -136,13 +136,13 @@ As of 2026-05-14, the Awakened AI memory has:
 - Reusable core patterns: [[Component-Retry-With-Backoff]], [[Component-Poller-Orchestration]], [[Component-Dual-Storage-Notify-Rules]]
 - ADRs for dual storage and DB-backed live settings: [[ADR-001-Dual-Storage-Notify-Rules]], [[ADR-002-DB-Backed-Live-Settings]]
 - Runbooks for API expiry, auto-accept, DB migrations, production schema verification, multi-AI acceptance, docs drift cleanup, notify failures, and production deploy.
-- Automated checks: `npm run memory:verify` runs structure/stale-claim checks, retrieval coverage, and [[Memory-Quality-Score]] in one command; `npm run verify` adds the full application build gate.
+- Memory checks: use project-memory MCP tools such as `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findBrokenLinks`, and `memory_checkStaleness`. `npm run verify` is the application build gate.
 - Production safeguards: [[Runbook-Deploy-Safety-Checklist]] and `npm run schema:verify` provide pre-push and read-only DB schema checks.
 - Operations policy: [[Runbook-Production-Alert-Policy]] defines `/ready`, `/health`, poll error, session-expired, auto-accept, DB, and latency alert conditions.
 - Multi-AI acceptance tracking: [[Multi-AI-Acceptance-Results]] currently has Codex, Cascade, Cursor, and OpenCode passing the Memory Vault acceptance flow.
 - L4 Awakening automation:
   - Cascade: `/self-check`, `/multi-perspective`, `/dream` via `.windsurf/workflows/`
-  - Codex: `$spx-session-start`, `$spx-awaken`, `$spx-self-check`, `$spx-multi-perspective`, `$spx-dream`, `$spx-session-end`, and `$spx-memory-verify` via repo-local `.agents/skills/`, plus automatic `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, and `Stop` hooks via `.codex/hooks.json`
+  - Codex: `$spx-session-start`, `$spx-awaken`, `$spx-self-check`, `$spx-multi-perspective`, `$spx-dream`, `$spx-session-end`, and `$spx-memory-verify` via repo-local `.agents/skills/`, with project-memory MCP tools called directly instead of Codex hooks or npm memory scripts
   - OpenCode: same 3 commands plus `/session-start`, `/awaken`, `/session-end`, `/memory-verify` via `opencode.json`
   - Cursor: 6 commands via `.cursor/commands/` plus **auto-hooks** (`sessionStart`, `beforeSubmitPrompt` with production keyword matcher, `sessionEnd`, `stop`) via `hooks.json` and `.cursor/hooks/*.mjs`
 

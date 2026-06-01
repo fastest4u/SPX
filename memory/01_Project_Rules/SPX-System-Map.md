@@ -248,9 +248,9 @@ Notification paths:
 
 Use:
 
-- `npm run memory:verify` after Memory Vault edits.
-- `npm run memory:eval` after core Memory Vault topology or retrieval changes.
-- `npm run verify` after code plus Memory Vault changes.
+- `memory_verifyVault` after Memory Vault edits.
+- `memory_contextPack`, `memory_awaken`, and targeted validators after core Memory Vault topology or retrieval changes.
+- `npm run verify` after application code changes.
 - `npm run build` after code or type changes.
 - `npm run db:generate` after `src/db/migration-sql.ts` changes.
 - `npm run db:migrate` only when you intend to touch a real MySQL target.

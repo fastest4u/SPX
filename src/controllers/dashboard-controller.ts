@@ -1,7 +1,5 @@
-console.log("[DEBUG] dashboard-controller.ts MODULE LOADED");
-
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
-import { metrics } from "../services/metrics.js";
+import { metrics, type MetricsSnapshot } from "../services/metrics.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
@@ -43,18 +41,31 @@ async function authenticate(req: FastifyRequest, reply: FastifyReply, requiredRo
   }
 }
 
-export const dashboardController: FastifyPluginAsync = async (app) => {
-  // Public — load balancer + uptime checks. Returns service health, no internals.
-  app.get("/health", async (_req, reply) => {
-    const snap = metrics.snapshot();
-    const errorRate = snap.polling.totalRequests > 0
-      ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
-      : 0;
+interface DashboardHealthData {
+  status: "ok" | "degraded";
+  uptime: number;
+  startedAt: string;
+  lastPoll: string | null;
+  errorRate: number;
+  session: {
+    healthy: boolean;
+    consecutiveErrors: number;
+    lastSessionWarning: string | null;
+  };
+}
 
-    const isHealthy = snap.session.isHealthy;
-    const statusCode = isHealthy ? 200 : 503;
+export function buildDashboardHealthResponse(snap: MetricsSnapshot): {
+  statusCode: 200 | 503;
+  data: DashboardHealthData;
+} {
+  const errorRate = snap.polling.totalRequests > 0
+    ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
+    : 0;
+  const isHealthy = snap.session.isHealthy;
 
-    return sendSuccess(reply, {
+  return {
+    statusCode: isHealthy ? 200 : 503,
+    data: {
       status: isHealthy ? "ok" : "degraded",
       uptime: snap.uptime,
       startedAt: snap.startedAt,
@@ -65,7 +76,15 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
         consecutiveErrors: snap.session.consecutiveErrors,
         lastSessionWarning: snap.session.lastSessionWarning,
       },
-    }, undefined, statusCode);
+    },
+  };
+}
+
+export const dashboardController: FastifyPluginAsync = async (app) => {
+  // Public — load balancer + uptime checks. Returns service health, no internals.
+  app.get("/health", async (_req, reply) => {
+    const health = buildDashboardHealthResponse(metrics.snapshot());
+    return sendSuccess(reply, health.data, undefined, health.statusCode);
   });
 
   // Public - deploy/load-balancer readiness. Poller/session health stays in
@@ -74,13 +93,10 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     let ready = true;
     try {
       const pool = getPool();
-      console.log("[DEBUG] /ready: pool =", pool);
       if (pool) await pool.query("SELECT 1");
-    } catch (err) {
-      console.log("[DEBUG] /ready: caught error =", err);
+    } catch {
       ready = false;
     }
-    console.log("[DEBUG] /ready: returning ready =", ready);
     return sendSuccess(reply, { ready }, ready ? undefined : "Service unavailable", ready ? 200 : 503);
   });
 

@@ -2,18 +2,18 @@
 title: Auto Memory Digest
 type: insight
 derived-from:
-  - 05_Agent_Session_Logs/2026-05-27-check-ci-deploy-status-after-pr-37-merge.md
-  - 05_Agent_Session_Logs/2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment.md
-  - 05_Agent_Session_Logs/2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release.md
-  - 05_Agent_Session_Logs/2026-05-27-investigate-spx-production-auto-accept-not-keeping-up.md
-  - 05_Agent_Session_Logs/2026-05-27-make-booking-history-persistence-asynchronous.md
-  - 05_Agent_Session_Logs/2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn.md
-  - 05_Agent_Session_Logs/2026-05-27-post-review-guard-for-async-booking-history-persistence.md
-  - 05_Agent_Session_Logs/2026-05-27-reduce-mysql-load-when-saving-spx-booking-history.md
-  - 05_Agent_Session_Logs/2026-05-27-set-zed-keymap-to-vs-code-behavior.md
-  - 05_Agent_Session_Logs/2026-05-27-spx-review-async-booking-history-persistence-changes.md
-  - 05_Agent_Session_Logs/2026-05-27-spx-review-full-flow-for-async-booking-history-persistence.md
-  - 05_Agent_Session_Logs/2026-05-27-verify-production-after-async-booking-history-deploy.md
+  - 05_Agent_Session_Logs/2026-05-27-PR37-CI-Deploy-Status.md
+  - 05_Agent_Session_Logs/2026-05-27-Release-V100-Async-History.md
+  - 05_Agent_Session_Logs/2026-05-27-SPX-Runtime-Flow-Async-History.md
+  - 05_Agent_Session_Logs/2026-05-27-Production-Auto-Accept-Lag.md
+  - 05_Agent_Session_Logs/2026-05-27-Async-Booking-History-Persistence.md
+  - 05_Agent_Session_Logs/2026-05-27-Insert-Ignore-Churn-Plan.md
+  - 05_Agent_Session_Logs/2026-05-27-Async-History-Review-Guard.md
+  - 05_Agent_Session_Logs/2026-05-27-Reduce-MySQL-History-Load.md
+  - 05_Agent_Session_Logs/2026-05-27-Zed-VS-Code-Keymap.md
+  - 05_Agent_Session_Logs/2026-05-27-Async-History-Review.md
+  - 05_Agent_Session_Logs/2026-05-27-Async-History-PR37-Flow.md
+  - 05_Agent_Session_Logs/2026-05-27-Production-Async-History-Verify.md
   - 05_Agent_Session_Logs/2026-05-13-Awaken-Slash-Command.md
   - 05_Agent_Session_Logs/2026-05-13-Awakened-AI-Hardening-Pass.md
   - 05_Agent_Session_Logs/2026-05-13-Awakening-Stack.md
@@ -95,22 +95,22 @@ Generated: 2026-06-01
 - Committed only code/test files for the PR and left unrelated memory-vault working tree changes unstaged.
 - Used GitHub REST API with Git Credential Manager token held in process memory and not printed because gh CLI was unavailable.
 - Deleted the remote feature branch after successful squash merge.
-- **Name it `/awaken`** (not `/next` or `/plan`) to fit the Awakened AI theme and the user's word "ตื่นรู้".
+- **Name it `/awaken`** (not `/next` or `/plan`) to fit the Awakened AI theme and the user's word "เธ•เธทเนเธเธฃเธนเน".
 - **5-phase structure** ensures the AI loads strategic context before tactical, preventing myopic suggestions.
 - **Top-3 output** prevents overwhelming the user while still giving options.
 - **Optional code state (step 9-10)** because the workflow should work for pure memory/docs work too.
 - ---
-- Treat `memory:eval` as the acceptance test for core Awakened AI retrieval coverage.
-- Treat known stale high-risk project claims as `memory:check` errors in active docs.
+- Treat `memory_contextPack`, `memory_awaken`, and `memory_verifyVault` as the acceptance path for core Awakened AI retrieval coverage.
+- Treat known stale high-risk project claims as findings for `memory_verifySourceTruth` and `memory_checkStaleness`.
 - Keep historical notes such as session logs, ADRs, mistakes, and sources excluded from stale-claim enforcement.
-- **L2 mistake registry uses sequential ID `Mistake-NNN`** — like ADRs, IDs never reused. Future-proof and stable links.
-- **`confidence:` is YAML for insights/mistakes, prose for sessions/ADRs** — different types have different verbosity needs.
-- **Identity file lives at vault root, not `00_Index/`** — `AGENT-IDENTITY.md` is fundamental, deserves top-level visibility.
-- **Three personas (not six)** in `/multi-perspective` — compressed from Six Thinking Hats. Optimizer + Critic + Devil's Advocate covers 80% of value at 50% of overhead.
-- **Workflows are slash-commands, not auto-triggered** — keeps AI explicit. Auto-triggering would create surprise.
-- **MOC manual lists are now legacy** — any future agent finding manual `- [[Note]]` lists in MOCs should consider replacing with Dataview queries.
-- **`type` field is the primary filter** — every Dataview query in this vault uses `WHERE type` to skip `.base` and orphan files.
-- **Hyphenated field gotcha documented** — `decision-date`, `derived-from`, etc. need bracket-syntax in `WHERE`.
+- **L2 mistake registry uses sequential ID `Mistake-NNN`** โ€” like ADRs, IDs never reused. Future-proof and stable links.
+- **`confidence:` is YAML for insights/mistakes, prose for sessions/ADRs** โ€” different types have different verbosity needs.
+- **Identity file lives at vault root, not `00_Index/`** โ€” `AGENT-IDENTITY.md` is fundamental, deserves top-level visibility.
+- **Three personas (not six)** in `/multi-perspective` โ€” compressed from Six Thinking Hats. Optimizer + Critic + Devil's Advocate covers 80% of value at 50% of overhead.
+- **Workflows are slash-commands, not auto-triggered** โ€” keeps AI explicit. Auto-triggering would create surprise.
+- **MOC manual lists are now legacy** โ€” any future agent finding manual `- [[Note]]` lists in MOCs should consider replacing with Dataview queries.
+- **`type` field is the primary filter** โ€” every Dataview query in this vault uses `WHERE type` to skip `.base` and orphan files.
+- **Hyphenated field gotcha documented** โ€” `decision-date`, `derived-from`, etc. need bracket-syntax in `WHERE`.
 
 ## Open Follow-ups
 - [ ] After production deploy, monitor booking-history-queue-drop logs; any nonzero drops mean MySQL is too slow/down for the history background workload.
@@ -152,18 +152,18 @@ Generated: 2026-06-01
 - Read-only SSH checks on root@45.83.207.139: git rev-parse/log in /root/SPX, docker compose ps, docker inspect health/restart count, curl /health and /ready, targeted docker logs grep counts since deploy, and docker stats single snapshot.
 
 ## Source Sessions
-- [[05_Agent_Session_Logs/2026-05-27-check-ci-deploy-status-after-pr-37-merge|2026-05-27-check-ci-deploy-status-after-pr-37-merge.md]]
-- [[05_Agent_Session_Logs/2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment|2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment.md]]
-- [[05_Agent_Session_Logs/2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release|2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release.md]]
-- [[05_Agent_Session_Logs/2026-05-27-investigate-spx-production-auto-accept-not-keeping-up|2026-05-27-investigate-spx-production-auto-accept-not-keeping-up.md]]
-- [[05_Agent_Session_Logs/2026-05-27-make-booking-history-persistence-asynchronous|2026-05-27-make-booking-history-persistence-asynchronous.md]]
-- [[05_Agent_Session_Logs/2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn|2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn.md]]
-- [[05_Agent_Session_Logs/2026-05-27-post-review-guard-for-async-booking-history-persistence|2026-05-27-post-review-guard-for-async-booking-history-persistence.md]]
-- [[05_Agent_Session_Logs/2026-05-27-reduce-mysql-load-when-saving-spx-booking-history|2026-05-27-reduce-mysql-load-when-saving-spx-booking-history.md]]
-- [[05_Agent_Session_Logs/2026-05-27-set-zed-keymap-to-vs-code-behavior|2026-05-27-set-zed-keymap-to-vs-code-behavior.md]]
-- [[05_Agent_Session_Logs/2026-05-27-spx-review-async-booking-history-persistence-changes|2026-05-27-spx-review-async-booking-history-persistence-changes.md]]
-- [[05_Agent_Session_Logs/2026-05-27-spx-review-full-flow-for-async-booking-history-persistence|2026-05-27-spx-review-full-flow-for-async-booking-history-persistence.md]]
-- [[05_Agent_Session_Logs/2026-05-27-verify-production-after-async-booking-history-deploy|2026-05-27-verify-production-after-async-booking-history-deploy.md]]
+- [[05_Agent_Session_Logs/2026-05-27-PR37-CI-Deploy-Status|2026-05-27-PR37-CI-Deploy-Status.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Release-V100-Async-History|2026-05-27-Release-V100-Async-History.md]]
+- [[05_Agent_Session_Logs/2026-05-27-SPX-Runtime-Flow-Async-History|2026-05-27-SPX-Runtime-Flow-Async-History.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Production-Auto-Accept-Lag|2026-05-27-Production-Auto-Accept-Lag.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Async-Booking-History-Persistence|2026-05-27-Async-Booking-History-Persistence.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Insert-Ignore-Churn-Plan|2026-05-27-Insert-Ignore-Churn-Plan.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Async-History-Review-Guard|2026-05-27-Async-History-Review-Guard.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Reduce-MySQL-History-Load|2026-05-27-Reduce-MySQL-History-Load.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Zed-VS-Code-Keymap|2026-05-27-Zed-VS-Code-Keymap.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Async-History-Review|2026-05-27-Async-History-Review.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Async-History-PR37-Flow|2026-05-27-Async-History-PR37-Flow.md]]
+- [[05_Agent_Session_Logs/2026-05-27-Production-Async-History-Verify|2026-05-27-Production-Async-History-Verify.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awaken-Slash-Command|2026-05-13-Awaken-Slash-Command.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awakened-AI-Hardening-Pass|2026-05-13-Awakened-AI-Hardening-Pass.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awakening-Stack|2026-05-13-Awakening-Stack.md]]

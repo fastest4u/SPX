@@ -59,7 +59,7 @@ This vault is the **persistent long-term memory** of the developer + AI team for
 > - `/session-start` — read Memory Vault startup context and summarize current state
 > - `/awaken` — review Awakened AI status, risks, gaps, and next actions
 > - `/session-end` — write the required session log and run the right verification gate
-> - `/memory-verify` — run `npm run memory:verify` and summarize memory health
+> - `/memory-verify` — call `memory_verifyVault` and targeted project-memory MCP validators, then summarize memory health
 >
 > Config source: `opencode.json`. Restart OpenCode after editing this file because config is not hot-reloaded.
 
@@ -216,7 +216,7 @@ If you can't answer any of these, **run `/session-start` first**.
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |
 | **Vault hygiene / memory** | [[AGENTS]] (this file), [[Memory-Vault-Principles]] | [[Vault-Dashboard]] | recent mistakes with `topic/memory-vault` |
 | **Docs / instruction drift** | [[Runbook-Docs-Drift-Cleanup]], [[Source-Grounded-Documentation]] | [[Mistake-002-Stale-Memory-Docs-Overrode-Source]] | stale notification env names, old command summaries, or settings restart claims |
-| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Memory-Quality-Score]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]], [[Multi-AI-Acceptance-Results]] | `npm run memory:verify` |
+| **Memory evaluation / multi-AI testing** | [[Memory-Evaluation-Test]], [[Memory-Quality-Score]], [[Runbook-Multi-AI-Memory-Acceptance]] | [[Awakened-AI-System]], [[Vault-Dashboard]], [[Multi-AI-Acceptance-Results]] | `memory_verifyVault` + targeted MCP validators |
 | **Architectural decision** | [[Goals]] active items | Latest ADRs in `04_Architecture_Decisions/` | similar prior ADRs |
 | **Any task** (always) | [[AGENT-IDENTITY]], [[Goals#Active Goals]] | Last 3 entries in `05_Agent_Session_Logs/` | matching `08_Mistakes/` entries |
 
@@ -264,7 +264,7 @@ AGENT-IDENTITY.md          # Who I am on this project (Level 3 Identity)
 > - **Dates** — ISO format `YYYY-MM-DD` only.
 > - **One topic per file** (Atomic Markdown principle).
 >
-> **Per-folder filename schema (ENFORCED by `npm run memory:check`):**
+> **Per-folder filename schema (checked by project-memory MCP verification and agent review):**
 >
 > | Folder | Pattern | Example |
 > |---|---|---|
@@ -417,7 +417,7 @@ Use **nested tags** for hierarchy. Examples:
 > [!success] Plugin status
 > - **Dataview** — ACTIVE — auto-generate views from frontmatter (use for any list/count task)
 > - **Templater** — ACTIVE — interactive template insertion with prompts + auto-rename/move
-> - **Linter** — INSTALLED but NOT auto-running (`lintOnSave: false`, `yaml-timestamp.enabled: false`). The CI-style linter for this vault is `npm run memory:check`.
+> - **Linter** — INSTALLED but NOT auto-running (`lintOnSave: false`, `yaml-timestamp.enabled: false`). Use project-memory MCP verification tools for vault health.
 
 **Setup details:** see [[Plugin-Setup]].
 
@@ -439,7 +439,7 @@ Use **nested tags** for hierarchy. Examples:
 > [!warning] You DO need to update `updated:` manually when editing a note
 > The Obsidian Linter plugin is installed but **NOT** configured to auto-bump timestamps in this vault (`lintOnSave: false`). Two options going forward:
 >
-> **Option A (current default):** Update `updated: YYYY-MM-DD` by hand whenever you edit a note. `npm run memory:check` does not yet enforce freshness, but a future check can.
+> **Option A (current default):** Update `updated: YYYY-MM-DD` by hand whenever you edit a note. Use `memory_checkStaleness` and `memory_verifyNote` when freshness matters.
 >
 > **Option B (if you prefer auto-bump):** Open Obsidian Settings → Linter → enable `Lint on save` and the `YAML timestamp` rule with `Date Modified Key = updated`. Then this section should be flipped back to "Linter handles it."
 >

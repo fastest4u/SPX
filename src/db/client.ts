@@ -14,9 +14,7 @@ const DB_TIMEZONE = "+00:00";
 
 function createPool(): Pool | null {
   // In-memory mode doesn't use mysql2 pool
-  console.log("[DEBUG] createPool: DB_MODE =", env.DB_MODE);
   if (env.DB_MODE === "memory") {
-    console.log("[DEBUG] createPool: returning null (memory mode)");
     return null;
   }
 
@@ -61,13 +59,11 @@ let dashboardTablesInitialized = false;
 let dashboardTablesInitializationPromise: Promise<void> | null = null;
 
 export function getPool(): ReturnType<typeof createPool> {
-  console.log("[DEBUG] getPool: poolInstance =", poolInstance);
   if (poolInstance) {
     return poolInstance;
   }
 
   poolInstance = createPool();
-  console.log("[DEBUG] getPool: created pool =", poolInstance);
 
   return poolInstance;
 }

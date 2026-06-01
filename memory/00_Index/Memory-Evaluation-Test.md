@@ -1,105 +1,63 @@
 ---
 title: Memory Evaluation Test
 type: reference
-status: active
-last-verified: 2026-05-13
+status: superseded
+last-verified: 2026-06-01
 verified-by: codex
-source: file:scripts/memory-eval.mjs
+source: project-memory MCP tools
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
-aliases:
-  - Memory Eval
-  - Awakened AI Evaluation
+updated: 2026-06-01
+superseded-by:
+  - 07_Insights/codex-project-memory-tool-native-auto-protocol.md
 tags:
   - reference
   - meta
   - project/spx
   - topic/memory-vault
   - topic/agent-orchestration
+aliases:
+  - Memory Eval
+  - Memory Retrieval Evaluation
 ---
 
 # Memory Evaluation Test
 
-> [!abstract] Purpose
-> `npm run memory:eval` verifies that the Memory Vault contains enough notes and key terms for an AI agent to answer the most important SPX questions with evidence.
+> [!abstract] Current status
+> The old npm memory evaluation scripts have been removed. Codex now uses project-memory MCP retrieval and verification tools directly.
 
----
+## Current MCP Flow
 
-## Commands
+Use these tools instead of script commands:
 
-Default one-command gate:
+- `memory_contextPack` to retrieve task-scoped context and evidence.
+- `memory_awaken` to assess project state and next actions.
+- `memory_followUpRadar` to surface open follow-ups.
+- `memory_verifyVault` to verify whole-vault health.
+- `memory_verifyNote` for edited notes.
+- `memory_verifySourceTruth` for factual/source-backed claims.
+- `memory_lifecycleStatus` to confirm session lifecycle quality.
 
-```bash
-npm run memory:verify
-```
+## Acceptance Questions
 
-This runs `memory:check` first, then `memory:eval`, then `memory:score`.
+Agents should still be able to answer these SPX questions from memory evidence:
 
-Full repo gate after code + memory changes:
+- How should an Awakened AI operate in SPX?
+- How does the whole SPX runtime work?
+- Where are settings stored and how do they apply?
+- What should an agent do when the upstream SPX session expires?
+- How does auto-accept avoid over-accepting?
+- How are notify rules stored across dev and prod?
+- How should production schema drift be checked?
+- How do we test multi-agent memory acceptance?
 
-```bash
-npm run verify
-```
+## Maintenance
 
-This runs `memory:verify` first, then `build`.
-
-Evaluation-only command:
-
-```bash
-npm run memory:eval
-```
-
-Source: `scripts/memory-eval.mjs`
-
-The script is deterministic. It does not call an AI model. It checks that expected notes exist and contain expected terms.
-
----
-
-## Evaluation Questions
-
-| Question | Required evidence |
-|---|---|
-| How should an Awakened AI operate in SPX? | [[Awakened-AI-System]], [[AGENTS]], [[AGENT-IDENTITY]] |
-| How does the whole SPX runtime work? | [[SPX-System-Map]], [[SPX-Project-Rules]] |
-| Where are settings stored and how do they apply? | [[SPX-System-Map]], [[SPX-Project-Rules]], [[ADR-002-DB-Backed-Live-Settings]] |
-| What should an agent do when the upstream SPX session expires? | [[Runbook-API-Session-Expired]], [[API-SSE-Events]] |
-| How does auto-accept avoid over-accepting? | [[Component-Poller-Orchestration]], [[Runbook-Auto-Accept-Debug]] |
-| How are notify rules stored across dev and prod? | [[Component-Dual-Storage-Notify-Rules]], [[ADR-001-Dual-Storage-Notify-Rules]] |
-| How should production schema drift be checked? | [[Runbook-Production-Schema-Verification]], [[Runbook-DB-Migration]] |
-| How do we test multi-agent memory acceptance? | [[Runbook-Multi-AI-Memory-Acceptance]], this note |
-
----
-
-## Pass Criteria
-
-The script passes only when every evaluation item has:
-
-- All required note files present.
-- Required terms present in the combined text of those notes.
-- Score of 100 percent.
-
-Any missing note or term exits non-zero so automation can catch memory drift.
-
-For normal Memory Vault edits, use `npm run memory:verify` instead of running memory checks manually. Use [[Memory-Quality-Score]] when you need the score details without the full gate.
-
----
-
-## When To Update
-
-Update `scripts/memory-eval.mjs` and this note when:
-
-- A new critical operating question appears.
-- A note is renamed.
-- A core behavior moves to a different source file or memory note.
-- A stale answer would be dangerous for production, DB, auth, auto-accept, or deployment.
-
----
+When a new critical operating question appears, update this note and the relevant runbook or insight. Verify through `memory_contextPack`, `memory_awaken`, and `memory_verifyVault`.
 
 ## Related
 
-- [[Awakened-AI-System]]
-- [[SPX-System-Map]]
-- [[Vault-Dashboard]]
 - [[Memory-Quality-Score]]
+- [[Vault-Dashboard]]
 - [[Runbook-Multi-AI-Memory-Acceptance]]
+- [[codex-project-memory-tool-native-auto-protocol]]

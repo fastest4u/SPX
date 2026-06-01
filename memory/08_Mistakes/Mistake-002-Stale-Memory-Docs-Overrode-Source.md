@@ -69,9 +69,9 @@ About 20 minutes of extra source verification and memory correction.
 
 > [!tip] Pre-flight checklist
 > 1. For behavior claims, inspect `src/` first.
-> 2. Run `npm run memory:check`.
-> 3. Run `npm run memory:eval` after changing core memory.
-> 4. Add stale phrases to `scripts/memory-check.mjs` when a drift pattern is found.
+> 2. Run `memory_verifyVault`.
+> 3. Run `memory_verifySourceTruth` and `memory_checkStaleness` after changing core memory.
+> 4. Add or update source-grounded notes when a drift pattern is found.
 
 ---
 
@@ -81,7 +81,7 @@ Symptoms:
 
 - Active docs mention old env vars or old commands.
 - Memory says a feature restarts the process, but source applies live.
-- `memory:eval` misses a critical behavior.
+- MCP retrieval or verification misses a critical behavior.
 - A new AI cites session logs instead of current source-grounded notes.
 
 ---

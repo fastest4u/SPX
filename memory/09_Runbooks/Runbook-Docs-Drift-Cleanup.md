@@ -4,7 +4,7 @@ type: runbook
 status: active
 last-verified: 2026-05-14
 verified-by: opencode
-source: file:README.md + file:.env.example + file:src/config/env.ts + file:scripts/memory-check.mjs
+source: file:README.md + file:.env.example + file:src/config/env.ts + project-memory MCP tools
 confidence: high
 severity-when-applies: medium
 related-adrs:
@@ -48,7 +48,7 @@ tags:
 1. Identify the claim and the files that repeat it.
 2. Open the executable source that owns the behavior.
 3. Update active docs: `README.md`, `.env.example`, root `AGENTS.md`, and relevant Memory Vault notes.
-4. If a stale phrase could recur inside `memory/`, add or confirm a detector in `scripts/memory-check.mjs`.
+4. If a stale phrase could recur inside `memory/`, use `memory_checkStaleness`, `memory_verifySourceTruth`, and targeted `memory_search` queries to catch it.
 5. Update `updated:` and truth fields on edited Memory Vault notes.
 6. Add or update a mistake note when the drift caused a wrong answer or bad operational path.
 7. Write a session log for the cleanup.
@@ -57,9 +57,12 @@ tags:
 
 Run after Memory Vault changes:
 
-```bash
-npm run memory:verify
-```
+Use project-memory MCP verification:
+
+- `memory_verifyVault`
+- `memory_verifyNote` for edited notes
+- `memory_verifySourceTruth` for source-backed claims
+- `memory_findBrokenLinks` if links changed
 
 Run after script or app-code changes too:
 

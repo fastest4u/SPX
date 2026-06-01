@@ -1,6 +1,6 @@
 [features]
-codex_hooks = true
-hooks = true
+codex_hooks = false
+hooks = false
 
 [mcp_servers.context7]
 command = "npx"
