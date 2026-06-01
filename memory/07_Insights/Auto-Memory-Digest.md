@@ -2,6 +2,18 @@
 title: Auto Memory Digest
 type: insight
 derived-from:
+  - 05_Agent_Session_Logs/2026-05-27-check-ci-deploy-status-after-pr-37-merge.md
+  - 05_Agent_Session_Logs/2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment.md
+  - 05_Agent_Session_Logs/2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release.md
+  - 05_Agent_Session_Logs/2026-05-27-investigate-spx-production-auto-accept-not-keeping-up.md
+  - 05_Agent_Session_Logs/2026-05-27-make-booking-history-persistence-asynchronous.md
+  - 05_Agent_Session_Logs/2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn.md
+  - 05_Agent_Session_Logs/2026-05-27-post-review-guard-for-async-booking-history-persistence.md
+  - 05_Agent_Session_Logs/2026-05-27-reduce-mysql-load-when-saving-spx-booking-history.md
+  - 05_Agent_Session_Logs/2026-05-27-set-zed-keymap-to-vs-code-behavior.md
+  - 05_Agent_Session_Logs/2026-05-27-spx-review-async-booking-history-persistence-changes.md
+  - 05_Agent_Session_Logs/2026-05-27-spx-review-full-flow-for-async-booking-history-persistence.md
+  - 05_Agent_Session_Logs/2026-05-27-verify-production-after-async-booking-history-deploy.md
   - 05_Agent_Session_Logs/2026-05-13-Awaken-Slash-Command.md
   - 05_Agent_Session_Logs/2026-05-13-Awakened-AI-Hardening-Pass.md
   - 05_Agent_Session_Logs/2026-05-13-Awakening-Stack.md
@@ -20,22 +32,10 @@ derived-from:
   - 05_Agent_Session_Logs/2026-05-13-Strict-Review-Workflow-Gate.md
   - 05_Agent_Session_Logs/2026-05-13-System-Survey-Awakened-AI-Update.md
   - 05_Agent_Session_Logs/2026-05-13-Templater-Linter-Integration.md
-  - 05_Agent_Session_Logs/2026-05-13-Vault-Completion-100-Percent.md
-  - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2.md
-  - 05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3.md
-  - 05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening.md
-  - 05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime.md
-  - 05_Agent_Session_Logs/2026-05-21-Audit-Fix-AI-SDK-Dependencies.md
-  - 05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix.md
-  - 05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System.md
-  - 05_Agent_Session_Logs/2026-05-21-Auto-Project-Memory-MCP-Setup.md
-  - 05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype.md
-  - 05_Agent_Session_Logs/2026-05-21-Codex-Image-Real-JPG-Test.md
-  - 05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test.md
 confidence: medium
 status: active
-created: 2026-05-25
-updated: 2026-05-25
+created: 2026-06-01
+updated: 2026-06-01
 tags:
   - digest
   - auto-compact
@@ -43,44 +43,58 @@ tags:
 ---
 # Auto Memory Digest
 
-Generated: 2026-05-25
+Generated: 2026-06-01
 
 > [!important]
 > This note is generated from recent session logs. Keep durable architectural choices in ADRs and keep repeated lessons here or in dedicated insight notes.
 
 ## High-Signal Outcomes
-- ### #1 Created `.windsurf/workflows/awaken.md`
-- The `/awaken` workflow has 5 phases:
-- | Phase | What it reads | Purpose |
-- |---|---|---|
-- | 1. Strategic Context | Goals, Open-Followups, Session-Threads, Vault-Dashboard | Know the big picture |
-- | 2. Tactical Context | Last 3 session logs, ADRs, Insights, Mistakes | Know recent history |
-- | 3. Code State (optional) | `src/`, `package.json` | Know what's incomplete in code |
-- | 4. Analyze & Rank | Internal questions about goal alignment, blockers, gaps | Filter and prioritize |
-- Added `scripts/memory-eval.mjs` and `npm run memory:eval`.
-- Extended `scripts/memory-check.mjs` to fail active docs containing known stale SPX truth claims.
-- Added [[Memory-Evaluation-Test]] to document the evaluation matrix.
-- Added [[ADR-002-DB-Backed-Live-Settings]].
-- Added [[Runbook-Production-Schema-Verification]].
-- Added [[Runbook-Multi-AI-Memory-Acceptance]].
-- Added [[Mistake-002-Stale-Memory-Docs-Overrode-Source]].
-- Added [[Mistake-003-Baseline-Migration-Drift]].
-- ### Level 2 — Reflection (Mistake-Awareness)
-- Created `memory/08_Mistakes/README.md` — registry purpose + Dataview indexes
-- Wrote `memory/08_Mistakes/Mistake-001-Wrong-Env-Var-Name-GitHub-MCP.md` — first real entry (~10 min wasted on `github_token` vs `GITHUB_PERSONAL_ACCESS_TOKEN`)
-- Created `memory/99_Templates/Template-Mistake.md` — Templater-enabled, prompts for severity, agent, area
-- Added `confidence` field convention to vault `AGENTS.md`
-- ### Level 3 — Identity (Self & Goals)
-- Created `memory/AGENT-IDENTITY.md` — "Who am I on SPX?" — role, traits, standing beliefs, limits, what I don't know
-- Created `memory/00_Index/Goals.md` — G-001 through G-006 goal stack with lifecycle (backlog → active → done)
-- Verified Dataview plugin active (via `mcp5_obsidian_list_notes` discoverability).
-- Rewrote [[MOC-Home]] sections:
-- "Most Recent" → auto-query last 10 edited notes
-- "Layer 2 Memory" → auto-tables per folder
-- "By Topic" → tag-driven `LIST FROM #tag` blocks
-- "Vault Health" → stale / orphan / type-count queries
+- Checked GitHub Actions runs for main after PR #37 merge commit 839e3cc.
+- Confirmed latest CI and Deploy workflow run for 839e3cc completed successfully.
+- Identified run URL for follow-up verification.
+- Created GitHub Release v1.0.0 for repository fastest4u/SPX.
+- Release targets commit 839e3ccc8570cc81eee07e3c68924b3dfb72e288, the same commit verified on production after PR #37.
+- Release notes summarize async booking history persistence, MySQL load reduction, queue guardrails, and verification commands.
+- Fetched remote tags locally; refs/tags/v1.0.0 exists and points to 839e3cc.
+- Checked latest GitHub Actions runs; no new deploy run was triggered by the release, latest remains successful main push run 26491079802.
+- Explained current runtime flow: poller fetches booking list, schedules bounded background detail jobs, prioritizes origin-matching bookings, starts auto-accept from detail results, and enqueues history persistence asynchronously.
+- Clarified that booking history no longer blocks auto-accept/detail critical path, but auto-accept tasks are still awaited inside their detail job while the poll loop continues subject to active detail job limits.
+- Documented important operational caveats: in-process history queue is not durable across hard crashes, queue overflow logs booking-history-queue-drop, and durable queues like Dragonfly/Redis remain a future option if zero-loss history is required.
+- SSH read-only investigation of production server root@45.83.207.139.
+- Confirmed container healthy, production commit fb2fb1b matches local HEAD, /health and /ready pass, session healthy, no poll failures.
+- Found production DB settings POLL_INTERVAL_MS=300 and BOOKING_DETAIL_CONCURRENCY=50 updated by admin on 2026-05-27T02:51:21Z.
+- Metrics show about 776-793 polls per 5 minutes after change, tens of thousands of skipped rows per 5 minutes, and recent MySQL deadlock logs from booking history batch save.
+- Auto-accept failure example 2536624 showed accept call fired immediately and SPX returned partial success: 1 accepted, 3 already timeout/accepted by another agency.
+- Added BookingHistorySaveQueue to decouple booking history saves from the poller/detail critical path.
+- Queue enqueue returns immediately and serializes DB saves one batch at a time to avoid adding concurrent MySQL write pressure.
+- Poller now enqueues history saves instead of awaiting saveBookingRequests during processBookingDetails.
+- Poller shutdown now flushes queued history saves before closing DB and persists final metrics after active work completes.
+- Added focused queue test script proving a second enqueue waits behind an active save instead of running concurrently.
+- Explained that INSERT IGNORE should remain as a final race-condition guard, not the primary duplicate filter.
+- Recommended app-side dedupe plus DB prefilter before insert to avoid submitting known duplicate request_ids on every poll.
+- Tied recommendation to recent production finding: sub-second polling created huge skipped-row churn and occasional MySQL deadlocks.
+- Ran post-review self-check after memory lifecycle reported missing selfCheck for the review session.
+- Confirmed verification had already passed for queue tests, repository tests, typecheck, and build.
+- Added booking history batch dedupe before persistence so repeated request_id values in the same poll are skipped before DB work.
+- Added in-process TTL cache for seen booking history request IDs so repeated polls can skip both SELECT and INSERT for known records during the process lifetime.
+- Added MySQL prefilter SELECT against request_id unique index and narrowed INSERT IGNORE to only records not already known in cache or DB.
+- Preserved INSERT IGNORE as final race guard for concurrent writers.
 
 ## Decisions To Remember
+- No production SSH check was performed in this status-only check; GitHub Actions was the requested/current signal.
+- Use a serialized in-process queue instead of unbounded fire-and-forget promises so history persistence does not block polling but also does not create multiple concurrent MySQL insert batches.
+- Flush the queue during graceful shutdown to reduce risk of losing pending history records.
+- Keep metrics accounting in Poller callbacks so inserted/skipped counts still update when async saves finish.
+- No further code changes after post-review selfCheck.
+- Use local in-process cache first instead of introducing Dragonfly/Redis dependency for this narrow MySQL load reduction.
+- Keep skipped count based on original input length minus inserted rows to preserve existing metrics contract.
+- Keep memory DB mode simple by deduping within batch but avoiding shared MySQL seen-cache behavior.
+- Do not commit/push/PR/merge during spx-review because the repo instruction says not to perform those actions unless explicitly requested.
+- Bound the in-process history queue at 50,000 unique pending request_ids to preserve auto-accept flow under MySQL slowness while preventing unbounded memory growth.
+- Coalesce pending trips by request_id because history persistence is idempotent and repeated polls commonly carry the same request IDs.
+- Committed only code/test files for the PR and left unrelated memory-vault working tree changes unstaged.
+- Used GitHub REST API with Git Credential Manager token held in process memory and not printed because gh CLI was unavailable.
+- Deleted the remote feature branch after successful squash merge.
 - **Name it `/awaken`** (not `/next` or `/plan`) to fit the Awakened AI theme and the user's word "ตื่นรู้".
 - **5-phase structure** ensures the AI loads strategic context before tactical, preventing myopic suggestions.
 - **Top-3 output** prevents overwhelming the user while still giving options.
@@ -97,50 +111,59 @@ Generated: 2026-05-25
 - **MOC manual lists are now legacy** — any future agent finding manual `- [[Note]]` lists in MOCs should consider replacing with Dataview queries.
 - **`type` field is the primary filter** — every Dataview query in this vault uses `WHERE type` to skip `.base` and orphan files.
 - **Hyphenated field gotcha documented** — `decision-date`, `derived-from`, etc. need bracket-syntax in `WHERE`.
-- **Vault-Dashboard ≠ MOC-Home** — MOC = navigation, Dashboard = maintenance. Different jobs.
-- **Create 2 insights, not 4.** Only the clearest recurring patterns (appearing in 3+ and 2+ logs respectively) were promoted. Lesser patterns remain as session-log learnings.
-- **No archive this pass.** Every note is from today and active.
-- **ADR-001 and ADR-002 remain accepted.** No new architectural decisions contradict them.
-- Use `npm run verify` as the repo-wide gate name because it is short, tool-agnostic, and already matches common package conventions.
-- Keep `memory:verify` as the memory-only gate so small vault-only maintenance does not need to rebuild the app.
-- Do not print, commit, or include secret values in memory.
-- Treat local `.env` as machine-local operational state.
-- Historical session tasks that are now represented in [[Goals]] or runbooks should be closed in their source logs to prevent duplicate Memory Quality Debt.
-- Multi-AI acceptance remains pending in [[Goals]] and [[Multi-AI-Acceptance-Results]], but duplicate old checkboxes are closed.
-- Production alert policy is documented as an operational policy first; code automation can be added later if needed.
-- `memory:score` is informational by default so it can be included in `memory:verify` without failing useful work due to known backlog.
-- `schema:verify` stays separate from `npm run verify` because it needs DB credentials and may target production.
-- Multi-AI results must not be faked. Codex is marked pass; other agents remain pending until tested in their native tools.
 
 ## Open Follow-ups
-- [ ] If the user asks to proceed, design a minimal Provider interface and add an experimental `codex-runtime` provider behind a feature flag.
-- [ ] Decide whether to accept `npm audit fix --force` breaking downgrade for `@evex/linejs` or track/upstream a patched thrift dependency.
-- [ ] Deploy to production server
-- [ ] Monitor logs for `auto-accept-partial-verified` to confirm fix works in production
-- [ ] Commit AGENTS.md + workflow changes (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
-- [ ] Monitor auto-accept-partial-verified in production
-- [ ] User to commit AGENTS.md + workflow changes when ready (verified by `git log -- AGENTS.md memory/AGENTS.md`, multiple commits since 2026-05-21)
-- [ ] Manually test `/api/ai/read-image` with a real authenticated browser/API session and sample image.
-- [ ] If this endpoint becomes production-critical, replace Codex CLI auth with an explicit OpenAI API key/service credential.
-- [ ] If the user wants to avoid Codex CLI entirely, evaluate either explicit OpenAI API key integration or a custom opencode bridge/plugin/app-server approach.
+- [ ] After production deploy, monitor booking-history-queue-drop logs; any nonzero drops mean MySQL is too slow/down for the history background workload.
+- [ ] Consider a production health/commit check if the user wants server-level proof beyond GitHub Actions success.
+- [ ] Continue monitoring production booking-history-queue-drop logs after release.
+- [ ] Consider exposing queue depth/drop counters in metrics dashboard for easier production observation.
+- [ ] Consider exposing history queue pendingCount/isSaving/dropped count in runtime metrics if operations need dashboard visibility.
+- [ ] If zero-loss history is required across hard crashes, replace or supplement the in-process queue with Dragonfly/Redis or another durable queue.
+- [ ] Decide whether to reduce production POLL_INTERVAL_MS to a safer value such as 1000-1500ms and BOOKING_DETAIL_CONCURRENCY to 8-20.
+- [ ] Consider adding a code-level lower bound/operator warning for POLL_INTERVAL_MS to prevent sub-second production settings from causing API/DB churn.
+- [ ] Consider metrics for operation latency/current runtime in persisted metrics so future production investigations do not require authenticated dashboard access.
+- [ ] After deploy, monitor whether active detail jobs release faster and whether dbSave latency no longer extends booking-detail job lifetime.
+- [ ] Consider exposing history queue pendingCount/isSaving in runtime metrics if operational visibility is needed.
+- [ ] If process crashes hard, any queued but unsaved history records can still be lost; use Dragonfly or durable queue only if that risk is unacceptable.
+- [ ] Implement insertBookingHistories optimization: dedupe incoming batch by requestId, SELECT existing request_ids, then INSERT IGNORE only missing rows.
+- [ ] Consider adding a lower bound/operator warning for POLL_INTERVAL_MS to prevent sub-second DB/API churn.
+- [ ] Keep the review follow-ups from the main spx-review session: monitor queue drops, consider queue runtime metrics, and use durable queue if zero-loss history is required.
+- [ ] After deploy, watch metrics for lower trips_skipped DB churn and absence of booking-history-batch-save-failed deadlocks.
+- [ ] Consider exposing cache hit / DB prefilter counts in metrics if operational visibility is needed.
+- [ ] After deploy, monitor booking-history-queue-drop logs; any nonzero drops mean MySQL is too slow/down for the history background workload.
+- [ ] Memory vault working tree still has unrelated generated/previous-session changes that were intentionally not included in PR #37.
+- [ ] Keep monitoring booking-history-queue-drop; any nonzero count means history persistence is falling behind MySQL capacity.
+- [ ] If auto-accept still misses work, next check should focus on poll timing, API latency, and accept request path rather than history persistence.
 
 ## Confidence Lessons
-- Custom runtime via Codex auth is possible but riskier than Codex CLI or OpenAI API key because Codex auth/runtime internals are not a stable backend provider API. -> Keep AI auth integration behind a provider abstraction if experimenting with nonstandard auth boundaries.
-- Non-force audit fixes are applied and the remaining audit issue requires a breaking forced change. -> Avoid force audit fixes on app dependencies without user approval and a targeted regression test plan.
-- `package.json` was committed in prior session -> Verify file presence before editing dependent code; assume nothing about working tree freshness
-- Codex CLI auth can be used by spawning `codex exec` without reading auth token files directly. -> Use Codex CLI as an integration boundary for prototypes, but capture final output via `--output-last-message` because stdout contains banners/logs.
-- The local image-reading service can process the provided real JPG. -> Parameterized smoke tests make real-image validation faster than editing the test fixture each time.
-- The Fastify endpoint works as a local service with Codex CLI and gpt-5.5. -> Codex CLI image calls on Windows need Node entrypoint spawning, prompt before image args, and `--add-dir` for temp files under read-only sandbox.
+- None
 
 ## Verification Evidence
-- Planning-only; no code changes. Used memory context and multi-perspective review skill.
-- `npm audit fix` completed; `npm audit --audit-level=moderate` still reports 2 high `thrift` vulnerabilities requiring `--force`; `npm run typecheck` passed; `npm run build` passed with existing Vite NODE_ENV warning.
-- Not recorded
-- `npx tsx tests/codex-image-reader.test.ts`, `npm run typecheck`, and `npm run build` passed. `codex exec --ephemeral --sandbox read-only "Reply only with OK"` verified Codex CLI auth works, but emitted a deprecation warning for codex_hooks config.
-- `codex exec --ephemeral --sandbox read-only --add-dir C:\Users\Server\Desktop\SPX --model gpt-5.5 ... --image C:\Users\Server\Desktop\SPX\439805.jpg` succeeded. `npx tsx tests/ai-local-service-smoke.ts "C:\Users\Server\Desktop\SPX\439805.jpg" ...` returned HTTP 200. `npx tsx tests/codex-image-reader.test.ts` and `npm run typecheck` passed.
-- `codex exec --ephemeral --sandbox read-only --model gpt-5.5 "Reply only with OK"` passed. `npx tsx tests/codex-image-reader.test.ts`, `npx tsx tests/ai-local-service-smoke.ts`, `npm run typecheck`, and `npm run build` passed. Build still reports existing Vite NODE_ENV warning.
+- GitHub Actions API reported run id 26491079802 name 'CI and Deploy' event push head 839e3cc status=completed conclusion=success created_bkk=2026-05-27 11:37:44 updated_bkk=2026-05-27 11:39:53.
+- Verified via GitHub Releases API /releases/tags/v1.0.0, git fetch --tags, git show-ref --tags, git ls-remote --tags origin, and GitHub Actions runs API.
+- Read current source in src/controllers/poller.ts, src/services/booking-history-save-queue.ts, and src/repositories/booking-history-repository.ts; cross-checked memory follow-ups from async history deployment/release.
+- Read-only SSH checks: docker compose ps, health/ready curl, git rev-parse, docker stats, filtered logs, and read-only MySQL queries inside app container. No production changes made.
+- npx tsx src\scripts\test-booking-history-save-queue.ts passed; npx tsx src\scripts\test-booking-history-repository.ts passed; npm run typecheck passed; npm run build passed with existing Vite chunk-size warning.
+- Planning-only answer based on current repository code and memory context; no files changed.
+- Post-review selfCheck completed; previous verification remained npx tsx queue/repository tests, npm run typecheck, and npm run build.
+- npx tsx src\scripts\test-booking-history-repository.ts passed; npm run typecheck passed.
+- Verified settings.json now contains vim_mode=false and base_keymap=VSCode using Select-String. Did not print or edit secret setting values.
+- npx tsx src\scripts\test-booking-history-save-queue.ts passed; npx tsx src\scripts\test-booking-history-repository.ts passed; npm run typecheck passed; npm run build passed with existing Vite chunk-size warning; PR #37 closed merged=True merge_commit_sha=839e3ccc8570cc81eee07e3c68924b3dfb72e288.
+- Read-only SSH checks on root@45.83.207.139: git rev-parse/log in /root/SPX, docker compose ps, docker inspect health/restart count, curl /health and /ready, targeted docker logs grep counts since deploy, and docker stats single snapshot.
 
 ## Source Sessions
+- [[05_Agent_Session_Logs/2026-05-27-check-ci-deploy-status-after-pr-37-merge|2026-05-27-check-ci-deploy-status-after-pr-37-merge.md]]
+- [[05_Agent_Session_Logs/2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment|2026-05-27-create-github-release-v1-0-0-for-async-booking-history-deployment.md]]
+- [[05_Agent_Session_Logs/2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release|2026-05-27-explain-current-spx-runtime-flow-after-async-booking-history-release.md]]
+- [[05_Agent_Session_Logs/2026-05-27-investigate-spx-production-auto-accept-not-keeping-up|2026-05-27-investigate-spx-production-auto-accept-not-keeping-up.md]]
+- [[05_Agent_Session_Logs/2026-05-27-make-booking-history-persistence-asynchronous|2026-05-27-make-booking-history-persistence-asynchronous.md]]
+- [[05_Agent_Session_Logs/2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn|2026-05-27-plan-fix-for-insert-ignore-duplicate-db-churn.md]]
+- [[05_Agent_Session_Logs/2026-05-27-post-review-guard-for-async-booking-history-persistence|2026-05-27-post-review-guard-for-async-booking-history-persistence.md]]
+- [[05_Agent_Session_Logs/2026-05-27-reduce-mysql-load-when-saving-spx-booking-history|2026-05-27-reduce-mysql-load-when-saving-spx-booking-history.md]]
+- [[05_Agent_Session_Logs/2026-05-27-set-zed-keymap-to-vs-code-behavior|2026-05-27-set-zed-keymap-to-vs-code-behavior.md]]
+- [[05_Agent_Session_Logs/2026-05-27-spx-review-async-booking-history-persistence-changes|2026-05-27-spx-review-async-booking-history-persistence-changes.md]]
+- [[05_Agent_Session_Logs/2026-05-27-spx-review-full-flow-for-async-booking-history-persistence|2026-05-27-spx-review-full-flow-for-async-booking-history-persistence.md]]
+- [[05_Agent_Session_Logs/2026-05-27-verify-production-after-async-booking-history-deploy|2026-05-27-verify-production-after-async-booking-history-deploy.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awaken-Slash-Command|2026-05-13-Awaken-Slash-Command.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awakened-AI-Hardening-Pass|2026-05-13-Awakened-AI-Hardening-Pass.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Awakening-Stack|2026-05-13-Awakening-Stack.md]]
@@ -159,15 +182,3 @@ Generated: 2026-05-25
 - [[05_Agent_Session_Logs/2026-05-13-Strict-Review-Workflow-Gate|2026-05-13-Strict-Review-Workflow-Gate.md]]
 - [[05_Agent_Session_Logs/2026-05-13-System-Survey-Awakened-AI-Update|2026-05-13-System-Survey-Awakened-AI-Update.md]]
 - [[05_Agent_Session_Logs/2026-05-13-Templater-Linter-Integration|2026-05-13-Templater-Linter-Integration.md]]
-- [[05_Agent_Session_Logs/2026-05-13-Vault-Completion-100-Percent|2026-05-13-Vault-Completion-100-Percent.md]]
-- [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-2|2026-05-13-Vault-Hardening-Pass-2.md]]
-- [[05_Agent_Session_Logs/2026-05-13-Vault-Hardening-Pass-3|2026-05-13-Vault-Hardening-Pass-3.md]]
-- [[05_Agent_Session_Logs/2026-05-13-Vault-Production-Hardening|2026-05-13-Vault-Production-Hardening.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Assess-Codex-Auth-Custom-Runtime|2026-05-21-Assess-Codex-Auth-Custom-Runtime.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Audit-Fix-AI-SDK-Dependencies|2026-05-21-Audit-Fix-AI-SDK-Dependencies.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Auto-Accept-Partial-Fix|2026-05-21-Auto-Accept-Partial-Fix.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Auto-Memory-4-Layer-System|2026-05-21-Auto-Memory-4-Layer-System.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Auto-Project-Memory-MCP-Setup|2026-05-21-Auto-Project-Memory-MCP-Setup.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Codex-Auth-Image-API-Prototype|2026-05-21-Codex-Auth-Image-API-Prototype.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Codex-Image-Real-JPG-Test|2026-05-21-Codex-Image-Real-JPG-Test.md]]
-- [[05_Agent_Session_Logs/2026-05-21-Codex-Image-Smoke-Test|2026-05-21-Codex-Image-Smoke-Test.md]]

@@ -7,6 +7,7 @@ import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
 
 // Use any for DB type to allow both MySQL and SQLite Drizzle instances
 // This is acceptable since both have the same API surface (select, insert, update, delete)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDb = any;
 
 const DB_TIMEZONE = "+00:00";

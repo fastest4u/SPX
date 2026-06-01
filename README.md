@@ -15,7 +15,7 @@
 | Backend | Fastify + TypeScript |
 | Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode) |
 | Auth | @fastify/jwt, @fastify/cookie |
-| Frontend | React 18 + TanStack Router + TanStack Query + Tailwind CSS |
+| Frontend | React 19 + TanStack Router + TanStack Query + Tailwind CSS |
 | Build | esbuild + Vite |
 | Deploy | Docker Compose, auto-deploy via git push |
 
@@ -83,12 +83,13 @@ cp .env.example .env   # แก้ค่าให้ตรงกับ environme
 ## คำสั่ง
 
 ```bash
-npm run dev -- 10     # run via ts-node (polling interval 10s)
+npm run dev            # backend (tsx, HTTP_ENABLED) + frontend (vite) via concurrently
 npm run build          # typecheck + esbuild + vite
-npm start -- 10        # run dist/app.js
+npm start -- 10        # run dist/app.js (polling interval 10s)
+npm test               # run test suite (node --test via tsx)
 npm run db:generate    # generate migration SQL
 npm run db:migrate     # apply migrations
-npm run db:test        # integration test
+npm run db:test        # integration test (live MySQL)
 npm run flow:start     # migrate + build + start
 ```
 
@@ -130,6 +131,16 @@ npm run flow:start     # migrate + build + start
 | `BIDDING_PAGE_COUNT` | no | 100 | Items per page |
 | `REQUEST_CTIME_START` | no | 1776358800 | Unix timestamp filter |
 | `BIDDING_VEHICLE_TYPE` | no | 13 | Optional `vehicle_type` filter for bidding list; leave empty to disable |
+| `DEBUG` | no | false | Verbose debug logging |
+| `BOOKING_DETAIL_CONCURRENCY` | no | 8 | Parallel booking-detail fetches (1–50) |
+| `REQUEST_TAB_PENDING_CONFIRMATION` | no | true | Query the pending-confirmation tab |
+| `SECRETS_KEY` | no | — | Key for AES-256-GCM at-rest encryption (≥16 chars); falls back to JWT+COOKIE secrets |
+| `NOTIFY_ORIGINS` | no | — | Comma-separated origin filters |
+| `NOTIFY_DESTINATIONS` | no | — | Comma-separated destination filters |
+| `NOTIFY_VEHICLE_TYPES` | no | — | Comma-separated vehicle-type filters |
+| `NOTIFY_MIN_TRIPS` | no | 1 | Minimum matched trips before notifying |
+| `CODEX_IMAGE_PROVIDER` | no | auto | `auto`, `codex-cli`, or `codex-device` (LINE image extraction) |
+| `LINE_IMAGE_LISTENER_CHAT_ID` | no | — | LINE chat ID to listen for images |
 
 \* Required when `HTTP_ENABLED=true`, `SAVE_TO_DB=true`, or `AUTO_ACCEPT_ENABLED=true`
 
@@ -142,7 +153,7 @@ docker compose up --build
 - Container runs `db-migrate.js` before `app.js`
 - Health check: `GET /ready` every 30s
 - `notify-rules.json` created at build time, mounted as volume
-- Production server: `root@45.83.207.139`, auto-deploy via git push
+- Production deploy: GitHub Actions (`.github/workflows/deploy.yml`) over SSH on push to `main` (host/credentials via repo secrets), with build → migrate → readiness gate → rollback
 
 ## Web Dashboard
 

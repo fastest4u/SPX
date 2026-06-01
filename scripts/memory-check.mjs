@@ -155,13 +155,11 @@ function parseFrontmatter(content) {
   const fm = clean.slice(4, end).trim();
   const obj = {};
   let currentKey = null;
-  let inArray = false;
   for (const rawLine of fm.split("\n")) {
     const line = rawLine.replace(/\r$/, "");
     if (line.match(/^\s*-\s/) && currentKey) {
       if (!Array.isArray(obj[currentKey])) obj[currentKey] = [];
       obj[currentKey].push(line.replace(/^\s*-\s*/, "").trim());
-      inArray = true;
       continue;
     }
     const m = line.match(/^([a-z][a-z0-9_-]*)\s*:\s*(.*)$/i);
@@ -175,7 +173,6 @@ function parseFrontmatter(content) {
       } else {
         obj[currentKey] = value.replace(/^["']|["']$/g, "");
       }
-      inArray = false;
     }
   }
   return obj;

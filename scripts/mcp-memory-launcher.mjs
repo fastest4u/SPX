@@ -42,16 +42,51 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 
 const VAULT_MARKER = join("memory", "AGENTS.md");
+
+// Env vars that may carry the active workspace path (varies by host/editor).
+const WORKSPACE_ENV_KEYS = [
+  "WORKSPACE_FOLDER_PATHS",
+  "WORKSPACE_FOLDER",
+  "WORKSPACE_ROOT",
+  "PROJECT_ROOT",
+  "VSCODE_WORKSPACE_FOLDER",
+  "VSCODE_CWD",
+  "WINDSURF_WORKSPACE",
+  "WINDSURF_WORKSPACE_FOLDER",
+  "CODEIUM_WORKSPACE",
+  "PWD",
+  "INIT_CWD",
+];
+
+// Return the first env-provided path that actually contains a memory/AGENTS.md vault.
+function findRootFromEnv() {
+  for (const key of WORKSPACE_ENV_KEYS) {
+    const raw = process.env[key];
+    if (!raw) continue;
+    const parts = raw
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const p of parts) {
+      try {
+        if (existsSync(join(p, VAULT_MARKER))) return p;
+      } catch {
+        // ignore unreadable candidate
+      }
+    }
+  }
+  return null;
+}
 
 function findVaultRoot(startDir) {
   let dir = resolve(startDir);
   while (true) {
     if (existsSync(join(dir, VAULT_MARKER))) {
-      return join(dir, "memory");
+      return dir;
     }
     const parent = resolve(dir, "..");
     if (parent === dir) return null; // hit filesystem root
@@ -72,12 +107,13 @@ if (explicit && explicit !== "dynamic") {
   projectRoot = explicit;
   logErr(`using explicit MEMORY_PROJECT_ROOT=${projectRoot}`);
 } else {
-  const found = findVaultRoot(startDir);
+  const envRoot = findRootFromEnv();
+  const found = envRoot || findVaultRoot(startDir);
   if (found) {
     projectRoot = found;
     logErr(`auto-detected MEMORY_PROJECT_ROOT=${projectRoot} (cwd=${startDir})`);
   } else {
-    projectRoot = join(startDir, "memory");
+    projectRoot = startDir;
     logErr(`no memory/AGENTS.md found from cwd=${startDir}; defaulting to ${projectRoot}`);
   }
 }

@@ -487,7 +487,6 @@ export async function getProfile(): Promise<LineBotProfile | null> {
  */
 export async function getStorageHealth(): Promise<LineBotStorageHealth> {
   const storagePath = getStoragePath();
-  const authTokenPath = getAuthTokenPath();
 
   let exists = false;
   let sizeBytes = 0;

@@ -1,892 +1,109 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-23T08:01:01.372Z",
-  "activeSession": null,
+  "updatedAt": "2026-06-01T04:47:48.629Z",
+  "activeSession": {
+    "id": "memory-1780289230180",
+    "startedAt": "2026-06-01T04:47:10.180Z",
+    "updatedAt": "2026-06-01T04:47:48.629Z",
+    "taskArea": "code-review-pr-merge",
+    "startedBy": "memory_sessionStart",
+    "counts": {
+      "sessionStart": 1,
+      "contextPack": 1,
+      "selfCheck": 1,
+      "sessionEnd": 0
+    },
+    "events": [
+      {
+        "tool": "memory_sessionStart",
+        "at": "2026-06-01T04:47:10.180Z",
+        "details": {
+          "taskArea": "code-review-pr-merge"
+        }
+      },
+      {
+        "tool": "memory_contextPack",
+        "at": "2026-06-01T04:47:10.185Z",
+        "details": {
+          "query": "code-review-pr-merge",
+          "taskArea": "code-review-pr-merge"
+        }
+      },
+      {
+        "tool": "memory_selfCheck",
+        "at": "2026-06-01T04:47:48.629Z",
+        "details": {
+          "task": "Review and merge large repo-improvement changeset: lint/test tooling, schema-drift guard, config/docs fixes, dead code cleanup across src/services, src/config, src/db, frontend, deploy.yml",
+          "area": "code-review-pr-merge",
+          "riskLevel": "high"
+        }
+      }
+    ],
+    "missingSessionStart": false
+  },
   "recentSessions": [
     {
-      "id": "memory-1779523201652",
-      "startedAt": "2026-05-23T08:00:01.652Z",
-      "updatedAt": "2026-05-23T08:01:01.371Z",
-      "taskArea": "memory-lifecycle-automation",
+      "id": "memory-1780288544175",
+      "startedAt": "2026-06-01T04:35:44.175Z",
+      "updatedAt": "2026-06-01T04:41:26.067Z",
+      "taskArea": "memory-vault",
       "startedBy": "memory_sessionStart",
       "counts": {
         "sessionStart": 1,
         "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-23T08:00:01.652Z",
-          "details": {
-            "taskArea": "memory-lifecycle-automation"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-23T08:00:01.654Z",
-          "details": {
-            "query": "memory-lifecycle-automation",
-            "taskArea": "memory-lifecycle-automation"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-23T08:01:01.371Z",
-          "details": {
-            "topic": "Bake project-memory MCP lifecycle into Kiro hooks + steering",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Bake project-memory MCP lifecycle into Kiro hooks + steering",
-      "endedAt": "2026-05-23T08:01:01.371Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 80."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779523201617",
-      "startedAt": "2026-05-23T08:00:01.617Z",
-      "updatedAt": "2026-05-23T08:00:01.617Z",
-      "taskArea": "memory-lifecycle-automation",
-      "startedBy": "memory_selfCheck",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
         "selfCheck": 1,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-23T08:00:01.617Z",
-          "details": {
-            "task": "Bake the full project-memory lifecycle (sessionStart → contextPack → followUpRadar → selfCheck → work → sessionEnd + writeADR/Mistake/Insight) into Kiro hook + steering so every session uses it without manual reminder.",
-            "area": "memory-lifecycle-automation",
-            "riskLevel": "medium"
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "endedAt": "2026-05-23T08:00:01.652Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779522074455",
-      "startedAt": "2026-05-23T07:41:14.455Z",
-      "updatedAt": "2026-05-23T07:51:49.614Z",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
         "sessionEnd": 1
       },
       "events": [
         {
           "tool": "memory_sessionStart",
-          "at": "2026-05-23T07:41:14.455Z",
-          "details": {}
+          "at": "2026-06-01T04:35:44.175Z",
+          "details": {
+            "taskArea": "memory vault retag + link migrated SPX session logs"
+          }
         },
         {
           "tool": "memory_contextPack",
-          "at": "2026-05-23T07:41:14.457Z",
-          "details": {}
+          "at": "2026-06-01T04:35:44.178Z",
+          "details": {
+            "query": "memory vault retag + link migrated SPX session logs",
+            "taskArea": "memory vault retag + link migrated SPX session logs"
+          }
         },
         {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-23T07:51:49.614Z",
-          "details": {
-            "topic": "spx-review flow — squash-merge frontend design system v2 (PR #34)",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "spx-review flow — squash-merge frontend design system v2 (PR #34)",
-      "endedAt": "2026-05-23T07:51:49.614Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 80."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779517592555",
-      "startedAt": "2026-05-23T06:26:32.555Z",
-      "updatedAt": "2026-05-23T07:32:41.316Z",
-      "taskArea": "production-database-connection",
-      "startedBy": "memory_selfCheck",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
-        "selfCheck": 2,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
           "tool": "memory_selfCheck",
-          "at": "2026-05-23T06:26:32.555Z",
+          "at": "2026-06-01T04:35:45.103Z",
           "details": {
-            "task": "Retrospective self-check for Frontend Design System v2 redesign (Phase 1-4): semantic tokens overhaul, PageHeader extraction across 11 routes, DataTable v3 with column visibility + bulk actions + useTransition, SseProvider consolidation (was: each consumer opening its own EventSource), Coachmark first-login tour, recharts integration in Reports.",
-            "area": "frontend ui/ux redesign",
+            "task": "Retag 17 migrated SPX session logs from project/general to project/spx and link them into the vault graph (Session Threads/MOC) to recover vault grade",
+            "area": "memory-vault",
             "riskLevel": "medium"
           }
         },
         {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-23T07:32:41.316Z",
-          "details": {
-            "task": "Connect local dev frontend to production MySQL DB so /settings page shows real production data. Risk: dev environment can read/write production secrets, production data leakage to dev logs, accidental schema/data corruption.",
-            "area": "production-database-connection",
-            "riskLevel": "high"
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "endedAt": "2026-05-23T07:41:14.454Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779512675944",
-      "startedAt": "2026-05-23T05:04:35.944Z",
-      "updatedAt": "2026-05-23T06:26:15.002Z",
-      "taskArea": "frontend ui/ux redesign",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-23T05:04:35.944Z",
-          "details": {
-            "taskArea": "frontend ui/ux redesign"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-23T05:04:35.946Z",
-          "details": {
-            "query": "frontend ui/ux redesign",
-            "taskArea": "frontend ui/ux redesign"
-          }
-        },
-        {
           "tool": "memory_sessionEnd",
-          "at": "2026-05-23T06:26:15.002Z",
+          "at": "2026-06-01T04:41:26.067Z",
           "details": {
-            "topic": "Frontend UI/UX redesign Phase 1-4 (semantic tokens + PageHeader + DataTable v3 + SseProvider + Coachmark)",
+            "topic": "Retag migrated SPX logs to project/spx and link into Session-Threads Thread 7",
             "verify": true
           }
         }
       ],
       "missingSessionStart": false,
-      "topic": "Frontend UI/UX redesign Phase 1-4 (semantic tokens + PageHeader + DataTable v3 + SseProvider + Coachmark)",
-      "endedAt": "2026-05-23T06:26:15.002Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 72,
-        "grade": "D",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "verification note recorded: Session logs should say what verification was run or why it was skipped.",
-          "vault warnings reviewed: Vault grade C with score 80."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779468401185",
-      "startedAt": "2026-05-22T16:46:41.185Z",
-      "updatedAt": "2026-05-22T17:16:30.861Z",
-      "taskArea": "deploy",
-      "startedBy": "memory_selfCheck",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-22T16:46:41.185Z",
-          "details": {
-            "task": "SSH เป็น root เข้า production server เพื่อ pull latest, run migrations, set SECRETS_KEY env, restart docker compose, verify health",
-            "area": "deploy",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-22T17:16:30.861Z",
-          "details": {
-            "topic": "SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-env templates, verify LINEJS auto-accept on production",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "topic": "SPX production hardening rollout — set SECRETS_KEY, fix deploy workflow, dual-env templates, verify LINEJS auto-accept on production",
-      "endedAt": "2026-05-22T17:16:30.861Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 62,
-        "grade": "D",
-        "warnings": [
-          "sessionStart recorded: Every task should begin with memory_sessionStart.",
-          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779466033988",
-      "startedAt": "2026-05-22T16:07:13.988Z",
-      "updatedAt": "2026-05-22T16:28:34.948Z",
-      "taskArea": "security/auth/refactor",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-22T16:07:13.988Z",
-          "details": {
-            "taskArea": "system audit"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-22T16:07:13.992Z",
-          "details": {
-            "query": "system audit",
-            "taskArea": "system audit"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-22T16:16:29.864Z",
-          "details": {
-            "task": "แก้ Critical findings ทั้งหมด: auth/CSRF, CORS, login token leak, CSV injection, fetch timeout, memory mode crash, settings revalidation, secrets encryption, deploy safety. Multi-file refactor ใน src/services/ + src/controllers/ + src/repositories/",
-            "area": "security/auth/refactor",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-22T16:28:34.948Z",
-          "details": {
-            "topic": "SPX critical security and rules-engine refactor — remove search-only mode + harden auth, secrets, CSP, CORS, CSV, deploy",
-            "verify": false
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "SPX critical security and rules-engine refactor — remove search-only mode + harden auth, secrets, CSP, CORS, CSV, deploy",
-      "endedAt": "2026-05-22T16:28:34.948Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 90,
-        "grade": "B",
-        "warnings": [
-          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779414248197",
-      "startedAt": "2026-05-22T01:44:08.197Z",
-      "updatedAt": "2026-05-22T01:56:03.324Z",
-      "taskArea": "LINE image OCR / DB schema",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-22T01:44:08.197Z",
-          "details": {
-            "taskArea": "LINE image data persistence / trip number parsing"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-22T01:44:08.199Z",
-          "details": {
-            "query": "LINE image data persistence / trip number parsing",
-            "taskArea": "LINE image data persistence / trip number parsing"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-22T01:44:16.984Z",
-          "details": {
-            "query": "Does the LINE image listener OCR parse and persist the trip number field from images such as เลขทริป LT0Q5L2657AJ2?",
-            "taskArea": "LINE image data persistence / trip number parsing"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-22T01:46:12.114Z",
-          "details": {
-            "task": "Add LINE image OCR trip number persistence to DB and UI/API flow",
-            "area": "LINE image OCR / DB schema",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-22T01:56:03.324Z",
-          "details": {
-            "topic": "Add LINE Image Trip Number Persistence",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Add LINE Image Trip Number Persistence",
-      "endedAt": "2026-05-22T01:56:03.324Z",
+      "topic": "Retag migrated SPX logs to project/spx and link into Session-Threads Thread 7",
+      "endedAt": "2026-06-01T04:41:26.067Z",
       "lastQualityGate": {
         "ok": true,
         "score": 92,
         "grade": "B",
         "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
+          "vault warnings reviewed: Vault grade D with score 72."
         ]
       }
     },
     {
-      "id": "memory-1779382934045",
-      "startedAt": "2026-05-21T17:02:14.045Z",
-      "updatedAt": "2026-05-21T17:02:14.046Z",
-      "taskArea": "SPX Codex auth still showing device code 404 after source fix",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T17:02:14.045Z",
-          "details": {
-            "taskArea": "SPX Codex auth still showing device code 404 after source fix"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T17:02:14.046Z",
-          "details": {
-            "query": "SPX Codex auth still showing device code 404 after source fix",
-            "taskArea": "SPX Codex auth still showing device code 404 after source fix"
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "endedAt": "2026-05-22T01:44:08.197Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779382805997",
-      "startedAt": "2026-05-21T17:00:05.997Z",
-      "updatedAt": "2026-05-21T17:01:26.033Z",
-      "taskArea": "auth/codex-device-auth",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T17:00:05.997Z",
-          "details": {
-            "taskArea": "SPX Codex auth device code 404"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T17:00:06.001Z",
-          "details": {
-            "query": "SPX Codex auth device code 404",
-            "taskArea": "SPX Codex auth device code 404"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T17:00:16.218Z",
-          "details": {
-            "task": "Fix SPX Codex auth start 404 by switching from unsupported device-code endpoint to existing browser OAuth start flow",
-            "area": "auth/codex-device-auth",
-            "riskLevel": "medium"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T17:01:26.033Z",
-          "details": {
-            "topic": "Fix SPX Codex auth device-code 404",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Fix SPX Codex auth device-code 404",
-      "endedAt": "2026-05-21T17:01:26.033Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779382404954",
-      "startedAt": "2026-05-21T16:53:24.954Z",
-      "updatedAt": "2026-05-21T16:58:57.068Z",
-      "taskArea": "auth/codex-device-auth/frontend-settings",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T16:53:24.954Z",
-          "details": {
-            "taskArea": "codex login internal server error"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T16:53:24.955Z",
-          "details": {
-            "query": "codex login internal server error",
-            "taskArea": "codex login internal server error"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T16:55:53.332Z",
-          "details": {
-            "query": "SPX system login shows Codex login failed INTERNAL_SERVER_ERROR where codex CLI auth is called image reading service",
-            "taskArea": "SPX Codex login failed INTERNAL_SERVER_ERROR"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T16:56:27.719Z",
-          "details": {
-            "task": "Fix SPX Codex auth start error handling for INTERNAL_SERVER_ERROR without touching secrets",
-            "area": "auth/codex-device-auth/frontend-settings",
-            "riskLevel": "medium"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T16:58:57.068Z",
-          "details": {
-            "topic": "Fix SPX Codex auth INTERNAL_SERVER_ERROR handling",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Fix SPX Codex auth INTERNAL_SERVER_ERROR handling",
-      "endedAt": "2026-05-21T16:58:57.068Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779359942731",
-      "startedAt": "2026-05-21T10:39:02.731Z",
-      "updatedAt": "2026-05-21T10:49:54.675Z",
-      "taskArea": "src/services/line-bot.ts + src/services/codex-image-reader.ts + src/app.ts",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T10:39:02.731Z",
-          "details": {
-            "taskArea": "server firewall MySQL access configuration"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T10:39:02.733Z",
-          "details": {
-            "query": "server firewall MySQL access configuration",
-            "taskArea": "server firewall MySQL access configuration"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T10:43:10.585Z",
-          "details": {
-            "task": "Add LINE image listener: receive image from group chat, run Codex OCR, reply with 5-field result",
-            "area": "src/services/line-bot.ts + src/services/codex-image-reader.ts + src/app.ts",
-            "riskLevel": "medium"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T10:49:54.675Z",
-          "details": {
-            "topic": "Add LINE image listener for SPX group run sheet OCR",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Add LINE image listener for SPX group run sheet OCR",
-      "endedAt": "2026-05-21T10:49:54.675Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779357740240",
-      "startedAt": "2026-05-21T10:02:20.240Z",
-      "updatedAt": "2026-05-21T10:02:33.224Z",
-      "taskArea": "Image OCR API service prompt and smoke test changes",
-      "startedBy": "memory_selfCheck",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T10:02:20.241Z",
-          "details": {
-            "task": "Restrict Codex image OCR output to five SPX fields",
-            "area": "Image OCR API service prompt and smoke test changes",
-            "riskLevel": "medium"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T10:02:33.224Z",
-          "details": {
-            "topic": "Post-task self-check for image OCR output restriction",
-            "verify": false
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "topic": "Post-task self-check for image OCR output restriction",
-      "endedAt": "2026-05-21T10:02:33.224Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 60,
-        "grade": "D",
-        "warnings": [
-          "sessionStart recorded: Every task should begin with memory_sessionStart.",
-          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
-          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779357454478",
-      "startedAt": "2026-05-21T09:57:34.478Z",
-      "updatedAt": "2026-05-21T10:02:10.475Z",
-      "taskArea": "Restrict image OCR output fields",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:57:34.479Z",
-          "details": {
-            "taskArea": "Restrict image OCR output fields"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:57:34.480Z",
-          "details": {
-            "query": "Restrict image OCR output fields",
-            "taskArea": "Restrict image OCR output fields"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:57:44.988Z",
-          "details": {
-            "query": "Restrict image OCR output fields to date driver agency vehicle type route",
-            "taskArea": "Restrict image OCR output fields"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T10:02:10.475Z",
-          "details": {
-            "topic": "Restrict Codex image OCR output to five SPX fields",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Restrict Codex image OCR output to five SPX fields",
-      "endedAt": "2026-05-21T10:02:10.475Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779356710386",
-      "startedAt": "2026-05-21T09:45:10.386Z",
-      "updatedAt": "2026-05-21T09:47:09.511Z",
-      "taskArea": "dependency security maintenance",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:45:10.386Z",
-          "details": {
-            "taskArea": "Run npm audit fix and verify dependency changes"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:45:10.387Z",
-          "details": {
-            "query": "Run npm audit fix and verify dependency changes",
-            "taskArea": "Run npm audit fix and verify dependency changes"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T09:45:10.636Z",
-          "details": {
-            "task": "Run npm audit fix and verify dependency/runtime changes",
-            "area": "dependency security maintenance",
-            "riskLevel": "medium"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T09:47:09.511Z",
-          "details": {
-            "topic": "Run npm audit fix after AI SDK dependency changes",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Run npm audit fix after AI SDK dependency changes",
-      "endedAt": "2026-05-21T09:47:09.511Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779356161626",
-      "startedAt": "2026-05-21T09:36:01.626Z",
-      "updatedAt": "2026-05-21T09:44:04.171Z",
-      "taskArea": "AI provider runtime architecture",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:36:01.626Z",
-          "details": {
-            "taskArea": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:36:01.627Z",
-          "details": {
-            "query": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider",
-            "taskArea": "Replace Codex CLI spawning with Vercel AI SDK Codex auth provider"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-21T09:36:01.655Z",
-          "details": {
-            "task": "Replace image-reading integration with Vercel AI SDK Codex auth provider, touching backend AI/auth integration files",
-            "area": "AI provider runtime architecture",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T09:44:04.171Z",
-          "details": {
-            "topic": "Replace image reading with Vercel AI SDK Codex auth provider",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Replace image reading with Vercel AI SDK Codex auth provider",
-      "endedAt": "2026-05-21T09:44:04.171Z",
-      "lastQualityGate": {
-        "ok": true,
-        "score": 92,
-        "grade": "B",
-        "warnings": [
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779355906933",
-      "startedAt": "2026-05-21T09:31:46.933Z",
-      "updatedAt": "2026-05-21T09:31:47.042Z",
-      "taskArea": "AI provider runtime architecture",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 0,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:31:46.933Z",
-          "details": {
-            "taskArea": "Evaluate Vercel AI SDK replacement for Codex CLI image reading"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:31:46.934Z",
-          "details": {
-            "query": "Evaluate Vercel AI SDK replacement for Codex CLI image reading",
-            "taskArea": "Evaluate Vercel AI SDK replacement for Codex CLI image reading"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:31:47.042Z",
-          "details": {
-            "query": "Vercel AI SDK replace Codex CLI image reading provider OpenAI API key device auth",
-            "taskArea": "AI provider runtime architecture"
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "endedAt": "2026-05-21T09:36:01.626Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779355729151",
-      "startedAt": "2026-05-21T09:28:49.151Z",
-      "updatedAt": "2026-05-21T09:28:49.151Z",
+      "id": "memory-1780287927699",
+      "startedAt": "2026-06-01T04:25:27.699Z",
+      "updatedAt": "2026-06-01T04:25:27.699Z",
       "startedBy": "memory_sessionEnd",
       "counts": {
         "sessionStart": 0,
@@ -897,141 +114,1042 @@
       "events": [
         {
           "tool": "memory_sessionEnd",
-          "at": "2026-05-21T09:28:49.151Z",
+          "at": "2026-06-01T04:25:27.699Z",
           "details": {
-            "topic": "Test real JPG through Codex image-reading service",
+            "topic": "Migrate misfiled SPX session logs from api gateway vault back to SPX vault",
             "verify": true
           }
         }
       ],
       "missingSessionStart": true,
-      "topic": "Test real JPG through Codex image-reading service",
-      "endedAt": "2026-05-21T09:28:49.151Z",
+      "topic": "Migrate misfiled SPX session logs from api gateway vault back to SPX vault",
+      "endedAt": "2026-06-01T04:25:27.699Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 50,
+        "grade": "F",
+        "warnings": [
+          "No active memory lifecycle was recorded before memory_sessionEnd; created an implicit lifecycle for diagnostics.",
+          "sessionStart recorded: Every task should begin with memory_sessionStart.",
+          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade D with score 72."
+        ]
+      }
+    },
+    {
+      "id": "memory-1780286394563",
+      "startedAt": "2026-06-01T03:59:54.563Z",
+      "updatedAt": "2026-06-01T04:04:14.463Z",
+      "taskArea": "MCP memory vault configuration",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-06-01T03:59:54.563Z",
+          "details": {
+            "taskArea": "MCP memory vault configuration"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-06-01T03:59:54.567Z",
+          "details": {
+            "query": "MCP memory vault configuration",
+            "taskArea": "MCP memory vault configuration"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-06-01T04:04:14.463Z",
+          "details": {
+            "topic": "Fix MCP project-memory vault resolution to SPX + launcher contract bug",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Fix MCP project-memory vault resolution to SPX + launcher contract bug",
+      "endedAt": "2026-06-01T04:04:14.463Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779859511219",
+      "startedAt": "2026-05-27T05:25:11.219Z",
+      "updatedAt": "2026-05-27T05:26:03.212Z",
+      "taskArea": "Explain current SPX runtime flow after async history release",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T05:25:11.219Z",
+          "details": {
+            "taskArea": "Explain current SPX runtime flow after async history release"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T05:25:11.221Z",
+          "details": {
+            "query": "Explain current SPX runtime flow after async history release",
+            "taskArea": "Explain current SPX runtime flow after async history release"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T05:25:11.423Z",
+          "details": {
+            "query": "Explain current production system behavior after async booking history persistence release",
+            "taskArea": "Explain current SPX runtime flow after async history release"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T05:26:03.212Z",
+          "details": {
+            "topic": "Explain current SPX runtime flow after async booking history release",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Explain current SPX runtime flow after async booking history release",
+      "endedAt": "2026-05-27T05:26:03.212Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779858218107",
+      "startedAt": "2026-05-27T05:03:38.107Z",
+      "updatedAt": "2026-05-27T05:05:18.256Z",
+      "taskArea": "GitHub release/deploy metadata",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T05:03:38.107Z",
+          "details": {
+            "taskArea": "GitHub release for SPX"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T05:03:38.109Z",
+          "details": {
+            "query": "GitHub release for SPX",
+            "taskArea": "GitHub release for SPX"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T05:03:38.396Z",
+          "details": {
+            "query": "Create GitHub release for current production commit after async booking history deploy",
+            "taskArea": "GitHub release for SPX"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T05:03:42.868Z",
+          "details": {
+            "task": "Create GitHub Release/tag for current SPX production commit",
+            "area": "GitHub release/deploy metadata",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T05:05:18.256Z",
+          "details": {
+            "topic": "Create GitHub Release v1.0.0 for async booking history deployment",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Create GitHub Release v1.0.0 for async booking history deployment",
+      "endedAt": "2026-05-27T05:05:18.256Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779856903209",
+      "startedAt": "2026-05-27T04:41:43.209Z",
+      "updatedAt": "2026-05-27T04:43:46.682Z",
+      "taskArea": "production SSH docker logs health commit queue drops",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:41:43.209Z",
+          "details": {
+            "taskArea": "production verification after async history deploy"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:41:43.211Z",
+          "details": {
+            "query": "production verification after async history deploy",
+            "taskArea": "production verification after async history deploy"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:41:43.481Z",
+          "details": {
+            "query": "verify production server after PR #37 deploy async booking history queue monitor queue drop logs health commit",
+            "taskArea": "production verification after async history deploy"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:41:43.970Z",
+          "details": {
+            "task": "Read-only production verification after async booking history deploy",
+            "area": "production SSH docker logs health commit queue drops",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:43:46.682Z",
+          "details": {
+            "topic": "Verify production after async booking history deploy",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Verify production after async booking history deploy",
+      "endedAt": "2026-05-27T04:43:46.682Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779856833576",
+      "startedAt": "2026-05-27T04:40:33.575Z",
+      "updatedAt": "2026-05-27T04:40:54.274Z",
+      "taskArea": "github actions deploy monitoring",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:40:33.576Z",
+          "details": {
+            "taskArea": "check CI deploy status for async history merge"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:40:33.577Z",
+          "details": {
+            "query": "check CI deploy status for async history merge",
+            "taskArea": "check CI deploy status for async history merge"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:40:33.834Z",
+          "details": {
+            "query": "check GitHub Actions CI deploy status after PR #37 merge commit 839e3cc",
+            "taskArea": "check CI deploy status for async history merge"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:40:34.278Z",
+          "details": {
+            "task": "Check GitHub Actions CI/deploy status after PR #37 merge",
+            "area": "github actions deploy monitoring",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:40:54.274Z",
+          "details": {
+            "topic": "Check CI deploy status after PR #37 merge",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Check CI deploy status after PR #37 merge",
+      "endedAt": "2026-05-27T04:40:54.274Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779856427143",
+      "startedAt": "2026-05-27T04:33:47.143Z",
+      "updatedAt": "2026-05-27T04:39:13.314Z",
+      "taskArea": "git github PR merge src/controllers src/services src/repositories",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:33:47.143Z",
+          "details": {
+            "taskArea": "spx-review commit PR merge async history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:33:47.145Z",
+          "details": {
+            "query": "spx-review commit PR merge async history persistence",
+            "taskArea": "spx-review commit PR merge async history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:33:47.375Z",
+          "details": {
+            "query": "commit branch push PR strict review and merge async booking history persistence changes",
+            "taskArea": "spx-review commit PR merge async history persistence"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:33:47.823Z",
+          "details": {
+            "task": "Run full spx-review flow: commit, branch, push, PR, strict review, and merge async booking history persistence changes",
+            "area": "git github PR merge src/controllers src/services src/repositories",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:39:13.314Z",
+          "details": {
+            "topic": "spx-review full flow for async booking history persistence",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "spx-review full flow for async booking history persistence",
+      "endedAt": "2026-05-27T04:39:13.314Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779856356305",
+      "startedAt": "2026-05-27T04:32:36.305Z",
+      "updatedAt": "2026-05-27T04:32:44.290Z",
+      "taskArea": "src/controllers poller src/services booking-history-save-queue src/repositories booking-history-repository",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:32:36.305Z",
+          "details": {
+            "task": "Post-review guard for async booking history persistence changes after auto-fixing queue backlog risk",
+            "area": "src/controllers poller src/services booking-history-save-queue src/repositories booking-history-repository",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:32:44.290Z",
+          "details": {
+            "topic": "Post-review guard for async booking history persistence",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "topic": "Post-review guard for async booking history persistence",
+      "endedAt": "2026-05-27T04:32:44.290Z",
       "lastQualityGate": {
         "ok": false,
         "score": 62,
         "grade": "D",
         "warnings": [
+          "sessionStart recorded: Every task should begin with memory_sessionStart.",
+          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779856118056",
+      "startedAt": "2026-05-27T04:28:38.056Z",
+      "updatedAt": "2026-05-27T04:32:24.220Z",
+      "taskArea": "spx-review async history persistence",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:28:38.056Z",
+          "details": {
+            "taskArea": "spx-review async history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:28:38.058Z",
+          "details": {
+            "query": "spx-review async history persistence",
+            "taskArea": "spx-review async history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:28:38.376Z",
+          "details": {
+            "query": "review current uncommitted changes for async booking history persistence and MySQL load reduction",
+            "taskArea": "spx-review async history persistence"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:32:24.220Z",
+          "details": {
+            "topic": "spx-review async booking history persistence changes",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "spx-review async booking history persistence changes",
+      "endedAt": "2026-05-27T04:32:24.220Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779855709277",
+      "startedAt": "2026-05-27T04:21:49.277Z",
+      "updatedAt": "2026-05-27T04:26:07.826Z",
+      "taskArea": "src/controllers poller src/services db-service booking history persistence",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:21:49.277Z",
+          "details": {
+            "taskArea": "async booking history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:21:49.278Z",
+          "details": {
+            "query": "async booking history persistence",
+            "taskArea": "async booking history persistence"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:21:49.503Z",
+          "details": {
+            "query": "make booking history saving asynchronous so polling and auto-accept do not wait on MySQL",
+            "taskArea": "async booking history persistence"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:21:49.913Z",
+          "details": {
+            "task": "Make booking history persistence asynchronous so polling/auto-accept does not wait on MySQL",
+            "area": "src/controllers poller src/services db-service booking history persistence",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:26:07.826Z",
+          "details": {
+            "topic": "Make booking history persistence asynchronous",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Make booking history persistence asynchronous",
+      "endedAt": "2026-05-27T04:26:07.826Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade C with score 76."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779855333762",
+      "startedAt": "2026-05-27T04:15:33.762Z",
+      "updatedAt": "2026-05-27T04:20:45.843Z",
+      "taskArea": "booking history persistence MySQL load",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:15:33.762Z",
+          "details": {
+            "taskArea": "reduce MySQL load booking history save"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:15:33.764Z",
+          "details": {
+            "query": "reduce MySQL load booking history save",
+            "taskArea": "reduce MySQL load booking history save"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:15:34.004Z",
+          "details": {
+            "query": "Implement optimization to reduce MySQL load while checking and saving SPX booking history INSERT IGNORE duplicate request_ids cache prefilter",
+            "taskArea": "reduce MySQL load booking history save"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:15:34.486Z",
+          "details": {
+            "task": "Implement code changes to reduce MySQL load in SPX booking history persistence by avoiding repeated duplicate INSERT IGNORE work for known request_ids; no schema changes or production deploy.",
+            "area": "booking history persistence MySQL load",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:20:45.843Z",
+          "details": {
+            "topic": "Reduce MySQL load when saving SPX booking history",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Reduce MySQL load when saving SPX booking history",
+      "endedAt": "2026-05-27T04:20:45.843Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 90,
+        "grade": "B",
+        "warnings": [
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779855157140",
+      "startedAt": "2026-05-27T04:12:37.140Z",
+      "updatedAt": "2026-05-27T04:12:37.803Z",
+      "taskArea": "Dragonfly cache for SPX DB churn",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:12:37.140Z",
+          "details": {
+            "taskArea": "Dragonfly cache for SPX DB churn"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:12:37.142Z",
+          "details": {
+            "query": "Dragonfly cache for SPX DB churn",
+            "taskArea": "Dragonfly cache for SPX DB churn"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:12:37.361Z",
+          "details": {
+            "query": "Use Dragonfly Redis-compatible cache to reduce INSERT IGNORE duplicate DB churn in SPX polling production",
+            "taskArea": "Dragonfly cache for SPX DB churn"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T04:12:37.803Z",
+          "details": {
+            "task": "Evaluate whether adding Dragonfly/Redis-compatible cache would help reduce SPX INSERT IGNORE duplicate DB churn and production polling overhead; planning only, no infra changes.",
+            "area": "Dragonfly cache for SPX DB churn",
+            "riskLevel": "medium"
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "endedAt": "2026-05-27T04:15:33.762Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779855047181",
+      "startedAt": "2026-05-27T04:10:47.181Z",
+      "updatedAt": "2026-05-27T04:11:25.554Z",
+      "taskArea": "INSERT IGNORE duplicate DB churn",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:10:47.182Z",
+          "details": {
+            "taskArea": "INSERT IGNORE duplicate DB churn"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:10:47.183Z",
+          "details": {
+            "query": "INSERT IGNORE duplicate DB churn",
+            "taskArea": "INSERT IGNORE duplicate DB churn"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:10:47.407Z",
+          "details": {
+            "query": "SPX INSERT IGNORE duplicate skipped rows DB churn production polling saveBookingRequests insertBookingHistories",
+            "taskArea": "INSERT IGNORE duplicate DB churn"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:11:25.554Z",
+          "details": {
+            "topic": "Plan fix for INSERT IGNORE duplicate DB churn",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Plan fix for INSERT IGNORE duplicate DB churn",
+      "endedAt": "2026-05-27T04:11:25.554Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 78,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779854904879",
+      "startedAt": "2026-05-27T04:08:24.879Z",
+      "updatedAt": "2026-05-27T04:09:33.638Z",
+      "taskArea": "Zed keymap VS Code",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T04:08:24.879Z",
+          "details": {
+            "taskArea": "Zed keymap VS Code"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T04:08:24.881Z",
+          "details": {
+            "query": "Zed keymap VS Code",
+            "taskArea": "Zed keymap VS Code"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:09:33.638Z",
+          "details": {
+            "topic": "Set Zed keymap to VS Code behavior",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Set Zed keymap to VS Code behavior",
+      "endedAt": "2026-05-27T04:09:33.638Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 90,
+        "grade": "B",
+        "warnings": [
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779853800727",
+      "startedAt": "2026-05-27T03:50:00.727Z",
+      "updatedAt": "2026-05-27T04:00:42.153Z",
+      "taskArea": "production auto-accept latency",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 3,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-27T03:50:00.727Z",
+          "details": {
+            "taskArea": "memory location"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T03:50:00.740Z",
+          "details": {
+            "query": "memory location",
+            "taskArea": "memory location"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T03:50:10.614Z",
+          "details": {
+            "query": "Where is MCP memory stored for this SPX project right now?",
+            "taskArea": "memory location"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-27T03:51:31.386Z",
+          "details": {
+            "query": "Investigate production server SPX not accepting jobs fast enough; root ssh production logs auto-accept polling latency notifications",
+            "taskArea": "production auto-accept latency"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-27T03:51:31.752Z",
+          "details": {
+            "task": "SSH to production server as root to investigate why SPX auto-accept/polling is not keeping up with jobs; inspect logs/process/metrics only, no deploy or config changes unless separately confirmed.",
+            "area": "production auto-accept latency",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-27T04:00:42.153Z",
+          "details": {
+            "topic": "Investigate SPX production auto-accept not keeping up",
+            "verify": false
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Investigate SPX production auto-accept not keeping up",
+      "endedAt": "2026-05-27T04:00:42.153Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 90,
+        "grade": "B",
+        "warnings": [
+          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779752607652",
+      "startedAt": "2026-05-25T23:43:27.652Z",
+      "updatedAt": "2026-05-25T23:48:07.097Z",
+      "taskArea": "spx-review for auto-accept dual-tab verify fix",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-05-25T23:43:27.652Z",
+          "details": {
+            "taskArea": "spx-review for auto-accept dual-tab verify fix"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-05-25T23:43:27.654Z",
+          "details": {
+            "query": "spx-review for auto-accept dual-tab verify fix",
+            "taskArea": "spx-review for auto-accept dual-tab verify fix"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-25T23:48:07.097Z",
+          "details": {
+            "topic": "spx-review: branch + PR + 8-category review + squash-merge of auto-accept dual-tab verify fix (#36)",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "spx-review: branch + PR + 8-category review + squash-merge of auto-accept dual-tab verify fix (#36)",
+      "endedAt": "2026-05-25T23:48:07.097Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 80,
+        "grade": "C",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 78."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779752607560",
+      "startedAt": "2026-05-25T23:43:27.560Z",
+      "updatedAt": "2026-05-25T23:43:27.560Z",
+      "taskArea": "code review + production deploy of auto-accept verify fix",
+      "startedBy": "memory_selfCheck",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 1,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-05-25T23:43:27.560Z",
+          "details": {
+            "task": "spx-review flow: commit local changes (api-client.ts + notifier.ts dual-tab verify fix), create branch, push, open PR, run 8-category strict review, auto-fix P0-P3, then merge to main and clean up. Touches auto-accept logic and src/services modules.",
+            "area": "code review + production deploy of auto-accept verify fix",
+            "riskLevel": "high"
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "endedAt": "2026-05-25T23:43:27.652Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 0,
+        "grade": "F",
+        "warnings": [
+          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+        ]
+      }
+    },
+    {
+      "id": "memory-1779752524986",
+      "startedAt": "2026-05-25T23:42:04.986Z",
+      "updatedAt": "2026-05-25T23:42:04.986Z",
+      "startedBy": "memory_sessionEnd",
+      "counts": {
+        "sessionStart": 0,
+        "contextPack": 0,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-05-25T23:42:04.986Z",
+          "details": {
+            "topic": "Fix SPX auto-accept partial-failure verify to query both pending and confirmed tabs (booking 2527287 root cause)",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": true,
+      "topic": "Fix SPX auto-accept partial-failure verify to query both pending and confirmed tabs (booking 2527287 root cause)",
+      "endedAt": "2026-05-25T23:42:04.986Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 50,
+        "grade": "F",
+        "warnings": [
           "No active memory lifecycle was recorded before memory_sessionEnd; created an implicit lifecycle for diagnostics.",
           "sessionStart recorded: Every task should begin with memory_sessionStart.",
           "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
-          "vault warnings reviewed: Vault grade C with score 78."
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
+          "vault warnings reviewed: Vault grade C with score 80."
         ]
       }
     },
     {
-      "id": "memory-1779355355128",
-      "startedAt": "2026-05-21T09:22:35.128Z",
-      "updatedAt": "2026-05-21T09:22:51.827Z",
-      "taskArea": "AI provider runtime architecture",
+      "id": "memory-1779751282122",
+      "startedAt": "2026-05-25T23:21:22.122Z",
+      "updatedAt": "2026-05-25T23:25:38.499Z",
+      "taskArea": "auto-accept partial-failure reporting",
       "startedBy": "memory_sessionStart",
       "counts": {
         "sessionStart": 1,
-        "contextPack": 2,
+        "contextPack": 1,
         "selfCheck": 0,
         "sessionEnd": 1
       },
       "events": [
         {
           "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:22:35.128Z",
+          "at": "2026-05-25T23:21:22.122Z",
           "details": {
-            "taskArea": "Design decision for custom agent runtime using Codex auth provider"
+            "taskArea": "auto-accept partial-failure reporting"
           }
         },
         {
           "tool": "memory_contextPack",
-          "at": "2026-05-21T09:22:35.129Z",
+          "at": "2026-05-25T23:21:22.123Z",
           "details": {
-            "query": "Design decision for custom agent runtime using Codex auth provider",
-            "taskArea": "Design decision for custom agent runtime using Codex auth provider"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:22:35.159Z",
-          "details": {
-            "query": "custom agent runtime using Codex auth provider vs Codex CLI vs OpenAI API key",
-            "taskArea": "AI provider runtime architecture"
+            "query": "auto-accept partial-failure reporting",
+            "taskArea": "auto-accept partial-failure reporting"
           }
         },
         {
           "tool": "memory_sessionEnd",
-          "at": "2026-05-21T09:22:51.827Z",
+          "at": "2026-05-25T23:25:38.499Z",
           "details": {
-            "topic": "Assess custom agent runtime using Codex auth provider",
+            "topic": "Diagnose SPX auto-accept partial-fail report on PROD (booking 2527287)",
             "verify": true
           }
         }
       ],
       "missingSessionStart": false,
-      "topic": "Assess custom agent runtime using Codex auth provider",
-      "endedAt": "2026-05-21T09:22:51.827Z",
+      "topic": "Diagnose SPX auto-accept partial-fail report on PROD (booking 2527287)",
+      "endedAt": "2026-05-25T23:25:38.499Z",
       "lastQualityGate": {
         "ok": false,
         "score": 80,
         "grade": "C",
         "warnings": [
           "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779354774442",
-      "startedAt": "2026-05-21T09:12:54.442Z",
-      "updatedAt": "2026-05-21T09:21:30.368Z",
-      "taskArea": "Local test for Codex image-reading service",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-21T09:12:54.442Z",
-          "details": {
-            "taskArea": "Local test for Codex image-reading service"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:12:54.447Z",
-          "details": {
-            "query": "Local test for Codex image-reading service",
-            "taskArea": "Local test for Codex image-reading service"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-21T09:12:54.483Z",
-          "details": {
-            "query": "local test Codex image-reading API service",
-            "taskArea": "Local test for Codex image-reading service"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-21T09:21:30.368Z",
-          "details": {
-            "topic": "Local service smoke test for Codex image API",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Local service smoke test for Codex image API",
-      "endedAt": "2026-05-21T09:21:30.368Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 78."
+          "vault warnings reviewed: Vault grade C with score 80."
         ]
       }
     }

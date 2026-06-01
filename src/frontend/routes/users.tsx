@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { usersApi } from '../lib/api'
 import { Card, CardContent } from '../components/ui/card'
@@ -191,44 +191,6 @@ function UserIdentity({ user, currentUserId }: { user: User; currentUserId?: num
           คุณ
         </span>
       ) : null}
-    </div>
-  )
-}
-
-function UserMobileCard({ user, currentUserId }: { user: User; currentUserId?: number }) {
-  const isCurrentUser = user.id === currentUserId
-  return (
-    <div className="mobile-row flex-col gap-2">
-      <div className="flex items-start gap-3">
-        <span className="mobile-row-body">
-          <span className="mobile-row-title flex items-center gap-2">
-            {user.username}
-            {isCurrentUser ? (
-              <span className="rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-1.5 py-0.5 text-[0.55rem] font-bold uppercase text-success">
-                คุณ
-              </span>
-            ) : null}
-          </span>
-          <span className="mobile-row-subtitle">
-            <span className="font-data">#{user.id}</span>
-            <span className="opacity-50"> · </span>
-            สร้าง {formatDateTime(user.createdAt).split(' ')[0]}
-          </span>
-        </span>
-        <span className="mobile-row-trailing">{getRoleBadge(user.role)}</span>
-      </div>
-      <div className="border-t border-white/[0.06] pt-2">
-        <UserActions user={user} currentUserId={currentUserId} />
-      </div>
-    </div>
-  )
-}
-
-function InfoItem({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-foreground">{value}</div>
     </div>
   )
 }

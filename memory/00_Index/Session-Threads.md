@@ -7,7 +7,7 @@ verified-by: cascade
 source: file:memory/05_Agent_Session_Logs/
 confidence: high
 created: 2026-05-13
-updated: 2026-05-14
+updated: 2026-06-01
 tags:
   - reference
   - meta
@@ -104,6 +104,31 @@ aliases:
 | # | Session | Agent | Focus |
 |---|---|---|---|
 | 1 | [[2026-05-14-Compact-Agents-Instructions]] | opencode | Compact and source-ground root `AGENTS.md` |
+
+---
+
+### Thread 7: SPX Bidding Vehicle-Type Filter + Review Hardening
+
+> Implemented the configurable SPX bidding-list vehicle-type payload, live-tested it, ran the strict review/merge flow, hardened the SPX review skill + CI/CD deploy-readiness, and cleaned up repo tooling. Recovered from the api gateway vault — see [[2026-06-01-migrate-misfiled-spx-session-logs-from-api-gateway-vault-back-to-spx-vault]].
+
+| #   | Session | Agent | Focus |
+| --- | --- | --- | --- |
+| 1 | [[2026-05-30-check-spx-bidding-list-api-payload-shape]] | codex | Inspect SPX bidding-list API payload shape |
+| 2 | [[2026-05-30-implement-configurable-spx-bidding-list-vehicle-type-payload-support]] | codex | Implement configurable vehicle-type payload |
+| 3 | [[2026-05-30-live-test-spx-bidding-list-payload-with-vehicle-type]] | codex | Live-test payload with vehicle type |
+| 4 | [[2026-05-30-retry-live-spx-bidding-list-payload-test]] | codex | Retry live payload test |
+| 5 | [[2026-05-30-successful-retry-of-spx-bidding-list-payload-with-vehicle-type]] | codex | Successful retry of payload test |
+| 6 | [[2026-05-30-spx-review-configurable-bidding-vehicle-type-payload-branch]] | codex | Review configurable vehicle-type branch |
+| 7 | [[2026-05-30-review-fix-and-squash-merge-bidding-vehicle-type-filter-feature-and-unify-spx-review-skill]] | codex | Review-fix, squash-merge, unify review skill |
+| 8 | [[2026-05-30-run-spx-review-review-only-workflow]] | codex | Run review-only workflow |
+| 9 | [[2026-05-30-consolidate-spx-review-skills-into-one-github-mcp-workflow]] | codex | Consolidate review skills into one GitHub MCP workflow |
+| 10 | [[2026-05-30-attempt-mcp-path-for-spx-strict-pr-review]] | codex | Attempt MCP path for strict PR review |
+| 11 | [[2026-05-30-post-check-spx-review-skill-consolidation-lifecycle]] | codex | Post-check review skill consolidation |
+| 12 | [[2026-05-30-install-github-cli-gh-for-spx-pr-flow]] | codex | Install gh CLI for SPX PR flow |
+| 13 | [[2026-05-31-debug-production-bidding-vehicle-type-filter-and-update-spx-review-post-merge-check]] | codex | Debug prod filter + add post-merge check |
+| 14 | [[2026-05-31-spx-review-ci-cd-readiness-fix-pipeline-partial-completion]] | codex | CI/CD readiness fix (partial) |
+| 15 | [[2026-05-31-spx-review-pr-39-deploy-readiness-health-gate]] | codex | PR #39 deploy-readiness health gate |
+| 16 | [[2026-06-01-spx-repo-improvements-lint-test-tooling-schema-drift-guard-config-docs-fixes-dead-code-cleanup]] | codex | Repo improvements: lint/test/tooling/schema-drift/docs |
 
 ---
 

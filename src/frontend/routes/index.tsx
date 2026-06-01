@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { rulesApi, metricsApi, lineApi } from '../lib/api'
+import { rulesApi, metricsApi } from '../lib/api'
 import { useSseStream } from '../hooks/useSseContext'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
@@ -51,13 +51,6 @@ function DashboardComponent() {
     staleTime: 5 * 1000,
   })
 
-  const { data: lineQuota } = useQuery({
-    queryKey: ['line-quota'],
-    queryFn: lineApi.quota,
-    refetchInterval: 60_000,
-    staleTime: 60_000,
-  })
-
   const { data: history = [] } = useQuery({
     queryKey: ['metrics-history', 60],
     queryFn: () => metricsApi.history(60),
@@ -99,12 +92,6 @@ function DashboardComponent() {
       duration: 20_000,
     })
   }, [sessionAlertTimestamp])
-
-  const activeRules = rules.filter((r) => r.enabled && !r.fulfilled).length
-
-  const quotaPercent = lineQuota?.limit
-    ? Math.min(100, (lineQuota.totalUsage / lineQuota.limit) * 100)
-    : 0
 
   if (rulesLoading) {
     return (

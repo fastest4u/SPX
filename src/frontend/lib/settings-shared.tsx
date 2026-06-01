@@ -13,7 +13,6 @@ import {
     Bot,
     Lock,
     CheckCircle2,
-    XCircle,
     Loader2,
     ArrowLeft,
     Plus,
