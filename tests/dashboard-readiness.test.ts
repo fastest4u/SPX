@@ -6,6 +6,9 @@ process.env.DB_MODE = "memory";
 import assert from "node:assert/strict";
 
 async function main(): Promise<void> {
+  console.log("[DEBUG] process.env.DB_MODE at start of main:", process.env.DB_MODE);
+  const { env } = await import("../src/config/env.js");
+  console.log("[DEBUG] env.DB_MODE from env.ts:", env.DB_MODE);
   const Fastify = (await import("fastify")).default;
   const { dashboardController } = await import("../src/controllers/dashboard-controller.js");
   const { closePool } = await import("../src/db/client.js");
