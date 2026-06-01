@@ -16,8 +16,13 @@ async function main(): Promise<void> {
 
   const app = Fastify({ logger: false });
 
+  app.addHook("onRequest", async (request) => {
+    console.log("[DEBUG] onRequest:", request.method, request.url);
+  });
+
   try {
     await app.register(dashboardController);
+    console.log("[DEBUG] Routes:", app.printRoutes());
 
     for (let i = 0; i < 5; i++) {
       metrics.recordPoll(10, false, "session-error", null);
