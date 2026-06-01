@@ -21,7 +21,6 @@ import type {
   LineBotSendResult,
   LineBotStatus,
   LoginResponse,
-  MeResponse,
   MetricsHistoryRow,
   LineImageExtraction,
   LineImageExtractionQuery,
@@ -30,7 +29,6 @@ import type {
   NotifyRule,
   NotificationPreview,
   NotificationTestResult,
-  PaginatedHistory,
   PasswordInput,
   ReadyResponse,
   RoleInput,
@@ -369,11 +367,11 @@ export const metricsApi = {
   history: (limit?: number): Promise<MetricsHistoryRow[]> =>
     fetchPlain<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
 
-  pause: (): Promise<any> =>
-    fetchPlain<any>('/system/pause', { method: 'POST' }),
+  pause: (): Promise<{ paused: boolean }> =>
+    fetchPlain<{ paused: boolean }>('/system/pause', { method: 'POST' }),
 
-  resume: (): Promise<any> =>
-    fetchPlain<any>('/system/resume', { method: 'POST' }),
+  resume: (): Promise<{ paused: boolean }> =>
+    fetchPlain<{ paused: boolean }>('/system/resume', { method: 'POST' }),
 }
 
 export const lineApi = {

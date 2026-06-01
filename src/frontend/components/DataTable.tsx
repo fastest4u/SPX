@@ -151,7 +151,6 @@ export function DataTable<T>({
   emptyIcon,
   emptyMessage = 'ไม่พบข้อมูล',
   minWidth = '760px',
-  renderMobile,
   className,
   pagination,
   sorting,

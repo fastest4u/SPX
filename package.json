@@ -7,6 +7,11 @@
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "typecheck:backend": "tsc --noEmit",
     "typecheck:frontend": "npx tsc --noEmit --project tsconfig.frontend-check.json",
+    "test": "node scripts/run-tests.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "build": "npm run typecheck --silent && rimraf dist && esbuild src/app.ts src/scripts/generate-migration.ts src/scripts/db-migrate.ts src/scripts/db-reset.ts src/scripts/db-test.ts src/scripts/smoke-test.ts src/scripts/test-memory-db.ts --bundle --platform=node --target=node18 --minify --outdir=dist --packages=external && npx vite build --emptyOutDir",
     "start": "node dist/app.js",
     "dev": "concurrently --kill-others --names backend,frontend --prefix-colors blue,green \"node scripts/dev-backend.mjs\" \"node scripts/dev-frontend.mjs\"",
@@ -75,6 +80,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.16.0",
     "@tailwindcss/vite": "^4.1.4",
     "@tanstack/router-plugin": "^1.117.1",
     "@types/bcryptjs": "^2.4.6",
@@ -84,12 +90,16 @@
     "@vitejs/plugin-react": "^4.4.1",
     "concurrently": "^9.0.0",
     "esbuild": "^0.28.0",
+    "eslint": "^9.16.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
     "globals": "^16.0.0",
+    "prettier": "^3.4.2",
     "rimraf": "^6.1.3",
     "tailwindcss": "^4.1.4",
     "ts-node": "^10.9.0",
     "tsx": "^4.19.0",
     "typescript": "^5.3.0",
+    "typescript-eslint": "^8.18.0",
     "vite": "^6.3.3"
   }
 }

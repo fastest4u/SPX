@@ -403,7 +403,7 @@ function buildCallbackHtml(success: boolean, message: string): string {
 async function startCallbackServer(): Promise<void> {
   stopCallbackServer();
 
-  return new Promise<void>((resolveStart, rejectStart) => {
+  return new Promise<void>((resolveStart) => {
     const server = createServer(async (req, res) => {
       const reqUrl = new URL(req.url || "/", `http://localhost:${CALLBACK_PORT}`);
       if (reqUrl.pathname !== "/auth/callback") {

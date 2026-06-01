@@ -1,6 +1,6 @@
 import { copyFile, mkdir, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { getLineImageExtractionByTripNumber, insertLineImageExtraction } from "../repositories/line-image-extraction-repository.js";
 
 export const REQUIRED_LINE_IMAGE_AGENCY = "LH-PWL";

@@ -175,7 +175,43 @@ git branch -d <branch-name>
 
 แจ้งผู้ใช้ว่าเงื่อนไขข้อใดยังไม่ผ่าน พร้อมรายละเอียด และรอคำสั่ง.
 
-## Step 7: Session End
+## Step 7: Post-Merge Production Check
+
+หลัง merge สำเร็จ ให้ทำ **production verification แบบ read-only** เสมอ เพื่อไม่ให้จบงานทั้งที่ server ยังรัน commit เก่า:
+
+1. ตรวจ local/remote base head:
+
+```bash
+git rev-parse --short HEAD
+git log --oneline -n 3
+```
+
+2. ตรวจ production server แบบไม่พิมพ์ secrets:
+
+```bash
+ssh root@45.83.207.139 "cd /root/SPX && git rev-parse --short HEAD && git log --oneline -n 3"
+ssh root@45.83.207.139 "docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'"
+```
+
+3. ถ้า change มี runtime/env behavior ให้ตรวจ container bundle และ runtime config เฉพาะ key ที่เกี่ยวข้องเท่านั้น เช่น:
+
+```bash
+ssh root@45.83.207.139 "docker exec spx-app-1 printenv BIDDING_VEHICLE_TYPE || true"
+ssh root@45.83.207.139 "docker exec spx-app-1 sh -c 'cd /app && grep -c BIDDING_VEHICLE_TYPE dist/app.js || true'"
+```
+
+4. ถ้ามี DB/runtime effect ให้ query แบบ read-only เฉพาะ aggregate/sample ที่ไม่เปิดเผย secrets เช่น count by `vehicle_type`, recent rows, หรือ app setting key ที่เกี่ยวข้อง.
+5. ถ้า production server ยังไม่ตรงกับ merged commit ให้รายงานเป็น **deployment pending** พร้อมหลักฐาน commit/container/runtime.
+6. ห้าม deploy/restart เอง เว้นแต่ user สั่งชัดเจนว่า deploy/restart/ship production.
+
+เมื่อ user สั่ง deploy/restart ชัดเจน:
+
+1. อ่าน deploy files ก่อน (`docker-compose.yml`, deploy scripts, README deploy notes).
+2. รัน deploy ตาม pattern repo/server ปัจจุบัน.
+3. ตรวจซ้ำว่า server git head, container image/build, health, runtime key, และ behavior สำคัญตรงกับ change.
+4. บันทึกผลใน memory session log.
+
+## Step 8: Session End
 
 หลังจบ pipeline:
 

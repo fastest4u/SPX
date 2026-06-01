@@ -4,7 +4,7 @@ import { metrics } from "./metrics.js";
 import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, applyAutoAcceptProgress, type NotifyRule, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import type { ApiClient } from "./api-client.js";
-import { isLineBotEnabled, sendNotification as sendLineBotNotification, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
+import { isLineBotEnabled, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
 
 // Re-export for backward compatibility
 export type { LineBotStatus as LineJsQrLoginResult } from "./line-bot.js";
@@ -88,15 +88,6 @@ async function sendLineOaMessage(title: string, message: string): Promise<void> 
   if (!response.ok) {
     const responseBody = await response.text();
     throw new Error(`LINE OA push failed with HTTP ${response.status}: ${responseBody.slice(0, 200)}`);
-  }
-}
-
-async function sendLineJsTestMessage(title: string, message: string): Promise<void> {
-  const result = await sendLineBotNotification(title, message);
-  if (!result.ok) {
-    const err = new Error(result.error || "LINE Bot send failed");
-    if (result.qrUrl) Object.assign(err, { qrUrl: result.qrUrl, pincode: result.pincode });
-    throw err;
   }
 }
 

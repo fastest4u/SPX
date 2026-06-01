@@ -19,19 +19,6 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function normalizeMeta(meta: unknown): string {
-  if (meta === undefined) return "";
-  if (meta instanceof Error) {
-    return JSON.stringify({ name: meta.name, message: meta.message, stack: meta.stack });
-  }
-  if (typeof meta === "string") return meta;
-  try {
-    return JSON.stringify(meta);
-  } catch {
-    return String(meta);
-  }
-}
-
 function log(level: LogLevel, message: string, meta?: unknown): void {
   if (level < minLevel) return;
   const record = {
