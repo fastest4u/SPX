@@ -34,7 +34,7 @@ function runTest(file) {
     const child = spawn(process.execPath, ["--import", "tsx", join(testsDir, file)], {
       cwd: repoRoot,
       stdio: "inherit",
-      env: process.env,
+      env: { ...process.env, DB_MODE: "memory" },
     });
 
     child.on("exit", (code, signal) => {
