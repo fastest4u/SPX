@@ -1,6 +1,6 @@
-import assert from "node:assert/strict";
-
 process.env.DB_MODE = "memory";
+
+import assert from "node:assert/strict";
 
 async function main(): Promise<void> {
   const Fastify = (await import("fastify")).default;

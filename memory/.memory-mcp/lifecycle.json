@@ -1,47 +1,66 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-01T04:47:48.629Z",
-  "activeSession": {
-    "id": "memory-1780289230180",
-    "startedAt": "2026-06-01T04:47:10.180Z",
-    "updatedAt": "2026-06-01T04:47:48.629Z",
-    "taskArea": "code-review-pr-merge",
-    "startedBy": "memory_sessionStart",
-    "counts": {
-      "sessionStart": 1,
-      "contextPack": 1,
-      "selfCheck": 1,
-      "sessionEnd": 0
-    },
-    "events": [
-      {
-        "tool": "memory_sessionStart",
-        "at": "2026-06-01T04:47:10.180Z",
-        "details": {
-          "taskArea": "code-review-pr-merge"
-        }
-      },
-      {
-        "tool": "memory_contextPack",
-        "at": "2026-06-01T04:47:10.185Z",
-        "details": {
-          "query": "code-review-pr-merge",
-          "taskArea": "code-review-pr-merge"
-        }
-      },
-      {
-        "tool": "memory_selfCheck",
-        "at": "2026-06-01T04:47:48.629Z",
-        "details": {
-          "task": "Review and merge large repo-improvement changeset: lint/test tooling, schema-drift guard, config/docs fixes, dead code cleanup across src/services, src/config, src/db, frontend, deploy.yml",
-          "area": "code-review-pr-merge",
-          "riskLevel": "high"
-        }
-      }
-    ],
-    "missingSessionStart": false
-  },
+  "updatedAt": "2026-06-01T05:57:30.347Z",
+  "activeSession": null,
   "recentSessions": [
+    {
+      "id": "memory-1780289230180",
+      "startedAt": "2026-06-01T04:47:10.180Z",
+      "updatedAt": "2026-06-01T05:57:30.344Z",
+      "taskArea": "code-review-pr-merge",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-06-01T04:47:10.180Z",
+          "details": {
+            "taskArea": "code-review-pr-merge"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-06-01T04:47:10.185Z",
+          "details": {
+            "query": "code-review-pr-merge",
+            "taskArea": "code-review-pr-merge"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-06-01T04:47:48.629Z",
+          "details": {
+            "task": "Review and merge large repo-improvement changeset: lint/test tooling, schema-drift guard, config/docs fixes, dead code cleanup across src/services, src/config, src/db, frontend, deploy.yml",
+            "area": "code-review-pr-merge",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-06-01T05:57:30.344Z",
+          "details": {
+            "topic": "Fix CI failure: dashboard-readiness.test.ts due to ESM import order env race",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "Fix CI failure: dashboard-readiness.test.ts due to ESM import order env race",
+      "endedAt": "2026-06-01T05:57:30.344Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 92,
+        "grade": "B",
+        "warnings": [
+          "vault warnings reviewed: Vault grade D with score 72."
+        ]
+      }
+    },
     {
       "id": "memory-1780288544175",
       "startedAt": "2026-06-01T04:35:44.175Z",
@@ -1098,56 +1117,6 @@
           "No active memory lifecycle was recorded before memory_sessionEnd; created an implicit lifecycle for diagnostics.",
           "sessionStart recorded: Every task should begin with memory_sessionStart.",
           "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 80."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779751282122",
-      "startedAt": "2026-05-25T23:21:22.122Z",
-      "updatedAt": "2026-05-25T23:25:38.499Z",
-      "taskArea": "auto-accept partial-failure reporting",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-25T23:21:22.122Z",
-          "details": {
-            "taskArea": "auto-accept partial-failure reporting"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-25T23:21:22.123Z",
-          "details": {
-            "query": "auto-accept partial-failure reporting",
-            "taskArea": "auto-accept partial-failure reporting"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-25T23:25:38.499Z",
-          "details": {
-            "topic": "Diagnose SPX auto-accept partial-fail report on PROD (booking 2527287)",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Diagnose SPX auto-accept partial-fail report on PROD (booking 2527287)",
-      "endedAt": "2026-05-25T23:25:38.499Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
           "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
           "vault warnings reviewed: Vault grade C with score 80."
         ]
