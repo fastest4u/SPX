@@ -72,10 +72,13 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     let ready = true;
     try {
       const pool = getPool();
+      console.log("[DEBUG] /ready: pool =", pool);
       if (pool) await pool.query("SELECT 1");
-    } catch {
+    } catch (err) {
+      console.log("[DEBUG] /ready: caught error =", err);
       ready = false;
     }
+    console.log("[DEBUG] /ready: returning ready =", ready);
     return sendSuccess(reply, { ready }, ready ? undefined : "Service unavailable", ready ? 200 : 503);
   });
 

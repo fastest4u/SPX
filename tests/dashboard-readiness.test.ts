@@ -33,6 +33,8 @@ async function main(): Promise<void> {
     const readyResponse = await app.inject({ method: "GET", url: "/ready" });
     const readyBody = readyResponse.json();
 
+    console.log("[DEBUG] /ready status:", readyResponse.statusCode);
+    console.log("[DEBUG] /ready body:", JSON.stringify(readyBody));
     assert.equal(readyResponse.statusCode, 200);
     assert.equal(readyBody.data.ready, true);
   } finally {
