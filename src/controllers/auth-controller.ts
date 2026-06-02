@@ -16,7 +16,7 @@ const loginSchema = {
   additionalProperties: false,
   required: ["username", "password"],
   properties: {
-    username: { type: "string" as const, minLength: 1, maxLength: 64 },
+    username: { type: "string" as const, minLength: 1, maxLength: 50 },
     password: { type: "string" as const, minLength: 1, maxLength: 256 },
   },
 };

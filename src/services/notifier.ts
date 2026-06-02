@@ -440,6 +440,11 @@ async function acceptAutoAcceptMatch(
     // and notify based on what really happened rather than the raw retcode.
     let verifiedAcceptedIds: number[] = result.ok ? requestIds : [];
     let verifiedFailedIds: number[] = result.ok ? [] : requestIds;
+    // Whether verification actually ran and produced a usable answer. When the
+    // accept itself succeeded there is nothing to verify. When it failed, this
+    // is only true once at least one tab fetch returns data; a transient double
+    // fetch failure leaves it false so we defer instead of asserting failure.
+    let verificationRan = result.ok;
 
     if (!result.ok) {
       try {
@@ -464,6 +469,8 @@ async function acceptAutoAcceptMatch(
           }
         }
         if (pendingList || confirmedList) {
+          // At least one tab fetch succeeded — verification actually ran.
+          verificationRan = true;
           const acceptedSet = new Set(
             [...merged.entries()]
               .filter(([, status]) => status === 2)
@@ -480,8 +487,28 @@ async function acceptAutoAcceptMatch(
               originalError: result.error,
             });
           }
+        } else {
+          // Both tab fetches returned null/empty — verification could NOT run
+          // (transient double failure). This is indeterminate, NOT a confirmed
+          // failure, so defer: do not assert failure and do not fire the
+          // false-failure notification. Leave both verified lists empty and
+          // mark verification as not-run so the consumer skips the batch.
+          verificationRan = false;
+          logger.warn("auto-accept-verify-indeterminate", {
+            bookingId,
+            requestIds,
+            ruleId: entry.ruleId,
+            originalError: result.error,
+          });
+          verifiedAcceptedIds = [];
+          verifiedFailedIds = [];
         }
       } catch (verifyErr) {
+        // The verification fetch itself threw — verification could not run, so
+        // defer rather than falsely asserting failure for the whole batch.
+        verificationRan = false;
+        verifiedAcceptedIds = [];
+        verifiedFailedIds = [];
         logger.warn("auto-accept-verify-failed", {
           bookingId,
           ruleId: entry.ruleId,
@@ -490,10 +517,10 @@ async function acceptAutoAcceptMatch(
       }
     }
 
-    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds };
+    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, verificationRan };
   }));
 
-  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds } of acceptResults) {
+  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, verificationRan } of acceptResults) {
     if (verifiedAcceptedIds.length > 0) {
       const logLevel = result.ok ? "auto-accept-success" : "auto-accept-partial-success";
       logger.info(logLevel, { bookingId, requestIds: verifiedAcceptedIds, ruleId: entry.ruleId, httpStatus: result.httpStatus });
@@ -538,8 +565,9 @@ async function acceptAutoAcceptMatch(
       }));
     }
 
-    if (verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
-      // Verification returned an empty list — treat original batch as fully failed
+    if (verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
+      // Verification actually ran and confirmed the requests are absent —
+      // treat the original batch as fully failed.
       for (const requestId of requestIds) {
         releaseAutoAcceptRequest(bookingId, requestId);
       }
@@ -557,6 +585,14 @@ async function acceptAutoAcceptMatch(
         status: "failed",
         errorMessage: result.error,
       }));
+    } else if (!verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
+      // Verification could not run (transient double fetch failure or fetch
+      // threw). Defer: release the claimed request keys so a later poll can
+      // retry, but do NOT assert failure or fire the false-failure alert.
+      for (const requestId of requestIds) {
+        releaseAutoAcceptRequest(bookingId, requestId);
+      }
+      logger.warn("auto-accept-deferred-unverified", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
     }
   }
 

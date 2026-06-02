@@ -38,7 +38,7 @@ export interface AuthUser {
 export interface LoginResponse {
   status: 'success';
   message?: string;
-  data: { token: string } | null;
+  data: AuthUser;
 }
 
 export interface MeResponse {

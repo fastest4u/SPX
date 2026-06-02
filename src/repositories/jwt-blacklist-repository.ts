@@ -30,6 +30,25 @@ function ensurePruneTimer(): void {
     if (typeof pruneTimer.unref === "function") pruneTimer.unref();
 }
 
+let mysqlPruneTimer: ReturnType<typeof setInterval> | null = null;
+const MYSQL_PRUNE_INTERVAL_MS = 5 * 60_000;
+
+async function pruneMysql(): Promise<void> {
+    const pool = getPool();
+    if (!pool) return;
+    await pool.query("DELETE FROM jwt_blacklist WHERE expires_at <= ?", [Date.now()]);
+}
+
+function ensureMysqlPruneTimer(): void {
+    if (mysqlPruneTimer) return;
+    mysqlPruneTimer = setInterval(() => {
+        void pruneMysql().catch((err) => {
+            logger.warn("jwt-blacklist-prune-failed", { error: err instanceof Error ? err.message : String(err) });
+        });
+    }, MYSQL_PRUNE_INTERVAL_MS);
+    if (typeof mysqlPruneTimer.unref === "function") mysqlPruneTimer.unref();
+}
+
 let tableEnsured = false;
 let tableEnsurePromise: Promise<void> | null = null;
 
@@ -55,6 +74,7 @@ async function ensureTable(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
         tableEnsured = true;
+        ensureMysqlPruneTimer();
     })().catch((err) => {
         tableEnsurePromise = null;
         throw err;
@@ -81,8 +101,9 @@ export async function revokeJti(jti: string, expiresAtMs: number): Promise<void>
             "INSERT INTO jwt_blacklist (jti, revoked_at, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE revoked_at = VALUES(revoked_at), expires_at = VALUES(expires_at)",
             [jti, now, expiresAtMs],
         );
-        // Best-effort prune of expired entries
-        await pool.query("DELETE FROM jwt_blacklist WHERE expires_at <= ?", [now]);
+        // Expired rows are pruned by a periodic background timer (ensureMysqlPruneTimer),
+        // not on every revoke; isJtiRevoked filters expires_at > now so stale rows never match.
+        ensureMysqlPruneTimer();
     } catch (err) {
         logger.warn("jwt-blacklist-revoke-failed", { jti, error: err instanceof Error ? err.message : String(err) });
     }

@@ -28,6 +28,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Explicit standalone typecheck so type safety is an auditable gate
+      # independent of the bundling/build step.
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Lint
         run: npm run lint
 
@@ -75,6 +80,16 @@ jobs:
               exit 1
             fi
 
+            # Tag the currently running image as a known-good rollback target
+            # before we recreate the container, so the rollback path can restore
+            # a proven image even if rebuilding the old source were to fail.
+            # `|| true` keeps first-ever deploys (no prior image) from aborting.
+            CURRENT_IMAGE=$(docker compose images -q app 2>/dev/null | head -n1 || true)
+            if [ -n "${CURRENT_IMAGE}" ]; then
+              docker tag "${CURRENT_IMAGE}" spx-app:rollback || true
+              echo "Tagged current image ${CURRENT_IMAGE} as spx-app:rollback"
+            fi
+
             # Container's CMD already runs `db:migrate && app.js`, so a single
             # `compose up -d` does build->migrate->start in order. No external
             # `npm run db:migrate` needed (production image is dev-deps stripped).
@@ -84,12 +99,33 @@ jobs:
 
             # Readiness gate. /ready checks whether the new app can serve HTTP
             # and reach the DB without tying deploy success to upstream SPX
-            # poller/session health.
-            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --connect-timeout 5 --max-time 10 --retry-max-time 90 https://www.pathwaylogistic.com/ready >/dev/null; then
+            # poller/session health. Probe the container loopback over this SSH
+            # session instead of the public URL so the check is independent of
+            # DNS/TLS/proxy state.
+            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
               echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
-              docker compose up -d --build --remove-orphans --force-recreate
+              # Mirror the forward deploy exactly: rebuild then force-recreate.
+              docker compose build
+              docker compose up -d --remove-orphans --force-recreate
               exit 1
             fi
 
             echo "Deploy succeeded: ${NEW_COMMIT}"
+
+      # Notify on failure. DISCORD_WEBHOOK_URL must be configured as a GitHub
+      # Actions secret for this step to post; if unset the step is a no-op.
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not set; skipping failure notification"
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -fsS -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ SPX production deploy failed on \`${GITHUB_REF_NAME}\` (${GITHUB_SHA}). Run: ${RUN_URL}\"}" \
+            "${DISCORD_WEBHOOK_URL}" >/dev/null

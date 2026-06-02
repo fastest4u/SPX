@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { MetricsSnapshot, NotifyRule } from '../types'
 
 type SseStatus = 'connecting' | 'connected' | 'disconnected'
@@ -21,6 +22,7 @@ const SSE_MAX_RECONNECT_MS = 60_000
 const SSE_MAX_RETRIES = 10
 
 export function useSse(url: string, enabled: boolean = true) {
+  const queryClient = useQueryClient()
   const [state, setState] = useState<SseState>({
     status: 'connecting',
     data: null,
@@ -87,9 +89,20 @@ export function useSse(url: string, enabled: boolean = true) {
       if (!isMountedRef.current) return
       try {
         const sessionAlert = JSON.parse(event.data) as SessionExpiredEvent
-        setState((prev: SseState) => ({ ...prev, sessionAlert }))
+        setState((prev: SseState) => ({ ...prev, sessionAlert, status: 'disconnected' }))
       } catch (error) {
         console.error('Failed to parse SSE session-expired data:', error)
+      }
+      // Session is gone: invalidate auth state and stop reconnecting against
+      // the now-rejecting endpoint.
+      void queryClient.invalidateQueries({ queryKey: ['auth'] })
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
       }
     })
 
@@ -131,7 +144,7 @@ export function useSse(url: string, enabled: boolean = true) {
         }
       }, backoffMs)
     }
-  }, [url, enabled])
+  }, [url, enabled, queryClient])
 
   const disconnect = useCallback(() => {
     if (reconnectTimerRef.current) {

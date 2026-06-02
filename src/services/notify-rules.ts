@@ -415,19 +415,20 @@ export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; a
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
-    const rows = await db.select().from(notifyRulesTable).where(inArray(notifyRulesTable.id, ruleIds));
-    for (const row of rows) {
-      const rule = dbRowToRule(row);
-      const remainingNeed = Math.max(0, rule.need - (acceptedByRule.get(rule.id) ?? 0));
-      const completed = remainingNeed === 0;
+    // Atomic per-rule decrement: compute need/fulfilled inside SQL so concurrent
+    // auto-accept tasks cannot lose updates via read-modify-write (two tasks both
+    // reading need=5 and the later write clobbering the earlier). CASE WHEN is
+    // used instead of GREATEST so the statement runs on both MySQL and the
+    // in-memory SQLite backend used in tests.
+    for (const [ruleId, accepted] of acceptedByRule) {
       await db.update(notifyRulesTable)
         .set({
-          need: remainingNeed,
-          fulfilled: completed ? 1 : 0,
-          autoAccepted: completed ? 1 : 0,
+          need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
+          fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+          autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
           updatedAt: sql`UTC_TIMESTAMP()`,
         })
-        .where(eq(notifyRulesTable.id, rule.id));
+        .where(eq(notifyRulesTable.id, ruleId));
     }
     await broadcastAllRules();
     return;

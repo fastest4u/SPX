@@ -119,11 +119,6 @@ function isRequestIdCached(requestId: number, now: number): boolean {
   return true;
 }
 
-function filterCachedBookingHistoryRecords(records: BookingHistoryRecord[], now = Date.now()): { records: BookingHistoryRecord[]; skipped: number } {
-  const uncachedRecords = records.filter((record) => !isRequestIdCached(record.requestId, now));
-  return { records: uncachedRecords, skipped: records.length - uncachedRecords.length };
-}
-
 function pruneExpiredSeenRequestIds(now: number): void {
   for (const [requestId, expiresAt] of seenRequestIdCache) {
     if (expiresAt <= now) {
@@ -219,16 +214,21 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
       assignmentStatus: record.assignmentStatus ?? null,
       createdAt: sql`CURRENT_TIMESTAMP`,
     }));
-    // SQLite/Drizzle: insert one-by-one with onConflictDoNothing semantics
-    let inserted = 0;
-    for (const row of rows) {
-      try {
-        await db.insert(spxBookingHistory).values(row);
-        inserted += 1;
-      } catch {
-        // unique constraint violation = skip
+    // SQLite/Drizzle: insert each row with onConflictDoNothing() so the
+    // UNIQUE(request_id) constraint is the authoritative dedup. The whole batch
+    // runs in one transaction; only conflict-skips are swallowed (via
+    // onConflictDoNothing) — any other (schema/driver) error propagates.
+    const inserted: number = db.transaction((tx: typeof db) => {
+      let insertedCount = 0;
+      for (const row of rows) {
+        const result = tx.insert(spxBookingHistory).values(row).onConflictDoNothing().run();
+        // better-sqlite3 RunResult: changes === 1 on insert, 0 on conflict-skip.
+        if (result?.changes > 0) {
+          insertedCount += 1;
+        }
       }
-    }
+      return insertedCount;
+    });
     return { inserted, skipped: records.length - inserted };
   }
 
@@ -236,28 +236,28 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
   if (!pool) throw new Error("Database pool not initialised");
 
   const now = Date.now();
-  const uncached = filterCachedBookingHistoryRecords(deduped.records, now);
-  if (uncached.records.length === 0) {
-    return { inserted: 0, skipped: records.length };
-  }
 
-  const existingRequestIds = await findExistingBookingHistoryRequestIds(
-    pool,
-    uncached.records.map((record) => record.requestId)
-  );
-  rememberBookingHistoryRequestIds(existingRequestIds, now);
+  // seenRequestIdCache is a HINT ONLY: it lets us skip the existence SELECT for
+  // request_ids we already confirmed exist this TTL window. It must NOT remove
+  // rows from the INSERT set — UNIQUE(request_id) + INSERT IGNORE is the
+  // authoritative dedup, so a row that was deleted/changed in the DB can still
+  // re-insert. We therefore INSERT IGNORE the full deduped set unconditionally.
+  const uncachedRequestIds = deduped.records
+    .map((record) => record.requestId)
+    .filter((requestId) => !isRequestIdCached(requestId, now));
 
-  const insertable = filterKnownBookingHistoryRecords(uncached.records, existingRequestIds);
-  if (insertable.records.length === 0) {
-    return { inserted: 0, skipped: records.length };
+  if (uncachedRequestIds.length > 0) {
+    const existingRequestIds = await findExistingBookingHistoryRequestIds(pool, uncachedRequestIds);
+    // Remember confirmed-existing ids so future ticks can skip the SELECT for them.
+    rememberBookingHistoryRequestIds(existingRequestIds, now);
   }
 
   const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
-  const values = insertable.records.flatMap(historyValues);
-  const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${insertable.records.map(() => placeholders).join(", ")}`;
+  const values = deduped.records.flatMap(historyValues);
+  const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${deduped.records.map(() => placeholders).join(", ")}`;
   const [result] = await pool.query(query, values);
   const inserted = (result as { affectedRows: number }).affectedRows;
-  rememberBookingHistoryRequestIds(insertable.records.map((record) => record.requestId));
+  rememberBookingHistoryRequestIds(deduped.records.map((record) => record.requestId), now);
   return { inserted, skipped: records.length - inserted };
 }
 

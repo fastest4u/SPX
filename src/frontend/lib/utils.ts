@@ -67,12 +67,6 @@ export function formatArray(values: unknown): string {
   return values.join(', ')
 }
 
-export function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
-}
-
 export function splitCsv(value: string): string[] {
   return value
     .normalize('NFKC')

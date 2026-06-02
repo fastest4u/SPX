@@ -2,9 +2,21 @@ import { ensureDashboardTables, getDb } from "../db/client.js";
 import { users } from "../db/schema.js";
 import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { createHash } from "node:crypto";
 import type { UserRole } from "../services/authz.js";
 
 const BCRYPT_ROUNDS = 12;
+
+// bcrypt only consumes the first 72 bytes of its input, which makes any two
+// passwords that share a 72-byte prefix interchangeable. Pre-hash to a fixed
+// 44-char base64 SHA-256 digest so the entire password always contributes.
+function prepareForBcrypt(password: string): string {
+  return createHash("sha256").update(password, "utf8").digest("base64");
+}
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(prepareForBcrypt(password), BCRYPT_ROUNDS);
+}
 
 export async function getUserByUsername(username: string) {
   const db = await getDb();
@@ -23,12 +35,15 @@ export async function createAdminUserIfNotExists(username: string, password: str
   const db = await getDb();
   const admin = await getUserByUsername(username);
   if (!admin) {
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const passwordHash = await hashPassword(password);
     await db.insert(users).values({ username, passwordHash, role, createdAt: sql`CURRENT_TIMESTAMP` });
   }
 }
 
 export async function verifyPassword(password: string, hash: string) {
+  // New scheme stores bcrypt(sha256(password)). Fall back to a legacy direct
+  // compare so accounts created before pre-hashing was introduced still log in.
+  if (await bcrypt.compare(prepareForBcrypt(password), hash)) return true;
   return bcrypt.compare(password, hash);
 }
 
@@ -39,13 +54,13 @@ export async function getAllUsers() {
 
 export async function createUser(username: string, passwordPlain: string, role: UserRole = "user") {
   const db = await getDb();
-  const passwordHash = await bcrypt.hash(passwordPlain, BCRYPT_ROUNDS);
+  const passwordHash = await hashPassword(passwordPlain);
   await db.insert(users).values({ username, passwordHash, role, createdAt: sql`CURRENT_TIMESTAMP` });
 }
 
 export async function updateUserPassword(id: number, newPasswordPlain: string) {
   const db = await getDb();
-  const passwordHash = await bcrypt.hash(newPasswordPlain, BCRYPT_ROUNDS);
+  const passwordHash = await hashPassword(newPasswordPlain);
   await db.update(users).set({ passwordHash }).where(eq(users.id, id));
 }
 

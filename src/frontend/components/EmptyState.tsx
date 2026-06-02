@@ -1,5 +1,5 @@
 import { cn } from '../lib/utils'
-import { Search, FileX, type LucideIcon } from 'lucide-react'
+import { FileX, type LucideIcon } from 'lucide-react'
 
 interface EmptyStateProps {
   icon?: LucideIcon
@@ -7,11 +7,6 @@ interface EmptyStateProps {
   description?: string
   action?: React.ReactNode
   className?: string
-}
-
-const iconMap: Record<string, LucideIcon> = {
-  search: Search,
-  empty: FileX,
 }
 
 function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
@@ -31,4 +26,4 @@ function EmptyState({ icon: Icon, title, description, action, className }: Empty
   )
 }
 
-export { EmptyState, iconMap }
+export { EmptyState }

@@ -87,7 +87,16 @@ export const reportController: FastifyPluginAsync = async (app) => {
       .header("Content-Disposition", 'attachment; filename="spx-history.csv"')
       .send(csvStream(body()));
   });
+};
 
+/**
+ * Audit-log CSV export — registered separately so it can live under the
+ * admin-only scope. It exposes the same rows as the admin-gated
+ * `/api/audit-logs` JSON endpoint; bundling it with the general report
+ * controller (authenticated, any role) leaked the full audit log to any
+ * non-admin user.
+ */
+export const auditReportController: FastifyPluginAsync = async (app) => {
   app.get("/audit.csv", async (_req, reply) => {
     const rows = await getAuditLogs(1000);
     const header = ["id", "username", "action", "details", "created_at"];

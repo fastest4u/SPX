@@ -189,9 +189,6 @@ function AutoAcceptHistoryComponent() {
             densityKey="auto-accept-history"
             emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
             emptyMessage={'ไม่พบประวัติการรับงานอัตโนมัติ'}
-            renderMobile={(item) => (
-              <AutoAcceptMobileCardContent item={item} />
-            )}
             pagination={
               items.length > 0
                 ? {
@@ -219,38 +216,6 @@ function AutoAcceptHistoryComponent() {
           />
         </CardContent>
       </Card>
-    </div>
-  )
-}
-
-function AutoAcceptMobileCardContent({ item }: { item: AutoAcceptHistoryItem }) {
-  const isSuccess = item.status === 'success'
-  const dateLabel = formatDateTime(item.createdAt).split(' ')[0] || '—'
-  const StatusIcon = isSuccess ? CheckCircle2 : XCircle
-  const statusTone = isSuccess ? 'text-success' : 'text-danger'
-  return (
-    <div className={`mobile-row ${isSuccess ? '' : 'border-[color:var(--color-danger-border)]'}`}>
-      <span className={`mobile-row-leading mt-0.5 ${statusTone}`}>
-        <StatusIcon className="h-5 w-5" aria-hidden="true" />
-      </span>
-      <span className="mobile-row-body">
-        <span className="mobile-row-title">
-          {item.ruleName}
-          <span className="opacity-50"> · </span>
-          <span className="text-info">{item.requestIds.length} req</span>
-        </span>
-        <span className="mobile-row-subtitle">
-          {item.origin} → {item.destination}
-          <span className="opacity-50"> · </span>
-          {item.vehicleType || '—'}
-        </span>
-        {item.errorMessage ? (
-          <span className="mobile-row-subtitle text-danger">{item.errorMessage}</span>
-        ) : null}
-      </span>
-      <span className="mobile-row-trailing">
-        <span>{dateLabel}</span>
-      </span>
     </div>
   )
 }

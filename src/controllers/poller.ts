@@ -44,8 +44,15 @@ export class Poller {
   private lastSessionAlertTime = 0;
   private activeDetailJobs = new Set<Promise<void>>();
   private activeDetailBookingIds = new Set<number>();
+  // Bounded pending queue for bookings that arrive while detail-job concurrency is saturated.
+  // Keyed by booking_id so a booking still waiting is never enqueued twice (de-dup). Map preserves
+  // insertion order, so draining is FIFO (oldest-first) and overflow drops the oldest entries.
+  private pendingDetailBookings = new Map<number, Booking>();
+  private droppedPendingBookings = 0;
   private historySaveQueue: BookingHistorySaveQueue;
   private static readonly MAX_ACTIVE_DETAIL_JOBS = 2;
+  // Cap on the pending-detail queue; beyond this we drop the oldest queued bookings (observable via counter + warn).
+  private static readonly MAX_PENDING_DETAIL_BOOKINGS = 200;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
 
   constructor(intervalSec?: number) {
@@ -147,6 +154,8 @@ export class Poller {
       return;
     }
 
+    // Measure tick duration so we can subtract it from the interval below (drift compensation).
+    const tickStart = Date.now();
     try {
       if (!pollerControl.isPaused) {
         this.activeTick = this.tick();
@@ -158,7 +167,16 @@ export class Poller {
     } finally {
       this.activeTick = null;
       if (!this.stopped) {
-        const waitMs = pollerControl.isPaused ? 1000 : this.getIntervalMs();
+        // Paused path stays at a fixed 1s heartbeat. Active path compensates for the measured tick
+        // duration so cadence does not drift under latency. POLL_INTERVAL_MS is never floored — when
+        // a tick takes longer than the interval, waitMs collapses to 0 and the next tick fires ASAP.
+        let waitMs: number;
+        if (pollerControl.isPaused) {
+          waitMs = 1000;
+        } else {
+          const tickDuration = Date.now() - tickStart;
+          waitMs = Math.max(0, this.getIntervalMs() - tickDuration);
+        }
         this.timer = setTimeout(() => void this.run(), waitMs);
       }
     }
@@ -218,15 +236,24 @@ export class Poller {
   private scheduleBookingDetails(bookings: Booking[]): void {
     if (this.stopped || bookings.length === 0) return;
     if (this.activeDetailJobs.size >= Poller.MAX_ACTIVE_DETAIL_JOBS) {
-      this.recordDetailRuntime(bookings.length);
+      // Concurrency is saturated. Instead of silently dropping the whole batch, buffer it in the
+      // bounded pending queue (deduped by booking_id) and drain it when an active job settles.
+      this.enqueuePendingDetailBookings(bookings);
+      this.recordDetailRuntime(this.pendingDetailBookings.size);
       logger.warn("booking-detail-backpressure", {
         activeJobs: this.activeDetailJobs.size,
         maxActiveJobs: Poller.MAX_ACTIVE_DETAIL_JOBS,
-        skippedBookings: bookings.length,
+        deferredBookings: bookings.length,
+        pendingQueue: this.pendingDetailBookings.size,
       });
       return;
     }
 
+    this.startDetailJob(bookings);
+  }
+
+  /** Launch a detail-processing job for a batch and wire up settle-time queue draining. */
+  private startDetailJob(bookings: Booking[]): void {
     const job = this.processBookingDetails(bookings)
       .catch((err) => {
         logger.error("booking-detail-job-failed", err instanceof Error ? err : new Error(String(err)));
@@ -234,10 +261,57 @@ export class Poller {
       .finally(() => {
         this.activeDetailJobs.delete(job);
         this.recordDetailRuntime();
+        // A job slot freed up — drain buffered bookings into the now-available capacity.
+        this.drainPendingDetailBookings();
       });
 
     this.activeDetailJobs.add(job);
-    this.recordDetailRuntime(bookings.length);
+    this.recordDetailRuntime(this.pendingDetailBookings.size);
+  }
+
+  /**
+   * Buffer bookings that could not be processed immediately. Deduped by booking_id (a booking
+   * already queued or being re-seen just refreshes its slot). If the queue exceeds its cap, the
+   * oldest entries are dropped (FIFO) and counted/logged so loss is observable, not silent.
+   */
+  private enqueuePendingDetailBookings(bookings: Booking[]): void {
+    for (const booking of bookings) {
+      // Re-set to keep the freshest Booking payload; insertion order is preserved for existing keys.
+      this.pendingDetailBookings.set(booking.booking_id, booking);
+    }
+
+    if (this.pendingDetailBookings.size > Poller.MAX_PENDING_DETAIL_BOOKINGS) {
+      let dropped = 0;
+      const iterator = this.pendingDetailBookings.keys();
+      while (this.pendingDetailBookings.size > Poller.MAX_PENDING_DETAIL_BOOKINGS) {
+        const oldestKey = iterator.next().value as number | undefined;
+        if (oldestKey === undefined) break;
+        this.pendingDetailBookings.delete(oldestKey);
+        dropped++;
+      }
+      if (dropped > 0) {
+        this.droppedPendingBookings += dropped;
+        logger.warn("booking-detail-pending-overflow", {
+          dropped,
+          totalDropped: this.droppedPendingBookings,
+          maxPending: Poller.MAX_PENDING_DETAIL_BOOKINGS,
+        });
+      }
+    }
+  }
+
+  /**
+   * Drain buffered bookings into freed detail-job capacity. Auto-accept-matching bookings are not
+   * distinguished here — processBookingDetails re-applies the origin prefilter / fast-lane per batch,
+   * so prioritization is preserved downstream. We pull a single FIFO batch per freed slot.
+   */
+  private drainPendingDetailBookings(): void {
+    if (this.stopped || this.pendingDetailBookings.size === 0) return;
+    if (this.activeDetailJobs.size >= Poller.MAX_ACTIVE_DETAIL_JOBS) return;
+
+    const batch = [...this.pendingDetailBookings.values()];
+    this.pendingDetailBookings.clear();
+    this.startDetailJob(batch);
   }
 
   private async processBookingDetails(bookings: Booking[]): Promise<void> {

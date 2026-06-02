@@ -1,4 +1,5 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { logger } from "./logger.js";
 
 /**
  * Symmetric AES-256-GCM encryption for secrets stored at rest (DB rows, files).
@@ -49,7 +50,10 @@ export function decryptString(value: string | null | undefined): string {
     if (!value) return "";
     if (!isEncrypted(value)) return value;
     const [, , ivB64, tagB64, ctB64] = value.split(":");
-    if (!ivB64 || !tagB64 || !ctB64) return "";
+    if (!ivB64 || !tagB64 || !ctB64) {
+        logger.warn("decrypt-malformed-ciphertext");
+        return "";
+    }
     try {
         const iv = Buffer.from(ivB64, "base64");
         const tag = Buffer.from(tagB64, "base64");
@@ -59,14 +63,11 @@ export function decryptString(value: string | null | undefined): string {
         const plaintext = Buffer.concat([decipher.update(ct), decipher.final()]);
         return plaintext.toString("utf8");
     } catch {
+        // An enc:-prefixed value failed to decrypt — most likely a SECRETS_KEY
+        // rotation (or a changed JWT_SECRET/COOKIE_SECRET fallback) or tampering.
+        // Surface a signal — never the value or key — instead of silently
+        // returning an empty secret that looks indistinguishable from "unset".
+        logger.warn("decrypt-failed", { reason: "auth-tag-or-key-mismatch" });
         return "";
     }
-}
-
-/** Constant-time equality for sensitive comparisons. */
-export function safeEqual(a: string, b: string): boolean {
-    const ab = Buffer.from(a);
-    const bb = Buffer.from(b);
-    if (ab.length !== bb.length) return false;
-    return timingSafeEqual(ab, bb);
 }

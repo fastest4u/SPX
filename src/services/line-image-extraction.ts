@@ -21,25 +21,60 @@ export type LineImageExtractionValidation =
   | { ok: true; parsed: ParsedLineImageExtraction }
   | { ok: false; reason: string; parsed: Partial<ParsedLineImageExtraction> };
 
+const LINE_IMAGE_FIELD_LABELS: Array<{ field: keyof ParsedLineImageExtraction; pattern: RegExp }> = [
+  { field: "dateText", pattern: /^(?:วันที่|date)\b/i },
+  { field: "tripNumber", pattern: /^(?:เลขทริป|trip(?:\s*(?:no\.?|number))?)\b/i },
+  { field: "driverName", pattern: /^(?:ชื่อคนขับ|driver(?:\s*name)?)\b/i },
+  { field: "agencyName", pattern: /^(?:ชื่อ\s*agency|agency(?:\s*name)?)\b/i },
+  { field: "vehicleType", pattern: /^(?:ประเภทรถ|vehicle(?:\s*type)?)\b/i },
+  { field: "route", pattern: /^(?:เส้นทาง|route)\b/i },
+];
+
+const POSITIONAL_FIELD_ORDER: Array<keyof ParsedLineImageExtraction> = [
+  "dateText",
+  "tripNumber",
+  "driverName",
+  "agencyName",
+  "vehicleType",
+  "route",
+];
+
 export function parseLineImageExtraction(text: string): Partial<ParsedLineImageExtraction> {
-  const values = text
+  const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter(Boolean);
+
+  // Pass 1: label-based — detect a "label: value" form for each field and build a keyed map.
+  const labelled: Partial<Record<keyof ParsedLineImageExtraction, string>> = {};
+  for (const line of lines) {
+    const separatorIndex = line.search(/[:：]/);
+    if (separatorIndex < 0) {
+      continue;
+    }
+    const labelPart = line.slice(0, separatorIndex).trim();
+    const valuePart = line.slice(separatorIndex + 1).trim();
+    const match = LINE_IMAGE_FIELD_LABELS.find(({ pattern }) => pattern.test(labelPart));
+    if (match && labelled[match.field] === undefined) {
+      labelled[match.field] = valuePart;
+    }
+  }
+
+  // Pass 2: positional fallback — strip any "label:" prefix and read by index.
+  const positional = lines
     .slice(0, 6)
     .map((line) => {
       const separatorIndex = line.search(/[:：]/);
       return (separatorIndex >= 0 ? line.slice(separatorIndex + 1) : line).trim();
     });
 
-  return {
-    dateText: values[0] ?? "",
-    tripNumber: values[1] ?? "",
-    driverName: values[2] ?? "",
-    agencyName: values[3] ?? "",
-    vehicleType: values[4] ?? "",
-    route: values[5] ?? "",
-  };
+  const result: Partial<ParsedLineImageExtraction> = {};
+  POSITIONAL_FIELD_ORDER.forEach((field, index) => {
+    const labelledValue = labelled[field];
+    result[field] = labelledValue !== undefined ? labelledValue : positional[index] ?? "";
+  });
+
+  return result;
 }
 
 export function normalizeAgencyName(value: string): string {
