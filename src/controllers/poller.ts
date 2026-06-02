@@ -230,6 +230,9 @@ export class Poller {
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
 
+    // Reset per-tick budget so rules aren't permanently exhausted across ticks
+    this.tickNeedBudget = new NeedBudget();
+
     // Refresh shared auto-accept rules once per tick (cheap — cached in notify-rules.ts)
     if (env.AUTO_ACCEPT_ENABLED) {
       try {
@@ -270,7 +273,8 @@ export class Poller {
       }
       // Concurrency guard: bounded by BOOKING_DETAIL_CONCURRENCY
       if (this.detailInflight >= env.BOOKING_DETAIL_CONCURRENCY) {
-        skippedConcurrency += sortedBookings.length - launched - skippedDuplicate - skippedConcurrency;
+        // Count all remaining un-iterated bookings
+        skippedConcurrency = sortedBookings.length - launched - skippedDuplicate;
         break;
       }
 
@@ -320,7 +324,7 @@ export class Poller {
     };
 
     const autoAcceptEnabled = env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0;
-    let autoAcceptTask: Promise<void> | null = null;
+    const autoAcceptTasks: Promise<void>[] = [];
     let autoAcceptHandledByPage = false;
 
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
@@ -332,7 +336,7 @@ export class Poller {
             ).trips;
             if (pageTrips.length > 0) {
               autoAcceptHandledByPage = true;
-              autoAcceptTask = this.runAutoAcceptForTrips(pageTrips, booking.booking_id);
+              autoAcceptTasks.push(this.runAutoAcceptForTrips(pageTrips, booking.booking_id));
             }
           }
         : undefined,
@@ -342,6 +346,8 @@ export class Poller {
 
     if (!requestList) {
       logger.warn("request-list-missing", { bookingId: booking.booking_id });
+      // Still await any page-level auto-accept tasks that may have fired
+      if (autoAcceptTasks.length > 0) await Promise.allSettled(autoAcceptTasks);
       return;
     }
 
@@ -367,7 +373,7 @@ export class Poller {
 
     // Auto-accept: if the page callback didn't already handle it, fire now
     if (autoAcceptEnabled && trips.length > 0 && !autoAcceptHandledByPage) {
-      autoAcceptTask = this.runAutoAcceptForTrips(trips, booking.booking_id);
+      autoAcceptTasks.push(this.runAutoAcceptForTrips(trips, booking.booking_id));
     }
 
     // Print to console if running in CLI mode
@@ -382,9 +388,9 @@ export class Poller {
       this.historySaveQueue.enqueue(trips);
     }
 
-    // Wait for auto-accept to finish before releasing the booking slot
-    if (autoAcceptTask) {
-      await autoAcceptTask;
+    // Wait for all auto-accept tasks to finish before releasing the booking slot
+    if (autoAcceptTasks.length > 0) {
+      await Promise.allSettled(autoAcceptTasks);
     }
   }
 
