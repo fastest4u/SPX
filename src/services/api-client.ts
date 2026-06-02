@@ -25,6 +25,11 @@ const MAX_EXTRA_LIST_PAGES = 50;
 // retryable 429/503 can defer the next attempt regardless of the header value.
 const MAX_RETRY_AFTER_MS = 30_000;
 
+interface BookingRequestListOptions {
+  tabPendingConfirmation?: boolean;
+  onPage?: (page: BookingRequestListResponse) => void;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -454,13 +459,14 @@ export class ApiClient {
 
   async fetchBookingRequestList(
     bookingId: number,
-    options: { tabPendingConfirmation?: boolean } = {}
+    options: BookingRequestListOptions = {}
   ): Promise<BookingRequestListResponse | null> {
     const tabPendingConfirmation = options.tabPendingConfirmation ?? env.REQUEST_TAB_PENDING_CONFIRMATION;
     const firstPage = await this.fetchBookingRequestListPage(bookingId, 1, tabPendingConfirmation);
     if (!firstPage) {
       return null;
     }
+    this.notifyBookingRequestListPage(bookingId, firstPage, options.onPage);
 
     const requests = [...firstPage.data.request_list];
     const total = safeTotal(firstPage.data.total);
@@ -491,7 +497,11 @@ export class ApiClient {
       const pages = await mapWithConcurrency(
         pageNumbers,
         REQUEST_LIST_PAGE_CONCURRENCY,
-        (p) => this.fetchBookingRequestListPage(bookingId, p, tabPendingConfirmation)
+        async (p) => {
+          const page = await this.fetchBookingRequestListPage(bookingId, p, tabPendingConfirmation);
+          if (page) this.notifyBookingRequestListPage(bookingId, page, options.onPage);
+          return page;
+        }
       );
       for (const page of pages) {
         if (page && page.data.request_list.length > 0) {
@@ -507,6 +517,23 @@ export class ApiClient {
         request_list: requests,
       },
     };
+  }
+
+  private notifyBookingRequestListPage(
+    bookingId: number,
+    page: BookingRequestListResponse,
+    onPage: BookingRequestListOptions["onPage"]
+  ): void {
+    if (!onPage) return;
+    try {
+      onPage(page);
+    } catch (err) {
+      logger.warn("booking-request-list-page-callback-failed", {
+        bookingId,
+        pageNo: page.data.pageno,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   async acceptBookingRequests(bookingId: number, requestIds: number[]): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  ApiClient,
   buildBiddingListBody,
   normalizeApiResponse,
 } from "../src/services/api-client.js";
@@ -11,6 +12,11 @@ const mutableEnv = env as unknown as {
   REQUEST_TAB_PENDING_CONFIRMATION: boolean;
   REQUEST_CTIME_START: number;
   BIDDING_VEHICLE_TYPE?: number;
+  API_URL: string;
+  COOKIE: string;
+  DEVICE_ID: string;
+  APP_NAME: string;
+  REFERER: string;
 };
 
 const original = {
@@ -19,9 +25,15 @@ const original = {
   REQUEST_TAB_PENDING_CONFIRMATION: mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION,
   REQUEST_CTIME_START: mutableEnv.REQUEST_CTIME_START,
   BIDDING_VEHICLE_TYPE: mutableEnv.BIDDING_VEHICLE_TYPE,
+  API_URL: mutableEnv.API_URL,
+  COOKIE: mutableEnv.COOKIE,
+  DEVICE_ID: mutableEnv.DEVICE_ID,
+  APP_NAME: mutableEnv.APP_NAME,
+  REFERER: mutableEnv.REFERER,
 };
 
-try {
+async function main(): Promise<void> {
+  try {
   Object.assign(mutableEnv, {
     BIDDING_PAGE_NO: 1,
     BIDDING_PAGE_COUNT: 100,
@@ -59,6 +71,84 @@ try {
 
   assert.equal(normalized?.data.total, 2);
   assert.equal(normalized?.data.list.length, 2);
-} finally {
-  Object.assign(mutableEnv, original);
+
+  Object.assign(mutableEnv, {
+    API_URL: "https://spx.example.test/booking/bidding/list",
+    COOKIE: "cookie-for-test",
+    DEVICE_ID: "device-for-test",
+    APP_NAME: "app-for-test",
+    REFERER: "https://spx.example.test/",
+    BIDDING_PAGE_COUNT: 100,
+    REQUEST_TAB_PENDING_CONFIRMATION: true,
+  });
+
+  const originalFetch = globalThis.fetch;
+  let releaseSecondPage!: () => void;
+  const secondPageGate = new Promise<void>((resolve) => {
+    releaseSecondPage = resolve;
+  });
+  let firstPageCallback!: () => void;
+  const firstPageSeen = new Promise<void>((resolve) => {
+    firstPageCallback = resolve;
+  });
+  let secondPageRequested = false;
+
+  try {
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { pageno?: number };
+      const pageNo = body.pageno ?? 1;
+
+      if (pageNo === 2) {
+        secondPageRequested = true;
+        await secondPageGate;
+      }
+
+      return new Response(JSON.stringify({
+        retcode: 0,
+        message: "",
+        data: {
+          pageno: pageNo,
+          count: 100,
+          total: 200,
+          request_list: [{ request_id: pageNo, booking_id: 123 }],
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const client = new ApiClient();
+    const fullResult = client.fetchBookingRequestList(123, {
+      onPage: (page) => {
+        if (page.data.pageno === 1) {
+          firstPageCallback();
+        }
+      },
+    });
+
+    const firstPageArrived = await Promise.race([
+      firstPageSeen.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]);
+    assert.equal(firstPageArrived, true, "first detail page should be observable before later pages finish");
+
+    const completedBeforeSecondPage = await Promise.race([
+      fullResult.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 25)),
+    ]);
+    assert.equal(completedBeforeSecondPage, false, "full detail result should still wait for later pages");
+    assert.equal(secondPageRequested, true);
+
+    releaseSecondPage();
+    const result = await fullResult;
+    assert.equal(result?.data.request_list.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  } finally {
+    Object.assign(mutableEnv, original);
+  }
 }
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
