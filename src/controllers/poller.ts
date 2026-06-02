@@ -16,6 +16,7 @@ import {
   formatRequestLine,
   formatStatus,
 } from "../utils/logger.js";
+import { orderBookingsByOriginHint } from "../utils/booking-priority.js";
 import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
@@ -23,13 +24,6 @@ import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { pollerControl } from "../services/poller-control.js";
 
-import { mapWithConcurrency } from "../utils/concurrency.js";
-
-function bookingMatchesOriginFilters(booking: Booking, originFilters: string[]): boolean {
-  if (originFilters.length === 0) return true;
-  const bookingName = booking.booking_name.trim().toLowerCase();
-  return originFilters.some((origin) => origin.length > 0 && bookingName.includes(origin));
-}
 
 export class Poller {
   private apiClient: ApiClient;
@@ -42,18 +36,14 @@ export class Poller {
   private stopped = false;
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
   private lastSessionAlertTime = 0;
-  private activeDetailJobs = new Set<Promise<void>>();
   private activeDetailBookingIds = new Set<number>();
-  // Bounded pending queue for bookings that arrive while detail-job concurrency is saturated.
-  // Keyed by booking_id so a booking still waiting is never enqueued twice (de-dup). Map preserves
-  // insertion order, so draining is FIFO (oldest-first) and overflow drops the oldest entries.
-  private pendingDetailBookings = new Map<number, Booking>();
-  private droppedPendingBookings = 0;
+  /** Tracks how many detail-fetch tasks are currently in-flight (bounded by BOOKING_DETAIL_CONCURRENCY). */
+  private detailInflight = 0;
   private historySaveQueue: BookingHistorySaveQueue;
-  private static readonly MAX_ACTIVE_DETAIL_JOBS = 2;
-  // Cap on the pending-detail queue; beyond this we drop the oldest queued bookings (observable via counter + warn).
-  private static readonly MAX_PENDING_DETAIL_BOOKINGS = 200;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
+  /** Shared auto-accept budget & rules, refreshed each tick to avoid redundant DB lookups across per-booking tasks. */
+  private tickAutoAcceptRules: NotifyRule[] = [];
+  private tickNeedBudget = new NeedBudget();
 
   constructor(intervalSec?: number) {
     this.apiClient = new ApiClient();
@@ -91,12 +81,12 @@ export class Poller {
     return this.cliIntervalMs ?? env.POLL_INTERVAL_MS;
   }
 
-  private recordDetailRuntime(queuedDetailBookings = 0): void {
+  private recordDetailRuntime(): void {
     metrics.recordRuntimeState({
-      activeDetailJobs: this.activeDetailJobs.size,
+      activeDetailJobs: this.detailInflight,
       activeDetailBookings: this.activeDetailBookingIds.size,
       detailConcurrency: env.BOOKING_DETAIL_CONCURRENCY,
-      queuedDetailBookings,
+      queuedDetailBookings: 0,
     });
   }
 
@@ -229,243 +219,192 @@ export class Poller {
     }
 
     if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
-      this.scheduleBookingDetails(result.data.data.list);
+      void this.scheduleBookingDetails(result.data.data.list);
     }
   }
 
-  private scheduleBookingDetails(bookings: Booking[]): void {
+  /**
+   * Fire-and-forget: each booking launches its own independent async task, bounded only by
+   * BOOKING_DETAIL_CONCURRENCY.  No batching, no pending queue, no Head-of-Line Blocking.
+   */
+  private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
-    if (this.activeDetailJobs.size >= Poller.MAX_ACTIVE_DETAIL_JOBS) {
-      // Concurrency is saturated. Instead of silently dropping the whole batch, buffer it in the
-      // bounded pending queue (deduped by booking_id) and drain it when an active job settles.
-      this.enqueuePendingDetailBookings(bookings);
-      this.recordDetailRuntime(this.pendingDetailBookings.size);
-      logger.warn("booking-detail-backpressure", {
-        activeJobs: this.activeDetailJobs.size,
-        maxActiveJobs: Poller.MAX_ACTIVE_DETAIL_JOBS,
-        deferredBookings: bookings.length,
-        pendingQueue: this.pendingDetailBookings.size,
+
+    // Refresh shared auto-accept rules once per tick (cheap — cached in notify-rules.ts)
+    if (env.AUTO_ACCEPT_ENABLED) {
+      try {
+        this.tickAutoAcceptRules = await getActiveAutoAcceptRules();
+      } catch (err) {
+        logger.error("auto-accept-rules-fetch-failed", err instanceof Error ? err : new Error(String(err)));
+        this.tickAutoAcceptRules = [];
+      }
+    }
+
+    // Priority sort: origin-matching bookings first
+    let sortedBookings = bookings;
+    if (env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0) {
+      const originFilters = getAutoAcceptOriginFilters(this.tickAutoAcceptRules);
+      if (originFilters.length > 0) {
+        const prioritized = orderBookingsByOriginHint(bookings, originFilters);
+        sortedBookings = prioritized.ordered;
+        if (prioritized.prioritized.length > 0) {
+          logger.info("booking-origin-prefilter", {
+            total: bookings.length,
+            prioritized: prioritized.prioritized.length,
+            deferred: prioritized.deferred.length,
+            mode: "sort-only",
+          });
+        }
+      }
+    }
+
+    let launched = 0;
+    let skippedDuplicate = 0;
+    let skippedConcurrency = 0;
+
+    for (const booking of sortedBookings) {
+      // Dedup: skip bookings already being processed
+      if (this.activeDetailBookingIds.has(booking.booking_id)) {
+        skippedDuplicate++;
+        continue;
+      }
+      // Concurrency guard: bounded by BOOKING_DETAIL_CONCURRENCY
+      if (this.detailInflight >= env.BOOKING_DETAIL_CONCURRENCY) {
+        skippedConcurrency += sortedBookings.length - launched - skippedDuplicate - skippedConcurrency;
+        break;
+      }
+
+      // Reserve slot immediately (synchronous)
+      this.activeDetailBookingIds.add(booking.booking_id);
+      this.detailInflight++;
+      launched++;
+
+      // Fire-and-forget: each booking is independent
+      void this.processOneBooking(booking)
+        .catch((err) => {
+          logger.error("booking-detail-failed", {
+            bookingId: booking.booking_id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          this.activeDetailBookingIds.delete(booking.booking_id);
+          this.detailInflight--;
+          this.recordDetailRuntime();
+        });
+    }
+
+    if (skippedConcurrency > 0) {
+      logger.warn("booking-detail-concurrency-saturated", {
+        launched,
+        skippedConcurrency,
+        skippedDuplicate,
+        inflight: this.detailInflight,
+        limit: env.BOOKING_DETAIL_CONCURRENCY,
       });
+    }
+
+    this.recordDetailRuntime();
+  }
+
+  /**
+   * Process a single booking: fetch detail, extract trips, auto-accept, save to DB.
+   * Fully independent — no coupling to sibling bookings.
+   */
+  private async processOneBooking(booking: Booking): Promise<void> {
+    const startedAt = Date.now();
+    const context = {
+      booking_id: booking.booking_id,
+      booking_name: booking.booking_name,
+      agency_name: booking.agency_name,
+    };
+
+    const autoAcceptEnabled = env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0;
+    let autoAcceptTask: Promise<void> | null = null;
+    let autoAcceptHandledByPage = false;
+
+    const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+      onPage: autoAcceptEnabled
+        ? (page) => {
+            const pageTrips = filterTripsByBiddingVehicleType(
+              extractAllRequestListTrips(page.data, context),
+              env.BIDDING_VEHICLE_TYPE
+            ).trips;
+            if (pageTrips.length > 0) {
+              autoAcceptHandledByPage = true;
+              autoAcceptTask = this.runAutoAcceptForTrips(pageTrips, booking.booking_id);
+            }
+          }
+        : undefined,
+    }).finally(() => {
+      metrics.recordOperation("detailFetch", Date.now() - startedAt);
+    });
+
+    if (!requestList) {
+      logger.warn("request-list-missing", { bookingId: booking.booking_id });
       return;
     }
 
-    this.startDetailJob(bookings);
-  }
+    const extractedTrips = extractAllRequestListTrips(requestList.data, context);
+    const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
 
-  /** Launch a detail-processing job for a batch and wire up settle-time queue draining. */
-  private startDetailJob(bookings: Booking[]): void {
-    const job = this.processBookingDetails(bookings)
-      .catch((err) => {
-        logger.error("booking-detail-job-failed", err instanceof Error ? err : new Error(String(err)));
-      })
-      .finally(() => {
-        this.activeDetailJobs.delete(job);
-        this.recordDetailRuntime();
-        // A job slot freed up — drain buffered bookings into the now-available capacity.
-        this.drainPendingDetailBookings();
+    if (skipped > 0) {
+      logger.warn("booking-detail-vehicle-type-filtered", {
+        bookingId: booking.booking_id,
+        configuredVehicleType: env.BIDDING_VEHICLE_TYPE,
+        kept: trips.length,
+        skipped,
+        skippedVehicleTypes: [
+          ...new Set(
+            extractedTrips
+              .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
+              .map((trip) => trip.ประเภทรถ)
+              .filter(Boolean)
+          ),
+        ].slice(0, 10),
       });
-
-    this.activeDetailJobs.add(job);
-    this.recordDetailRuntime(this.pendingDetailBookings.size);
-  }
-
-  /**
-   * Buffer bookings that could not be processed immediately. Deduped by booking_id (a booking
-   * already queued or being re-seen just refreshes its slot). If the queue exceeds its cap, the
-   * oldest entries are dropped (FIFO) and counted/logged so loss is observable, not silent.
-   */
-  private enqueuePendingDetailBookings(bookings: Booking[]): void {
-    for (const booking of bookings) {
-      // Re-set to keep the freshest Booking payload; insertion order is preserved for existing keys.
-      this.pendingDetailBookings.set(booking.booking_id, booking);
     }
 
-    if (this.pendingDetailBookings.size > Poller.MAX_PENDING_DETAIL_BOOKINGS) {
-      let dropped = 0;
-      const iterator = this.pendingDetailBookings.keys();
-      while (this.pendingDetailBookings.size > Poller.MAX_PENDING_DETAIL_BOOKINGS) {
-        const oldestKey = iterator.next().value as number | undefined;
-        if (oldestKey === undefined) break;
-        this.pendingDetailBookings.delete(oldestKey);
-        dropped++;
-      }
-      if (dropped > 0) {
-        this.droppedPendingBookings += dropped;
-        logger.warn("booking-detail-pending-overflow", {
-          dropped,
-          totalDropped: this.droppedPendingBookings,
-          maxPending: Poller.MAX_PENDING_DETAIL_BOOKINGS,
-        });
-      }
-    }
-  }
-
-  /**
-   * Drain buffered bookings into freed detail-job capacity. Auto-accept-matching bookings are not
-   * distinguished here — processBookingDetails re-applies the origin prefilter / fast-lane per batch,
-   * so prioritization is preserved downstream. We pull a single FIFO batch per freed slot.
-   */
-  private drainPendingDetailBookings(): void {
-    if (this.stopped || this.pendingDetailBookings.size === 0) return;
-    if (this.activeDetailJobs.size >= Poller.MAX_ACTIVE_DETAIL_JOBS) return;
-
-    const batch = [...this.pendingDetailBookings.values()];
-    this.pendingDetailBookings.clear();
-    this.startDetailJob(batch);
-  }
-
-  private async processBookingDetails(bookings: Booking[]): Promise<void> {
-    const allTrips: ExtractedTripInfo[] = [];
-    let fastLaneBookings = [...bookings];
-    let deferredBookings: Booking[] = [];
-
-    let autoAcceptRules: NotifyRule[] = [];
-
-    if (env.AUTO_ACCEPT_ENABLED) {
-      autoAcceptRules = await getActiveAutoAcceptRules();
-      const originFilters = getAutoAcceptOriginFilters(autoAcceptRules);
-      if (originFilters.length > 0) {
-        const matchingBookings = fastLaneBookings.filter((booking) => bookingMatchesOriginFilters(booking, originFilters));
-        const nonMatchingBookings = fastLaneBookings.filter((booking) => !bookingMatchesOriginFilters(booking, originFilters));
-        fastLaneBookings = matchingBookings;
-        deferredBookings = nonMatchingBookings;
-
-        logger.info("booking-origin-prefilter", {
-          total: bookings.length,
-          prioritized: matchingBookings.length,
-          deferred: nonMatchingBookings.length,
-          skipped: 0,
-        });
-      }
+    // Auto-accept: if the page callback didn't already handle it, fire now
+    if (autoAcceptEnabled && trips.length > 0 && !autoAcceptHandledByPage) {
+      autoAcceptTask = this.runAutoAcceptForTrips(trips, booking.booking_id);
     }
 
-    const needBudget = new NeedBudget();
-    const autoAcceptTasks: Promise<void>[] = [];
-
-    const runAutoAcceptConcurrent = async (trips: ExtractedTripInfo[]): Promise<void> => {
-      if (autoAcceptRules.length === 0) return;
-
-      const startedAt = Date.now();
-      await acceptAndNotifyMatchedRules(trips, this.apiClient, {
-        autoAcceptRules,
-        deferSideEffects: true,
-        needBudget,
-      }).finally(() => {
-        metrics.recordOperation("autoAccept", Date.now() - startedAt);
-      });
-    };
-
-    const enqueueAutoAccept = (trips: ExtractedTripInfo[], bookingId: number): void => {
-      const task = runAutoAcceptConcurrent(trips).catch((err) => {
-        logger.error("auto-accept-processing-failed", {
-          bookingId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }).finally(() => {
-        this.activeDetailBookingIds.delete(bookingId);
-        this.recordDetailRuntime();
-      });
-      autoAcceptTasks.push(task);
-    };
-
-    const fetchBookingTrips = async (
-      items: Booking[],
-      options: { autoAccept: boolean; lane: "fast" | "deferred" }
-    ): Promise<ExtractedTripInfo[][]> => {
-      const availableBookings = items.filter((booking) => !this.activeDetailBookingIds.has(booking.booking_id));
-      if (availableBookings.length === 0) return [];
-
-      for (const booking of availableBookings) {
-        this.activeDetailBookingIds.add(booking.booking_id);
-      }
-
-      const detailConcurrency = Math.min(env.BOOKING_DETAIL_CONCURRENCY, availableBookings.length);
-      this.recordDetailRuntime(Math.max(0, availableBookings.length - detailConcurrency));
-      if (availableBookings.length > detailConcurrency) {
-        logger.info("booking-detail-concurrency", { bookings: availableBookings.length, concurrency: detailConcurrency, lane: options.lane });
-      }
-
-      return mapWithConcurrency(availableBookings, detailConcurrency, async (booking) => {
-        let releasedByAutoAccept = false;
-
-        try {
-          const startedAt = Date.now();
-          const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id).finally(() => {
-            metrics.recordOperation("detailFetch", Date.now() - startedAt);
-          });
-          if (!requestList) {
-            logger.warn("request-list-missing", { bookingId: booking.booking_id });
-            return [] as ExtractedTripInfo[];
-          }
-
-          const extractedTrips = extractAllRequestListTrips(requestList.data, {
-            booking_id: booking.booking_id,
-            booking_name: booking.booking_name,
-            agency_name: booking.agency_name,
-          });
-          const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
-          if (skipped > 0) {
-            logger.warn("booking-detail-vehicle-type-filtered", {
-              bookingId: booking.booking_id,
-              configuredVehicleType: env.BIDDING_VEHICLE_TYPE,
-              kept: trips.length,
-              skipped,
-              skippedVehicleTypes: [
-                ...new Set(
-                  extractedTrips
-                    .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
-                    .map((trip) => trip.ประเภทรถ)
-                    .filter(Boolean)
-                ),
-              ].slice(0, 10),
-            });
-          }
-
-          if (options.autoAccept && trips.length > 0) {
-            releasedByAutoAccept = true;
-            enqueueAutoAccept(trips, booking.booking_id);
-          }
-
-          return trips;
-        } catch (err) {
-          logger.error("booking-detail-processing-failed", {
-            bookingId: booking.booking_id,
-            lane: options.lane,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return [] as ExtractedTripInfo[];
-        } finally {
-          if (!releasedByAutoAccept) {
-            this.activeDetailBookingIds.delete(booking.booking_id);
-            this.recordDetailRuntime();
-          }
-        }
-      });
-    };
-
-    const bookingTrips = await fetchBookingTrips(fastLaneBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "fast" });
-    if (deferredBookings.length > 0) {
-      const deferredTrips = await fetchBookingTrips(deferredBookings, { autoAccept: env.AUTO_ACCEPT_ENABLED, lane: "deferred" });
-      bookingTrips.push(...deferredTrips);
-    }
-
-    allTrips.push(...bookingTrips.flat());
-
-    for (const trip of allTrips) {
-      if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
+    // Print to console if running in CLI mode
+    if (env.FETCH_DETAILS && !env.HTTP_ENABLED) {
+      for (const trip of trips) {
         console.log("\n" + formatTripInfo(trip));
       }
     }
 
-    if (env.SAVE_TO_DB && allTrips.length > 0) {
-      this.historySaveQueue.enqueue(allTrips);
+    // Enqueue DB save
+    if (env.SAVE_TO_DB && trips.length > 0) {
+      this.historySaveQueue.enqueue(trips);
     }
 
-    if (autoAcceptTasks.length > 0) {
-      await Promise.allSettled(autoAcceptTasks);
+    // Wait for auto-accept to finish before releasing the booking slot
+    if (autoAcceptTask) {
+      await autoAcceptTask;
     }
+  }
 
-    // Normal rule-match notifications are intentionally disabled; enabled rules auto-accept instead.
+  /** Run auto-accept for extracted trips, sharing the tick-scoped NeedBudget. */
+  private async runAutoAcceptForTrips(trips: ExtractedTripInfo[], bookingId: number): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+        autoAcceptRules: this.tickAutoAcceptRules,
+        deferSideEffects: true,
+        needBudget: this.tickNeedBudget,
+      });
+    } catch (err) {
+      logger.error("auto-accept-processing-failed", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      metrics.recordOperation("autoAccept", Date.now() - startedAt);
+    }
   }
 
   async stop(exitCode = 0): Promise<void> {
@@ -488,8 +427,13 @@ export class Poller {
       await this.activeTick.catch(() => undefined);
     }
 
-    if (this.activeDetailJobs.size > 0) {
-      await Promise.allSettled([...this.activeDetailJobs]);
+    // Wait for all in-flight detail tasks to settle
+    if (this.activeDetailBookingIds.size > 0) {
+      // Poll briefly until all in-flight tasks drain (they are fire-and-forget promises)
+      const drainDeadline = Date.now() + 30_000;
+      while (this.detailInflight > 0 && Date.now() < drainDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }
 
     await this.historySaveQueue.flush();
