@@ -16,7 +16,7 @@ import {
   formatRequestLine,
   formatStatus,
 } from "../utils/logger.js";
-import { extractAllRequestListTrips, formatTripInfo } from "../utils/booking-extractor.js";
+import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
@@ -398,11 +398,28 @@ export class Poller {
             return [] as ExtractedTripInfo[];
           }
 
-          const trips = extractAllRequestListTrips(requestList.data, {
+          const extractedTrips = extractAllRequestListTrips(requestList.data, {
             booking_id: booking.booking_id,
             booking_name: booking.booking_name,
             agency_name: booking.agency_name,
           });
+          const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
+          if (skipped > 0) {
+            logger.warn("booking-detail-vehicle-type-filtered", {
+              bookingId: booking.booking_id,
+              configuredVehicleType: env.BIDDING_VEHICLE_TYPE,
+              kept: trips.length,
+              skipped,
+              skippedVehicleTypes: [
+                ...new Set(
+                  extractedTrips
+                    .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
+                    .map((trip) => trip.ประเภทรถ)
+                    .filter(Boolean)
+                ),
+              ].slice(0, 10),
+            });
+          }
 
           if (options.autoAccept && trips.length > 0) {
             releasedByAutoAccept = true;

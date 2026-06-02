@@ -44,6 +44,7 @@ export interface ExtractedTripInfo {
   รูปแบบของทริป: string;
   ประเภทการเดินทาง: string;
   ประเภทรถ: string;
+  vehicle_type_id?: number;
   ต้นทาง: string;
   ปลายทาง: string;
   วันที่เวลาสแตนบาย: string;
@@ -63,6 +64,7 @@ interface TripInfoSource {
   cost_type: number;
   trip_type: number;
   shift_type: number;
+  vehicle_type?: number;
   vehicle_type_name: string;
   booking_id?: number;
   booking_name?: string;
@@ -86,6 +88,7 @@ function extractTripInfoFromSource(source: TripInfoSource): ExtractedTripInfo {
     รูปแบบของทริป: TRIP_TYPE_MAP[source.trip_type] || "-",
     ประเภทการเดินทาง: SHIFT_TYPE_MAP[source.shift_type] || "-",
     ประเภทรถ: source.vehicle_type_name || "-",
+    vehicle_type_id: source.vehicle_type,
     ต้นทาง: origin,
     ปลายทาง: destination,
     วันที่เวลาสแตนบาย: standbyDateTime,
@@ -130,6 +133,18 @@ export function extractAllRequestListTrips(
       agency_name: context?.agency_name,
     })
   );
+}
+
+export function filterTripsByBiddingVehicleType(
+  trips: ExtractedTripInfo[],
+  biddingVehicleType: number | undefined
+): { trips: ExtractedTripInfo[]; skipped: number } {
+  if (biddingVehicleType === undefined) {
+    return { trips, skipped: 0 };
+  }
+
+  const filtered = trips.filter((trip) => trip.vehicle_type_id === biddingVehicleType);
+  return { trips: filtered, skipped: trips.length - filtered.length };
 }
 
 // Format for display
