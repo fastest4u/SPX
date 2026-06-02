@@ -230,7 +230,6 @@ function LineImageExtractionsComponent() {
             minWidth="1160px"
             emptyIcon={<ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />}
             emptyMessage="No saved runsheets found"
-            renderMobile={(item) => <MobileRunsheet item={item} />}
             pagination={rows.length > 0 ? {
               page,
               pageSize,
@@ -299,41 +298,6 @@ function ImagePreview({ item }: { item: LineImageExtraction }) {
         <img src={item.imageUrl} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
       </span>
       <span className="hidden text-xs text-muted-foreground group-hover:text-info lg:inline">Open</span>
-    </a>
-  )
-}
-
-function MobileRunsheet({ item }: { item: LineImageExtraction }) {
-  const route = item.route || '—'
-  const dateLabel = item.dateText || formatDateTime(item.createdAt).split(' ')[0] || '—'
-  return (
-    <a
-      href={item.imageUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mobile-row"
-      aria-label={`Open runsheet ${item.tripNumber || ''} ${item.driverName || ''}`}
-    >
-      <span className="mobile-row-leading flex h-12 w-12 overflow-hidden rounded-lg border border-white/10 bg-black/20">
-        <img src={item.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-      </span>
-      <span className="mobile-row-body">
-        <span className="mobile-row-title">
-          {item.driverName || '(ไม่ทราบชื่อ)'}
-        </span>
-        <span className="mobile-row-subtitle">
-          <span className="font-data text-warning">{item.tripNumber || '-'}</span>
-          <span className="opacity-50"> · </span>
-          <span className="font-data text-info">{route}</span>
-          <span className="opacity-50"> · </span>
-          {item.agencyName || '—'}
-          <span className="opacity-50"> · </span>
-          {item.vehicleType || '—'}
-        </span>
-      </span>
-      <span className="mobile-row-trailing">
-        <span>{dateLabel}</span>
-      </span>
     </a>
   )
 }

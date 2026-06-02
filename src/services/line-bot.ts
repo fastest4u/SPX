@@ -104,6 +104,11 @@ const LINE_IMAGE_READ_FAILED_PREFIX = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1
 
 let client: LineJsClient | null = null;
 let clientPromise: Promise<LineJsClient> | null = null;
+// Image-listener binding. `imageListenerChatId` is the configured target chat
+// (persists across relogin); `imageListenerClient` tracks which client instance
+// currently has the handler so it is re-attached after a logout/relogin rebuild.
+let imageListenerChatId = "";
+let imageListenerClient: LineJsClient | null = null;
 let currentQrUrl = "";
 let currentPincode = "";
 let qrUrlWaiter: ((url: string) => void) | null = null;
@@ -121,6 +126,43 @@ export class LineBotQrRequiredError extends Error {
         : "LINE Bot QR login is starting — retry shortly.",
     );
   }
+}
+
+// ── Auth-failure detection / session reset ─────────────────────────────
+
+/**
+ * Heuristically detect a LINE authentication failure (expired/revoked token,
+ * unauthorized request) from an error thrown by the linejs client. Used to
+ * decide whether a previously "authenticated" client is actually dead.
+ */
+function isLineAuthFailure(error: unknown): boolean {
+  if (error instanceof LineBotQrRequiredError) return false;
+  const name = error instanceof Error ? error.name : "";
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return name === "TalkException"
+    || /authentication\s*fail/.test(message)
+    || /auth\s*token/.test(message)
+    || /not\s*authorized/.test(message)
+    || /unauthorized/.test(message)
+    || /must_refresh_v3_token/.test(message)
+    || /access\s*token/.test(message)
+    || /invalid.*token/.test(message)
+    || /token.*(expired|invalid|revoked)/.test(message);
+}
+
+/**
+ * Clear the cached client + in-flight login promise so a dead/expired session
+ * stops being reported as "authenticated" by getStatus()/getProfile(). The next
+ * getClient() call rebuilds from a stored token or starts a fresh QR login.
+ * The configured image-listener target chat id is intentionally retained; the
+ * listener binding is dropped so it re-attaches on the rebuilt client.
+ */
+function clearAuthenticatedSession(reason: string): void {
+  if (!client && !clientPromise) return;
+  client = null;
+  clientPromise = null;
+  imageListenerClient = null;
+  logger.warn("line-bot-session-cleared", { reason });
 }
 
 // ── Enable check ───────────────────────────────────────────────────────
@@ -230,6 +272,7 @@ export async function getClient(): Promise<LineJsClient> {
             storage: new FileStorage(storagePath),
           });
           client = c;
+          attachImageListener(c);
           logger.info("line-bot-restored-from-token");
           return c;
         } catch (error) {
@@ -258,6 +301,7 @@ export async function getClient(): Promise<LineJsClient> {
       );
 
       client = c;
+      attachImageListener(c);
       currentQrUrl = "";
       currentPincode = "";
       await saveAuthToken(c.authToken);
@@ -364,6 +408,9 @@ export async function sendMessage(to: string, text: string): Promise<LineBotSend
   } catch (error) {
     if (error instanceof LineBotQrRequiredError) {
       return { ok: false, error: error.message, qrUrl: error.qrUrl, pincode: error.pincode };
+    }
+    if (isLineAuthFailure(error)) {
+      clearAuthenticatedSession("send-message-auth-failure");
     }
     const msg = error instanceof Error ? error.message : String(error);
     return { ok: false, error: msg };
@@ -478,6 +525,9 @@ export async function getProfile(): Promise<LineBotProfile | null> {
     };
   } catch (error) {
     logger.warn("line-bot-get-profile-failed", { error: error instanceof Error ? error.message : String(error) });
+    if (isLineAuthFailure(error)) {
+      clearAuthenticatedSession("get-profile-auth-failure");
+    }
     return null;
   }
 }
@@ -534,6 +584,9 @@ export async function logout(clearStorage = false): Promise<void> {
   currentQrUrl = "";
   currentPincode = "";
   qrUrlWaiter = null;
+  // Drop the listener binding so the next rebuilt client re-attaches the image
+  // handler. The configured target chat id is intentionally retained.
+  imageListenerClient = null;
 
   if (clearStorage) {
     try {
@@ -563,8 +616,6 @@ export async function logout(clearStorage = false): Promise<void> {
 }
 
 // ── Image listener ────────────────────────────────────────────────────
-
-let imageListenerStarted = false;
 
 function getModuleExport<T>(module: unknown, name: string): T {
   const record = module as Record<string, unknown>;
@@ -625,14 +676,29 @@ async function replyToLineImageMessage(msg: LineImageMessage, text: string): Pro
 export async function startImageListener(targetChatMid: string): Promise<void> {
   if (!isLineBotEnabled()) return;
   if (!targetChatMid) return;
-  if (imageListenerStarted) return;
 
+  // Remember the target so the handler is (re)attached automatically on every
+  // client (re)build — see attachImageListener() called from getClient().
+  imageListenerChatId = targetChatMid;
   const c = await getClient();
+  attachImageListener(c);
+}
+
+/**
+ * Attach the image-message handler to a specific client instance. Idempotent
+ * per client and re-invoked after a logout/relogin rebuild so the OCR pipeline
+ * keeps working. (The previous implementation set a permanent module flag that
+ * logout() never reset, so the listener silently died after the first relogin.)
+ */
+function attachImageListener(c: LineJsClient): void {
+  if (!imageListenerChatId) return;
+  if (imageListenerClient === c) return;
+  imageListenerClient = c;
 
   c.on("message", async (rawMessage: unknown) => {
     const msg = rawMessage as LineImageMessage;
     if (msg.raw?.contentType !== "IMAGE") return;
-    if (msg.to?.id !== targetChatMid) return;
+    if (msg.to?.id !== imageListenerChatId) return;
 
     let tempDir = "";
     const startedAt = Date.now();
@@ -718,8 +784,7 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
   });
 
   c.listen({ talk: true });
-  imageListenerStarted = true;
-  logger.info("line-image-listener-started", { targetChatMid });
+  logger.info("line-image-listener-started", { targetChatMid: imageListenerChatId });
 }
 
 /**

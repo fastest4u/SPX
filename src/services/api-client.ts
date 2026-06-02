@@ -17,6 +17,13 @@ const BASE_DELAY_MS = 1000;
 const REQUEST_LIST_PAGE_CONCURRENCY = 5;
 const FETCH_TIMEOUT_MS = 15_000;
 const ACCEPT_TIMEOUT_MS = 10_000;
+// Upper bound on how many *extra* list pages we will fan out to fetch. The page
+// count is derived from an untrusted `total` field in the API response; a
+// malicious or garbage `total` must not be able to trigger unbounded requests.
+const MAX_EXTRA_LIST_PAGES = 50;
+// Upper bound on a server-supplied Retry-After backoff (ms). Caps how long a
+// retryable 429/503 can defer the next attempt regardless of the header value.
+const MAX_RETRY_AFTER_MS = 30_000;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,12 +33,49 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/**
+ * Coerce an untrusted `total` field into a finite, non-negative integer. NaN,
+ * negative, Infinity, and non-numeric values collapse to 0 so they cannot drive
+ * page fan-out.
+ */
+function safeTotal(total: unknown): number {
+  return typeof total === "number" && Number.isFinite(total) && total > 0
+    ? Math.floor(total)
+    : 0;
+}
+
+/**
+ * Parse a Retry-After header (RFC 7231: either delta-seconds or an HTTP-date)
+ * into a bounded backoff in milliseconds. Returns null when the header is
+ * absent or unparseable so the caller falls back to its computed backoff.
+ */
+function parseRetryAfterMs(response: Response): number | null {
+  const header = response.headers.get("retry-after");
+  if (!header) return null;
+
+  const trimmed = header.trim();
+  let ms: number;
+
+  if (/^\d+$/.test(trimmed)) {
+    // delta-seconds
+    ms = Number(trimmed) * 1000;
+  } else {
+    const dateMs = Date.parse(trimmed);
+    if (Number.isNaN(dateMs)) return null;
+    ms = dateMs - Date.now();
+  }
+
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return Math.min(ms, MAX_RETRY_AFTER_MS);
+}
+
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
   label: string,
   retries = MAX_RETRIES,
   timeoutMs = FETCH_TIMEOUT_MS,
+  idempotent = true,
 ): Promise<Response> {
   let lastError: Error | null = null;
 
@@ -40,9 +84,23 @@ async function fetchWithRetry(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
-      if (!response.ok && attempt < retries && isRetryableStatus(response.status)) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
-        logger.warn(`retryable-response`, { label, url, attempt: attempt + 1, status: response.status, delayMs: Math.round(delay) });
+      // Never retry a non-idempotent request (e.g. POST accept) on a response
+      // error: the server may already have committed the side effect, so a retry
+      // risks a duplicate. Return the response and let the caller reconcile.
+      if (!response.ok && idempotent && attempt < retries && isRetryableStatus(response.status)) {
+        // Prefer a server-supplied Retry-After (429/503) when present, bounded
+        // to MAX_RETRY_AFTER_MS; otherwise fall back to exponential backoff.
+        const computedDelay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+        const retryAfterMs = parseRetryAfterMs(response);
+        const delay = retryAfterMs ?? computedDelay;
+        logger.warn(`retryable-response`, {
+          label,
+          url,
+          attempt: attempt + 1,
+          status: response.status,
+          delayMs: Math.round(delay),
+          retryAfter: retryAfterMs !== null,
+        });
         await sleep(delay);
         continue;
       }
@@ -50,6 +108,12 @@ async function fetchWithRetry(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       const isAbort = lastError.name === "AbortError";
+      // A thrown error (timeout/network) on a non-idempotent request is ambiguous
+      // — the request may have been delivered and processed server-side. Surface
+      // it instead of retrying so we cannot double-submit.
+      if (!idempotent) {
+        throw lastError;
+      }
       if (attempt < retries) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
         logger.warn(`retryable-error`, {
@@ -300,12 +364,23 @@ export class ApiClient {
 
   private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse> {
     const firstList = firstPage.data.list;
-    if (firstList.length >= firstPage.data.total) {
+    const total = safeTotal(firstPage.data.total);
+    if (firstList.length >= total) {
       return firstPage;
     }
 
     const pageSize = Math.max(1, firstPage.data.count || firstList.length || this.body.count);
-    const totalPages = Math.ceil(firstPage.data.total / pageSize);
+    const requestedPages = Math.ceil(total / pageSize);
+    const totalPages = Math.min(requestedPages, firstPage.data.pageno + MAX_EXTRA_LIST_PAGES);
+    if (requestedPages > totalPages) {
+      logger.warn("bidding-list-page-cap-applied", {
+        total,
+        pageSize,
+        requestedPages,
+        cappedPages: totalPages,
+        maxExtraPages: MAX_EXTRA_LIST_PAGES,
+      });
+    }
     const pageNumbers: number[] = [];
 
     for (let pageNo = firstPage.data.pageno + 1; pageNo <= totalPages; pageNo++) {
@@ -317,7 +392,7 @@ export class ApiClient {
     }
 
     logger.info("bidding-list-fetching-extra-pages", {
-      total: firstPage.data.total,
+      total,
       firstPageCount: firstList.length,
       extraPages: pageNumbers.length,
     });
@@ -388,13 +463,27 @@ export class ApiClient {
     }
 
     const requests = [...firstPage.data.request_list];
-    if (requests.length >= firstPage.data.total) {
+    const total = safeTotal(firstPage.data.total);
+    if (requests.length >= total) {
       return firstPage;
     }
 
     // Fetch remaining pages in parallel for speed
     const pageSize = Math.max(1, firstPage.data.count || requests.length);
-    const totalPages = Math.ceil(firstPage.data.total / pageSize);
+    const requestedPages = Math.ceil(total / pageSize);
+    // Page count is derived from an untrusted `total`; cap fan-out (pages start
+    // at 1 here, so 1 + MAX_EXTRA_LIST_PAGES bounds the extra pages).
+    const totalPages = Math.min(requestedPages, 1 + MAX_EXTRA_LIST_PAGES);
+    if (requestedPages > totalPages) {
+      logger.warn("booking-request-list-page-cap-applied", {
+        bookingId,
+        total,
+        pageSize,
+        requestedPages,
+        cappedPages: totalPages,
+        maxExtraPages: MAX_EXTRA_LIST_PAGES,
+      });
+    }
     const pageNumbers: number[] = [];
     for (let p = 2; p <= totalPages; p++) pageNumbers.push(p);
 
@@ -428,11 +517,15 @@ export class ApiClient {
     };
 
     try {
+      // Accept is a non-idempotent POST with real operational/financial impact.
+      // Do not retry it: `idempotent=false` makes both response-error and
+      // thrown-error retries no-ops, and the notifier reconciles the true state
+      // against the pending + confirmed tabs afterwards.
       const response = await fetchWithRetry(this.acceptUrl, {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-accept:${bookingId}`, 1, ACCEPT_TIMEOUT_MS);
+      }, `booking-accept:${bookingId}`, 0, ACCEPT_TIMEOUT_MS, false);
 
       const rawText = await response.text();
       let parsed: unknown = null;

@@ -259,9 +259,6 @@ function HistoryComponent() {
                 densityKey="history"
                 emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
                 emptyMessage={'ไม่พบประวัติงาน'}
-                renderMobile={(item) => (
-                  <HistoryMobileCardContent item={item} />
-                )}
                 pagination={
                   history.length > 0
                     ? {
@@ -307,36 +304,5 @@ function AcceptButton({ item }: { item: BookingHistory }) {
       <Hand className="h-3 w-3" />
       รับงาน
     </Button>
-  )
-}
-
-function HistoryMobileCardContent({ item }: { item: BookingHistory }) {
-  const dateLabel = formatDateTime(item.createdAt).split(' ')[0] || '—'
-  return (
-    <div className="mobile-row">
-      <span className="mobile-row-body">
-        <span className="mobile-row-title">
-          <span className="font-data text-info">#{item.requestId}</span>
-          {item.bookingId ? (
-            <>
-              <span className="opacity-50"> · </span>
-              <span className="font-data text-muted-foreground">B{item.bookingId}</span>
-            </>
-          ) : null}
-        </span>
-        <span className="mobile-row-subtitle">
-          {item.origin || '—'} → {item.destination || '—'}
-          <span className="opacity-50"> · </span>
-          {item.vehicleType || '—'}
-        </span>
-        <span className="mobile-row-subtitle text-muted-foreground/80">
-          standby {formatDateTime(item.standbyDateTime) || '—'}
-        </span>
-      </span>
-      <span className="mobile-row-trailing">
-        <span>{dateLabel}</span>
-        <AcceptButton item={item} />
-      </span>
-    </div>
   )
 }

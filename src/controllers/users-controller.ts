@@ -41,7 +41,7 @@ const createUserSchema = {
   additionalProperties: false,
   required: ["username", "password"],
   properties: {
-    username: { type: "string", minLength: 1, maxLength: 64 },
+    username: { type: "string", minLength: 1, maxLength: 50 },
     password: { type: "string", minLength: MIN_USER_PASSWORD_LENGTH, maxLength: 256 },
     role: { type: "string", enum: ["user", "admin"] },
   },

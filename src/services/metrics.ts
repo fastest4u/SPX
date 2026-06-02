@@ -185,9 +185,9 @@ export class MetricsCollector {
       avg: len > 0 ? Math.round(sorted.reduce((a, b) => a + b, 0) / len) : 0,
       min: len > 0 ? sorted[0] : 0,
       max: len > 0 ? sorted[len - 1] : 0,
-      p50: len > 0 ? sorted[Math.floor(len * 0.5)] : 0,
-      p95: len > 0 ? sorted[Math.floor(len * 0.95)] : 0,
-      p99: len > 0 ? sorted[Math.floor(len * 0.99)] : 0,
+      p50: len > 0 ? sorted[Math.floor((len - 1) * 0.5)] : 0,
+      p95: len > 0 ? sorted[Math.floor((len - 1) * 0.95)] : 0,
+      p99: len > 0 ? sorted[Math.floor((len - 1) * 0.99)] : 0,
       lastMs: len > 0 ? values[values.length - 1] : null,
     };
   }

@@ -1,5 +1,13 @@
 import { saveBookingRequests } from "./db-service.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
+import { logger } from "../utils/logger.js";
+
+const SAVE_MAX_ATTEMPTS = 3;
+const SAVE_RETRY_BASE_DELAY_MS = 1_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export type BookingHistorySaveResult = {
   inserted: number;
@@ -109,6 +117,31 @@ export class BookingHistorySaveQueue {
     this.activeDrain = drain;
   }
 
+  private async saveWithRetry(batch: ExtractedTripInfo[]): Promise<BookingHistorySaveResult> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= SAVE_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.save(batch);
+      } catch (error) {
+        lastError = error;
+        if (attempt < SAVE_MAX_ATTEMPTS) {
+          const delayMs = SAVE_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+          logger.warn("booking-history-save-retry", {
+            attempt,
+            maxAttempts: SAVE_MAX_ATTEMPTS,
+            delayMs,
+            batchSize: batch.length,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await sleep(delayMs);
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
   private async drain(): Promise<void> {
     while (this.pendingTrips.size > 0) {
       const batch = [...this.pendingTrips.values()];
@@ -117,7 +150,7 @@ export class BookingHistorySaveQueue {
       const startedAt = Date.now();
 
       try {
-        const result = await this.save(batch);
+        const result = await this.saveWithRetry(batch);
         this.onResult?.(result, batch);
       } catch (error) {
         this.onError?.(error, batch);

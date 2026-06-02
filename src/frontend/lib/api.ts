@@ -43,7 +43,65 @@ const API_BASE = '/api'
 /** Flag to prevent multiple simultaneous 401 redirects */
 let isRedirectingToLogin = false
 
-async function fetchRaw<T>(url: string, options?: RequestInit): Promise<ApiSuccessResponse<T>> {
+/**
+ * Endpoints that must NOT trigger the silent-refresh-then-redirect flow on 401.
+ * A 401 from these is terminal: refreshing would either be pointless (`/me`,
+ * `/login`) or recurse (`/refresh`). Matched against the parsed pathname so
+ * query strings and host differences cannot fool the check.
+ */
+const AUTH_EXEMPT_PATHS = ['/api/login', '/api/me', '/api/refresh']
+
+/** Parse the pathname from a same-origin or absolute URL, tolerating relatives. */
+function pathnameOf(url: string): string {
+  try {
+    return new URL(url, window.location.origin).pathname
+  } catch {
+    // Fall back to stripping any query/hash from a raw string.
+    return url.split('?')[0].split('#')[0]
+  }
+}
+
+/** True when the URL targets one of the auth-exempt endpoints. */
+function isAuthExempt(url: string): boolean {
+  const pathname = pathnameOf(url)
+  return AUTH_EXEMPT_PATHS.some(
+    exempt => pathname === exempt || pathname.endsWith(exempt),
+  )
+}
+
+/**
+ * Builds a `URLSearchParams` query string from a flat params object, skipping
+ * `undefined` and empty-string values. Returns the bare query (no leading `?`).
+ */
+function buildQuery(params: Record<string, string | number | undefined>): string {
+  const queryParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue
+    queryParams.set(key, String(value))
+  }
+  return queryParams.toString()
+}
+
+/** Attempt a single silent token refresh. Resolves true on success. */
+async function attemptSilentRefresh(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function fetchRaw<T>(
+  url: string,
+  options?: RequestInit,
+  alreadyRetried = false,
+): Promise<ApiSuccessResponse<T>> {
   const headers = new Headers(options?.headers)
   if (options?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -57,11 +115,23 @@ async function fetchRaw<T>(url: string, options?: RequestInit): Promise<ApiSucce
 
   const data = await response.json().catch(() => ({ status: 'error', error_code: 'PARSE_ERROR', message: 'Failed to parse response' })) as ApiSuccessResponse<T> | ApiErrorResponse
 
-  // Global 401 handler — redirect to login immediately, don't retry
+  // Global 401 handler — try one silent refresh + retry before redirecting.
   if (response.status === 401) {
-    // Skip redirect if we're already on login page or already redirecting
-    const isLoginRequest = url.includes('/login') || url.includes('/me')
-    if (!isLoginRequest && !isRedirectingToLogin) {
+    const exempt = isAuthExempt(url)
+
+    // Attempt a single silent refresh then retry the original request once.
+    // Skip for auth-exempt endpoints and when this call was already retried,
+    // which guards against infinite refresh loops.
+    if (!exempt && !alreadyRetried) {
+      const refreshed = await attemptSilentRefresh()
+      if (refreshed) {
+        return fetchRaw<T>(url, options, true)
+      }
+    }
+
+    // Refresh failed (or was skipped) — fall back to redirecting to login.
+    // Skip redirect for auth-exempt endpoints and when already redirecting.
+    if (!exempt && !isRedirectingToLogin) {
       isRedirectingToLogin = true
       window.location.replace('/login')
       setTimeout(() => { isRedirectingToLogin = false }, 1000)
@@ -225,35 +295,33 @@ export const rulesApi = {
 // History API
 export const historyApi = {
   list: (params?: HistoryFilterQuery): Promise<BookingHistory[]> => {
-    const queryParams = new URLSearchParams()
-    if (params?.limit) queryParams.set('limit', String(params.limit))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.requestId) queryParams.set('requestId', String(params.requestId))
-    if (params?.bookingId) queryParams.set('bookingId', String(params.bookingId))
-    if (params?.origin) queryParams.set('origin', params.origin)
-    if (params?.destination) queryParams.set('destination', params.destination)
-    if (params?.vehicleType) queryParams.set('vehicleType', params.vehicleType)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      limit: params?.limit,
+      search: params?.search,
+      requestId: params?.requestId,
+      bookingId: params?.bookingId,
+      origin: params?.origin,
+      destination: params?.destination,
+      vehicleType: params?.vehicleType,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchJson<BookingHistory[]>(`${API_BASE}/history${query ? `?${query}` : ''}`)
   },
 
   paginated: (params?: HistoryFilterQuery): Promise<ApiPaginatedResponse<BookingHistory>> => {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.set('page', String(params.page))
-    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.requestId) queryParams.set('requestId', String(params.requestId))
-    if (params?.bookingId) queryParams.set('bookingId', String(params.bookingId))
-    if (params?.origin) queryParams.set('origin', params.origin)
-    if (params?.destination) queryParams.set('destination', params.destination)
-    if (params?.vehicleType) queryParams.set('vehicleType', params.vehicleType)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      page: params?.page,
+      pageSize: params?.pageSize,
+      search: params?.search,
+      requestId: params?.requestId,
+      bookingId: params?.bookingId,
+      origin: params?.origin,
+      destination: params?.destination,
+      vehicleType: params?.vehicleType,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchPaginated<BookingHistory>(`${API_BASE}/history/paginated${query ? `?${query}` : ''}`)
   },
 }
@@ -261,29 +329,27 @@ export const historyApi = {
 // Audit API
 export const auditApi = {
   list: (params?: AuditQuery): Promise<AuditLog[]> => {
-    const queryParams = new URLSearchParams()
-    if (params?.limit) queryParams.set('limit', String(params.limit))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.username) queryParams.set('username', params.username)
-    if (params?.action) queryParams.set('action', params.action)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      limit: params?.limit,
+      search: params?.search,
+      username: params?.username,
+      action: params?.action,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchJson<AuditLog[]>(`${API_BASE}/audit-logs${query ? `?${query}` : ''}`)
   },
 
   paginated: (params?: AuditQuery): Promise<ApiPaginatedResponse<AuditLog>> => {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.set('page', String(params.page))
-    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.username) queryParams.set('username', params.username)
-    if (params?.action) queryParams.set('action', params.action)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      page: params?.page,
+      pageSize: params?.pageSize,
+      search: params?.search,
+      username: params?.username,
+      action: params?.action,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchPaginated<AuditLog>(`${API_BASE}/audit-logs/paginated${query ? `?${query}` : ''}`)
   },
 }
@@ -291,29 +357,27 @@ export const auditApi = {
 // Auto-Accept History API
 export const autoAcceptHistoryApi = {
   list: (params?: AutoAcceptHistoryQuery): Promise<AutoAcceptHistoryItem[]> => {
-    const queryParams = new URLSearchParams()
-    if (params?.limit) queryParams.set('limit', String(params.limit))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.ruleName) queryParams.set('ruleName', params.ruleName)
-    if (params?.status) queryParams.set('status', params.status)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      limit: params?.limit,
+      search: params?.search,
+      ruleName: params?.ruleName,
+      status: params?.status,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchJson<AutoAcceptHistoryItem[]>(`${API_BASE}/auto-accept-history${query ? `?${query}` : ''}`)
   },
 
   paginated: (params?: AutoAcceptHistoryQuery): Promise<ApiPaginatedResponse<AutoAcceptHistoryItem>> => {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.set('page', String(params.page))
-    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.ruleName) queryParams.set('ruleName', params.ruleName)
-    if (params?.status) queryParams.set('status', params.status)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      page: params?.page,
+      pageSize: params?.pageSize,
+      search: params?.search,
+      ruleName: params?.ruleName,
+      status: params?.status,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchPaginated<AutoAcceptHistoryItem>(`${API_BASE}/auto-accept-history/paginated${query ? `?${query}` : ''}`)
   },
 }
@@ -462,22 +526,21 @@ export const lineBotApi = {
 
 export const lineImageExtractionApi = {
   paginated: (params?: LineImageExtractionQuery): Promise<ApiPaginatedResponse<LineImageExtraction>> => {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.set('page', String(params.page))
-    if (params?.pageSize) queryParams.set('pageSize', String(params.pageSize))
-    if (params?.search) queryParams.set('search', params.search)
-    if (params?.agency) queryParams.set('agency', params.agency)
-    if (params?.tripNumber) queryParams.set('tripNumber', params.tripNumber)
-    if (params?.route) queryParams.set('route', params.route)
-    if (params?.vehicleType) queryParams.set('vehicleType', params.vehicleType)
-    if (params?.driver) queryParams.set('driver', params.driver)
-    if (params?.createdFrom) queryParams.set('createdFrom', params.createdFrom)
-    if (params?.createdTo) queryParams.set('createdTo', params.createdTo)
-    if (params?.month) queryParams.set('month', params.month)
-    if (params?.sortBy) queryParams.set('sortBy', params.sortBy)
-    if (params?.sortDir) queryParams.set('sortDir', params.sortDir)
-
-    const query = queryParams.toString()
+    const query = buildQuery({
+      page: params?.page,
+      pageSize: params?.pageSize,
+      search: params?.search,
+      agency: params?.agency,
+      tripNumber: params?.tripNumber,
+      route: params?.route,
+      vehicleType: params?.vehicleType,
+      driver: params?.driver,
+      createdFrom: params?.createdFrom,
+      createdTo: params?.createdTo,
+      month: params?.month,
+      sortBy: params?.sortBy,
+      sortDir: params?.sortDir,
+    })
     return fetchPaginated<LineImageExtraction>(`${API_BASE}/line-image-extractions${query ? `?${query}` : ''}`)
   },
 }

@@ -22,7 +22,7 @@ import { settingsController } from "../controllers/settings-controller.js";
 import { historyController } from "../controllers/history-controller.js";
 import { auditController } from "../controllers/audit-controller.js";
 import { dashboardController } from "../controllers/dashboard-controller.js";
-import { reportController } from "../controllers/report-controller.js";
+import { reportController, auditReportController } from "../controllers/report-controller.js";
 import { biddingController } from "../controllers/bidding-controller.js";
 import { autoAcceptHistoryController } from "../controllers/auto-accept-history-controller.js";
 import { notifyController } from "./notify-controller.js";
@@ -75,10 +75,10 @@ function isAllowedCorsOrigin(origin: string): boolean {
 }
 
 function getClientKey(request: FastifyRequest): string {
-  const forwardedFor = request.headers["x-forwarded-for"];
-  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
-    return forwardedFor.split(",")[0].trim();
-  }
+  // Rate-limit / log identity. Derivation is governed by Fastify's `trustProxy`
+  // (configured from HTTP_TRUST_PROXY). Returning request.ip — instead of blindly
+  // reading the leftmost X-Forwarded-For entry — means a client can no longer
+  // spoof its identity unless the proxy config explicitly trusts that hop.
   return request.ip;
 }
 
@@ -190,7 +190,7 @@ function renderSpaIndex(nonce: string): string {
 }
 
 export async function startHttpServer(port: number): Promise<void> {
-  app = Fastify({ logger: false, trustProxy: true });
+  app = Fastify({ logger: false, trustProxy: env.HTTP_TRUST_PROXY });
 
   await app.register(cors, {
     origin: (origin, cb) => {
@@ -355,6 +355,7 @@ export async function startHttpServer(port: number): Promise<void> {
       await adminScope.register(usersController, { prefix: "/users" });
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });
+      await adminScope.register(auditReportController, { prefix: "/reports" });
       await adminScope.register(autoAcceptHistoryController, { prefix: "/auto-accept-history" });
     });
   }, { prefix: "/api" });

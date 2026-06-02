@@ -36,7 +36,7 @@ export async function insertMetricsSnapshot(snap: MetricsSnapshot): Promise<void
     totalRequests: snap.polling.totalRequests,
     successCount: snap.polling.successCount,
     errorCount: snap.polling.errorCount,
-    successRate: String(snap.polling.successRate),
+    successRate: snap.polling.successRate.toFixed(2),
     latencyAvg: snap.polling.latency.avg,
     latencyP95: snap.polling.latency.p95,
     latencyP99: snap.polling.latency.p99,

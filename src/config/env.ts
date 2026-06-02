@@ -62,6 +62,26 @@ function parseCommaSeparated(value: string | undefined): string[] {
   return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
+/**
+ * Parse HTTP_TRUST_PROXY into a Fastify `trustProxy` value. Controls how the
+ * client IP (used for rate-limit identity and logs) is derived from
+ * X-Forwarded-For. Accepts:
+ *   - "true"/"false"         → trust all / trust none
+ *   - an integer (e.g. "1")  → trust that many proxy hops closest to the server
+ *   - a comma list of IPs/CIDRs → trust exactly those proxy addresses
+ * Defaults to `true` to preserve existing behavior; production deployments
+ * behind a reverse proxy should set this to the hop count or proxy CIDR so
+ * clients cannot spoof their identity via a forged X-Forwarded-For header.
+ */
+function parseTrustProxy(value: string | undefined): boolean | number | string[] {
+  if (value === undefined || value.trim() === "") return true;
+  const v = value.trim();
+  if (v === "true") return true;
+  if (v === "false") return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0;
 }
@@ -138,6 +158,7 @@ export const env = {
   HTTP_ENABLED: process.env.HTTP_ENABLED === "true",
   HTTP_PORT: readIntegerEnv("HTTP_PORT", 3000),
   HTTP_ALLOWED_ORIGINS: parseCommaSeparated(process.env.HTTP_ALLOWED_ORIGINS),
+  HTTP_TRUST_PROXY: parseTrustProxy(process.env.HTTP_TRUST_PROXY),
   JWT_SECRET: process.env.JWT_SECRET || "",
   COOKIE_SECRET: process.env.COOKIE_SECRET || "",
   NODE_ENV: process.env.NODE_ENV || "development",
@@ -165,6 +186,11 @@ export function validateRuntimeConfig(): void {
   if (env.API_URL && !isValidUrl(env.API_URL)) invalid.push("API_URL must be a valid URL");
   if (env.API_URL && !env.API_URL.includes("/booking/bidding/list")) invalid.push("API_URL must contain /booking/bidding/list");
   if (env.REFERER && !isValidUrl(env.REFERER)) invalid.push("REFERER must be a valid URL");
+  // POLL_INTERVAL_MS is intentionally only checked for positivity. The operator
+  // controls how aggressive polling is — a lower interval captures more bidding
+  // jobs (a competitive advantage), and ticks are serialized so a low value
+  // cannot busy-loop. Bound resource use via BOOKING_DETAIL_CONCURRENCY (capped
+  // at 50 below) rather than flooring the interval.
   if (!isPositiveInteger(env.POLL_INTERVAL_MS)) invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
   if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50) invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
   if (!isPositiveInteger(env.BIDDING_PAGE_NO)) invalid.push("BIDDING_PAGE_NO must be a positive integer");
@@ -183,6 +209,14 @@ export function validateRuntimeConfig(): void {
 
   const listError = validateList("NOTIFY_ORIGINS", env.NOTIFY_ORIGINS) ?? validateList("NOTIFY_DESTINATIONS", env.NOTIFY_DESTINATIONS) ?? validateList("NOTIFY_VEHICLE_TYPES", env.NOTIFY_VEHICLE_TYPES);
   if (listError) invalid.push(listError);
+
+  // Unconditionally validate DB_MODE. `env.DB_MODE` is cast to "mysql" | "memory"
+  // above, so an unset value safely defaults to "mysql"; but any explicitly set
+  // value must be exactly "mysql" or "memory" — otherwise the cast would silently
+  // hide a typo (e.g. "sqlite", "Memory", "") that later misroutes DB selection.
+  if (env.DB_MODE !== "mysql" && env.DB_MODE !== "memory") {
+    invalid.push("DB_MODE must be 'mysql' or 'memory'");
+  }
 
   if (usesDatabase && env.DB_MODE !== "memory") {
     if (!env.DB_HOST) missing.push("DB_HOST");

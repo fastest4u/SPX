@@ -23,6 +23,8 @@ const CALLBACK_SERVER_TIMEOUT_MS = 10 * 60_000;
 const ORIGINATOR = "opencode";
 const OPENCODE_USER_AGENT = "opencode/1.15.7";
 const CODEX_DEFAULT_INSTRUCTIONS = "You are Codex. Follow the user's instructions exactly.";
+const TOKEN_FETCH_TIMEOUT_MS = 20_000;
+const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 const DEVICE_USER_CODE_URL = `${AUTH_BASE_URL}/api/accounts/deviceauth/usercode`;
 const DEVICE_TOKEN_URL = `${AUTH_BASE_URL}/api/accounts/deviceauth/token`;
@@ -87,6 +89,36 @@ type PendingFlow = {
 let pendingFlow: PendingFlow | null = null;
 let callbackServer: Server | null = null;
 let callbackServerTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Thrown when a token refresh fails with invalid_grant / 401, meaning the stored
+ * refresh token is no longer usable and interactive re-authentication is required.
+ * The stale token file is cleared before this is thrown so callers do not keep
+ * retrying a dead token on every OCR call.
+ */
+export class CodexReauthRequiredError extends Error {
+  readonly reauthRequired = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "CodexReauthRequiredError";
+  }
+}
+
+export function isCodexReauthRequiredError(error: unknown): error is CodexReauthRequiredError {
+  return error instanceof CodexReauthRequiredError
+    || (typeof error === "object" && error !== null && (error as { reauthRequired?: unknown }).reauthRequired === true);
+}
+
+class TokenExchangeError extends Error {
+  readonly status: number;
+  readonly body: string;
+  constructor(status: number, body: string) {
+    super(`Codex OAuth token exchange failed (${status}): ${body.slice(0, 300)}`);
+    this.name = "TokenExchangeError";
+    this.status = status;
+    this.body = body;
+  }
+}
 
 function base64Url(buffer: Buffer): string {
   return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -179,11 +211,12 @@ async function exchangeToken(params: URLSearchParams): Promise<TokenResult> {
     method: "POST",
     headers: FORM_HEADERS,
     body: params,
+    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`Codex OAuth token exchange failed (${response.status}): ${body.slice(0, 300)}`);
+    throw new TokenExchangeError(response.status, body);
   }
 
   const json = await response.json() as {
@@ -214,12 +247,35 @@ async function exchangeToken(params: URLSearchParams): Promise<TokenResult> {
   };
 }
 
+function isInvalidGrantFailure(error: unknown): boolean {
+  if (!(error instanceof TokenExchangeError)) return false;
+  if (error.status === 401) return true;
+  return error.body.toLowerCase().includes("invalid_grant");
+}
+
 async function refreshStoredToken(token: StoredToken): Promise<StoredToken> {
-  const refreshed = await exchangeToken(new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: token.refreshToken,
-    client_id: CLIENT_ID,
-  }));
+  let refreshed: TokenResult;
+  try {
+    refreshed = await exchangeToken(new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: token.refreshToken,
+      client_id: CLIENT_ID,
+    }));
+  } catch (error) {
+    if (isInvalidGrantFailure(error)) {
+      // The stored refresh token is dead. Clear it from disk so subsequent OCR
+      // calls fail fast with a distinct re-auth-required state instead of
+      // repeatedly retrying a stale token.
+      await rm(AUTH_PATH, { force: true }).catch(() => { /* ignore */ });
+      logger.warn("codex-device-refresh-invalid-grant", {
+        status: error instanceof TokenExchangeError ? error.status : undefined,
+      });
+      throw new CodexReauthRequiredError(
+        "Codex device auth refresh token is no longer valid. Re-authentication is required.",
+      );
+    }
+    throw error;
+  }
   await writeStoredToken(refreshed);
   return { ...refreshed, updatedAt: new Date().toISOString() };
 }
@@ -272,7 +328,30 @@ function ensureCodexInstructions(url: string, body: BodyInit | null | undefined)
 }
 
 async function convertSseToJson(response: Response): Promise<Response> {
+  const contentLengthHeader = response.headers.get("content-length");
+  const declaredLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    logger.warn("codex-device-response-too-large", {
+      reason: "content-length",
+      bytes: declaredLength,
+      limit: MAX_RESPONSE_BYTES,
+    });
+    return response;
+  }
+
   const text = await response.text();
+  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
+    logger.warn("codex-device-response-too-large", {
+      reason: "buffered",
+      bytes: Buffer.byteLength(text, "utf8"),
+      limit: MAX_RESPONSE_BYTES,
+    });
+    return new Response(text, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  }
   const lines = text.split(/\r?\n/);
   let streamedText = "";
 
@@ -456,6 +535,7 @@ export function stopDeviceCodePolling(): void {
 function startDeviceCodePolling(): void {
   if (!pendingDeviceCode) return;
   const intervalMs = Math.max(pendingDeviceCode.interval, 5) * 1000;
+  let pollInFlight = false;
 
   deviceCodePollingTimer = setInterval(async () => {
     if (!pendingDeviceCode) {
@@ -463,12 +543,17 @@ function startDeviceCodePolling(): void {
       return;
     }
 
+    // Skip this tick if the previous poll has not finished yet, so slow/hung
+    // requests cannot stack overlapping in-flight requests.
+    if (pollInFlight) return;
+
     if (Date.now() >= pendingDeviceCode.expiresAt) {
       logger.warn("codex-device-code-expired");
       stopDeviceCodePolling();
       return;
     }
 
+    pollInFlight = true;
     try {
       const response = await fetch(DEVICE_TOKEN_URL, {
         method: "POST",
@@ -477,6 +562,7 @@ function startDeviceCodePolling(): void {
           device_auth_id: pendingDeviceCode.deviceAuthId,
           user_code: pendingDeviceCode.userCode,
         }),
+        signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
       });
 
       if (response.ok) {
@@ -508,6 +594,8 @@ function startDeviceCodePolling(): void {
       logger.error("codex-device-code-auth-poll-error", { status: response.status, error: body.slice(0, 200) });
     } catch (error) {
       logger.error("codex-device-code-auth-poll-exception", { error: String(error) });
+    } finally {
+      pollInFlight = false;
     }
   }, intervalMs);
 }
@@ -527,6 +615,7 @@ export async function startDeviceCodeAuth(): Promise<{
     body: JSON.stringify({
       client_id: CLIENT_ID,
     }),
+    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {

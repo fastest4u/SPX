@@ -183,15 +183,29 @@ export async function writeSettings(newSettings: EnvSettings): Promise<void> {
 
 export async function reloadSettingsLive(): Promise<void> {
   const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
+
+  // Snapshot the current process.env for every settings key so we can roll back
+  // if the DB-sourced config fails validation. Without this, an invalid stored
+  // row would replace the live config and leave the poller running on broken
+  // settings (the old code applied first and only logged on failure).
+  const previousProcessEnv: Record<string, string | undefined> = {};
+  for (const key of SETTINGS_KEYS) {
+    previousProcessEnv[key] = process.env[key];
+  }
+
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
-  // Validate the live config; surface a loud log if something is wrong but do
-  // NOT throw — the previous process.env values are already replaced. Operators
-  // need an obvious signal to fix it.
   try {
     validateRuntimeConfig();
   } catch (err) {
+    // Roll back to the previously-valid config and keep the poller running on it.
+    for (const [key, prev] of Object.entries(previousProcessEnv)) {
+      if (prev === undefined) delete process.env[key];
+      else process.env[key] = prev;
+    }
+    syncEnvObjectFromProcess();
     logger.error("settings-live-reload-validation-failed", {
       error: err instanceof Error ? err.message : String(err),
+      rolledBack: true,
     });
   }
 }

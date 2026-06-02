@@ -5,8 +5,19 @@ export class DataProcessor {
   private lastHash: number | null = null;
 
   detectChange(data: ApiResponse): DataChange {
-    const jsonStr = JSON.stringify(data);
-    const currentHash = hashString(jsonStr);
+    const list = data.data?.list ?? [];
+    // Stable compact projection: only identity + status fields that signal a
+    // meaningful change, so volatile/reordered payload fields don't cause false
+    // positives and birthday-collision risk over full JSON is avoided.
+    const projection =
+      `${list.length}|` +
+      list
+        .map(
+          (b) =>
+            `${b?.booking_id ?? ""}:${b?.request_acceptance_status ?? ""}:${b?.request_assignment_status ?? ""}`,
+        )
+        .join("|");
+    const currentHash = hashString(projection);
     const recordCount = data.data?.list?.length ?? null;
     const isFirst = this.lastHash === null;
     const hasChanged = !isFirst && currentHash !== this.lastHash;

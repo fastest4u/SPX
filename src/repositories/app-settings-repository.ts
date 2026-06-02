@@ -1,5 +1,6 @@
 import { eq, inArray, sql } from "drizzle-orm";
-import { ensureDashboardTables, getDb } from "../db/client.js";
+import { env } from "../config/env.js";
+import { ensureDashboardTables, getDb, getPool } from "../db/client.js";
 import { appSettings } from "../db/schema.js";
 import { decryptString, encryptString, isEncrypted } from "../utils/crypto.js";
 
@@ -46,8 +47,25 @@ export async function upsertAppSettings(settings: Record<string, string>): Promi
   if (entries.length === 0) return;
 
   await ensureDashboardTables();
-  const db = getDb();
 
+  // MySQL: single atomic INSERT ... ON DUPLICATE KEY UPDATE per key to avoid the
+  // PK-duplicate race inherent in a non-atomic select-then-insert/update.
+  if (env.DB_MODE !== "memory") {
+    const pool = getPool();
+    if (pool) {
+      for (const [key, value] of entries) {
+        const stored = encodeForStorage(key, value);
+        await pool.query(
+          "INSERT INTO app_settings (setting_key, setting_value, created_at, updated_at) VALUES (?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = UTC_TIMESTAMP()",
+          [key, stored],
+        );
+      }
+      return;
+    }
+  }
+
+  // SQLite/memory mode is single-threaded, so a select-then-upsert is race-free.
+  const db = getDb();
   for (const [key, value] of entries) {
     const stored = encodeForStorage(key, value);
     const rows = await db.select({ key: appSettings.key }).from(appSettings).where(eq(appSettings.key, key)).limit(1);

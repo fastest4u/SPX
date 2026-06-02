@@ -22,6 +22,12 @@ export interface DataTableColumn<T> {
   id?: string
   className?: string
   render: (item: T) => ReactNode
+  /**
+   * Optional primitive accessor used for the client-side fallback sort.
+   * Required when `render` returns JSX — comparing rendered ReactNodes
+   * yields "[object Object]". Ignored on the server-pagination sort path.
+   */
+  sortValue?: (item: T) => string | number
   sortKey?: string
   sortable?: boolean
   /** When true, the user cannot hide this column from the visibility menu. */
@@ -56,7 +62,6 @@ export interface DataTableProps<T> {
   emptyIcon?: ReactNode
   emptyMessage?: string
   minWidth?: string
-  renderMobile?: (item: T) => ReactNode
   className?: string
   pagination?: PaginationState
   sorting?: {
@@ -247,10 +252,26 @@ export function DataTable<T>({
     if (sorting) return rawData
     if (!sortKey || !sortDir) return rawData
     const col = columns.find((c) => c.sortKey === sortKey || c.header === sortKey)
+    // Pick a primitive accessor: an explicit `sortValue`, otherwise the raw
+    // field keyed by `sortKey`. Never sort on `col.render` output — a rendered
+    // ReactNode stringifies to "[object Object]".
+    const accessor: ((item: T) => string | number) | null = col?.sortValue
+      ? col.sortValue
+      : sortKey in (rawData[0] ?? {})
+        ? (item) => (item as Record<string, unknown>)[sortKey] as string | number
+        : null
+    if (!accessor) return rawData
     return [...rawData].sort((a, b) => {
-      const aVal = col ? String(col.render(a) ?? '') : String((a as Record<string, unknown>)[sortKey] ?? '')
-      const bVal = col ? String(col.render(b) ?? '') : String((b as Record<string, unknown>)[sortKey] ?? '')
-      const cmp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' })
+      const aRaw = accessor(a)
+      const bRaw = accessor(b)
+      if (typeof aRaw === 'number' && typeof bRaw === 'number') {
+        const cmp = aRaw - bRaw
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      const cmp = String(aRaw ?? '').localeCompare(String(bRaw ?? ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      })
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [rawData, sortKey, sortDir, columns, sorting])
@@ -430,11 +451,7 @@ export function DataTable<T>({
 
       {/* Always render the table — on small viewports the user swipes inside
           `.data-scroll` (overflow-x: auto). The page itself stays locked via
-          `html, body { overflow-x: clip }` declared in index.css.
-
-          `renderMobile` is accepted for backwards compatibility but is no
-          longer used; cards-on-mobile broke alignment with the desktop
-          experience and made columns invisible on phones. */}
+          `html, body { overflow-x: clip }` declared in index.css. */}
       <div className="data-scroll">
         <table className="data-table" data-density={density} style={{ minWidth }}>
           <thead>

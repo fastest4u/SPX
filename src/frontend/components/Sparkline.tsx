@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface SparklineProps {
   data: number[]
   width?: number
@@ -7,6 +9,8 @@ interface SparklineProps {
 }
 
 function Sparkline({ data, width = 80, height = 32, color = '#7dd3fc', className }: SparklineProps) {
+  const gradientId = useId()
+
   if (!data.length) return <div className={className} style={{ width, height }} />
 
   const min = Math.min(...data)
@@ -30,14 +34,14 @@ function Sparkline({ data, width = 80, height = 32, color = '#7dd3fc', className
       aria-label="Sparkline chart"
     >
       <defs>
-        <linearGradient id={`spark-grad`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={0.3} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
       <polygon
         points={`0,${height} ${points} ${width},${height}`}
-        fill={`url(#spark-grad)`}
+        fill={`url(#${gradientId})`}
       />
       <polyline
         points={points}

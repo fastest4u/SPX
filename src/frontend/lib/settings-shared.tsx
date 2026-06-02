@@ -46,6 +46,9 @@ export const INITIAL_SETTINGS_FORM = {
 
 export type SettingsForm = typeof INITIAL_SETTINGS_FORM
 
+/** Inline validation errors keyed by form field (only set fields are invalid). */
+export type SettingsFieldErrors = Partial<Record<keyof SettingsForm, string>>
+
 export interface SettingsFormContextValue {
     formData: SettingsForm
     setField: (key: keyof SettingsForm, value: string) => void
@@ -53,9 +56,100 @@ export interface SettingsFormContextValue {
     reset: () => void
     isSaving: boolean
     isDirty: boolean
+    fieldErrors: SettingsFieldErrors
+}
+
+/**
+ * Numeric field constraints applied before saving. `POLL_INTERVAL_MS` is
+ * intentionally given no `min`/`max`: a lower interval is a deliberate operator
+ * lever (see backend `validateRuntimeConfig`), so it is only rejected when it is
+ * not a positive integer — never floored or clamped to a minimum.
+ */
+const NUMERIC_FIELD_RULES = {
+    POLL_INTERVAL_MS: { optional: false },
+    BOOKING_DETAIL_CONCURRENCY: { optional: false, min: 1, max: 50 },
+    BIDDING_VEHICLE_TYPE: { optional: true, min: 1 },
+} as const satisfies Partial<
+    Record<keyof SettingsForm, { optional: boolean; min?: number; max?: number }>
+>
+
+/**
+ * Validate and clamp numeric settings before building the save payload.
+ *
+ * - Rejects clearly-invalid values (non-numeric, negative, or non-integer) with
+ *   a visible inline error and leaves the payload unchanged for that field.
+ * - Clamps in-range-but-out-of-bounds integers to the field's sane bounds.
+ * - `POLL_INTERVAL_MS` is never clamped to a minimum (operator lever).
+ * - Optional fields (e.g. `BIDDING_VEHICLE_TYPE`) accept an empty string.
+ */
+function validateNumericFields(form: SettingsForm): {
+    errors: SettingsFieldErrors
+    sanitized: SettingsForm
+} {
+    const errors: SettingsFieldErrors = {}
+    const sanitized: SettingsForm = { ...form }
+
+    for (const [field, rule] of Object.entries(NUMERIC_FIELD_RULES) as Array<
+        [keyof SettingsForm, (typeof NUMERIC_FIELD_RULES)[keyof typeof NUMERIC_FIELD_RULES]]
+    >) {
+        const raw = (form[field] ?? '').trim()
+
+        if (raw === '') {
+            if (rule.optional) {
+                sanitized[field] = ''
+                continue
+            }
+            errors[field] = 'ต้องระบุค่าตัวเลข'
+            continue
+        }
+
+        const num = Number(raw)
+        if (!Number.isFinite(num) || !Number.isInteger(num)) {
+            errors[field] = 'ต้องเป็นจำนวนเต็ม'
+            continue
+        }
+        if (num <= 0) {
+            errors[field] = 'ต้องเป็นจำนวนเต็มบวก'
+            continue
+        }
+
+        const min = 'min' in rule ? rule.min : undefined
+        const max = 'max' in rule ? rule.max : undefined
+        let clamped = num
+        if (typeof min === 'number' && clamped < min) clamped = min
+        if (typeof max === 'number' && clamped > max) clamped = max
+        sanitized[field] = String(clamped)
+    }
+
+    return { errors, sanitized }
 }
 
 const SettingsFormContext = React.createContext<SettingsFormContextValue | null>(null)
+
+/** Build form state from the cached settings query response. */
+function formFromSettings(settings: Awaited<ReturnType<typeof settingsApi.get>>): SettingsForm {
+    return {
+        API_URL: settings.API_URL || '',
+        POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
+        COOKIE: settings.COOKIE || '',
+        DEVICE_ID: settings.DEVICE_ID || '',
+        LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
+        LINE_USER_ID: settings.LINE_USER_ID || '',
+        LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
+        LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
+        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS:
+            settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || '',
+        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE:
+            settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || '',
+        LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
+        LINEJS_TEST_STORAGE_PATH:
+            settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
+        DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
+        BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
+        BIDDING_VEHICLE_TYPE: settings.BIDDING_VEHICLE_TYPE ?? '13',
+        CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
+    }
+}
 
 /**
  * Single source of truth for the Settings form. Mounted once at
@@ -69,6 +163,7 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
     const queryClient = useQueryClient()
     const [formData, setFormData] = React.useState<SettingsForm>(INITIAL_SETTINGS_FORM)
     const [isDirty, setIsDirty] = React.useState(false)
+    const [fieldErrors, setFieldErrors] = React.useState<SettingsFieldErrors>({})
 
     const { data: settings } = useQuery({
         queryKey: ['settings'],
@@ -78,27 +173,8 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
 
     React.useEffect(() => {
         if (!settings) return
-        setFormData({
-            API_URL: settings.API_URL || '',
-            POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
-            COOKIE: settings.COOKIE || '',
-            DEVICE_ID: settings.DEVICE_ID || '',
-            LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
-            LINE_USER_ID: settings.LINE_USER_ID || '',
-            LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
-            LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
-            LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS:
-                settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || '',
-            LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE:
-                settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || '',
-            LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
-            LINEJS_TEST_STORAGE_PATH:
-                settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
-            DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
-            BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
-            BIDDING_VEHICLE_TYPE: settings.BIDDING_VEHICLE_TYPE ?? '13',
-            CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
-        })
+        setFormData(formFromSettings(settings))
+        setFieldErrors({})
         setIsDirty(false)
     }, [settings])
 
@@ -115,16 +191,32 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
 
     const setField = React.useCallback((key: keyof SettingsForm, value: string) => {
         setFormData((prev) => ({ ...prev, [key]: value }))
+        setFieldErrors((prev) => {
+            if (!(key in prev)) return prev
+            const next = { ...prev }
+            delete next[key]
+            return next
+        })
         setIsDirty(true)
     }, [])
 
     const save = React.useCallback(() => {
-        updateMutation.mutate(formData)
+        const { errors, sanitized } = validateNumericFields(formData)
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(errors)
+            toast.error('ค่าตัวเลขไม่ถูกต้อง โปรดแก้ไขก่อนบันทึก')
+            return
+        }
+        setFieldErrors({})
+        // Reflect any clamping back into the form so the user sees the saved value.
+        setFormData(sanitized)
+        updateMutation.mutate(sanitized)
     }, [updateMutation, formData])
 
     const reset = React.useCallback(() => {
         if (settings) {
-            setFormData(INITIAL_SETTINGS_FORM)
+            setFormData(formFromSettings(settings))
+            setFieldErrors({})
             queryClient.invalidateQueries({ queryKey: ['settings'] })
             setIsDirty(false)
         }
@@ -137,6 +229,7 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
         reset,
         isSaving: updateMutation.isPending,
         isDirty,
+        fieldErrors,
     }
 
     return (
@@ -195,12 +288,14 @@ export function Field({
     label,
     hint,
     helper,
+    error,
     children,
 }: {
     id: string
     label: string
     hint?: React.ReactNode
     helper?: string
+    error?: string
     children: React.ReactNode
 }) {
     return (
@@ -214,7 +309,13 @@ export function Field({
                 ) : null}
             </div>
             {children}
-            {helper ? <p className="text-xs text-muted-foreground/70">{helper}</p> : null}
+            {error ? (
+                <p id={`${id}-error`} role="alert" className="text-xs text-destructive">
+                    {error}
+                </p>
+            ) : helper ? (
+                <p className="text-xs text-muted-foreground/70">{helper}</p>
+            ) : null}
         </div>
     )
 }
@@ -258,6 +359,7 @@ export function ApiSection({
     formData: SettingsForm
     setField: (k: keyof SettingsForm, v: string) => void
 }) {
+    const { fieldErrors } = useSettingsForm()
     const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
     const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
 
@@ -307,6 +409,7 @@ export function ApiSection({
                         label="Poll interval"
                         hint={intervalSec ? `≈ ${intervalSec}s` : ''}
                         helper="ช่วงเวลาระหว่างการเช็คงานใหม่ (มิลลิวินาที)"
+                        error={fieldErrors.POLL_INTERVAL_MS}
                     >
                         <Input
                             id="s-poll"
@@ -314,6 +417,10 @@ export function ApiSection({
                             onChange={(e) => setField('POLL_INTERVAL_MS', e.target.value)}
                             placeholder="30000"
                             inputMode="numeric"
+                            aria-invalid={fieldErrors.POLL_INTERVAL_MS ? true : undefined}
+                            aria-describedby={
+                                fieldErrors.POLL_INTERVAL_MS ? 's-poll-error' : undefined
+                            }
                         />
                     </Field>
 
@@ -321,7 +428,8 @@ export function ApiSection({
                         id="s-concurrency"
                         label="Detail concurrency"
                         hint={concurrency > 0 ? `${concurrency} jobs` : ''}
-                        helper="จำนวน request ดึงรายละเอียดงานพร้อมกัน"
+                        helper="จำนวน request ดึงรายละเอียดงานพร้อมกัน (1–50)"
+                        error={fieldErrors.BOOKING_DETAIL_CONCURRENCY}
                     >
                         <Input
                             id="s-concurrency"
@@ -329,6 +437,12 @@ export function ApiSection({
                             onChange={(e) => setField('BOOKING_DETAIL_CONCURRENCY', e.target.value)}
                             placeholder="8"
                             inputMode="numeric"
+                            aria-invalid={fieldErrors.BOOKING_DETAIL_CONCURRENCY ? true : undefined}
+                            aria-describedby={
+                                fieldErrors.BOOKING_DETAIL_CONCURRENCY
+                                    ? 's-concurrency-error'
+                                    : undefined
+                            }
                         />
                     </Field>
 
@@ -336,6 +450,7 @@ export function ApiSection({
                         id="s-bidding-vehicle-type"
                         label="Bidding vehicle type"
                         helper="vehicle_type สำหรับ booking/bidding/list; เว้นว่างเพื่อดึงทุกประเภทรถ"
+                        error={fieldErrors.BIDDING_VEHICLE_TYPE}
                     >
                         <Input
                             id="s-bidding-vehicle-type"
@@ -343,6 +458,12 @@ export function ApiSection({
                             onChange={(e) => setField('BIDDING_VEHICLE_TYPE', e.target.value)}
                             placeholder="13"
                             inputMode="numeric"
+                            aria-invalid={fieldErrors.BIDDING_VEHICLE_TYPE ? true : undefined}
+                            aria-describedby={
+                                fieldErrors.BIDDING_VEHICLE_TYPE
+                                    ? 's-bidding-vehicle-type-error'
+                                    : undefined
+                            }
                         />
                     </Field>
 

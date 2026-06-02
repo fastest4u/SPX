@@ -159,9 +159,6 @@ function AuditComponent() {
             densityKey="audit"
             emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
             emptyMessage={'ไม่พบประวัติการใช้งาน'}
-            renderMobile={(log) => (
-              <AuditMobileCardContent log={log} />
-            )}
             pagination={
               logs.length > 0
                 ? {
@@ -189,30 +186,6 @@ function AuditComponent() {
           />
         </CardContent>
       </Card>
-    </div>
-  )
-}
-
-function AuditMobileCardContent({ log }: { log: AuditLog }) {
-  const dateLabel = formatDateTime(log.createdAt).split(' ')[0] || '—'
-  return (
-    <div className="mobile-row">
-      <span className="mobile-row-body">
-        <span className="mobile-row-title">{log.action}</span>
-        <span className="mobile-row-subtitle">
-          <span className="text-info">{log.username}</span>
-          {log.details ? (
-            <>
-              <span className="opacity-50"> · </span>
-              <span className="text-foreground/70">{log.details}</span>
-            </>
-          ) : null}
-        </span>
-      </span>
-      <span className="mobile-row-trailing">
-        <span>{dateLabel}</span>
-        <span className="font-data text-muted-foreground/60">#{log.id}</span>
-      </span>
     </div>
   )
 }
