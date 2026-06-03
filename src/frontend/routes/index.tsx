@@ -20,7 +20,7 @@ import {
   WifiOff,
   ChevronRight,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { toast } from 'sonner'
 import type { NotifyRule, TimingSummary } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
@@ -38,6 +38,12 @@ function DashboardComponent() {
   const [editingRule, setEditingRule] = useState<NotifyRule | null>(null)
   const [deletingRule, setDeletingRule] = useState<NotifyRule | null>(null)
   const [previewingRule, setPreviewingRule] = useState<NotifyRule | null>(null)
+
+  // Stable per-row handlers so memoized RuleRow does not re-render on every SSE
+  // metrics tick (~6-7×/sec at a 150ms poll) — only when the rules data changes.
+  const handleEditRule = useCallback((rule: NotifyRule) => setEditingRule(rule), [])
+  const handleDeleteRule = useCallback((rule: NotifyRule) => setDeletingRule(rule), [])
+  const handlePreviewRule = useCallback((rule: NotifyRule) => setPreviewingRule(rule), [])
 
   const { data: rules = [], isLoading: rulesLoading } = useQuery({
     queryKey: ['rules'],
@@ -210,9 +216,9 @@ function DashboardComponent() {
                     <RuleRow
                       key={rule.id}
                       rule={rule}
-                      onEdit={() => setEditingRule(rule)}
-                      onDelete={() => setDeletingRule(rule)}
-                      onPreview={() => setPreviewingRule(rule)}
+                      onEdit={handleEditRule}
+                      onDelete={handleDeleteRule}
+                      onPreview={handlePreviewRule}
                     />
                   ))}
                 </tbody>
@@ -241,10 +247,16 @@ function PipelineTimeline({
   metrics?: ReturnType<typeof useSseStream>['data']
   history: Array<{ latencyAvg: number; latencyP95: number; createdAt: string }>
 }) {
-  const sparkData = history
-    .slice()
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    .map((row) => row.latencyAvg)
+  // history changes only every ~60s (refetchInterval), but this component re-renders
+  // on every live SSE metrics tick — memoize so the sort/map doesn't run each render.
+  const sparkData = useMemo(
+    () =>
+      history
+        .slice()
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map((row) => row.latencyAvg),
+    [history]
+  )
 
   const stages: Array<{ label: string; summary?: TimingSummary; tone: string }> = [
     { label: 'Detail→1st', summary: metrics?.operations?.detailToFirstMatch, tone: 'var(--color-info)' },
@@ -382,7 +394,7 @@ function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDe
   )
 }
 
-function RuleRow({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
+const RuleRow = memo(function RuleRow({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEdit: (rule: NotifyRule) => void; onDelete: (rule: NotifyRule) => void; onPreview: (rule: NotifyRule) => void }) {
   return (
     <tr>
       <td>{getStatusBadge(rule)}</td>
@@ -392,8 +404,8 @@ function RuleRow({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEd
       <td className="text-muted-foreground">{rule.vehicle_types.join(', ') || '—'}</td>
       <td className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></td>
       <td>
-        <RuleActions onEdit={onEdit} onDelete={onDelete} onPreview={onPreview} />
+        <RuleActions onEdit={() => onEdit(rule)} onDelete={() => onDelete(rule)} onPreview={() => onPreview(rule)} />
       </td>
     </tr>
   )
-}
+})
