@@ -11,7 +11,15 @@ export interface LatencyBucket {
   values: number[]; // kept for percentile calculations, capped
 }
 
-export type TimedOperation = "detailFetch" | "dbSave" | "notify" | "autoAccept";
+export type TimedOperation =
+  | "detailFetch"
+  | "dbSave"
+  | "notify"
+  | "autoAccept"
+  // Isolated SPX accept POST round-trip — the decisive competitive number.
+  | "acceptRtt"
+  // Request-list page-1 fetch → first matching trip (the on-critical-path detail hop).
+  | "detailToFirstMatch";
 
 export interface TimingSummary {
   count: number;
@@ -76,6 +84,13 @@ export interface MetricsSnapshot {
     successCount: number;
     failureCount: number;
   };
+  // Booking-detail scheduling outcomes — reveals concurrency saturation (slots
+  // clogged) and how much redundant re-processing the cooldown is suppressing.
+  scheduling: {
+    launched: number;
+    skippedConcurrency: number;
+    skippedCooldown: number;
+  };
   operations: Record<TimedOperation, TimingSummary>;
   runtime: RuntimeMetrics;
 }
@@ -106,7 +121,12 @@ export class MetricsCollector {
     dbSave: [],
     notify: [],
     autoAccept: [],
+    acceptRtt: [],
+    detailToFirstMatch: [],
   };
+  private schedulingLaunched = 0;
+  private schedulingSkippedConcurrency = 0;
+  private schedulingSkippedCooldown = 0;
   private runtime: RuntimeState = {
     activeDetailJobs: 0,
     activeDetailBookings: 0,
@@ -177,6 +197,13 @@ export class MetricsCollector {
     this.runtime = { ...this.runtime, ...state };
   }
 
+  /** Accumulate per-tick booking-detail scheduling outcomes. */
+  recordScheduling(outcome: { launched: number; skippedConcurrency: number; skippedCooldown: number }): void {
+    this.schedulingLaunched += outcome.launched;
+    this.schedulingSkippedConcurrency += outcome.skippedConcurrency;
+    this.schedulingSkippedCooldown += outcome.skippedCooldown;
+  }
+
   private summarize(values: number[]): TimingSummary {
     const sorted = [...values].sort((a, b) => a - b);
     const len = sorted.length;
@@ -241,11 +268,18 @@ export class MetricsCollector {
         successCount: this.autoAcceptSuccess,
         failureCount: this.autoAcceptFailures,
       },
+      scheduling: {
+        launched: this.schedulingLaunched,
+        skippedConcurrency: this.schedulingSkippedConcurrency,
+        skippedCooldown: this.schedulingSkippedCooldown,
+      },
       operations: {
         detailFetch: this.summarize(this.operationLatencies.detailFetch),
         dbSave: this.summarize(this.operationLatencies.dbSave),
         notify: this.summarize(this.operationLatencies.notify),
         autoAccept: this.summarize(this.operationLatencies.autoAccept),
+        acceptRtt: this.summarize(this.operationLatencies.acceptRtt),
+        detailToFirstMatch: this.summarize(this.operationLatencies.detailToFirstMatch),
       },
       runtime: {
         ...this.runtime,

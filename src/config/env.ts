@@ -127,6 +127,12 @@ export const env = {
   DEBUG: process.env.DEBUG === "true",
   FETCH_DETAILS: process.env.FETCH_DETAILS === "true",
   BOOKING_DETAIL_CONCURRENCY: readIntegerEnv("BOOKING_DETAIL_CONCURRENCY", 8),
+  // Skip re-processing (re-fetching the request list of) a booking we already
+  // finished within this many ms. New bookings are never in the cooldown map, so
+  // they are still processed instantly — this only suppresses redundant re-scans
+  // of bookings that linger in the list, which is the churn an aggressive
+  // POLL_INTERVAL_MS otherwise produces (see Mistake-009). 0 disables it.
+  BOOKING_REPROCESS_COOLDOWN_MS: readIntegerEnv("BOOKING_REPROCESS_COOLDOWN_MS", 0),
   BIDDING_PAGE_NO: readIntegerEnv("BIDDING_PAGE_NO", 1),
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",
@@ -193,6 +199,7 @@ export function validateRuntimeConfig(): void {
   // at 50 below) rather than flooring the interval.
   if (!isPositiveInteger(env.POLL_INTERVAL_MS)) invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
   if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50) invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
+  if (!isNonNegativeInteger(env.BOOKING_REPROCESS_COOLDOWN_MS)) invalid.push("BOOKING_REPROCESS_COOLDOWN_MS must be a non-negative integer in milliseconds (0 disables the re-process cooldown)");
   if (!isPositiveInteger(env.BIDDING_PAGE_NO)) invalid.push("BIDDING_PAGE_NO must be a positive integer");
   if (!isPositiveInteger(env.BIDDING_PAGE_COUNT)) invalid.push("BIDDING_PAGE_COUNT must be a positive integer");
   if (!isNonNegativeInteger(env.REQUEST_CTIME_START)) invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");

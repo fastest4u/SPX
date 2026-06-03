@@ -25,6 +25,7 @@ const settingsSchema = {
     DISCORD_WEBHOOK_URL: { type: "string" },
     POLL_INTERVAL_MS: { type: "string" },
     BOOKING_DETAIL_CONCURRENCY: { type: "string" },
+    BOOKING_REPROCESS_COOLDOWN_MS: { type: "string" },
     BIDDING_VEHICLE_TYPE: { type: "string" },
     CODEX_IMAGE_PROVIDER: { type: "string", enum: ["auto", "codex-cli", "codex-device"] },
   },
@@ -60,6 +61,7 @@ async function readPublicSettings(): Promise<EnvSettings> {
     DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
     POLL_INTERVAL_MS: envVars.POLL_INTERVAL_MS || "30000",
     BOOKING_DETAIL_CONCURRENCY: envVars.BOOKING_DETAIL_CONCURRENCY || "8",
+    BOOKING_REPROCESS_COOLDOWN_MS: envVars.BOOKING_REPROCESS_COOLDOWN_MS || "0",
     BIDDING_VEHICLE_TYPE: envVars.BIDDING_VEHICLE_TYPE ?? "13",
     CODEX_IMAGE_PROVIDER: envVars.CODEX_IMAGE_PROVIDER || "auto",
   };

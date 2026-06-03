@@ -37,6 +37,14 @@ export class Poller {
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
   private lastSessionAlertTime = 0;
   private activeDetailBookingIds = new Set<number>();
+  /**
+   * bookingId → epoch ms when its last detail-processing finished. Used by the
+   * re-process cooldown (env.BOOKING_REPROCESS_COOLDOWN_MS) to skip re-fetching
+   * the request list of a booking that still lingers in the bidding list, which
+   * is the churn an aggressive POLL_INTERVAL_MS otherwise produces. New bookings
+   * are never present here, so they are always processed immediately.
+   */
+  private recentlyProcessed = new Map<number, number>();
   /** Tracks how many detail-fetch tasks are currently in-flight (bounded by BOOKING_DETAIL_CONCURRENCY). */
   private detailInflight = 0;
   private historySaveQueue: BookingHistorySaveQueue;
@@ -261,9 +269,22 @@ export class Poller {
       }
     }
 
+    // Re-process cooldown: prune expired entries up front (or clear the map when
+    // disabled) so it never grows unbounded.
+    const cooldownMs = env.BOOKING_REPROCESS_COOLDOWN_MS;
+    const nowMs = Date.now();
+    if (cooldownMs > 0) {
+      for (const [id, completedAt] of this.recentlyProcessed) {
+        if (nowMs - completedAt >= cooldownMs) this.recentlyProcessed.delete(id);
+      }
+    } else if (this.recentlyProcessed.size > 0) {
+      this.recentlyProcessed.clear();
+    }
+
     let launched = 0;
     let skippedDuplicate = 0;
     let skippedConcurrency = 0;
+    let skippedCooldown = 0;
 
     for (const booking of sortedBookings) {
       // Dedup: skip bookings already being processed
@@ -271,10 +292,20 @@ export class Poller {
         skippedDuplicate++;
         continue;
       }
+      // Cooldown: skip bookings we recently finished, to stop re-scanning the same
+      // lingering booking every tick. New bookings are never in the map, so they
+      // are still processed instantly — this only suppresses redundant re-scans.
+      if (cooldownMs > 0) {
+        const completedAt = this.recentlyProcessed.get(booking.booking_id);
+        if (completedAt !== undefined && nowMs - completedAt < cooldownMs) {
+          skippedCooldown++;
+          continue;
+        }
+      }
       // Concurrency guard: bounded by BOOKING_DETAIL_CONCURRENCY
       if (this.detailInflight >= env.BOOKING_DETAIL_CONCURRENCY) {
         // Count all remaining un-iterated bookings
-        skippedConcurrency = sortedBookings.length - launched - skippedDuplicate;
+        skippedConcurrency = sortedBookings.length - launched - skippedDuplicate - skippedCooldown;
         break;
       }
 
@@ -294,6 +325,7 @@ export class Poller {
         .finally(() => {
           this.activeDetailBookingIds.delete(booking.booking_id);
           this.detailInflight--;
+          this.recentlyProcessed.set(booking.booking_id, Date.now());
           this.recordDetailRuntime();
         });
     }
@@ -303,11 +335,13 @@ export class Poller {
         launched,
         skippedConcurrency,
         skippedDuplicate,
+        skippedCooldown,
         inflight: this.detailInflight,
         limit: env.BOOKING_DETAIL_CONCURRENCY,
       });
     }
 
+    metrics.recordScheduling({ launched, skippedConcurrency, skippedCooldown });
     this.recordDetailRuntime();
   }
 
@@ -326,6 +360,7 @@ export class Poller {
     const autoAcceptEnabled = env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0;
     const autoAcceptTasks: Promise<void>[] = [];
     let autoAcceptHandledByPage = false;
+    let firstMatchRecorded = false;
 
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
       onPage: autoAcceptEnabled
@@ -335,6 +370,13 @@ export class Poller {
               env.BIDDING_VEHICLE_TYPE
             ).trips;
             if (pageTrips.length > 0) {
+              // Time-to-first-match: request-list page-1 fetch → first accept-eligible
+              // trip. This is the on-critical-path detail hop (later pages don't gate
+              // the accept thanks to this page-level fast lane).
+              if (!firstMatchRecorded) {
+                firstMatchRecorded = true;
+                metrics.recordOperation("detailToFirstMatch", Date.now() - startedAt);
+              }
               autoAcceptHandledByPage = true;
               autoAcceptTasks.push(this.runAutoAcceptForTrips(pageTrips, booking.booking_id));
             }

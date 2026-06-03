@@ -231,6 +231,7 @@ export interface EnvSettings {
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
   BOOKING_DETAIL_CONCURRENCY?: string;
+  BOOKING_REPROCESS_COOLDOWN_MS?: string;
   BIDDING_VEHICLE_TYPE?: string;
   CODEX_IMAGE_PROVIDER?: string;
 }
@@ -272,7 +273,13 @@ export interface LineQuota {
 }
 
 // Metrics Types
-export type TimedOperation = 'detailFetch' | 'dbSave' | 'notify' | 'autoAccept'
+export type TimedOperation =
+  | 'detailFetch'
+  | 'dbSave'
+  | 'notify'
+  | 'autoAccept'
+  | 'acceptRtt'
+  | 'detailToFirstMatch'
 
 export interface TimingSummary {
   count: number
@@ -342,6 +349,11 @@ export interface MetricsSnapshot {
     totalAttempts: number;
     successCount: number;
     failureCount: number;
+  };
+  scheduling?: {
+    launched: number;
+    skippedConcurrency: number;
+    skippedCooldown: number;
   };
   operations: Record<TimedOperation, TimingSummary>;
   runtime: RuntimeMetrics;
