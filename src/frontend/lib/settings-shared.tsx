@@ -40,6 +40,7 @@ export const INITIAL_SETTINGS_FORM = {
     LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
     DISCORD_WEBHOOK_URL: '',
     BOOKING_DETAIL_CONCURRENCY: '8',
+    BOOKING_REPROCESS_COOLDOWN_MS: '0',
     BIDDING_VEHICLE_TYPE: '13',
     CODEX_IMAGE_PROVIDER: 'auto',
 }
@@ -68,6 +69,7 @@ export interface SettingsFormContextValue {
 const NUMERIC_FIELD_RULES = {
     POLL_INTERVAL_MS: { optional: false },
     BOOKING_DETAIL_CONCURRENCY: { optional: false, min: 1, max: 50 },
+    BOOKING_REPROCESS_COOLDOWN_MS: { optional: false, min: 0 },
     BIDDING_VEHICLE_TYPE: { optional: true, min: 1 },
 } as const satisfies Partial<
     Record<keyof SettingsForm, { optional: boolean; min?: number; max?: number }>
@@ -146,6 +148,7 @@ function formFromSettings(settings: Awaited<ReturnType<typeof settingsApi.get>>)
             settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
         DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
         BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
+        BOOKING_REPROCESS_COOLDOWN_MS: settings.BOOKING_REPROCESS_COOLDOWN_MS || '0',
         BIDDING_VEHICLE_TYPE: settings.BIDDING_VEHICLE_TYPE ?? '13',
         CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
     }
@@ -441,6 +444,32 @@ export function ApiSection({
                             aria-describedby={
                                 fieldErrors.BOOKING_DETAIL_CONCURRENCY
                                     ? 's-concurrency-error'
+                                    : undefined
+                            }
+                        />
+                    </Field>
+
+                    <Field
+                        id="s-reprocess-cooldown"
+                        label="Re-process cooldown"
+                        hint={
+                            Number(formData.BOOKING_REPROCESS_COOLDOWN_MS) > 0
+                                ? `≈ ${(Number(formData.BOOKING_REPROCESS_COOLDOWN_MS) / 1000).toFixed(1)}s`
+                                : 'ปิด'
+                        }
+                        helper="ข้ามการดึงรายละเอียดงานเดิมซ้ำภายใน N ms — กัน churn เมื่อตั้ง poll interval ต่ำ (0 = ปิด; งานใหม่ไม่ได้รับผลกระทบ)"
+                        error={fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS}
+                    >
+                        <Input
+                            id="s-reprocess-cooldown"
+                            value={formData.BOOKING_REPROCESS_COOLDOWN_MS}
+                            onChange={(e) => setField('BOOKING_REPROCESS_COOLDOWN_MS', e.target.value)}
+                            placeholder="0"
+                            inputMode="numeric"
+                            aria-invalid={fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS ? true : undefined}
+                            aria-describedby={
+                                fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS
+                                    ? 's-reprocess-cooldown-error'
                                     : undefined
                             }
                         />

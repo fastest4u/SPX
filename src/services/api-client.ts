@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { metrics } from "./metrics.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 import type {
   AcceptBookingRequest,
@@ -543,6 +544,10 @@ export class ApiClient {
       request_id_list: requestIds,
     };
 
+    // Bracket only the upstream POST so we measure the decisive accept round-trip
+    // in isolation (the rest — parsing/normalization — is local CPU). This is the
+    // competitive number that was previously never timed on its own.
+    const acceptStart = Date.now();
     try {
       // Accept is a non-idempotent POST with real operational/financial impact.
       // Do not retry it: `idempotent=false` makes both response-error and
@@ -553,6 +558,7 @@ export class ApiClient {
         headers: this.headers,
         body: JSON.stringify(body),
       }, `booking-accept:${bookingId}`, 0, ACCEPT_TIMEOUT_MS, false);
+      metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
 
       const rawText = await response.text();
       let parsed: unknown = null;
@@ -584,6 +590,9 @@ export class ApiClient {
 
       return { ok: true, httpStatus: response.status, response: normalized };
     } catch (err) {
+      // Record the time-to-failure too (timeout/network) so the accept latency
+      // bucket reflects failed attempts, not just successful round-trips.
+      metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
       return { ok: false, httpStatus: 0, response: null, error: err instanceof Error ? err.message : String(err) };
     }
   }

@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import { MetricsCollector } from "../src/services/metrics.js";
+
+// Guards the metrics contract the dashboard + operator rely on for diagnosing
+// auto-accept latency: the isolated accept-RTT bucket, the detail→first-match
+// bucket, and the scheduling counters that reveal concurrency saturation and how
+// much redundant re-processing the cooldown is suppressing.
+
+{
+  // acceptRtt + detailToFirstMatch operation buckets summarize correctly.
+  const m = new MetricsCollector();
+  m.recordOperation("acceptRtt", 120);
+  m.recordOperation("acceptRtt", 80);
+  m.recordOperation("detailToFirstMatch", 300);
+
+  const snap = m.snapshot();
+
+  assert.equal(snap.operations.acceptRtt.count, 2);
+  assert.equal(snap.operations.acceptRtt.avg, 100);
+  assert.equal(snap.operations.acceptRtt.min, 80);
+  assert.equal(snap.operations.acceptRtt.max, 120);
+  assert.equal(snap.operations.acceptRtt.lastMs, 80);
+
+  assert.equal(snap.operations.detailToFirstMatch.count, 1);
+  assert.equal(snap.operations.detailToFirstMatch.avg, 300);
+}
+
+{
+  // Scheduling counters accumulate across ticks (launched / skippedConcurrency /
+  // skippedCooldown) so the operator can see slot starvation and cooldown savings.
+  const m = new MetricsCollector();
+  m.recordScheduling({ launched: 5, skippedConcurrency: 2, skippedCooldown: 10 });
+  m.recordScheduling({ launched: 3, skippedConcurrency: 0, skippedCooldown: 7 });
+
+  const snap = m.snapshot();
+  assert.equal(snap.scheduling.launched, 8);
+  assert.equal(snap.scheduling.skippedConcurrency, 2);
+  assert.equal(snap.scheduling.skippedCooldown, 17);
+}
+
+{
+  // Empty buckets stay zeroed (no NaN) so a fresh process renders cleanly.
+  const m = new MetricsCollector();
+  const snap = m.snapshot();
+  assert.equal(snap.operations.acceptRtt.count, 0);
+  assert.equal(snap.operations.acceptRtt.avg, 0);
+  assert.equal(snap.operations.acceptRtt.lastMs, null);
+  assert.equal(snap.scheduling.launched, 0);
+  assert.equal(snap.scheduling.skippedCooldown, 0);
+}
+
+console.log("metrics-scheduling: all assertions passed");

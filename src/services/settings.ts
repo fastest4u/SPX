@@ -19,6 +19,7 @@ export const SETTINGS_KEYS = [
   "DISCORD_WEBHOOK_URL",
   "POLL_INTERVAL_MS",
   "BOOKING_DETAIL_CONCURRENCY",
+  "BOOKING_REPROCESS_COOLDOWN_MS",
   "BIDDING_VEHICLE_TYPE",
   "CODEX_IMAGE_PROVIDER",
 ] as const;
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
   DISCORD_WEBHOOK_URL: "",
   POLL_INTERVAL_MS: "30000",
   BOOKING_DETAIL_CONCURRENCY: "8",
+  BOOKING_REPROCESS_COOLDOWN_MS: "0",
   BIDDING_VEHICLE_TYPE: "13",
   CODEX_IMAGE_PROVIDER: "auto",
 };
@@ -110,6 +112,14 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = 8;
   } else {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
+  }
+  // Re-process cooldown (ms). Guard against NaN/negative; 0 disables it.
+  const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 0);
+  if (!Number.isFinite(reprocessCooldown) || reprocessCooldown < 0) {
+    console.warn(`BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 0`);
+    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 0;
+  } else {
+    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = reprocessCooldown;
   }
   const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
   if (biddingVehicleType !== undefined && (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)) {

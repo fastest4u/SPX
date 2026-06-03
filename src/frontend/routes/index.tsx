@@ -231,8 +231,8 @@ function DashboardComponent() {
 
 /* ─────────────────────────────────────────────────────────────
    Pipeline timeline
-   Renders 4 stages connected by a flowing line. Each stage shows
-   its p95 latency + inline sparkline of last 60 polls' avg latency.
+   Renders the critical-path stages connected by a flowing line. Each stage
+   shows its p95 latency + inline sparkline of last 60 polls' avg latency.
    ───────────────────────────────────────────────────────────── */
 function PipelineTimeline({
   metrics,
@@ -247,10 +247,12 @@ function PipelineTimeline({
     .map((row) => row.latencyAvg)
 
   const stages: Array<{ label: string; summary?: TimingSummary; tone: string }> = [
+    { label: 'Detail→1st', summary: metrics?.operations?.detailToFirstMatch, tone: 'var(--color-info)' },
     { label: 'Detail fetch', summary: metrics?.operations?.detailFetch, tone: 'var(--color-info)' },
+    { label: 'Auto accept', summary: metrics?.operations?.autoAccept, tone: 'var(--color-success)' },
+    { label: 'Accept RTT', summary: metrics?.operations?.acceptRtt, tone: 'var(--color-success)' },
     { label: 'DB save', summary: metrics?.operations?.dbSave, tone: 'var(--color-info)' },
     { label: 'Notify', summary: metrics?.operations?.notify, tone: 'var(--color-warning)' },
-    { label: 'Auto accept', summary: metrics?.operations?.autoAccept, tone: 'var(--color-success)' },
   ]
 
   const queued = metrics?.runtime?.queuedDetailBookings ?? 0
@@ -270,7 +272,7 @@ function PipelineTimeline({
       </div>
       <CardContent className="p-5 pt-3">
         {/* Mobile: vertical timeline. Desktop: horizontal flow. */}
-        <ol className="relative grid gap-3 lg:grid-cols-4 lg:gap-0">
+        <ol className="relative grid gap-3 lg:grid-cols-6 lg:gap-0">
           {stages.map((stage, i) => (
             <PipelineStage
               key={stage.label}
