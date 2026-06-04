@@ -155,11 +155,16 @@ export function normalizeApiResponse(value: unknown): ApiResponse | null {
     return null;
   }
 
-  if (typeof value.retcode !== "number" || typeof value.message !== "string" || !Array.isArray(value.data.list)) {
+  const rawList = value.data.list;
+  if (
+    typeof value.retcode !== "number" ||
+    typeof value.message !== "string" ||
+    (rawList !== null && !Array.isArray(rawList))
+  ) {
     return null;
   }
 
-  const list = value.data.list as ApiResponse["data"]["list"];
+  const list = (rawList ?? []) as ApiResponse["data"]["list"];
   const total = numberOrDefault(value.data.total, list.length);
 
   return {

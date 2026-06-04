@@ -84,7 +84,7 @@ const NUMERIC_FIELD_RULES = {
  * - `POLL_INTERVAL_MS` is never clamped to a minimum (operator lever).
  * - Optional fields (e.g. `BIDDING_VEHICLE_TYPE`) accept an empty string.
  */
-function validateNumericFields(form: SettingsForm): {
+export function validateNumericFields(form: SettingsForm): {
     errors: SettingsFieldErrors
     sanitized: SettingsForm
 } {
@@ -110,13 +110,17 @@ function validateNumericFields(form: SettingsForm): {
             errors[field] = 'ต้องเป็นจำนวนเต็ม'
             continue
         }
-        if (num <= 0) {
+        const min = 'min' in rule ? rule.min : undefined
+        const max = 'max' in rule ? rule.max : undefined
+        if (typeof min === 'number' && num < min) {
+            errors[field] = min === 0 ? 'ต้องเป็นจำนวนเต็มไม่ติดลบ' : 'ต้องเป็นจำนวนเต็มบวก'
+            continue
+        }
+        if (typeof min !== 'number' && num <= 0) {
             errors[field] = 'ต้องเป็นจำนวนเต็มบวก'
             continue
         }
 
-        const min = 'min' in rule ? rule.min : undefined
-        const max = 'max' in rule ? rule.max : undefined
         let clamped = num
         if (typeof min === 'number' && clamped < min) clamped = min
         if (typeof max === 'number' && clamped > max) clamped = max
