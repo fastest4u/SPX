@@ -396,26 +396,53 @@ export class Poller {
     const extractedTrips = extractAllRequestListTrips(requestList.data, context);
     const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
 
-    if (skipped > 0) {
+    // Auto-accept only pending-tab trips. History persistence may fetch
+    // non-pending trips below, but those must never enter the accept path.
+    if (autoAcceptEnabled && trips.length > 0 && !autoAcceptHandledByPage) {
+      autoAcceptTasks.push(this.runAutoAcceptForTrips(trips, booking.booking_id));
+    }
+
+    const historyTrips = new Map<number, ExtractedTripInfo>();
+    for (const trip of trips) {
+      historyTrips.set(trip.request_id, trip);
+    }
+    let totalSkipped = skipped;
+    const skippedVehicleTypes = new Set(
+      extractedTrips
+        .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
+        .map((trip) => trip.ประเภทรถ)
+        .filter(Boolean)
+    );
+
+    if (env.SAVE_TO_DB) {
+      const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+        tabPendingConfirmation: false,
+      });
+      if (nonPendingRequestList) {
+        const nonPendingExtractedTrips = extractAllRequestListTrips(nonPendingRequestList.data, context);
+        const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
+        for (const trip of filtered.trips) {
+          historyTrips.set(trip.request_id, trip);
+        }
+        totalSkipped += filtered.skipped;
+        for (const trip of nonPendingExtractedTrips) {
+          if (trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE && trip.ประเภทรถ) {
+            skippedVehicleTypes.add(trip.ประเภทรถ);
+          }
+        }
+      } else {
+        logger.warn("request-list-missing", { bookingId: booking.booking_id, tabPendingConfirmation: false });
+      }
+    }
+
+    if (totalSkipped > 0) {
       logger.warn("booking-detail-vehicle-type-filtered", {
         bookingId: booking.booking_id,
         configuredVehicleType: env.BIDDING_VEHICLE_TYPE,
-        kept: trips.length,
-        skipped,
-        skippedVehicleTypes: [
-          ...new Set(
-            extractedTrips
-              .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
-              .map((trip) => trip.ประเภทรถ)
-              .filter(Boolean)
-          ),
-        ].slice(0, 10),
+        kept: historyTrips.size,
+        skipped: totalSkipped,
+        skippedVehicleTypes: [...skippedVehicleTypes].slice(0, 10),
       });
-    }
-
-    // Auto-accept: if the page callback didn't already handle it, fire now
-    if (autoAcceptEnabled && trips.length > 0 && !autoAcceptHandledByPage) {
-      autoAcceptTasks.push(this.runAutoAcceptForTrips(trips, booking.booking_id));
     }
 
     // Print to console if running in CLI mode
@@ -426,8 +453,9 @@ export class Poller {
     }
 
     // Enqueue DB save
-    if (env.SAVE_TO_DB && trips.length > 0) {
-      this.historySaveQueue.enqueue(trips);
+    const tripsToSave = [...historyTrips.values()];
+    if (env.SAVE_TO_DB && tripsToSave.length > 0) {
+      this.historySaveQueue.enqueue(tripsToSave);
     }
 
     // Wait for all auto-accept tasks to finish before releasing the booking slot

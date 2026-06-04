@@ -72,6 +72,20 @@ async function main(): Promise<void> {
   assert.equal(normalized?.data.total, 2);
   assert.equal(normalized?.data.list.length, 2);
 
+  const emptyNormalized = normalizeApiResponse({
+    retcode: 0,
+    message: "",
+    data: {
+      pageno: 1,
+      count: 100,
+      total: 0,
+      list: null,
+    },
+  });
+
+  assert.equal(emptyNormalized?.data.total, 0);
+  assert.equal(emptyNormalized?.data.list.length, 0);
+
   Object.assign(mutableEnv, {
     API_URL: "https://spx.example.test/booking/bidding/list",
     COOKIE: "cookie-for-test",
