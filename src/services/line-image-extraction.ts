@@ -39,6 +39,48 @@ const POSITIONAL_FIELD_ORDER: Array<keyof ParsedLineImageExtraction> = [
   "route",
 ];
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatStdDateValue(value: string): string | null {
+  const match = value.match(/\b(20\d{2})[/-](\d{1,2})[/-](\d{1,2})\b/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${String(day).padStart(2, "0")} ${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+function extractStdDateText(lines: string[]): string | undefined {
+  for (const line of lines) {
+    const separatorIndex = line.search(/[:：]/);
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const labelPart = line.slice(0, separatorIndex).trim();
+    if (!/^STD$/i.test(labelPart)) {
+      continue;
+    }
+
+    const valuePart = line.slice(separatorIndex + 1).trim();
+    return formatStdDateValue(valuePart) ?? UNCLEAR_TH;
+  }
+
+  return undefined;
+}
+
 export function parseLineImageExtraction(text: string): Partial<ParsedLineImageExtraction> {
   const lines = text
     .split(/\r?\n/)
@@ -73,6 +115,11 @@ export function parseLineImageExtraction(text: string): Partial<ParsedLineImageE
     const labelledValue = labelled[field];
     result[field] = labelledValue !== undefined ? labelledValue : positional[index] ?? "";
   });
+
+  const stdDateText = extractStdDateText(lines);
+  if (stdDateText !== undefined) {
+    result.dateText = stdDateText;
+  }
 
   return result;
 }
