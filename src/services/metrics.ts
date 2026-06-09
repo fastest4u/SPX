@@ -2,6 +2,7 @@
 
 import { getPoolStats, type PoolStats } from "../db/client.js";
 import { pollerControl } from "./poller-control.js";
+import { getUpstreamConnectionCount } from "../utils/http-dispatcher.js";
 
 export interface LatencyBucket {
   count: number;
@@ -91,6 +92,13 @@ export interface MetricsSnapshot {
     skippedConcurrency: number;
     skippedCooldown: number;
   };
+  // Keep-alive effectiveness: total upstream requests vs fresh connections opened
+  // to the SPX host. A high reuseRatio proves the warm pool is removing handshakes.
+  upstream: {
+    requests: number;
+    connections: number;
+    reuseRatio: number;
+  };
   operations: Record<TimedOperation, TimingSummary>;
   runtime: RuntimeMetrics;
 }
@@ -124,6 +132,7 @@ export class MetricsCollector {
     acceptRtt: [],
     detailToFirstMatch: [],
   };
+  private upstreamRequests = 0;
   private schedulingLaunched = 0;
   private schedulingSkippedConcurrency = 0;
   private schedulingSkippedCooldown = 0;
@@ -193,6 +202,11 @@ export class MetricsCollector {
     }
   }
 
+  /** Count one upstream request sent (denominator for the connection-reuse ratio). */
+  recordUpstreamRequest(): void {
+    this.upstreamRequests++;
+  }
+
   recordRuntimeState(state: Partial<RuntimeState>): void {
     this.runtime = { ...this.runtime, ...state };
   }
@@ -221,6 +235,7 @@ export class MetricsCollector {
 
   snapshot(): MetricsSnapshot {
     const pollingLatency = this.summarize(this.latencies);
+    const upstreamConnections = getUpstreamConnectionCount();
     const detailQueuePressure = this.runtime.detailConcurrency > 0
       ? Math.round((this.runtime.activeDetailBookings / this.runtime.detailConcurrency) * 100)
       : 0;
@@ -272,6 +287,13 @@ export class MetricsCollector {
         launched: this.schedulingLaunched,
         skippedConcurrency: this.schedulingSkippedConcurrency,
         skippedCooldown: this.schedulingSkippedCooldown,
+      },
+      upstream: {
+        requests: this.upstreamRequests,
+        connections: upstreamConnections,
+        reuseRatio: this.upstreamRequests > 0
+          ? Math.max(0, Math.round((1 - upstreamConnections / this.upstreamRequests) * 10000) / 100)
+          : 0,
       },
       operations: {
         detailFetch: this.summarize(this.operationLatencies.detailFetch),
