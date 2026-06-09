@@ -355,6 +355,11 @@ export interface MetricsSnapshot {
     skippedConcurrency: number;
     skippedCooldown: number;
   };
+  upstream?: {
+    requests: number;
+    connections: number;
+    reuseRatio: number;
+  };
   operations: Record<TimedOperation, TimingSummary>;
   runtime: RuntimeMetrics;
 }

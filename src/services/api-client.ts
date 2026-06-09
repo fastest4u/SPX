@@ -1,7 +1,9 @@
+import type { Dispatcher } from "undici";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
+import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import type {
   AcceptBookingRequest,
   AcceptBookingResponse,
@@ -89,7 +91,17 @@ async function fetchWithRetry(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, { ...options, signal: controller.signal });
+      // Route through the shared keep-alive pool so the list/request-list/accept
+      // hops reuse warm connections (DOM's RequestInit type omits `dispatcher`,
+      // which undici reads at runtime — hence the typed extension).
+      // Count every request sent so the connection-reuse ratio (vs new sockets) is measurable.
+      metrics.recordUpstreamRequest();
+      const init: RequestInit & { dispatcher?: Dispatcher } = {
+        ...options,
+        signal: controller.signal,
+        dispatcher: getSpxDispatcher(),
+      };
+      const response = await fetch(url, init);
       // Never retry a non-idempotent request (e.g. POST accept) on a response
       // error: the server may already have committed the side effect, so a retry
       // risks a duplicate. Return the response and let the caller reconcile.
@@ -222,6 +234,14 @@ function getMessage(value: unknown): string {
 }
 
 function buildHeaders(): Record<string, string> {
+  const origin = (() => {
+    try {
+      return new URL(env.REFERER).origin;
+    } catch {
+      return "https://logistics.myagencyservice.in.th";
+    }
+  })();
+
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "th,en;q=0.9",
@@ -235,6 +255,8 @@ function buildHeaders(): Record<string, string> {
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
+    origin,
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     cookie: env.COOKIE,
     Referer: env.REFERER,
   };

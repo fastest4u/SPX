@@ -17,6 +17,7 @@ import {
   formatStatus,
 } from "../utils/logger.js";
 import { orderBookingsByOriginHint } from "../utils/booking-priority.js";
+import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
@@ -510,6 +511,14 @@ export class Poller {
       while (this.detailInflight > 0 && Date.now() < drainDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+    }
+
+    // Close the keep-alive pool so no sockets linger after the last SPX call.
+    // Detail tasks have drained above, so no further upstream requests occur.
+    try {
+      await getSpxDispatcher().close();
+    } catch (err) {
+      logger.error("http-dispatcher-close-error", err instanceof Error ? err : new Error(String(err)));
     }
 
     await this.historySaveQueue.flush();

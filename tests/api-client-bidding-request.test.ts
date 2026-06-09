@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     COOKIE: "cookie-for-test",
     DEVICE_ID: "device-for-test",
     APP_NAME: "app-for-test",
-    REFERER: "https://spx.example.test/",
+    REFERER: "https://spx.example.test/dashboard?tab=bidding",
     BIDDING_PAGE_COUNT: 100,
     REQUEST_TAB_PENDING_CONFIRMATION: true,
   });
@@ -106,11 +106,15 @@ async function main(): Promise<void> {
     firstPageCallback = resolve;
   });
   let secondPageRequested = false;
+  let firstPageHeaders: Record<string, string> | null = null;
 
   try {
     globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { pageno?: number };
       const pageNo = body.pageno ?? 1;
+      if (pageNo === 1) {
+        firstPageHeaders = init?.headers as Record<string, string>;
+      }
 
       if (pageNo === 2) {
         secondPageRequested = true;
@@ -143,6 +147,8 @@ async function main(): Promise<void> {
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
     ]);
     assert.equal(firstPageArrived, true, "first detail page should be observable before later pages finish");
+    assert.equal(firstPageHeaders?.origin, "https://spx.example.test");
+    assert.match(firstPageHeaders?.["user-agent"] ?? "", /Chrome\/147\.0\.0\.0/);
 
     const completedBeforeSecondPage = await Promise.race([
       fullResult.then(() => true),

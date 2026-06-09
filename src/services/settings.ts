@@ -1,6 +1,7 @@
 import { env, validateRuntimeConfig } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
+import { reconfigureSpxDispatcher } from "../utils/http-dispatcher.js";
 
 const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
 
@@ -129,6 +130,9 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
   }
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
+  // Keep the HTTP keep-alive window in sync with the live poll interval so warm
+  // connections always outlast the gap between polls (no-ops when unchanged).
+  reconfigureSpxDispatcher(mutableEnv.POLL_INTERVAL_MS as number);
 }
 
 function applySettingsToEnv(settings: EnvSettings): void {

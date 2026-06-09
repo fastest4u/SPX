@@ -268,6 +268,8 @@ function PipelineTimeline({
   ]
 
   const queued = metrics?.runtime?.queuedDetailBookings ?? 0
+  const upstream = metrics?.upstream
+  const reuseRatio = upstream && upstream.requests > 0 ? upstream.reuseRatio : null
 
   return (
     <Card className="bg-card border-white/10">
@@ -278,9 +280,19 @@ function PipelineTimeline({
             จาก fetch → save → notify → accept · real-time
           </p>
         </div>
-        <Badge variant={queued ? 'warning' : 'neutral'}>
-          {queued.toLocaleString()} queued
-        </Badge>
+        <div className="flex items-center gap-2">
+          {reuseRatio !== null ? (
+            <Badge
+              variant={reuseRatio >= 80 ? 'success' : reuseRatio >= 50 ? 'warning' : 'neutral'}
+              title={`${(upstream?.requests ?? 0).toLocaleString()} upstream reqs · ${(upstream?.connections ?? 0).toLocaleString()} new connections`}
+            >
+              {reuseRatio}% warm
+            </Badge>
+          ) : null}
+          <Badge variant={queued ? 'warning' : 'neutral'}>
+            {queued.toLocaleString()} queued
+          </Badge>
+        </div>
       </div>
       <CardContent className="p-5 pt-3">
         {/* Mobile: vertical timeline. Desktop: horizontal flow. */}
