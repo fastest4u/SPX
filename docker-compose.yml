@@ -12,11 +12,11 @@ services:
     restart: unless-stopped
     # `exec` makes node replace sh as PID 1 so SIGTERM reaches the app and the
     # graceful shutdown path (detail-job drain, save-queue flush, final
-    # metrics) actually runs on deploys. Grace period covers the worst case:
-    # active-tick wait + 30s detail-drain deadline + ~33s of save-queue flush
-    # retries against a failing DB.
+    # metrics) actually runs on deploys. Worst-case budget: <=30s bounded
+    # active-tick wait + <=30s detail drain + ~33s save-queue flush retries
+    # against a failing DB + final metrics insert, with headroom.
     command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
-    stop_grace_period: 90s
+    stop_grace_period: 120s
     logging:
       driver: json-file
       options:

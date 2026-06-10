@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   ApiClient,
   buildBiddingListBody,
+  listPollRetries,
+  listPollTimeoutMs,
   normalizeApiResponse,
 } from "../src/services/api-client.js";
 import { classifyPollingError } from "../src/utils/error-classifier.js";
@@ -34,6 +36,18 @@ const original = {
 };
 
 async function main(): Promise<void> {
+  // Adaptive poll cadence math: fail-fast retry budget at aggressive
+  // intervals, unchanged behavior at the default 30s interval.
+  assert.equal(listPollRetries(30_000), 3, "default interval keeps full retries");
+  assert.equal(listPollRetries(3_000), 1, "tight interval grants only what fits half the interval");
+  assert.equal(listPollRetries(150), 0, "aggressive interval never retries in-tick");
+  assert.equal(listPollRetries(0), 3, "non-positive interval falls back to MAX_RETRIES");
+  assert.equal(listPollRetries(Number.NaN), 3, "non-finite interval falls back to MAX_RETRIES");
+  assert.equal(listPollTimeoutMs(150), 5_000, "timeout floor protects slow-but-healthy responses");
+  assert.equal(listPollTimeoutMs(4_000), 8_000, "timeout tracks ~2x interval in the adaptive band");
+  assert.equal(listPollTimeoutMs(30_000), 15_000, "timeout is capped at FETCH_TIMEOUT_MS");
+  assert.equal(listPollTimeoutMs(0), 15_000, "non-positive interval falls back to FETCH_TIMEOUT_MS");
+
   try {
   Object.assign(mutableEnv, {
     BIDDING_PAGE_NO: 1,

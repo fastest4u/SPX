@@ -256,8 +256,17 @@ async function readRulesDb(): Promise<NotifyRule[]> {
 }
 
 async function broadcastAllRules(): Promise<void> {
+  // Called right after a writer commit. Invalidate first so no reader serves
+  // pre-commit data, then refresh — but install the SELECT result only if no
+  // newer writer invalidated meanwhile: two writers' SELECTs can resolve out
+  // of order on different pool connections, and the loser must not resurrect
+  // a just-decremented or just-deleted rule on the auto-accept path.
+  invalidateRulesCache();
+  const generationAtRefreshStart = rulesCacheGeneration;
   const rules = await readRulesDb();
-  setRulesCache(rules, true);
+  if (rulesCacheGeneration === generationAtRefreshStart) {
+    setRulesCache(rules, true);
+  }
   sseBroadcaster.broadcast({ event: "rules", data: rules });
 }
 

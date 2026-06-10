@@ -40,7 +40,7 @@ const LIST_TIMEOUT_FLOOR_MS = 5_000;
  * live interval. At the default 30s interval this still grants MAX_RETRIES,
  * so long-interval behavior is unchanged.
  */
-function listPollRetries(intervalMs: number): number {
+export function listPollRetries(intervalMs: number): number {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return MAX_RETRIES;
   let budget = intervalMs / 2;
   let retries = 0;
@@ -60,7 +60,7 @@ function listPollRetries(intervalMs: number): number {
  * Clamped to [LIST_TIMEOUT_FLOOR_MS, FETCH_TIMEOUT_MS] so long intervals keep
  * today's behavior.
  */
-function listPollTimeoutMs(intervalMs: number): number {
+export function listPollTimeoutMs(intervalMs: number): number {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return FETCH_TIMEOUT_MS;
   return Math.min(FETCH_TIMEOUT_MS, Math.max(LIST_TIMEOUT_FLOOR_MS, intervalMs * 2));
 }
