@@ -10,7 +10,18 @@ services:
       - ./notify-rules.json:/app/notify-rules.json
       - ./data:/app/data
     restart: unless-stopped
-    command: ["sh", "-c", "node dist/scripts/db-migrate.js && node dist/app.js"]
+    # `exec` makes node replace sh as PID 1 so SIGTERM reaches the app and the
+    # graceful shutdown path (detail-job drain, save-queue flush, final
+    # metrics) actually runs on deploys. Worst-case budget: <=30s bounded
+    # active-tick wait + <=30s detail drain + ~33s save-queue flush retries
+    # against a failing DB + final metrics insert, with headroom.
+    command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
+    stop_grace_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s

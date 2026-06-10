@@ -27,6 +27,43 @@ const MAX_EXTRA_LIST_PAGES = 50;
 // Upper bound on a server-supplied Retry-After backoff (ms). Caps how long a
 // retryable 429/503 can defer the next attempt regardless of the header value.
 const MAX_RETRY_AFTER_MS = 30_000;
+// Floor for the adaptive bidding-list poll timeout below. Keeps slow-but-
+// healthy responses viable even at very aggressive poll intervals.
+const LIST_TIMEOUT_FLOOR_MS = 5_000;
+
+/**
+ * Fail-fast retry budget for the bidding-list poll. In-tick retries only pay
+ * off when the next scheduled poll is far away — with an aggressive
+ * POLL_INTERVAL_MS the next tick supersedes any backoff wait, so retrying
+ * inside the tick just stalls the polling cadence. Allow as many retries as
+ * fit (worst-case backoff: BASE_DELAY_MS·2^i + max jitter) within half the
+ * live interval. At the default 30s interval this still grants MAX_RETRIES,
+ * so long-interval behavior is unchanged.
+ */
+export function listPollRetries(intervalMs: number): number {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return MAX_RETRIES;
+  let budget = intervalMs / 2;
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
+    const worstDelay = BASE_DELAY_MS * Math.pow(2, retries) + 500;
+    if (budget < worstDelay) break;
+    budget -= worstDelay;
+    retries++;
+  }
+  return retries;
+}
+
+/**
+ * Adaptive timeout for the bidding-list poll: a response slower than ~2 poll
+ * intervals is worth abandoning in favor of the next fresh tick (a hung
+ * socket would otherwise freeze the cadence for the full FETCH_TIMEOUT_MS).
+ * Clamped to [LIST_TIMEOUT_FLOOR_MS, FETCH_TIMEOUT_MS] so long intervals keep
+ * today's behavior.
+ */
+export function listPollTimeoutMs(intervalMs: number): number {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) return FETCH_TIMEOUT_MS;
+  return Math.min(FETCH_TIMEOUT_MS, Math.max(LIST_TIMEOUT_FLOOR_MS, intervalMs * 2));
+}
 
 interface BookingRequestListOptions {
   tabPendingConfirmation?: boolean;
@@ -279,9 +316,16 @@ export function buildBiddingListBody(pageNo: number): BiddingRequest {
 
 export class ApiClient {
   private cookieOverride: string | null = null;
+  /**
+   * Effective poll cadence for the adaptive list-poll retry/timeout math.
+   * Injected by the Poller because a CLI interval override
+   * (`node dist/app.js <seconds>`) takes precedence over env.POLL_INTERVAL_MS.
+   */
+  private readonly pollIntervalMsProvider: () => number;
 
-  constructor() {
+  constructor(pollIntervalMsProvider: () => number = () => env.POLL_INTERVAL_MS) {
     // No caching — all env reads happen per-fetch via getters below
+    this.pollIntervalMsProvider = pollIntervalMsProvider;
   }
 
   private get headers(): Record<string, string> {
@@ -317,10 +361,17 @@ export class ApiClient {
 
       if (!response.ok) {
         const text = await response.text();
+        let bodyRetcode: number | null = null;
+        try {
+          bodyRetcode = getRetcode(JSON.parse(text));
+        } catch {
+          // non-JSON error body — no retcode to surface
+        }
         return {
           success: false,
           latencyMs,
           httpStatus: response.status,
+          ...(bodyRetcode !== null ? { retcode: bodyRetcode } : {}),
           error: `HTTP ${response.status}: ${text.slice(0, 200)}`,
           timestamp: new Date(),
           requestNumber,
@@ -336,6 +387,7 @@ export class ApiClient {
           success: false,
           latencyMs,
           httpStatus: response.status,
+          retcode,
           error: `Session expired (retcode=${retcode}): ${getMessage(data)}`,
           timestamp: new Date(),
           requestNumber,
@@ -347,6 +399,7 @@ export class ApiClient {
           success: false,
           latencyMs,
           httpStatus: response.status,
+          ...(retcode !== null ? { retcode } : {}),
           error: "Unexpected bidding list response shape",
           timestamp: new Date(),
           requestNumber,
@@ -358,6 +411,7 @@ export class ApiClient {
           success: false,
           latencyMs,
           httpStatus: response.status,
+          retcode: apiResponse.retcode,
           error: `Session expired (retcode=${apiResponse.retcode}): ${apiResponse.message}`,
           timestamp: new Date(),
           requestNumber,
@@ -388,11 +442,15 @@ export class ApiClient {
   }
 
   private async fetchBiddingListPage(pageNo: number): Promise<Response> {
+    // Poll-path requests fail fast (see listPollRetries/listPollTimeoutMs):
+    // the next tick re-fetches this list anyway, so recovery comes from
+    // cadence, not from in-tick retries. Detail/accept hops keep full retries.
+    const intervalMs = this.pollIntervalMsProvider();
     return fetchWithRetry(env.API_URL, {
       method: "POST",
       headers: this.headers,
       body: JSON.stringify({ ...this.body, pageno: pageNo }),
-    }, `bidding-list:${pageNo}`);
+    }, `bidding-list:${pageNo}`, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs));
   }
 
   private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse> {

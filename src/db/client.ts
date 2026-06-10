@@ -32,6 +32,14 @@ function createPool(): Pool | null {
     connectionLimit: 10,
     waitForConnections: true,
     queueLimit: 0,
+    // Explicit connection-establishment bound and idle-socket death
+    // detection (keepalive probes start after 10s idle instead of the OS
+    // default). Note: none of these bound an *in-flight* query on a
+    // black-holed link — that needs a per-query deadline at the call site
+    // (tracked follow-up for the hot-path jwt_blacklist lookup).
+    connectTimeout: 10_000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10_000,
     timezone: DB_TIMEZONE,
     dateStrings: true,
   });

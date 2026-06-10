@@ -19,13 +19,52 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function serializeError(error: Error, depth = 0): Record<string, unknown> {
+  return {
+    // Enumerable own props first (mysql2 code/errno, AppError statusCode,
+    // Node syscall info) — the fields below override any collisions.
+    ...(error as unknown as Record<string, unknown>),
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    ...(error.cause === undefined
+      ? {}
+      : {
+          cause:
+            error.cause instanceof Error
+              ? depth < 2
+                ? serializeError(error.cause, depth + 1)
+                : error.cause.message
+              : String(error.cause),
+        }),
+  };
+}
+
+// Error properties are non-enumerable, so JSON.stringify emits `{}` for any
+// Error passed as meta (or nested one level inside a meta object) unless we
+// expand it first.
+function normalizeMeta(meta: unknown): unknown {
+  if (meta instanceof Error) {
+    return serializeError(meta);
+  }
+  if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+    const entries = Object.entries(meta as Record<string, unknown>);
+    if (entries.some(([, value]) => value instanceof Error)) {
+      return Object.fromEntries(
+        entries.map(([key, value]) => [key, value instanceof Error ? serializeError(value) : value])
+      );
+    }
+  }
+  return meta;
+}
+
 function log(level: LogLevel, message: string, meta?: unknown): void {
   if (level < minLevel) return;
   const record = {
     ts: now(),
     level: LEVEL_NAMES[level],
     message,
-    ...(meta === undefined ? {} : { meta }),
+    ...(meta === undefined ? {} : { meta: normalizeMeta(meta) }),
   };
   const line = JSON.stringify(record);
   if (level >= LogLevel.ERROR) {

@@ -6,7 +6,7 @@ import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.
 import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
-import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters } from "../services/notify-rules.js";
+import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters, matchAutoAcceptRuleTripsWithRules } from "../services/notify-rules.js";
 import type { NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import {
@@ -25,6 +25,7 @@ import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { pollerControl } from "../services/poller-control.js";
 
+const ALREADY_TAKEN_ACCEPTANCE_STATUS = 4;
 
 export class Poller {
   private apiClient: ApiClient;
@@ -50,12 +51,19 @@ export class Poller {
   private detailInflight = 0;
   private historySaveQueue: BookingHistorySaveQueue;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
+  /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
+  private static readonly STOP_TICK_DEADLINE_MS = 30_000;
+  private static readonly ALREADY_TAKEN_WARNED_CAP = 5000;
   /** Shared auto-accept budget & rules, refreshed each tick to avoid redundant DB lookups across per-booking tasks. */
   private tickAutoAcceptRules: NotifyRule[] = [];
+  /** bookingId:requestId keys already warned as rule-match-but-taken, so a lingering trip warns once, not every tick. */
+  private alreadyTakenWarnedKeys = new Set<string>();
   private tickNeedBudget = new NeedBudget();
 
   constructor(intervalSec?: number) {
-    this.apiClient = new ApiClient();
+    // Lazy provider: getIntervalMs() prefers the CLI override set below, so
+    // the adaptive list-poll math always targets the poller's real cadence.
+    this.apiClient = new ApiClient(() => this.getIntervalMs());
     this.dataProcessor = new DataProcessor();
     this.historySaveQueue = new BookingHistorySaveQueue({
       onResult: (dbResult) => {
@@ -192,7 +200,7 @@ export class Poller {
 
     if (!result.success) {
       this.stats.errorCount++;
-      const classified = classifyPollingError(result.httpStatus, result.error);
+      const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
       sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
@@ -425,6 +433,29 @@ export class Poller {
         for (const trip of filtered.trips) {
           historyTrips.set(trip.request_id, trip);
         }
+        if (env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0) {
+          for (const trip of filtered.trips) {
+            if (trip.acceptance_status !== ALREADY_TAKEN_ACCEPTANCE_STATUS) continue;
+            const warnKey = `${booking.booking_id}:${trip.request_id}`;
+            if (this.alreadyTakenWarnedKeys.has(warnKey)) continue;
+            const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
+            if (matchedRules.length > 0) {
+              this.alreadyTakenWarnedKeys.add(warnKey);
+              while (this.alreadyTakenWarnedKeys.size > Poller.ALREADY_TAKEN_WARNED_CAP) {
+                const oldest = this.alreadyTakenWarnedKeys.values().next().value;
+                if (oldest === undefined) break;
+                this.alreadyTakenWarnedKeys.delete(oldest);
+              }
+              logger.warn("auto-accept-rule-match-already-taken", {
+                bookingId: booking.booking_id,
+                requestId: trip.request_id,
+                rules: matchedRules.map((m) => m.ruleName),
+                route: trip.เส้นทาง,
+                acceptanceStatus: trip.acceptance_status,
+              });
+            }
+          }
+        }
         totalSkipped += filtered.skipped;
         for (const trip of nonPendingExtractedTrips) {
           if (trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE && trip.ประเภทรถ) {
@@ -501,7 +532,16 @@ export class Poller {
     }
 
     if (this.activeTick) {
-      await this.activeTick.catch(() => undefined);
+      // Bounded: a tick stuck in upstream retries must not eat the shutdown
+      // grace budget — its results are superseded by shutdown anyway. Detail
+      // jobs it may have launched are covered by the drain below.
+      await Promise.race([
+        this.activeTick.catch(() => undefined),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, Poller.STOP_TICK_DEADLINE_MS);
+          timer.unref();
+        }),
+      ]);
     }
 
     // Wait for all in-flight detail tasks to settle

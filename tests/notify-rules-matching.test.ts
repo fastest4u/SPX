@@ -40,6 +40,22 @@ function makeRule(partial: Partial<NotifyRule> & { id: string; name: string }): 
   assert.equal(result.wouldMatch, true);
 }
 
+// Unicode compatibility equivalence (NFKC): Thai SARA AM typed as the
+// composed ำ (U+0E33) must match API data carrying the decomposed
+// NIKHAHIT+SARA AA (U+0E4D U+0E32) sequence, and vice versa.
+{
+  const composedNam = "น้ำพอง"; // น้ำพอง with composed SARA AM
+  const decomposedNam = "น้ําพอง"; // same text, decomposed form
+  const trips: TripLike[] = [{ "ต้นทาง": decomposedNam, "ปลายทาง": "ขอนแก่น" }];
+  const result = previewRuleAgainstTrips({ name: "sara-am", origins: [composedNam] }, trips);
+  assert.equal(result.matchedCount, 1, "composed rule must match decomposed API data");
+
+  const reversed = previewRuleAgainstTrips({ name: "sara-am-rev", origins: [decomposedNam] }, [
+    { "ต้นทาง": composedNam },
+  ]);
+  assert.equal(reversed.matchedCount, 1, "decomposed rule must match composed API data");
+}
+
 // need threshold: matched < need => wouldMatch false.
 {
   const trips: TripLike[] = [{ origin: "Bangkok", destination: "X", vehicle_type: "6WH" }];
