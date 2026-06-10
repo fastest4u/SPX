@@ -48,18 +48,16 @@ export async function saveBookingRequests(
     return { inserted: 0, skipped: 0, errors: 0, message: "No trips to save" };
   }
 
-  try {
-    await ensureSpxBookingHistoryTable();
+  // DB errors must propagate: BookingHistorySaveQueue.saveWithRetry only
+  // retries on throw — swallowing here would permanently drop the batch
+  // after a single transient failure.
+  await ensureSpxBookingHistoryTable();
 
-    const result = await insertBookingHistories(trips.map(toBookingHistoryRecord));
-    return {
-      inserted: result.inserted,
-      skipped: result.skipped,
-      errors: 0,
-      message: `batch saved: inserted=${result.inserted}, skipped=${result.skipped}`,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { inserted: 0, skipped: 0, errors: trips.length, message: `DB error: ${msg}` };
-  }
+  const result = await insertBookingHistories(trips.map(toBookingHistoryRecord));
+  return {
+    inserted: result.inserted,
+    skipped: result.skipped,
+    errors: 0,
+    message: `batch saved: inserted=${result.inserted}, skipped=${result.skipped}`,
+  };
 }

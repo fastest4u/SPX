@@ -280,8 +280,12 @@ export async function startHttpServer(port: number): Promise<void> {
       return;
     }
 
-    const limit = request.url.startsWith("/api/login") ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
-    const rateLimit = checkRateLimit(getClientKey(request), limit);
+    // Login uses its own bucket: sharing a counter with general API traffic
+    // would let normal dashboard requests exhaust (or dilute) the much
+    // stricter brute-force budget.
+    const isLoginRequest = request.url.startsWith("/api/login");
+    const limit = isLoginRequest ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
+    const rateLimit = checkRateLimit(`${isLoginRequest ? "login" : "api"}:${getClientKey(request)}`, limit);
 
     reply.header("X-RateLimit-Limit", String(limit));
     reply.header("X-RateLimit-Remaining", String(rateLimit.remaining));

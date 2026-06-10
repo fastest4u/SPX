@@ -64,6 +64,32 @@ export interface RulePreviewResult extends RuleTripMatch {
 
 const RULES_FILE = resolve(process.cwd(), "notify-rules.json");
 
+// ── Rules cache ──────────────────────────────────────────────────────────
+// readRules() sits on the poller's critical path: it is awaited every tick
+// before any booking-detail fetch launches, so DB mode must not pay a SELECT
+// per tick. Every writer in this module refreshes the cache synchronously
+// after committing; the short TTL is only a safety net for out-of-band
+// writes (manual SQL edits, another process sharing the DB).
+const RULES_CACHE_TTL_MS = 5_000;
+
+let rulesCache: { rules: NotifyRule[]; fromDb: boolean; expiresAt: number } | null = null;
+let rulesCacheFill: Promise<NotifyRule[]> | null = null;
+// Bumped on every writer refresh/invalidate. An in-flight cache fill captures
+// the generation at SELECT start and discards its result if a writer
+// committed meanwhile — otherwise a stale fill could resurrect a just-deleted
+// rule for up to RULES_CACHE_TTL_MS.
+let rulesCacheGeneration = 0;
+
+function setRulesCache(rules: NotifyRule[], fromDb: boolean): void {
+  rulesCacheGeneration += 1;
+  rulesCache = { rules, fromDb, expiresAt: Date.now() + RULES_CACHE_TTL_MS };
+}
+
+function invalidateRulesCache(): void {
+  rulesCacheGeneration += 1;
+  rulesCache = null;
+}
+
 // ── Utils ────────────────────────────────────────────────────────────────
 
 function usesDb(): boolean {
@@ -130,7 +156,12 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
 }
 
 function normalize(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+  // NFKC, not NFC: Thai SARA AM (ำ U+0E33) vs NIKHAHIT+SARA AA (U+0E4D
+  // U+0E32) is a *compatibility* equivalence — only NFKC unifies them.
+  // Without this a rule pasted in one form silently never matches API data
+  // in the other. NFKC also folds fullwidth/ligature forms, which is what we
+  // want for match keys.
+  return typeof value === "string" ? value.normalize("NFKC").trim().toLowerCase() : "";
 }
 
 function matchesAny(haystack: string, needles: string[]): boolean {
@@ -211,6 +242,7 @@ function writeRulesFile(rules: NotifyRule[]): void {
       throw err;
     }
   }
+  setRulesCache(normalized, false);
   sseBroadcaster.broadcast({ event: "rules", data: normalized });
 }
 
@@ -225,14 +257,42 @@ async function readRulesDb(): Promise<NotifyRule[]> {
 
 async function broadcastAllRules(): Promise<void> {
   const rules = await readRulesDb();
+  setRulesCache(rules, true);
   sseBroadcaster.broadcast({ event: "rules", data: rules });
 }
 
 // ── Public API (dual mode) ───────────────────────────────────────────────
 
 export async function readRules(): Promise<NotifyRule[]> {
-  if (usesDb()) return readRulesDb();
-  return readRulesFile();
+  const fromDb = usesDb();
+  if (rulesCache && rulesCache.fromDb === fromDb && Date.now() < rulesCache.expiresAt) {
+    return rulesCache.rules;
+  }
+
+  if (!fromDb) {
+    const rules = readRulesFile();
+    setRulesCache(rules, false);
+    return rules;
+  }
+
+  // Single-flight: concurrent cache misses (poller tick + HTTP handlers)
+  // share one SELECT instead of stampeding the DB.
+  if (!rulesCacheFill) {
+    const generationAtFillStart = rulesCacheGeneration;
+    rulesCacheFill = readRulesDb()
+      .then((rules) => {
+        // A writer refreshed the cache while this SELECT was in flight; its
+        // data is newer than this read — don't clobber it.
+        if (rulesCacheGeneration === generationAtFillStart) {
+          setRulesCache(rules, true);
+        }
+        return rules;
+      })
+      .finally(() => {
+        rulesCacheFill = null;
+      });
+  }
+  return rulesCacheFill;
 }
 
 export async function createRule(input: NotifyRuleInput): Promise<NotifyRule> {
@@ -530,6 +590,7 @@ export async function migrateJsonToDb(): Promise<void> {
       updatedAt: sql`UTC_TIMESTAMP()`,
     })));
 
+    invalidateRulesCache();
     logger.info("notify-rules-migrated", { count: rules.length, source: "notify-rules.json" });
   } catch (err) {
     logger.warn("notify-rules-migration-failed", { error: err instanceof Error ? err.message : String(err) });

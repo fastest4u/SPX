@@ -115,6 +115,12 @@ export interface PollingSuccessResult extends PollingResultBase {
 export interface PollingFailureResult extends PollingResultBase {
   success: false;
   error: string;
+  /**
+   * App-level retcode when the failure was signaled in the response body
+   * (e.g. session expiry arriving as HTTP 200 + retcode). Lets the poller's
+   * error classifier detect session_expired without parsing the error string.
+   */
+  retcode?: number;
 }
 
 export type PollingResult = PollingSuccessResult | PollingFailureResult;

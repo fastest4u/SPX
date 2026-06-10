@@ -6,7 +6,7 @@ import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.
 import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
-import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters } from "../services/notify-rules.js";
+import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters, matchAutoAcceptRuleTripsWithRules } from "../services/notify-rules.js";
 import type { NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import {
@@ -25,6 +25,7 @@ import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { pollerControl } from "../services/poller-control.js";
 
+const ALREADY_TAKEN_ACCEPTANCE_STATUS = 4;
 
 export class Poller {
   private apiClient: ApiClient;
@@ -192,7 +193,7 @@ export class Poller {
 
     if (!result.success) {
       this.stats.errorCount++;
-      const classified = classifyPollingError(result.httpStatus, result.error);
+      const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
       sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
@@ -424,6 +425,21 @@ export class Poller {
         const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
         for (const trip of filtered.trips) {
           historyTrips.set(trip.request_id, trip);
+        }
+        if (this.tickAutoAcceptRules.length > 0) {
+          for (const trip of filtered.trips) {
+            if (trip.acceptance_status !== ALREADY_TAKEN_ACCEPTANCE_STATUS) continue;
+            const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
+            if (matchedRules.length > 0) {
+              logger.warn("auto-accept-rule-match-already-taken", {
+                bookingId: booking.booking_id,
+                requestId: trip.request_id,
+                rules: matchedRules.map((m) => m.ruleName),
+                route: trip.เส้นทาง,
+                acceptanceStatus: trip.acceptance_status,
+              });
+            }
+          }
         }
         totalSkipped += filtered.skipped;
         for (const trip of nonPendingExtractedTrips) {

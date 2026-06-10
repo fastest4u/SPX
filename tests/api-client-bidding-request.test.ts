@@ -4,6 +4,7 @@ import {
   buildBiddingListBody,
   normalizeApiResponse,
 } from "../src/services/api-client.js";
+import { classifyPollingError } from "../src/utils/error-classifier.js";
 import { env } from "../src/config/env.js";
 
 const mutableEnv = env as unknown as {
@@ -162,6 +163,30 @@ async function main(): Promise<void> {
     assert.equal(result?.data.request_list.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+
+  // Session expiry signaled as HTTP 200 + body retcode must surface the
+  // retcode on the failure result so the poller's classifier reaches
+  // session_expired (alert + dashboard banner path) instead of "unknown".
+  const fetchBeforeExpiry = globalThis.fetch;
+  try {
+    globalThis.fetch = async (): Promise<Response> =>
+      new Response(JSON.stringify({ retcode: 10001, message: "session expired", data: null }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+
+    const client = new ApiClient();
+    const pollResult = await client.fetch(1);
+    assert.equal(pollResult.success, false);
+    if (!pollResult.success) {
+      assert.equal(pollResult.retcode, 10001);
+      const classified = classifyPollingError(pollResult.httpStatus, pollResult.error, pollResult.retcode);
+      assert.equal(classified.category, "session_expired");
+      assert.equal(classified.retryable, false);
+    }
+  } finally {
+    globalThis.fetch = fetchBeforeExpiry;
   }
   } finally {
     Object.assign(mutableEnv, original);

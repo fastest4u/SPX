@@ -12,9 +12,11 @@ export interface BookingPriorityResult<T extends BookingPriorityInput> {
 export function bookingMatchesOriginFilters(booking: BookingPriorityInput, originFilters: string[]): boolean {
   if (originFilters.length === 0) return true;
 
-  const bookingName = booking.booking_name.trim().toLowerCase();
+  // Keep in lockstep with normalize() in notify-rules.ts (NFKC): a rule
+  // origin that matches trips must also prioritize their bookings.
+  const bookingName = booking.booking_name.normalize("NFKC").trim().toLowerCase();
   return originFilters.some((origin) => {
-    const normalized = origin.trim().toLowerCase();
+    const normalized = origin.normalize("NFKC").trim().toLowerCase();
     return normalized.length > 0 && bookingName.includes(normalized);
   });
 }
