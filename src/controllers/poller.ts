@@ -61,7 +61,9 @@ export class Poller {
   private tickNeedBudget = new NeedBudget();
 
   constructor(intervalSec?: number) {
-    this.apiClient = new ApiClient();
+    // Lazy provider: getIntervalMs() prefers the CLI override set below, so
+    // the adaptive list-poll math always targets the poller's real cadence.
+    this.apiClient = new ApiClient(() => this.getIntervalMs());
     this.dataProcessor = new DataProcessor();
     this.historySaveQueue = new BookingHistorySaveQueue({
       onResult: (dbResult) => {

@@ -316,9 +316,16 @@ export function buildBiddingListBody(pageNo: number): BiddingRequest {
 
 export class ApiClient {
   private cookieOverride: string | null = null;
+  /**
+   * Effective poll cadence for the adaptive list-poll retry/timeout math.
+   * Injected by the Poller because a CLI interval override
+   * (`node dist/app.js <seconds>`) takes precedence over env.POLL_INTERVAL_MS.
+   */
+  private readonly pollIntervalMsProvider: () => number;
 
-  constructor() {
+  constructor(pollIntervalMsProvider: () => number = () => env.POLL_INTERVAL_MS) {
     // No caching — all env reads happen per-fetch via getters below
+    this.pollIntervalMsProvider = pollIntervalMsProvider;
   }
 
   private get headers(): Record<string, string> {
@@ -438,11 +445,12 @@ export class ApiClient {
     // Poll-path requests fail fast (see listPollRetries/listPollTimeoutMs):
     // the next tick re-fetches this list anyway, so recovery comes from
     // cadence, not from in-tick retries. Detail/accept hops keep full retries.
+    const intervalMs = this.pollIntervalMsProvider();
     return fetchWithRetry(env.API_URL, {
       method: "POST",
       headers: this.headers,
       body: JSON.stringify({ ...this.body, pageno: pageNo }),
-    }, `bidding-list:${pageNo}`, listPollRetries(env.POLL_INTERVAL_MS), listPollTimeoutMs(env.POLL_INTERVAL_MS));
+    }, `bidding-list:${pageNo}`, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs));
   }
 
   private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse> {
