@@ -3,12 +3,13 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters, matchAutoAcceptRuleTripsWithRules } from "../services/notify-rules.js";
 import type { NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
+import { getRecentAutoAcceptRequestKeys } from "../repositories/auto-accept-repository.js";
 import {
   logger,
   formatHeader,
@@ -25,7 +26,17 @@ import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { pollerControl } from "../services/poller-control.js";
 
-const ALREADY_TAKEN_ACCEPTANCE_STATUS = 4;
+/**
+ * Non-pending-tab statuses eligible for the one-shot accept attempt: 4 = taken
+ * by another agency (the lost-race case this exists for), 1 = still biddable
+ * (should not appear on this tab; attempting is the winning move if it does).
+ * Statuses in OWN_ACCEPTED_STATUSES are ours and must never be re-attempted —
+ * after a restart the in-memory accepted keys are empty, and a re-attempt
+ * would fire a false failure alert for a job we already won. Anything else
+ * (cancelled/expired?) has unverified semantics: warn for triage, never fire
+ * a doomed accept against it.
+ */
+const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
 
 export class Poller {
   private apiClient: ApiClient;
@@ -40,11 +51,13 @@ export class Poller {
   private lastSessionAlertTime = 0;
   private activeDetailBookingIds = new Set<number>();
   /**
-   * bookingId → epoch ms when its last detail-processing finished. Used by the
-   * re-process cooldown (env.BOOKING_REPROCESS_COOLDOWN_MS) to skip re-fetching
-   * the request list of a booking that still lingers in the bidding list, which
-   * is the churn an aggressive POLL_INTERVAL_MS otherwise produces. New bookings
-   * are never present here, so they are always processed immediately.
+   * bookingId → epoch ms when its last detail-processing finished CLEANLY.
+   * Used by the re-process cooldown (env.BOOKING_REPROCESS_COOLDOWN_MS) to skip
+   * re-fetching the request list of a booking that still lingers in the bidding
+   * list, which is the churn an aggressive POLL_INTERVAL_MS otherwise produces.
+   * New bookings are never present here, so they are always processed
+   * immediately; failed fetches and failed/deferred accepts are NOT stamped, so
+   * they retry on the next tick.
    */
   private recentlyProcessed = new Map<number, number>();
   /** Tracks how many detail-fetch tasks are currently in-flight (bounded by BOOKING_DETAIL_CONCURRENCY). */
@@ -53,11 +66,19 @@ export class Poller {
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
   private static readonly STOP_TICK_DEADLINE_MS = 30_000;
-  private static readonly ALREADY_TAKEN_WARNED_CAP = 5000;
+  private static readonly NON_PENDING_ATTEMPTED_CAP = 5000;
   /** Shared auto-accept budget & rules, refreshed each tick to avoid redundant DB lookups across per-booking tasks. */
   private tickAutoAcceptRules: NotifyRule[] = [];
-  /** bookingId:requestId keys already warned as rule-match-but-taken, so a lingering trip warns once, not every tick. */
-  private alreadyTakenWarnedKeys = new Set<string>();
+  /** bookingId:requestId keys from the non-pending tab already attempted, so a lingering taken trip is attempted/alerted once — not on every detail cycle. */
+  private nonPendingAttemptedKeys = new Set<string>();
+  /** booking_ids already logged by the list-freshness instrumentation (first sight on the bidding list). */
+  private seenListBookingIds = new Set<number>();
+  private static readonly SEEN_LIST_BOOKINGS_CAP = 20000;
+  /** bookingId → consecutive non-clean processing rounds; cleared on clean success. Drives the failure backoff below. */
+  private detailFailureCounts = new Map<number, number>();
+  private static readonly FAILURE_RETRY_BASE_MS = 1_000;
+  private static readonly FAILURE_RETRY_MAX_EXPONENT = 5;
+  private static readonly DETAIL_FAILURE_COUNTS_CAP = 1000;
   private tickNeedBudget = new NeedBudget();
 
   constructor(intervalSec?: number) {
@@ -135,6 +156,17 @@ export class Poller {
         this.metricsTimer = setInterval(() => void this.persistMetrics(), 5 * 60_000);
       } catch (err) {
         logger.warn("metrics-persistence-init-failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    // Seed the non-pending one-shot dedupe from history so a restart/deploy
+    // does not re-fire doomed accepts + failure LINE alerts for races already
+    // recorded (the set itself is process-memory only).
+    if (env.AUTO_ACCEPT_ENABLED && env.SAVE_TO_DB) {
+      const seededKeys = await getRecentAutoAcceptRequestKeys();
+      for (const key of seededKeys) this.addNonPendingAttemptedKey(key);
+      if (seededKeys.length > 0) {
+        logger.info("auto-accept-nonpending-dedupe-seeded", { keys: seededKeys.length });
       }
     }
 
@@ -247,8 +279,13 @@ export class Poller {
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
 
-    // Reset per-tick budget so rules aren't permanently exhausted across ticks
-    this.tickNeedBudget = new NeedBudget();
+    // New tick window for the long-lived budget: availability re-seeds from
+    // this tick's rule snapshot minus claims still in flight from earlier
+    // ticks (accept flows span ticks; without this each tick re-grants the
+    // full need and over-accepts). beginTick runs BEFORE the rules refresh
+    // deliberately: a settle landing in between is double-counted for one
+    // tick (brief under-grant) — the reverse order would over-grant.
+    this.tickNeedBudget.beginTick();
 
     // Refresh shared auto-accept rules once per tick (cheap — cached in notify-rules.ts)
     if (env.AUTO_ACCEPT_ENABLED) {
@@ -276,6 +313,34 @@ export class Poller {
           });
         }
       }
+    }
+
+    // List-freshness instrumentation (2026-06-11): SPX list rows carry the
+    // booking's ctime/mtime, so listAgeMs = how stale the booking already was
+    // the first time WE saw it. Discriminates the two lost-race explanations:
+    // consistently tiny age (≈ poll interval) → competitors are simply faster;
+    // multi-second age under fast polling → our list view lags (cache/
+    // propagation) and competitors see jobs before we do.
+    const firstSeenNowMs = Date.now();
+    for (const booking of sortedBookings) {
+      if (this.seenListBookingIds.has(booking.booking_id)) continue;
+      this.seenListBookingIds.add(booking.booking_id);
+      while (this.seenListBookingIds.size > Poller.SEEN_LIST_BOOKINGS_CAP) {
+        const oldest = this.seenListBookingIds.values().next().value;
+        if (oldest === undefined) break;
+        this.seenListBookingIds.delete(oldest);
+      }
+      const ctimeMs = typeof booking.ctime === "number" && booking.ctime > 0 ? booking.ctime * 1000 : null;
+      const mtimeMs = typeof booking.mtime === "number" && booking.mtime > 0 ? booking.mtime * 1000 : null;
+      logger.info("bidding-list-booking-first-seen", {
+        bookingId: booking.booking_id,
+        bookingName: booking.booking_name,
+        ctime: booking.ctime,
+        mtime: booking.mtime,
+        listAgeMs: ctimeMs === null ? null : firstSeenNowMs - ctimeMs,
+        modifiedAgeMs: mtimeMs === null ? null : firstSeenNowMs - mtimeMs,
+        acceptanceStatus: booking.request_acceptance_status,
+      });
     }
 
     // Re-process cooldown: prune expired entries up front (or clear the map when
@@ -325,6 +390,35 @@ export class Poller {
 
       // Fire-and-forget: each booking is independent
       void this.processOneBooking(booking)
+        .then((cooldownEligible) => {
+          // Clean processing stamps the full cooldown. Non-clean (failed
+          // detail fetch, failed/deferred accept) gets an escalating failure
+          // backoff instead: retried sooner than the cooldown window, but
+          // never hot-looped every tick — a permanently failing booking must
+          // not hammer SPX or starve the detail slots.
+          if (cooldownEligible) {
+            this.detailFailureCounts.delete(booking.booking_id);
+            this.recentlyProcessed.set(booking.booking_id, Date.now());
+            return;
+          }
+          const failures = (this.detailFailureCounts.get(booking.booking_id) ?? 0) + 1;
+          this.detailFailureCounts.set(booking.booking_id, failures);
+          while (this.detailFailureCounts.size > Poller.DETAIL_FAILURE_COUNTS_CAP) {
+            const oldest = this.detailFailureCounts.keys().next().value;
+            if (oldest === undefined) break;
+            this.detailFailureCounts.delete(oldest);
+          }
+          const cooldownWindowMs = env.BOOKING_REPROCESS_COOLDOWN_MS;
+          if (cooldownWindowMs > 0) {
+            // Backdated stamp: entry expires after min(cooldown, base·2^(n-1))
+            // instead of the full cooldown window.
+            const backoffMs = Math.min(
+              cooldownWindowMs,
+              Poller.FAILURE_RETRY_BASE_MS * 2 ** Math.min(failures - 1, Poller.FAILURE_RETRY_MAX_EXPONENT)
+            );
+            this.recentlyProcessed.set(booking.booking_id, Date.now() - cooldownWindowMs + backoffMs);
+          }
+        })
         .catch((err) => {
           logger.error("booking-detail-failed", {
             bookingId: booking.booking_id,
@@ -334,7 +428,6 @@ export class Poller {
         .finally(() => {
           this.activeDetailBookingIds.delete(booking.booking_id);
           this.detailInflight--;
-          this.recentlyProcessed.set(booking.booking_id, Date.now());
           this.recordDetailRuntime();
         });
     }
@@ -357,8 +450,11 @@ export class Poller {
   /**
    * Process a single booking: fetch detail, extract trips, auto-accept, save to DB.
    * Fully independent — no coupling to sibling bookings.
+   * Resolves true when processing was clean (cooldown-eligible); false when the
+   * detail fetch failed or any accept attempt failed/was deferred, so the
+   * booking is retried on the next tick instead of waiting out the cooldown.
    */
-  private async processOneBooking(booking: Booking): Promise<void> {
+  private async processOneBooking(booking: Booking): Promise<boolean> {
     const startedAt = Date.now();
     const context = {
       booking_id: booking.booking_id,
@@ -367,7 +463,7 @@ export class Poller {
     };
 
     const autoAcceptEnabled = env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0;
-    const autoAcceptTasks: Promise<void>[] = [];
+    const autoAcceptTasks: Promise<boolean>[] = [];
     let autoAcceptHandledByPage = false;
     let firstMatchRecorded = false;
 
@@ -399,14 +495,16 @@ export class Poller {
       logger.warn("request-list-missing", { bookingId: booking.booking_id });
       // Still await any page-level auto-accept tasks that may have fired
       if (autoAcceptTasks.length > 0) await Promise.allSettled(autoAcceptTasks);
-      return;
+      return false;
     }
 
     const extractedTrips = extractAllRequestListTrips(requestList.data, context);
     const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
 
-    // Auto-accept only pending-tab trips. History persistence may fetch
-    // non-pending trips below, but those must never enter the accept path.
+    // Pending-tab trips take the normal accept path here. Non-pending-tab
+    // trips are fetched below for history persistence AND — when they match an
+    // enabled rule and are not already ours — get a one-shot accept attempt so
+    // a lost race surfaces as a failure alert + history row instead of silence.
     if (autoAcceptEnabled && trips.length > 0 && !autoAcceptHandledByPage) {
       autoAcceptTasks.push(this.runAutoAcceptForTrips(trips, booking.booking_id));
     }
@@ -423,7 +521,7 @@ export class Poller {
         .filter(Boolean)
     );
 
-    if (env.SAVE_TO_DB) {
+    if (env.SAVE_TO_DB || autoAcceptEnabled) {
       const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
         tabPendingConfirmation: false,
       });
@@ -433,27 +531,54 @@ export class Poller {
         for (const trip of filtered.trips) {
           historyTrips.set(trip.request_id, trip);
         }
-        if (env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0) {
+        if (autoAcceptEnabled) {
+          const attemptTrips: ExtractedTripInfo[] = [];
+          const attemptKeyByRequestId = new Map<number, string>();
           for (const trip of filtered.trips) {
-            if (trip.acceptance_status !== ALREADY_TAKEN_ACCEPTANCE_STATUS) continue;
-            const warnKey = `${booking.booking_id}:${trip.request_id}`;
-            if (this.alreadyTakenWarnedKeys.has(warnKey)) continue;
-            const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
-            if (matchedRules.length > 0) {
-              this.alreadyTakenWarnedKeys.add(warnKey);
-              while (this.alreadyTakenWarnedKeys.size > Poller.ALREADY_TAKEN_WARNED_CAP) {
-                const oldest = this.alreadyTakenWarnedKeys.values().next().value;
-                if (oldest === undefined) break;
-                this.alreadyTakenWarnedKeys.delete(oldest);
-              }
-              logger.warn("auto-accept-rule-match-already-taken", {
+            const status = trip.acceptance_status;
+            // Requests that are already ours must never be re-attempted.
+            if (status === undefined || OWN_ACCEPTED_STATUSES.has(status)) continue;
+            const attemptKey = `${booking.booking_id}:${trip.request_id}`;
+            if (!NON_PENDING_ATTEMPT_STATUSES.has(status)) {
+              // Unverified terminal state: surface once for triage, no attempt.
+              const unknownKey = `${attemptKey}:s${status}`;
+              if (this.nonPendingAttemptedKeys.has(unknownKey)) continue;
+              const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
+              if (matchedRules.length === 0) continue;
+              this.addNonPendingAttemptedKey(unknownKey);
+              logger.warn("auto-accept-unknown-acceptance-status", {
                 bookingId: booking.booking_id,
                 requestId: trip.request_id,
                 rules: matchedRules.map((m) => m.ruleName),
                 route: trip.เส้นทาง,
-                acceptanceStatus: trip.acceptance_status,
+                acceptanceStatus: status,
               });
+              continue;
             }
+            if (this.nonPendingAttemptedKeys.has(attemptKey)) continue;
+            const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
+            if (matchedRules.length === 0) continue;
+            this.addNonPendingAttemptedKey(attemptKey);
+            logger.warn("auto-accept-rule-match-already-taken", {
+              bookingId: booking.booking_id,
+              requestId: trip.request_id,
+              rules: matchedRules.map((m) => m.ruleName),
+              route: trip.เส้นทาง,
+              acceptanceStatus: status,
+              attempting: true,
+              // How old the booking already was when we lost it — the freshness
+              // signal that separates "competitor faster" from "we see late".
+              bookingAgeMs: typeof booking.ctime === "number" && booking.ctime > 0
+                ? Date.now() - booking.ctime * 1000
+                : null,
+            });
+            attemptTrips.push(trip);
+            attemptKeyByRequestId.set(trip.request_id, attemptKey);
+          }
+          if (attemptTrips.length > 0) {
+            autoAcceptTasks.push(
+              this.runNonPendingAcceptAttempt(attemptTrips, booking.booking_id, attemptKeyByRequestId)
+            );
           }
         }
         totalSkipped += filtered.skipped;
@@ -492,24 +617,88 @@ export class Poller {
 
     // Wait for all auto-accept tasks to finish before releasing the booking slot
     if (autoAcceptTasks.length > 0) {
-      await Promise.allSettled(autoAcceptTasks);
+      const settled = await Promise.allSettled(autoAcceptTasks);
+      return settled.every((task) => task.status === "fulfilled" && task.value === true);
+    }
+    return true;
+  }
+
+  /** FIFO-capped insert into the non-pending one-shot dedupe set. */
+  private addNonPendingAttemptedKey(key: string): void {
+    this.nonPendingAttemptedKeys.add(key);
+    while (this.nonPendingAttemptedKeys.size > Poller.NON_PENDING_ATTEMPTED_CAP) {
+      const oldest = this.nonPendingAttemptedKeys.values().next().value;
+      if (oldest === undefined) break;
+      this.nonPendingAttemptedKeys.delete(oldest);
     }
   }
 
-  /** Run auto-accept for extracted trips, sharing the tick-scoped NeedBudget. */
-  private async runAutoAcceptForTrips(trips: ExtractedTripInfo[], bookingId: number): Promise<void> {
+  /**
+   * One-shot accept attempt for rule-matching non-pending-tab trips (operator
+   * decision 2026-06-11): a lost race surfaces as the standard failure LINE
+   * alert + a "failed" auto_accept_history row instead of silence.
+   *
+   * Deliberately runs WITHOUT the shared NeedBudget: a doomed claim would
+   * starve concurrently-running pending-tab accepts of the same rule for the
+   * accept+verify window (or 120s on an indeterminate verify). The overshoot
+   * window this opens is negligible — a surprise success still decrements the
+   * rule's DB need via the normal progress path.
+   *
+   * Keys for requests WITHOUT a terminal verified outcome (deferred verify,
+   * in-flight claim conflict, thrown error) are un-consumed so the next
+   * detail cycle retries; a verified failure or success keeps the key.
+   * Always resolves true: a terminal lost race must not dirty the booking
+   * round and trigger the failure backoff / next-tick retry.
+   */
+  private async runNonPendingAcceptAttempt(
+    trips: ExtractedTripInfo[],
+    bookingId: number,
+    attemptKeyByRequestId: Map<number, string>
+  ): Promise<boolean> {
     const startedAt = Date.now();
     try {
-      await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+      const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+        autoAcceptRules: this.tickAutoAcceptRules,
+        deferSideEffects: true,
+      });
+      const terminalIds = new Set<number>();
+      for (const a of result.accepted) terminalIds.add(a.requestId);
+      for (const f of result.failed) for (const id of f.requestIds) terminalIds.add(id);
+      for (const [requestId, key] of attemptKeyByRequestId) {
+        if (!terminalIds.has(requestId)) this.nonPendingAttemptedKeys.delete(key);
+      }
+    } catch (err) {
+      for (const key of attemptKeyByRequestId.values()) this.nonPendingAttemptedKeys.delete(key);
+      logger.error("auto-accept-nonpending-attempt-failed", {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      metrics.recordOperation("autoAccept", Date.now() - startedAt);
+    }
+    return true;
+  }
+
+  /**
+   * Run auto-accept for extracted trips, sharing the cross-tick NeedBudget.
+   * Resolves true when every attempt completed cleanly (no verified failure,
+   * no deferred-unverified outcome, no thrown error).
+   */
+  private async runAutoAcceptForTrips(trips: ExtractedTripInfo[], bookingId: number): Promise<boolean> {
+    const startedAt = Date.now();
+    try {
+      const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
         autoAcceptRules: this.tickAutoAcceptRules,
         deferSideEffects: true,
         needBudget: this.tickNeedBudget,
       });
+      return result.failed.length === 0 && result.deferredRequests === 0;
     } catch (err) {
       logger.error("auto-accept-processing-failed", {
         bookingId,
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     } finally {
       metrics.recordOperation("autoAccept", Date.now() - startedAt);
     }

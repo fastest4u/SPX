@@ -472,7 +472,10 @@ export async function getActiveAutoAcceptOriginFilters(): Promise<string[]> {
   return getAutoAcceptOriginFilters(await getActiveAutoAcceptRules());
 }
 
-export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; acceptedCount: number }>): Promise<void> {
+export async function applyAutoAcceptProgress(
+  updates: Array<{ ruleId: string; acceptedCount: number }>,
+  onRuleCommitted?: (ruleId: string, acceptedCount: number) => void
+): Promise<void> {
   const acceptedByRule = new Map<string, number>();
   for (const update of updates) {
     if (update.acceptedCount <= 0) continue;
@@ -489,15 +492,29 @@ export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; a
     // reading need=5 and the later write clobbering the earlier). CASE WHEN is
     // used instead of GREATEST so the statement runs on both MySQL and the
     // in-memory SQLite backend used in tests.
+    // Per-rule isolation: one rule's failed UPDATE must not block the other
+    // rules' decrements (or their budget settlement via onRuleCommitted).
     for (const [ruleId, accepted] of acceptedByRule) {
-      await db.update(notifyRulesTable)
-        .set({
-          need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
-          fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-          autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-          updatedAt: sql`UTC_TIMESTAMP()`,
-        })
-        .where(eq(notifyRulesTable.id, ruleId));
+      try {
+        await db.update(notifyRulesTable)
+          .set({
+            need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
+            fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+            autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+            updatedAt: sql`UTC_TIMESTAMP()`,
+          })
+          .where(eq(notifyRulesTable.id, ruleId));
+        onRuleCommitted?.(ruleId, accepted);
+      } catch (err) {
+        // Lost quota decrement on the money path: the upstream accept already
+        // committed but the rule's need was not reduced. The caller's budget
+        // claims stay in flight (settle skipped) until the claim TTL.
+        logger.error("auto-accept-progress-update-failed", {
+          ruleId,
+          accepted,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     await broadcastAllRules();
     return;
@@ -516,6 +533,9 @@ export async function applyAutoAcceptProgress(updates: Array<{ ruleId: string; a
     changed = true;
   }
   if (changed) writeRulesFile(rules);
+  for (const [ruleId, accepted] of acceptedByRule) {
+    onRuleCommitted?.(ruleId, accepted);
+  }
 }
 
 export async function markRulesFulfilled(ruleIds: string[]): Promise<void> {

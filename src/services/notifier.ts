@@ -208,8 +208,21 @@ interface AutoAcceptResult {
   autoAcceptMatches: RuleTripMatch[];
   accepted: AcceptedTrip[];
   failed: Array<{ bookingId: number; requestIds: number[]; error: string }>;
+  /** Requests whose accept outcome could not be verified (deferred for a later poll to retry). */
+  deferredRequests: number;
   notified: boolean;
 }
+
+// An aborted/timed-out accept (httpStatus 0) may still commit server-side
+// after the client gave up; verifying the tabs immediately would misread
+// that late commit as failure (and never decrement the rule's need).
+const AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS = 2_500;
+
+// Per-booking throttle for the auto-accept failure alert: history rows and
+// metrics still record every failure, but the operator is paged at most once
+// per booking per window.
+const failureAlertLastSentByBooking = new Map<number, number>();
+const FAILURE_ALERT_THROTTLE_MS = 60_000;
 
 interface AutoAcceptOptions {
   deferSideEffects?: boolean;
@@ -221,25 +234,115 @@ interface AutoAcceptOptions {
  * Atomic in-memory budget tracker for concurrent auto-accept.
  * Node.js is single-threaded — synchronous Map operations between await
  * points are inherently atomic, so this acts as a lock-free semaphore.
- * Create one instance per polling cycle and share it across concurrent workers.
+ *
+ * The poller keeps ONE long-lived instance and calls beginTick() each tick.
+ * Accept flows span multiple ticks at aggressive poll intervals, and the DB
+ * `need` decrement only commits after verification — so per-tick availability
+ * must be seeded from the tick's DB snapshot MINUS claims still in flight
+ * from earlier ticks, or every new tick re-grants the full need and
+ * over-accepts beyond the operator's quota.
+ *
+ * Claim lifecycle: claim() → exactly one of release() (unused selection,
+ * verified failure, or deferred-unverified — the slot becomes retryable) or
+ * settle() (DB decrement committed). Settled slots keep counting against
+ * availability until the next beginTick, because a tick already in flight
+ * may hold a rules snapshot read before the commit.
  */
+/**
+ * Opaque handle for a batch of claims. release()/settle() are bounded to the
+ * batch behind the token, so a flow that outlives the claim TTL cannot
+ * double-credit availability or consume another flow's live claims.
+ */
+/**
+ * request_acceptance_status values that mean the request is OURS: 2 = just
+ * accepted (SPX reports 2 immediately after our accept commits), 6 =
+ * confirmed/assigned (observed in production history for our accepted
+ * bookings). Shared by the post-accept verify below and the poller's
+ * non-pending one-shot attempt filter so the two sides cannot drift.
+ */
+export const OWN_ACCEPTED_STATUSES = new Set<number>([2, 6]);
+
+export type ClaimToken = number;
+
 export class NeedBudget {
   private remaining = new Map<string, number>();
+  /** ruleId → token → unresolved claim batch. */
+  private inFlight = new Map<string, Map<ClaimToken, { count: number; claimedAt: number }>>();
+  /** Claims settled (DB decrement committed) since the last beginTick. */
+  private settledSinceTick = new Map<string, number>();
+  private nextToken: ClaimToken = 1;
 
-  /** Atomically claim up to `requested` slots. Returns the granted count. */
-  claim(ruleId: string, dbNeed: number, requested: number): number {
+  /** Max age before an unresolved claim batch is presumed leaked (crashed flow) and dropped. */
+  private static readonly CLAIM_TTL_MS = 120_000;
+
+  /** Start a new tick: drop settled/expired claims; availability re-seeds lazily per rule. */
+  beginTick(now: number = Date.now()): void {
+    this.remaining.clear();
+    this.settledSinceTick.clear();
+    for (const [ruleId, batches] of this.inFlight) {
+      for (const [token, batch] of batches) {
+        if (now - batch.claimedAt >= NeedBudget.CLAIM_TTL_MS) batches.delete(token);
+      }
+      if (batches.size === 0) this.inFlight.delete(ruleId);
+    }
+  }
+
+  /** Atomically claim up to `requested` slots. */
+  claim(ruleId: string, dbNeed: number, requested: number): { granted: number; token: ClaimToken } {
     if (!this.remaining.has(ruleId)) {
-      this.remaining.set(ruleId, dbNeed);
+      this.remaining.set(ruleId, Math.max(0, dbNeed - this.heldCount(ruleId)));
     }
     const available = this.remaining.get(ruleId)!;
     const granted = Math.min(requested, available);
     this.remaining.set(ruleId, available - granted);
-    return granted;
+    const token = this.nextToken++;
+    if (granted > 0) {
+      const batches = this.inFlight.get(ruleId) ?? new Map<ClaimToken, { count: number; claimedAt: number }>();
+      batches.set(token, { count: granted, claimedAt: Date.now() });
+      this.inFlight.set(ruleId, batches);
+    }
+    return { granted, token };
   }
 
-  release(ruleId: string, count: number): void {
-    if (count <= 0 || !this.remaining.has(ruleId)) return;
-    this.remaining.set(ruleId, this.remaining.get(ruleId)! + count);
+  /**
+   * Return claims to availability: unused selection or verified failure.
+   * Bounded by the token's unresolved count — a no-op once TTL-pruned, so TTL
+   * expiry is the single terminal authority for a leaked claim.
+   */
+  release(ruleId: string, token: ClaimToken, count: number): void {
+    const dropped = this.drop(ruleId, token, count);
+    if (dropped > 0 && this.remaining.has(ruleId)) {
+      this.remaining.set(ruleId, this.remaining.get(ruleId)! + dropped);
+    }
+  }
+
+  /** Mark claims settled after the DB need decrement commits. */
+  settle(ruleId: string, token: ClaimToken, count: number): void {
+    const dropped = this.drop(ruleId, token, count);
+    if (dropped > 0) {
+      this.settledSinceTick.set(ruleId, (this.settledSinceTick.get(ruleId) ?? 0) + dropped);
+    }
+  }
+
+  private heldCount(ruleId: string): number {
+    let held = this.settledSinceTick.get(ruleId) ?? 0;
+    const batches = this.inFlight.get(ruleId);
+    if (batches) {
+      for (const batch of batches.values()) held += batch.count;
+    }
+    return held;
+  }
+
+  private drop(ruleId: string, token: ClaimToken, count: number): number {
+    if (count <= 0) return 0;
+    const batches = this.inFlight.get(ruleId);
+    const batch = batches?.get(token);
+    if (!batches || !batch) return 0;
+    const dropped = Math.min(count, batch.count);
+    batch.count -= dropped;
+    if (batch.count === 0) batches.delete(token);
+    if (batches.size === 0) this.inFlight.delete(ruleId);
+    return dropped;
   }
 }
 
@@ -325,8 +428,11 @@ interface AutoAcceptRuleRunResult {
   autoAcceptMatches: RuleTripMatch[];
   accepted: AcceptedTrip[];
   failed: AutoAcceptResult["failed"];
+  deferredRequests: number;
   acceptedProgress: Array<{ ruleId: string; acceptedCount: number }>;
   historyWrites: Array<() => Promise<unknown>>;
+  /** Budget claim batch for this rule's run; used to settle after the DB decrement commits. */
+  claimToken: ClaimToken;
 }
 
 interface SelectedAutoAcceptRequest {
@@ -347,12 +453,17 @@ function emptyAutoAcceptRuleRunResult(): AutoAcceptRuleRunResult {
     autoAcceptMatches: [],
     accepted: [],
     failed: [],
+    deferredRequests: 0,
     acceptedProgress: [],
     historyWrites: [],
+    claimToken: 0,
   };
 }
 
-function selectAutoAcceptRequests(match: RuleTripMatch, options: AutoAcceptOptions): SelectedAutoAcceptRequest[] {
+function selectAutoAcceptRequests(
+  match: RuleTripMatch,
+  options: AutoAcceptOptions
+): { selected: SelectedAutoAcceptRequest[]; claimToken: ClaimToken } {
   const candidates: SelectedAutoAcceptRequest[] = [];
 
   for (const trip of match.trips) {
@@ -368,9 +479,9 @@ function selectAutoAcceptRequests(match: RuleTripMatch, options: AutoAcceptOptio
     candidates.push({ trip, bookingId, requestId });
   }
 
-  const limit = options.needBudget
+  const { granted: limit, token: claimToken } = options.needBudget
     ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
-    : Math.max(0, match.need);
+    : { granted: Math.max(0, match.need), token: 0 };
   const selected: SelectedAutoAcceptRequest[] = [];
 
   for (const candidate of candidates) {
@@ -380,7 +491,7 @@ function selectAutoAcceptRequests(match: RuleTripMatch, options: AutoAcceptOptio
     }
   }
 
-  options.needBudget?.release(match.ruleId, limit - selected.length);
+  options.needBudget?.release(match.ruleId, claimToken, limit - selected.length);
 
   if (match.trips.length > selected.length) {
     logger.info("auto-accept-truncated", {
@@ -392,7 +503,7 @@ function selectAutoAcceptRequests(match: RuleTripMatch, options: AutoAcceptOptio
     });
   }
 
-  return selected;
+  return { selected, claimToken };
 }
 
 async function acceptAutoAcceptMatch(
@@ -406,9 +517,9 @@ async function acceptAutoAcceptMatch(
     matchedCount: match.matchedCount,
   });
 
-  const selected = selectAutoAcceptRequests(match, options);
+  const { selected, claimToken } = selectAutoAcceptRequests(match, options);
   if (selected.length === 0) {
-    return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match] };
+    return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match], claimToken };
   }
 
   const byBooking = new Map<number, AutoAcceptBookingEntry>();
@@ -424,6 +535,7 @@ async function acceptAutoAcceptMatch(
 
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
+  let deferredRequests = 0;
   const acceptedProgress: Array<{ ruleId: string; acceptedCount: number }> = [];
   const historyWrites: Array<() => Promise<unknown>> = [];
 
@@ -448,6 +560,12 @@ async function acceptAutoAcceptMatch(
 
     if (!result.ok) {
       try {
+        if (result.httpStatus === 0) {
+          // Ambiguous delivery (abort/network): the accept may still commit
+          // server-side after the client gave up — give SPX a moment before
+          // reading the tabs so a late commit is not misread as failure.
+          await new Promise((resolve) => setTimeout(resolve, AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS));
+        }
         // Verify against BOTH tabs because SPX moves accepted requests out of the
         // "pending confirmation" tab into the "confirmed" tab. Fetching only the
         // pending tab (the default) misses requests we just accepted, causing
@@ -471,9 +589,11 @@ async function acceptAutoAcceptMatch(
         if (pendingList || confirmedList) {
           // At least one tab fetch succeeded — verification actually ran.
           verificationRan = true;
+          // 2 = just accepted; 6 = SPX already confirmed it before this verify
+          // read (a fast 2→6 transition must not be misread as a failure).
           const acceptedSet = new Set(
             [...merged.entries()]
-              .filter(([, status]) => status === 2)
+              .filter(([, status]) => OWN_ACCEPTED_STATUSES.has(status))
               .map(([requestId]) => requestId)
           );
           verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
@@ -549,6 +669,7 @@ async function acceptAutoAcceptMatch(
       for (const requestId of verifiedFailedIds) {
         releaseAutoAcceptRequest(bookingId, requestId);
       }
+      options.needBudget?.release(entry.ruleId, claimToken, verifiedFailedIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds: verifiedFailedIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds: verifiedFailedIds, error: result.error || "Unknown error" });
       historyWrites.push(() => insertAutoAcceptHistory({
@@ -571,6 +692,7 @@ async function acceptAutoAcceptMatch(
       for (const requestId of requestIds) {
         releaseAutoAcceptRequest(bookingId, requestId);
       }
+      options.needBudget?.release(entry.ruleId, claimToken, requestIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
       historyWrites.push(() => insertAutoAcceptHistory({
@@ -589,9 +711,14 @@ async function acceptAutoAcceptMatch(
       // Verification could not run (transient double fetch failure or fetch
       // threw). Defer: release the claimed request keys so a later poll can
       // retry, but do NOT assert failure or fire the false-failure alert.
+      // The budget claim is deliberately NOT released: the accept may have
+      // committed server-side (the request would leave the pending tab and
+      // never be reconciled), so holding the slot until the claim TTL biases
+      // toward under-accepting instead of overshooting the operator's quota.
       for (const requestId of requestIds) {
         releaseAutoAcceptRequest(bookingId, requestId);
       }
+      deferredRequests += requestIds.length;
       logger.warn("auto-accept-deferred-unverified", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
     }
   }
@@ -600,8 +727,10 @@ async function acceptAutoAcceptMatch(
     autoAcceptMatches: [match],
     accepted,
     failed,
+    deferredRequests,
     acceptedProgress,
     historyWrites,
+    claimToken,
   };
 }
 
@@ -624,7 +753,7 @@ export async function acceptAndNotifyMatchedRules(
   const autoAcceptMatches = ruleResults.flatMap((result) => result.autoAcceptMatches);
 
   if (autoAcceptMatches.length === 0) {
-    return { autoAcceptMatches: [], accepted: [], failed: [], notified: false };
+    return { autoAcceptMatches: [], accepted: [], failed: [], deferredRequests: 0, notified: false };
   }
 
   logger.info("auto-accept-matched", {
@@ -634,6 +763,7 @@ export async function acceptAndNotifyMatchedRules(
 
   const accepted = ruleResults.flatMap((result) => result.accepted);
   const failed = ruleResults.flatMap((result) => result.failed);
+  const deferredRequests = ruleResults.reduce((sum, result) => sum + result.deferredRequests, 0);
   const acceptedProgress = ruleResults.flatMap((result) => result.acceptedProgress);
   const historyWrites = ruleResults.flatMap((result) => result.historyWrites);
 
@@ -641,7 +771,18 @@ export async function acceptAndNotifyMatchedRules(
   for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
   for (let i = 0; i < failed.length; i++) metrics.recordAutoAccept(false);
 
-  await applyAutoAcceptProgress(acceptedProgress);
+  // Settle each rule's claims the moment ITS decrement commits — a later
+  // rule's UPDATE (or the broadcast) throwing must not strand the claims of
+  // rules whose decrement already landed.
+  const tokenByRule = new Map<string, ClaimToken>();
+  for (const result of ruleResults) {
+    const match = result.autoAcceptMatches[0];
+    if (match) tokenByRule.set(match.ruleId, result.claimToken);
+  }
+  await applyAutoAcceptProgress(acceptedProgress, (ruleId, acceptedCount) => {
+    const token = tokenByRule.get(ruleId);
+    if (token !== undefined) options.needBudget?.settle(ruleId, token, acceptedCount);
+  });
 
   if (options.deferSideEffects) {
     for (const write of historyWrites) runDetached("auto-accept-history-write-failed", write());
@@ -666,10 +807,19 @@ export async function acceptAndNotifyMatchedRules(
     }
   }
 
-  // Notify about failures via LINEJS first, then LINE OA fallback.
-  if (failed.length > 0) {
+  // Notify about failures via LINEJS first, then LINE OA fallback. Throttled
+  // per booking: a request that keeps failing every retry round must not
+  // page the operator on every cycle.
+  const alertNow = Date.now();
+  for (const [bookingId, sentAt] of failureAlertLastSentByBooking) {
+    if (alertNow - sentAt >= FAILURE_ALERT_THROTTLE_MS) failureAlertLastSentByBooking.delete(bookingId);
+  }
+  const failedToAlert = failed.filter((f) => !failureAlertLastSentByBooking.has(f.bookingId));
+  for (const f of failedToAlert) failureAlertLastSentByBooking.set(f.bookingId, alertNow);
+
+  if (failedToAlert.length > 0) {
     const failGroupMid = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
-    const failLines = failed.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
+    const failLines = failedToAlert.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
     const failAlertText = [
       "⚠️ SPX Auto-Accept ล้มเหลว",
       `เวลา: ${new Date().toLocaleString("th-TH")}`,
@@ -691,7 +841,7 @@ export async function acceptAndNotifyMatchedRules(
     }
   }
 
-  return { autoAcceptMatches, accepted, failed, notified };
+  return { autoAcceptMatches, accepted, failed, deferredRequests, notified };
 }
 
 /** Send a critical alert when SPX session cookie expires */

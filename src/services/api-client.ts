@@ -271,14 +271,12 @@ function getMessage(value: unknown): string {
 }
 
 function buildHeaders(): Record<string, string> {
-  const origin = (() => {
-    try {
-      return new URL(env.REFERER).origin;
-    } catch {
-      return "https://logistics.myagencyservice.in.th";
-    }
-  })();
-
+  // 2026-06-11: the spoofed Chrome user-agent + origin added by PR #52 are
+  // deliberately REVERTED. The bot won bids daily until #52 deployed
+  // (2026-06-09 19:49 +0700) and lost every contested booking after it;
+  // a Chrome UA over a Node TLS fingerprint is a classic anti-bot signal and
+  // SPX-side treatment of that traffic is the prime suspect. Do not re-add
+  // them without A/B evidence that they are harmless.
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "th,en;q=0.9",
@@ -292,8 +290,6 @@ function buildHeaders(): Record<string, string> {
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
-    origin,
-    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     cookie: env.COOKIE,
     Referer: env.REFERER,
   };
