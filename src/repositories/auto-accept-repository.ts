@@ -72,6 +72,37 @@ export async function insertAutoAcceptHistory(record: AutoAcceptRecord): Promise
   }
 }
 
+/**
+ * "bookingId:requestId" keys of the most recent attempts (any outcome), used
+ * to seed the poller's non-pending one-shot dedupe across restarts so a
+ * deploy does not re-fire doomed accepts + failure alerts for races already
+ * recorded. Bounded by row count instead of a date filter so the query
+ * behaves identically on MySQL and memory-mode SQLite.
+ */
+export async function getRecentAutoAcceptRequestKeys(limit = 500): Promise<string[]> {
+  try {
+    await ensureDashboardTables();
+    const db = await getDb();
+    const rows = await db
+      .select({ bookingId: autoAcceptHistory.bookingId, requestIds: autoAcceptHistory.requestIds })
+      .from(autoAcceptHistory)
+      .orderBy(desc(autoAcceptHistory.id))
+      .limit(limit);
+    const keys: string[] = [];
+    for (const row of rows) {
+      let ids: number[] = [];
+      try { ids = JSON.parse(row.requestIds) as number[]; } catch { ids = []; }
+      for (const id of ids) keys.push(`${row.bookingId}:${id}`);
+    }
+    return keys;
+  } catch (err) {
+    logger.warn("auto-accept-history-keys-load-failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
 export async function getAutoAcceptHistory(query: AutoAcceptHistoryQuery) {
   const db = await getDb();
   const limit = query.limit ?? 200;
