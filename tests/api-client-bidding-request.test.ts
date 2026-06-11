@@ -162,11 +162,11 @@ async function main(): Promise<void> {
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
     ]);
     assert.equal(firstPageArrived, true, "first detail page should be observable before later pages finish");
-    // Reverted PR #52 header hardening: a spoofed Chrome UA + origin over a
-    // Node TLS fingerprint is an anti-bot signal (zero contested wins after
-    // its deploy). These must stay absent.
-    assert.equal(firstPageHeaders?.origin, undefined);
-    assert.equal(firstPageHeaders?.["user-agent"], undefined);
+    // The user-agent + origin are REQUIRED: the SGW gateway returns 403 on any
+    // request without a user-agent (proven by live A/B test 2026-06-11). These
+    // must always be present.
+    assert.equal(firstPageHeaders?.origin, "https://spx.example.test");
+    assert.match(firstPageHeaders?.["user-agent"] ?? "", /Chrome\/147\.0\.0\.0/);
 
     const completedBeforeSecondPage = await Promise.race([
       fullResult.then(() => true),
