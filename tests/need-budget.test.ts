@@ -61,8 +61,8 @@ assert.equal(budget.claim("z", 4, 10).granted, 4);
   const leaked = b.claim("u", 1, 1);
   assert.equal(leaked.granted, 1);
 
-  // The flow crashed without release/settle: after the TTL the slot returns.
-  b.beginTick(Date.now() + 121_000);
+  // The flow crashed without release/settle: after the TTL (300s) the slot returns.
+  b.beginTick(Date.now() + 301_000);
   assert.equal(b.claim("u", 1, 1).granted, 1);
 
   // The zombie flow finally finishes and releases its pruned claim — this

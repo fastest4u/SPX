@@ -156,11 +156,34 @@ async function main(): Promise<void> {
   {
     const h = buildHarness(2661500, [4], { verifyReturnsNull: true });
 
-    await h.processOne(booking(2661500));
+    const deferredClean = await h.processOne(booking(2661500));
     assert.equal(h.acceptCalls.length, 1, "first attempt fires");
+    assert.equal(deferredClean, false, "deferred-unverified outcome must dirty the round (failure backoff, not full cooldown)");
 
     await h.processOne(booking(2661500));
     assert.equal(h.acceptCalls.length, 2, "deferred-unverified attempt must retry on the next cycle");
+  }
+
+  // ── Case 3: restart seeding reads booking:request keys from auto_accept_history ──
+  {
+    const { insertAutoAcceptHistory, getRecentAutoAcceptRequestKeys } = await import(
+      "../src/repositories/auto-accept-repository.js"
+    );
+    await insertAutoAcceptHistory({
+      ruleId: "rule-seed-test",
+      ruleName: "เชียงใหม่",
+      bookingId: 2661488,
+      requestIds: [37502323, 37502245],
+      acceptedCount: 0,
+      origin: "NORC-B",
+      destination: "SOCW",
+      vehicleType: "6WH-6ล้อ[7.2m]",
+      status: "failed",
+      errorMessage: "Time-out or accept by other agency",
+    });
+    const keys = await getRecentAutoAcceptRequestKeys();
+    assert.ok(keys.includes("2661488:37502323"), "seed keys must include bookingId:requestId from history");
+    assert.ok(keys.includes("2661488:37502245"), "seed keys must include every requestId in the row");
   }
 }
 

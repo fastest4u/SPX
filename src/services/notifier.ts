@@ -221,7 +221,8 @@ const AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS = 2_500;
 // Per-booking throttle for the auto-accept failure alert: history rows and
 // metrics still record every failure, but the operator is paged at most once
 // per booking per window.
-const failureAlertLastSentByBooking = new Map<number, number>();
+/** "bookingId:sortedRequestIds" → last alert epoch ms (see throttle below). */
+const failureAlertLastSentByBooking = new Map<string, number>();
 const FAILURE_ALERT_THROTTLE_MS = 60_000;
 
 interface AutoAcceptOptions {
@@ -229,6 +230,26 @@ interface AutoAcceptOptions {
   needBudget?: NeedBudget;
   autoAcceptRules?: NotifyRule[];
 }
+
+/**
+ * request_acceptance_status values that mean the request is OURS from the
+ * poller's skip-perspective: 2 = just accepted (SPX reports 2 immediately
+ * after our accept commits), 6 = confirmed/assigned (observed in production
+ * history for our accepted bookings). The poller must never re-attempt these.
+ * NOTE: the post-accept verify deliberately counts ONLY status 2 as a
+ * verified win — whether 6 is ownership-scoped (ours-only) or global
+ * (any agency's confirmation) is unproven, and counting an unproven status
+ * as success would decrement need for a job we may not own. Skipping (not
+ * attempting) on 6 is safe either way.
+ */
+export const OWN_ACCEPTED_STATUSES = new Set<number>([2, 6]);
+
+/**
+ * Opaque handle for a batch of claims. release()/settle() are bounded to the
+ * batch behind the token, so a flow that outlives the claim TTL cannot
+ * double-credit availability or consume another flow's live claims.
+ */
+export type ClaimToken = number;
 
 /**
  * Atomic in-memory budget tracker for concurrent auto-accept.
@@ -248,22 +269,6 @@ interface AutoAcceptOptions {
  * availability until the next beginTick, because a tick already in flight
  * may hold a rules snapshot read before the commit.
  */
-/**
- * Opaque handle for a batch of claims. release()/settle() are bounded to the
- * batch behind the token, so a flow that outlives the claim TTL cannot
- * double-credit availability or consume another flow's live claims.
- */
-/**
- * request_acceptance_status values that mean the request is OURS: 2 = just
- * accepted (SPX reports 2 immediately after our accept commits), 6 =
- * confirmed/assigned (observed in production history for our accepted
- * bookings). Shared by the post-accept verify below and the poller's
- * non-pending one-shot attempt filter so the two sides cannot drift.
- */
-export const OWN_ACCEPTED_STATUSES = new Set<number>([2, 6]);
-
-export type ClaimToken = number;
-
 export class NeedBudget {
   private remaining = new Map<string, number>();
   /** ruleId → token → unresolved claim batch. */
@@ -272,8 +277,16 @@ export class NeedBudget {
   private settledSinceTick = new Map<string, number>();
   private nextToken: ClaimToken = 1;
 
-  /** Max age before an unresolved claim batch is presumed leaked (crashed flow) and dropped. */
-  private static readonly CLAIM_TTL_MS = 120_000;
+  /**
+   * Max age before an unresolved claim batch is presumed leaked (crashed
+   * flow) and dropped. Must exceed the worst-case duration of a HEALTHY
+   * accept flow, or a live flow gets pruned and its slot double-granted:
+   * accept POST (10s timeout) + ambiguous-verify delay (2.5s) + dual-tab
+   * verify where each fetch retries up to 4x15s + backoff (~67s/tab under
+   * upstream degradation) ≈ 150s+. 300s clears that with headroom while
+   * still recovering genuinely leaked slots within minutes.
+   */
+  private static readonly CLAIM_TTL_MS = 300_000;
 
   /** Start a new tick: drop settled/expired claims; availability re-seeds lazily per rule. */
   beginTick(now: number = Date.now()): void {
@@ -564,6 +577,8 @@ async function acceptAutoAcceptMatch(
           // Ambiguous delivery (abort/network): the accept may still commit
           // server-side after the client gave up — give SPX a moment before
           // reading the tabs so a late commit is not misread as failure.
+          // Deliberate tradeoff: this sleep holds the booking's bounded detail
+          // slot for 2.5s; correctness of the money path outranks slot churn.
           await new Promise((resolve) => setTimeout(resolve, AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS));
         }
         // Verify against BOTH tabs because SPX moves accepted requests out of the
@@ -589,11 +604,13 @@ async function acceptAutoAcceptMatch(
         if (pendingList || confirmedList) {
           // At least one tab fetch succeeded — verification actually ran.
           verificationRan = true;
-          // 2 = just accepted; 6 = SPX already confirmed it before this verify
-          // read (a fast 2→6 transition must not be misread as a failure).
+          // ONLY status 2 proves OUR accept landed. Status 6 is deliberately
+          // NOT counted: its ownership scope is unproven (see
+          // OWN_ACCEPTED_STATUSES), and a false win here would decrement need
+          // and notify success for a job another agency may own.
           const acceptedSet = new Set(
             [...merged.entries()]
-              .filter(([, status]) => OWN_ACCEPTED_STATUSES.has(status))
+              .filter(([, status]) => status === 2)
               .map(([requestId]) => requestId)
           );
           verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
@@ -779,10 +796,21 @@ export async function acceptAndNotifyMatchedRules(
     const match = result.autoAcceptMatches[0];
     if (match) tokenByRule.set(match.ruleId, result.claimToken);
   }
-  await applyAutoAcceptProgress(acceptedProgress, (ruleId, acceptedCount) => {
-    const token = tokenByRule.get(ruleId);
-    if (token !== undefined) options.needBudget?.settle(ruleId, token, acceptedCount);
-  });
+  try {
+    await applyAutoAcceptProgress(acceptedProgress, (ruleId, acceptedCount) => {
+      const token = tokenByRule.get(ruleId);
+      if (token !== undefined) options.needBudget?.settle(ruleId, token, acceptedCount);
+    });
+  } catch (err) {
+    // The decrement infrastructure failing (DB pool down, broadcast throw)
+    // must not abort the history writes and notifications below — trucks are
+    // already committed upstream. Unsettled claims expire via the claim TTL,
+    // biasing toward under-accepting.
+    logger.error("auto-accept-progress-failed", {
+      rules: acceptedProgress.map((p) => p.ruleId),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   if (options.deferSideEffects) {
     for (const write of historyWrites) runDetached("auto-accept-history-write-failed", write());
@@ -808,14 +836,19 @@ export async function acceptAndNotifyMatchedRules(
   }
 
   // Notify about failures via LINEJS first, then LINE OA fallback. Throttled
-  // per booking: a request that keeps failing every retry round must not
-  // page the operator on every cycle.
+  // per booking+request-set: a request that keeps failing every retry round
+  // must not page the operator on every cycle, but a DIFFERENT request set in
+  // the same booking (e.g. a lost-race probe vs a genuine pending failure)
+  // gets its own alert slot.
   const alertNow = Date.now();
-  for (const [bookingId, sentAt] of failureAlertLastSentByBooking) {
-    if (alertNow - sentAt >= FAILURE_ALERT_THROTTLE_MS) failureAlertLastSentByBooking.delete(bookingId);
+  for (const [key, sentAt] of failureAlertLastSentByBooking) {
+    if (alertNow - sentAt >= FAILURE_ALERT_THROTTLE_MS) failureAlertLastSentByBooking.delete(key);
   }
-  const failedToAlert = failed.filter((f) => !failureAlertLastSentByBooking.has(f.bookingId));
-  for (const f of failedToAlert) failureAlertLastSentByBooking.set(f.bookingId, alertNow);
+  const failureAlertKey = (f: AutoAcceptResult["failed"][number]): string =>
+    `${f.bookingId}:${[...f.requestIds].sort((a, b) => a - b).join(",")}`;
+  const failedToAlert = failed.filter((f) => !failureAlertLastSentByBooking.has(failureAlertKey(f)));
+  const alertKeys = failedToAlert.map(failureAlertKey);
+  for (const key of alertKeys) failureAlertLastSentByBooking.set(key, alertNow);
 
   if (failedToAlert.length > 0) {
     const failGroupMid = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
@@ -828,10 +861,21 @@ export async function acceptAndNotifyMatchedRules(
     ].join("\n");
 
     const sendFailAlert = async () => {
-      await sendLineJsThenOa("SPX Auto-Accept ล้มเหลว", failAlertText, {
-        lineJsTarget: failGroupMid,
-        logPrefix: "auto-accept-failure-alert",
-      });
+      // Roll the throttle slots back when no channel delivered, so a
+      // transient LINE outage cannot permanently silence a one-shot
+      // lost-race alert (the attempt itself is never re-run).
+      try {
+        const sent = await sendLineJsThenOa("SPX Auto-Accept ล้มเหลว", failAlertText, {
+          lineJsTarget: failGroupMid,
+          logPrefix: "auto-accept-failure-alert",
+        });
+        if (!sent) {
+          for (const key of alertKeys) failureAlertLastSentByBooking.delete(key);
+        }
+      } catch (err) {
+        for (const key of alertKeys) failureAlertLastSentByBooking.delete(key);
+        throw err;
+      }
     };
 
     if (options.deferSideEffects) {

@@ -277,6 +277,11 @@ function buildHeaders(): Record<string, string> {
   // a Chrome UA over a Node TLS fingerprint is a classic anti-bot signal and
   // SPX-side treatment of that traffic is the prime suspect. Do not re-add
   // them without A/B evidence that they are harmless.
+  // The sec-ch-ua / sec-fetch-* hints below PREDATE #52 and were present
+  // throughout the winning period — they are retained as the known-good
+  // baseline; only the two #52 additions are under suspicion. (The keep-alive
+  // dispatcher, #52's other half, is also retained for the same reason it was
+  // added: reused connections only remove handshakes.)
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "th,en;q=0.9",
