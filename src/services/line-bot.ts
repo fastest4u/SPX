@@ -724,28 +724,51 @@ function attachImageListener(c: LineJsClient): void {
         codexImageReader,
         "readImageWithCodex"
       );
+      const defaultPrompt = getModuleExport<typeof import("./codex-image-reader.js").DEFAULT_CODEX_IMAGE_PROMPT>(
+        codexImageReader,
+        "DEFAULT_CODEX_IMAGE_PROMPT"
+      );
+      const lineImageExtraction = await import("./line-image-extraction.js");
+      const readLineImageWithRetry = getModuleExport<typeof import("./line-image-extraction.js").readLineImageWithRetry>(
+        lineImageExtraction,
+        "readLineImageWithRetry"
+      );
+      const persistValidLineImageExtraction = getModuleExport<typeof import("./line-image-extraction.js").persistValidLineImageExtraction>(
+        lineImageExtraction,
+        "persistValidLineImageExtraction"
+      );
       const codexStartedAt = Date.now();
       logger.info("line-image-listener-codex-start", {
         to: msg.to.id,
         bytes: buffer.byteLength,
         timeoutMs,
       });
-      const text = await readImageWithCodex({
-        imagePath,
-        mimeType: "image/jpeg",
-        prompt: "", // use default 6-field prompt
-        timeoutMs,
-      });
+      // One read plus at most one feedback-guided retry when the reply fails
+      // field-format validation (misread trip number / date / route).
+      const read = await readLineImageWithRetry(
+        (promptOverride) => readImageWithCodex({
+          imagePath,
+          mimeType: "image/jpeg",
+          prompt: promptOverride ?? "", // default 6-field prompt on the first pass
+          timeoutMs,
+        }),
+        defaultPrompt,
+      );
+      const text = read.text;
+      if (read.attempts > 1) {
+        logger.info("line-image-listener-retried", {
+          to: msg.to.id,
+          attempts: read.attempts,
+          ok: read.validation.ok,
+          reason: read.validation.ok ? undefined : read.validation.reason,
+        });
+      }
       logger.info("line-image-listener-codex-finished", {
         to: msg.to.id,
         durationMs: Date.now() - codexStartedAt,
         textLength: text.length,
+        attempts: read.attempts,
       });
-      const lineImageExtraction = await import("./line-image-extraction.js");
-      const persistValidLineImageExtraction = getModuleExport<typeof import("./line-image-extraction.js").persistValidLineImageExtraction>(
-        lineImageExtraction,
-        "persistValidLineImageExtraction"
-      );
       const saved = await persistValidLineImageExtraction({
         tempImagePath: imagePath,
         chatId: msg.to.id,
