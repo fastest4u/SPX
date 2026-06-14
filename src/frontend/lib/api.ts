@@ -69,6 +69,47 @@ function isAuthExempt(url: string): boolean {
   )
 }
 
+function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    (value as { status?: unknown }).status === 'error' &&
+    typeof (value as { error_code?: unknown }).error_code === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string',
+  )
+}
+
+function buildAuthError(data: unknown): AuthError {
+  if (isApiErrorResponse(data)) {
+    return new AuthError(`${data.error_code}: ${data.message}`)
+  }
+  return new AuthError('UNAUTHORIZED: Authentication required')
+}
+
+async function handleUnauthorized<T>(
+  url: string,
+  alreadyRetried: boolean,
+  data: unknown,
+  retryOriginal: () => Promise<T>,
+): Promise<T> {
+  const exempt = isAuthExempt(url)
+
+  if (!exempt && !alreadyRetried) {
+    const refreshed = await attemptSilentRefresh()
+    if (refreshed) {
+      return retryOriginal()
+    }
+  }
+
+  if (!exempt && !isRedirectingToLogin) {
+    isRedirectingToLogin = true
+    window.location.replace('/login')
+    setTimeout(() => { isRedirectingToLogin = false }, 1000)
+  }
+
+  throw buildAuthError(data)
+}
+
 /**
  * Builds a `URLSearchParams` query string from a flat params object, skipping
  * `undefined` and empty-string values. Returns the bare query (no leading `?`).
@@ -117,28 +158,12 @@ async function fetchRaw<T>(
 
   // Global 401 handler — try one silent refresh + retry before redirecting.
   if (response.status === 401) {
-    const exempt = isAuthExempt(url)
-
-    // Attempt a single silent refresh then retry the original request once.
-    // Skip for auth-exempt endpoints and when this call was already retried,
-    // which guards against infinite refresh loops.
-    if (!exempt && !alreadyRetried) {
-      const refreshed = await attemptSilentRefresh()
-      if (refreshed) {
-        return fetchRaw<T>(url, options, true)
-      }
-    }
-
-    // Refresh failed (or was skipped) — fall back to redirecting to login.
-    // Skip redirect for auth-exempt endpoints and when already redirecting.
-    if (!exempt && !isRedirectingToLogin) {
-      isRedirectingToLogin = true
-      window.location.replace('/login')
-      setTimeout(() => { isRedirectingToLogin = false }, 1000)
-    }
-
-    const errorData = data as ApiErrorResponse
-    throw new AuthError(`${errorData.error_code}: ${errorData.message}`)
+    return handleUnauthorized<ApiSuccessResponse<T>>(
+      url,
+      alreadyRetried,
+      data,
+      () => fetchRaw<T>(url, options, true),
+    )
   }
 
   if (!response.ok || data.status === 'error') {
@@ -162,7 +187,12 @@ async function fetchPaginated<T>(url: string, options?: RequestInit): Promise<Ap
   return response as unknown as ApiPaginatedResponse<T>
 }
 
-async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): Promise<T> {
+async function fetchPlain<T>(
+  url: string,
+  options?: RequestInit,
+  retries = 3,
+  alreadyRetriedAuth = false,
+): Promise<T> {
   let lastError: unknown
   // Only retry idempotent methods. POST/PUT/DELETE could double-execute side
   // effects (e.g. /system/pause flip-flopping) so we run them once.
@@ -172,12 +202,25 @@ async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): P
 
   for (let attempt = 0; attempt < effectiveRetries; attempt += 1) {
     try {
+      const headers = new Headers(options?.headers)
+      if (options?.body && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json')
+      }
+
       const response = await fetch(url, {
         ...options,
         credentials: 'include',
-        headers: options?.headers,
+        headers,
       })
       const data = await response.json().catch(() => null) as T | ApiErrorResponse | null
+      if (response.status === 401) {
+        return handleUnauthorized<T>(
+          url,
+          alreadyRetriedAuth,
+          data,
+          () => fetchPlain<T>(url, options, retries, true),
+        )
+      }
       if (!response.ok) {
         if (isIdempotent && response.status >= 500 && attempt < effectiveRetries - 1) {
           const delayMs = 250 * 2 ** attempt
@@ -206,6 +249,7 @@ async function fetchPlain<T>(url: string, options?: RequestInit, retries = 3): P
       return data as T
     } catch (error) {
       lastError = error
+      if (error instanceof AuthError) throw error
       if (isIdempotent && attempt < effectiveRetries - 1) {
         const delayMs = 250 * 2 ** attempt
         await new Promise(resolve => setTimeout(resolve, delayMs))

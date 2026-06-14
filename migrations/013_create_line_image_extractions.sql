@@ -12,5 +12,6 @@ CREATE TABLE IF NOT EXISTS line_image_extractions (
   raw_text VARCHAR(4000) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY lie_created_at_idx (created_at),
-  KEY lie_agency_created_at_idx (agency_name, created_at)
+  KEY lie_agency_created_at_idx (agency_name, created_at),
+  KEY lie_trip_number_created_at_idx (trip_number, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { SkeletonCard } from '../components/ui/skeleton'
 import { MessageCircle, QrCode, Send, CheckCircle2, XCircle, RefreshCw, Loader2 } from 'lucide-react'
 import type { LineBotStatus } from '../types'
+import { safeBrowserUrl } from '../lib/utils'
 
 function useLineBotGroups(enabled: boolean) {
   return useQuery({
@@ -80,6 +81,9 @@ function LineBotComponent() {
   const isAuthenticated = status?.authenticated === true
   const isEnabled = status?.enabled === true
   const qrUrl = status?.qrUrl || loginMutation.data?.qrUrl
+  const safeQrUrl = safeBrowserUrl(qrUrl, {
+    allowedProtocols: ['http:', 'https:', 'line:'],
+  })
   const pincode = status?.pincode || loginMutation.data?.pincode
 
   const groupsQuery = useLineBotGroups(isAuthenticated)
@@ -159,7 +163,7 @@ function LineBotComponent() {
               </Button>
 
               {/* QR URL display */}
-              {qrUrl && (
+              {safeQrUrl && (
                 <div className="rounded-2xl border border-[#06C755]/30 bg-[#06C755]/10 p-5 space-y-3">
                   <div className="flex items-center gap-2">
                     <QrCode className="h-5 w-5 text-[#06C755]" />
@@ -169,12 +173,12 @@ function LineBotComponent() {
                   <div className="text-sm text-foreground space-y-2">
                     <p>1. เปิดลิงก์ด้านล่างใน browser มือถือ หรือสแกนด้วยแอป LINE</p>
                     <a
-                      href={qrUrl}
+                      href={safeQrUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="block break-all rounded-lg bg-white/10 px-3 py-2 text-info underline underline-offset-4 hover:text-info transition-colors"
                     >
-                      {qrUrl}
+                      {safeQrUrl}
                     </a>
                   </div>
 

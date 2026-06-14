@@ -5,6 +5,7 @@ import {
   parseLineImageExtraction,
   readLineImageWithRetry,
   shouldRetryLineImageValidation,
+  storedLineImageExtensionForPath,
   validateLineImageExtraction,
 } from "../src/services/line-image-extraction.js";
 import { DEFAULT_CODEX_IMAGE_PROMPT } from "../src/services/codex-image-reader.js";
@@ -129,6 +130,10 @@ if (!twoBadValidation.ok) {
 // ── The canonical example shipped inside the prompt must itself validate ──
 assert.equal(validateLineImageExtraction(LINE_IMAGE_EXAMPLE_OUTPUT).ok, true);
 assert.equal(DEFAULT_CODEX_IMAGE_PROMPT.includes(LINE_IMAGE_EXAMPLE_OUTPUT), true);
+assert.equal(storedLineImageExtensionForPath("upload.png"), ".png");
+assert.equal(storedLineImageExtensionForPath("upload.webp"), ".webp");
+assert.equal(storedLineImageExtensionForPath("upload.jpeg"), ".jpg");
+assert.equal(storedLineImageExtensionForPath("upload"), ".jpg");
 
 // ── Retry gating: format/unclear failures retry, business rejections do not ──
 assert.equal(shouldRetryLineImageValidation(validateLineImageExtraction(textWithBadTrip)), true);

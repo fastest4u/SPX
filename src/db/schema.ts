@@ -29,6 +29,7 @@ export const users = mysqlTable("users", {
   username: varchar("username", { length: 50 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   role: varchar("role", { length: 20 }).notNull().default("viewer"),
+  authVersion: int("auth_version").notNull().default(0),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -124,6 +125,7 @@ export const lineImageExtractions = mysqlTable("line_image_extractions", {
 }, (table) => ({
   createdAtIdx: index("lie_created_at_idx").on(table.createdAt),
   agencyCreatedAtIdx: index("lie_agency_created_at_idx").on(table.agencyName, table.createdAt),
+  tripNumberCreatedAtIdx: index("lie_trip_number_created_at_idx").on(table.tripNumber, table.createdAt),
 }));
 
 export const appSettings = mysqlTable("app_settings", {

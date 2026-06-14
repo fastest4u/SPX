@@ -24,6 +24,17 @@ export async function getUserByUsername(username: string) {
   return user;
 }
 
+export async function getUserAuthStateById(id: number): Promise<{ id: number; username: string; role: UserRole; authVersion: number } | null> {
+  const db = await getDb();
+  const [user] = await db
+    .select({ id: users.id, username: users.username, role: users.role, authVersion: users.authVersion })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  if (!user) return null;
+  return { ...user, role: user.role === "admin" ? "admin" : "user" };
+}
+
 export async function createAdminUserIfNotExists(username: string, password: string, role: UserRole = "admin") {
   if (!username || !password) {
     throw new Error("createAdminUserIfNotExists requires explicit username and password");
@@ -58,18 +69,27 @@ export async function createUser(username: string, passwordPlain: string, role: 
   await db.insert(users).values({ username, passwordHash, role, createdAt: sql`CURRENT_TIMESTAMP` });
 }
 
-export async function updateUserPassword(id: number, newPasswordPlain: string) {
+export async function updateUserPassword(id: number, newPasswordPlain: string): Promise<boolean> {
   const db = await getDb();
   const passwordHash = await hashPassword(newPasswordPlain);
-  await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+  const current = await getUserAuthStateById(id);
+  if (!current) return false;
+  await db.update(users).set({ passwordHash, authVersion: current.authVersion + 1 }).where(eq(users.id, id));
+  return true;
 }
 
-export async function updateUserRole(id: number, role: UserRole) {
+export async function updateUserRole(id: number, role: UserRole): Promise<boolean> {
   const db = await getDb();
-  await db.update(users).set({ role }).where(eq(users.id, id));
+  const current = await getUserAuthStateById(id);
+  if (!current) return false;
+  await db.update(users).set({ role, authVersion: current.authVersion + 1 }).where(eq(users.id, id));
+  return true;
 }
 
-export async function deleteUser(id: number) {
+export async function deleteUser(id: number): Promise<boolean> {
   const db = await getDb();
+  const current = await getUserAuthStateById(id);
+  if (!current) return false;
   await db.delete(users).where(eq(users.id, id));
+  return true;
 }

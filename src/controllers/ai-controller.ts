@@ -183,8 +183,8 @@ export const aiController: FastifyPluginAsync = async (app) => {
 
       return sendSuccess<ReadImageResponse>(reply, { text, model: model.trim() || null }, "Image read successfully");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to read image with Codex.";
-      return sendError(reply, 502, "CODEX_IMAGE_READ_FAILED", message);
+      app.log.warn({ error: error instanceof Error ? error.message : String(error) }, "codex-image-read-failed");
+      return sendError(reply, 502, "CODEX_IMAGE_READ_FAILED", "Image reading failed. Please try again.");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

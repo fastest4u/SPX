@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { QrCode, CheckCircle2, XCircle, Loader2, Send } from 'lucide-react'
 import type { LineBotStatus } from '../types'
 import { QRCodeSVG } from 'qrcode.react'
+import { safeBrowserUrl } from '../lib/utils'
 
 interface Props {
   formData: Record<string, string>
@@ -60,6 +61,9 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
   })
 
   const qrUrl = loginMut.data?.qrUrl || status?.qrUrl
+  const safeQrUrl = safeBrowserUrl(qrUrl, {
+    allowedProtocols: ['http:', 'https:', 'line:'],
+  })
   const pincode = loginMut.data?.pincode || status?.pincode
   const chats = groupsQuery.data?.chats ?? []
   const maskedPrefix = '********'
@@ -241,11 +245,11 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
             {loginMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <QrCode className="h-4 w-4 mr-2" />}
             {loginMut.isPending ? 'กำลังสร้าง QR Code...' : 'Login ด้วย QR Code'}
           </Button>
-          {qrUrl && (
+          {safeQrUrl && (
             <div className="flex flex-col items-center gap-4 rounded-2xl border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] p-5 text-center">
               <span className="font-medium text-foreground">สแกน QR Code เพื่อ Login</span>
-              <div className="bg-white p-4 rounded-xl shadow-lg"><QRCodeSVG value={qrUrl} size={200} level="H" includeMargin /></div>
-              <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={qrUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">{qrUrl}</a>)</p>
+              <div className="bg-white p-4 rounded-xl shadow-lg"><QRCodeSVG value={safeQrUrl} size={200} level="H" includeMargin /></div>
+              <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={safeQrUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">{safeQrUrl}</a>)</p>
               {pincode && (
                 <div className="text-sm text-foreground w-full pt-2 border-t border-white/10">
                   <p>กรอก PIN ในแอป LINE:</p>

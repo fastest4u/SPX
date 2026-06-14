@@ -2,9 +2,10 @@ import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 import { getUserByUsername, verifyPassword } from "../repositories/user-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
-import { revokeJti, isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
+import { revokeJti } from "../repositories/jwt-blacklist-repository.js";
 import { env } from "../config/env.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { isAuthTokenPayload, resolveAuthUserFromJwtPayload } from "../services/auth-session.js";
 
 interface LoginBody {
   username: string;
@@ -28,14 +29,9 @@ interface AuthTokenPayload {
   id: number;
   role: string;
   jti: string;
+  authVersion?: number;
   iat?: number;
   exp?: number;
-}
-
-function isAuthTokenPayload(value: unknown): value is AuthTokenPayload {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.username === "string" && typeof v.id === "number" && typeof v.role === "string";
 }
 
 function setAuthCookie(reply: { setCookie: (name: string, value: string, options: object) => void }, token: string): void {
@@ -60,7 +56,7 @@ export const authController: FastifyPluginAsync = async (app) => {
 
     const jti = randomUUID();
     const token = await reply.jwtSign(
-      { username: user.username, id: user.id, role: user.role, jti },
+      { username: user.username, id: user.id, role: user.role, authVersion: user.authVersion ?? 0, jti },
       { expiresIn: `${TOKEN_TTL_SECONDS}s` },
     );
 
@@ -99,24 +95,17 @@ export const authController: FastifyPluginAsync = async (app) => {
   app.post("/refresh", async (req, reply) => {
     try {
       const decoded = await req.jwtVerify({ onlyCookie: true });
-      if (!isAuthTokenPayload(decoded)) {
-        return sendError(reply, 401, "TOKEN_INVALID", "Invalid token");
-      }
-
-      // Reject refresh attempts that present a revoked jti — otherwise a leaked
-      // post-logout token could refresh itself indefinitely.
-      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
-        return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
-      }
+      const currentUser = await resolveAuthUserFromJwtPayload(decoded);
+      const tokenPayload = decoded as AuthTokenPayload;
 
       // Revoke the old jti so the previous token can't be reused.
-      if (decoded.jti && typeof decoded.exp === "number") {
-        await revokeJti(decoded.jti, decoded.exp * 1000);
+      if (tokenPayload.jti && typeof tokenPayload.exp === "number") {
+        await revokeJti(tokenPayload.jti, tokenPayload.exp * 1000);
       }
 
       const newJti = randomUUID();
       const token = await reply.jwtSign(
-        { username: decoded.username, id: decoded.id, role: decoded.role, jti: newJti },
+        { username: currentUser.username, id: currentUser.id, role: currentUser.role, authVersion: tokenPayload.authVersion ?? 0, jti: newJti },
         { expiresIn: `${TOKEN_TTL_SECONDS}s` },
       );
       setAuthCookie(reply, token);
@@ -130,14 +119,12 @@ export const authController: FastifyPluginAsync = async (app) => {
   app.get("/me", async (req, reply) => {
     try {
       const decoded = await req.jwtVerify({ onlyCookie: true });
-      if (!isAuthTokenPayload(decoded)) {
-        return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
-      }
-      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+      const currentUser = await resolveAuthUserFromJwtPayload(decoded);
+      return sendSuccess(reply, { id: currentUser.id, username: currentUser.username, role: currentUser.role });
+    } catch (error) {
+      if (error instanceof Error && "errorCode" in error && (error as { errorCode?: string }).errorCode === "TOKEN_REVOKED") {
         return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
       }
-      return sendSuccess(reply, { id: decoded.id, username: decoded.username, role: decoded.role });
-    } catch {
       return sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     }
   });

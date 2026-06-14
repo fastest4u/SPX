@@ -9,7 +9,7 @@ import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { PageHeader } from '../components/ui/page-header'
 import { SkeletonTable } from '../components/ui/skeleton'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime, safeBrowserUrl } from '../lib/utils'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { LineImageExtraction, LineImageExtractionQuery } from '../types'
 
@@ -292,10 +292,22 @@ function FilterInput({ label, value, placeholder, onChange, onPageReset }: { lab
 }
 
 function ImagePreview({ item }: { item: LineImageExtraction }) {
+  const imageUrl = safeBrowserUrl(item.imageUrl)
+  if (!imageUrl) {
+    return (
+      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black/20">
+          <ImageIcon className="h-4 w-4" />
+        </span>
+        <span className="hidden lg:inline">Unavailable</span>
+      </span>
+    )
+  }
+
   return (
-    <a href={item.imageUrl} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2">
+    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2">
       <span className="flex h-12 w-12 overflow-hidden rounded-lg border border-white/10 bg-black/20">
-        <img src={item.imageUrl} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
+        <img src={imageUrl} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
       </span>
       <span className="hidden text-xs text-muted-foreground group-hover:text-info lg:inline">Open</span>
     </a>

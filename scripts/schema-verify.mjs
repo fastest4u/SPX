@@ -47,6 +47,7 @@ const EXPECTED_SCHEMA = {
       username: { type: "varchar(50)", nullable: false },
       password_hash: { type: "varchar(255)", nullable: false },
       role: { type: "varchar(20)", nullable: false, defaultIncludes: "viewer" },
+      auth_version: { type: "int", nullable: false, defaultIncludes: "0" },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
     },
     indexes: [
@@ -146,6 +147,28 @@ const EXPECTED_SCHEMA = {
       { name: "lbs_session_key_idx", unique: true, columns: ["session_key"] },
     ],
   },
+  line_image_extractions: {
+    columns: {
+      id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      chat_id: { type: "varchar(255)", nullable: false },
+      sender_id: { type: "varchar(255)", nullable: false },
+      image_path: { type: "varchar(1000)", nullable: false },
+      date_text: { type: "varchar(100)", nullable: false },
+      trip_number: { type: "varchar(100)", nullable: false, defaultIncludes: "" },
+      driver_name: { type: "varchar(500)", nullable: false },
+      agency_name: { type: "varchar(100)", nullable: false },
+      vehicle_type: { type: "varchar(100)", nullable: false },
+      route: { type: "varchar(255)", nullable: false },
+      raw_text: { type: "varchar(4000)", nullable: false },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "lie_created_at_idx", unique: false, columns: ["created_at"] },
+      { name: "lie_agency_created_at_idx", unique: false, columns: ["agency_name", "created_at"] },
+      { name: "lie_trip_number_created_at_idx", unique: false, columns: ["trip_number", "created_at"] },
+    ],
+  },
   app_settings: {
     columns: {
       setting_key: { type: "varchar(100)", nullable: false },
@@ -168,7 +191,32 @@ const EXPECTED_SCHEMA = {
       { name: "schema_migrations_name_idx", unique: true, columns: ["name"] },
     ],
   },
+  jwt_blacklist: {
+    columns: {
+      jti: { type: "varchar(64)", nullable: false },
+      revoked_at: { type: "bigint", nullable: false },
+      expires_at: { type: "bigint", nullable: false },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["jti"] },
+      { name: "jwt_blacklist_expires_idx", unique: false, columns: ["expires_at"] },
+    ],
+  },
 };
+
+const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_"];
+const APP_TABLE_NAMES = new Set([
+  "users",
+  "audit_logs",
+  "notify_rules",
+  "app_settings",
+  "schema_migrations",
+  "jwt_blacklist",
+]);
+
+function isAppOwnedTable(tableName) {
+  return APP_TABLE_NAMES.has(tableName) || APP_TABLE_PREFIXES.some((prefix) => tableName.startsWith(prefix));
+}
 
 function loadDotEnv() {
   const envFilePath = resolve(ROOT, ".env");
@@ -300,17 +348,17 @@ async function main() {
   const connection = await mysql.createConnection(dbConfig);
 
   try {
-    const [tableRows] = await connection.execute(
+    const [allTableRows] = await connection.execute(
       `SELECT
          table_name AS table_name,
          engine AS engine,
          table_collation AS table_collation
        FROM information_schema.tables
-       WHERE table_schema = ?
-         AND table_name IN (${expectedTables.map(() => "?").join(",")})
-       ORDER BY table_name`,
-      [dbConfig.database, ...expectedTables],
+        WHERE table_schema = ?
+        ORDER BY table_name`,
+      [dbConfig.database],
     );
+    const tableRows = allTableRows.filter((row) => expectedTables.includes(row.table_name));
 
     const [columnRows] = await connection.execute(
       `SELECT
@@ -364,8 +412,9 @@ async function main() {
       indexesEqual(groupIndexes(indexesByTable.get(tableName) ?? []), expected.indexes, tableName, problems);
     }
 
-    const observedExtraTables = tableRows
+    const observedExtraTables = allTableRows
       .map((row) => row.table_name)
+      .filter((name) => isAppOwnedTable(name))
       .filter((name) => !EXPECTED_SCHEMA[name]);
 
     console.log("");

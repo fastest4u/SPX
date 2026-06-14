@@ -230,6 +230,7 @@ async function createDashboardTables(): Promise<void> {
       username VARCHAR(50) NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
       role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+      auth_version INT NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
@@ -237,6 +238,11 @@ async function createDashboardTables(): Promise<void> {
   const [roleColumnRows] = await pool!.query("SHOW COLUMNS FROM users LIKE 'role'");
   if ((roleColumnRows as unknown[]).length === 0) {
     await pool!.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer' AFTER password_hash");
+  }
+
+  const [authVersionColumnRows] = await pool!.query("SHOW COLUMNS FROM users LIKE 'auth_version'");
+  if ((authVersionColumnRows as unknown[]).length === 0) {
+    await pool!.query("ALTER TABLE users ADD COLUMN auth_version INT NOT NULL DEFAULT 0 AFTER role");
   }
 
   await pool!.query(`
@@ -319,7 +325,8 @@ async function createDashboardTables(): Promise<void> {
       raw_text VARCHAR(4000) NOT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY lie_created_at_idx (created_at),
-      KEY lie_agency_created_at_idx (agency_name, created_at)
+      KEY lie_agency_created_at_idx (agency_name, created_at),
+      KEY lie_trip_number_created_at_idx (trip_number, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
 
@@ -327,6 +334,7 @@ async function createDashboardTables(): Promise<void> {
   if ((tripNumberColumnRows as unknown[]).length === 0) {
     await pool.query("ALTER TABLE line_image_extractions ADD COLUMN trip_number VARCHAR(100) NOT NULL DEFAULT '' AFTER date_text");
   }
+  await ensureMysqlIndex(pool, "line_image_extractions", "lie_trip_number_created_at_idx", "ALTER TABLE line_image_extractions ADD INDEX lie_trip_number_created_at_idx (trip_number, created_at)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS app_settings (

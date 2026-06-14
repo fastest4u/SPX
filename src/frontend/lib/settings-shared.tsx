@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { aiApi, settingsApi } from '../lib/api'
+import { safeBrowserUrl } from '../lib/utils'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -553,8 +554,9 @@ function CodexAuthSection() {
     const startCodexAuth = useMutation({
         mutationFn: aiApi.codexAuthStart,
         onSuccess: (data) => {
-            const targetUrl =
+            const targetUrl = safeBrowserUrl(
                 data.authorizationUrl || data.verificationUriComplete || data.verificationUri
+            )
             if (targetUrl) window.open(targetUrl, '_blank', 'noopener,noreferrer')
             toast.success(data.mode === 'device' ? 'เริ่ม device-code login' : 'เริ่ม browser login')
             setIsDialogOpen(true)
@@ -586,6 +588,9 @@ function CodexAuthSection() {
 
     const isAuthenticated = Boolean(codexStatus.data?.authenticated)
     const isPending = Boolean(codexStatus.data?.hasPendingDeviceCode || codexStatus.data?.hasPendingFlow)
+    const verificationUrl = safeBrowserUrl(
+        codexStatus.data?.verificationUriComplete || codexStatus.data?.verificationUri
+    )
 
     React.useEffect(() => {
         if (isAuthenticated) {
@@ -792,14 +797,16 @@ function CodexAuthSection() {
                                         </div>
 
                                         <div className="space-y-2.5">
-                                            <a
-                                                href={codexStatus.data.verificationUriComplete || codexStatus.data.verificationUri}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-colors shadow-sm"
-                                            >
-                                                เปิดหน้า verification เพื่อกรอกรหัส →
-                                            </a>
+                                            {verificationUrl ? (
+                                                <a
+                                                    href={verificationUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-colors shadow-sm"
+                                                >
+                                                    เปิดหน้า verification เพื่อกรอกรหัส →
+                                                </a>
+                                            ) : null}
                                             <p className="inline-flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
                                                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
                                                 ระบบจะตรวจจับและเชื่อมต่ออัตโนมัติเมื่อกดยืนยันสำเร็จ

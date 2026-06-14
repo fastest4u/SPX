@@ -82,6 +82,7 @@ function initSchema(db: Database.Database): void {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
+      auth_version INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -182,6 +183,7 @@ function initSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS lie_created_at_idx ON line_image_extractions(created_at);
     CREATE INDEX IF NOT EXISTS lie_agency_created_at_idx ON line_image_extractions(agency_name, created_at);
+    CREATE INDEX IF NOT EXISTS lie_trip_number_created_at_idx ON line_image_extractions(trip_number, created_at);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       setting_key TEXT NOT NULL PRIMARY KEY,

@@ -1,3 +1,5 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { saveBookingRequests } from "./db-service.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { logger } from "../utils/logger.js";
@@ -23,9 +25,13 @@ export type BookingHistorySaveQueueOptions = {
   onLatency?: (latencyMs: number, trips: ExtractedTripInfo[]) => void;
   onDrop?: (trips: ExtractedTripInfo[], reason: "overflow") => void;
   maxPendingTrips?: number;
+  maxBatchSize?: number;
+  deadLetterPath?: string | null;
 };
 
 const defaultMaxPendingTrips = 50_000;
+const defaultMaxBatchSize = 500;
+const defaultDeadLetterPath = resolve(process.cwd(), "data", "booking-history-dead-letter.jsonl");
 
 export class BookingHistorySaveQueue {
   private readonly save: (trips: ExtractedTripInfo[]) => Promise<BookingHistorySaveResult>;
@@ -34,6 +40,8 @@ export class BookingHistorySaveQueue {
   private readonly onLatency?: (latencyMs: number, trips: ExtractedTripInfo[]) => void;
   private readonly onDrop?: (trips: ExtractedTripInfo[], reason: "overflow") => void;
   private readonly maxPendingTrips: number;
+  private readonly maxBatchSize: number;
+  private readonly deadLetterPath: string | null;
   private pendingTrips = new Map<number, ExtractedTripInfo>();
   private activeRequestIds = new Set<number>();
   private activeDrain: Promise<void> | null = null;
@@ -45,6 +53,8 @@ export class BookingHistorySaveQueue {
     this.onLatency = options.onLatency;
     this.onDrop = options.onDrop;
     this.maxPendingTrips = Math.max(1, options.maxPendingTrips ?? defaultMaxPendingTrips);
+    this.maxBatchSize = Math.max(1, options.maxBatchSize ?? defaultMaxBatchSize);
+    this.deadLetterPath = options.deadLetterPath === undefined ? defaultDeadLetterPath : options.deadLetterPath;
   }
 
   get pendingCount(): number {
@@ -142,10 +152,30 @@ export class BookingHistorySaveQueue {
     throw lastError;
   }
 
+  private takeNextBatch(): ExtractedTripInfo[] {
+    const batch: ExtractedTripInfo[] = [];
+    for (const [requestId, trip] of this.pendingTrips) {
+      batch.push(trip);
+      this.pendingTrips.delete(requestId);
+      if (batch.length >= this.maxBatchSize) break;
+    }
+    return batch;
+  }
+
+  private async writeDeadLetter(error: unknown, batch: ExtractedTripInfo[]): Promise<void> {
+    if (!this.deadLetterPath || batch.length === 0) return;
+    const entry = {
+      ts: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      trips: batch,
+    };
+    await mkdir(dirname(this.deadLetterPath), { recursive: true });
+    await appendFile(this.deadLetterPath, `${JSON.stringify(entry)}\n`, "utf8");
+  }
+
   private async drain(): Promise<void> {
     while (this.pendingTrips.size > 0) {
-      const batch = [...this.pendingTrips.values()];
-      this.pendingTrips.clear();
+      const batch = this.takeNextBatch();
       this.activeRequestIds = new Set(batch.map((trip) => trip.request_id));
       const startedAt = Date.now();
 
@@ -153,6 +183,11 @@ export class BookingHistorySaveQueue {
         const result = await this.saveWithRetry(batch);
         this.onResult?.(result, batch);
       } catch (error) {
+        try {
+          await this.writeDeadLetter(error, batch);
+        } catch (deadLetterError) {
+          logger.error("booking-history-dead-letter-write-failed", deadLetterError instanceof Error ? deadLetterError : new Error(String(deadLetterError)));
+        }
         this.onError?.(error, batch);
       } finally {
         for (const trip of batch) {

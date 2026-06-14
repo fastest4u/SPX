@@ -17,6 +17,10 @@ const testsDir = join(repoRoot, "tests");
  */
 
 const onlyArg = process.argv[2];
+const DEFAULT_TEST_TIMEOUT_MS = 60_000;
+const testTimeoutMs = Number.isInteger(Number(process.env.TEST_TIMEOUT_MS))
+  ? Number(process.env.TEST_TIMEOUT_MS)
+  : DEFAULT_TEST_TIMEOUT_MS;
 
 const testFiles = readdirSync(testsDir)
   .filter((name) => name.endsWith(".test.ts"))
@@ -31,17 +35,44 @@ if (testFiles.length === 0) {
 function runTest(file) {
   return new Promise((resolveRun) => {
     const startedAt = Date.now();
+    let settled = false;
+    let exited = false;
     const child = spawn(process.execPath, ["--import", "tsx", join(testsDir, file)], {
       cwd: repoRoot,
       stdio: "inherit",
       env: { ...process.env, DB_MODE: "memory" },
     });
 
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (!exited) child.kill("SIGKILL");
+      }, 2_000).unref();
+      resolveRun({
+        file,
+        ok: false,
+        code: null,
+        signal: "TIMEOUT",
+        durationMs: Date.now() - startedAt,
+        timedOut: true,
+      });
+    }, testTimeoutMs);
+    timeout.unref();
+
     child.on("exit", (code, signal) => {
+      exited = true;
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       const durationMs = Date.now() - startedAt;
       resolveRun({ file, ok: code === 0 && !signal, code, signal, durationMs });
     });
     child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       resolveRun({ file, ok: false, code: null, signal: null, durationMs: Date.now() - startedAt, error });
     });
   });
@@ -56,6 +87,9 @@ for (const file of testFiles) {
   console.log(`${result.ok ? "✓" : "✗"} ${status} ${file} (${result.durationMs}ms)`);
   if (result.error) {
     console.error(`  spawn error: ${result.error.message}`);
+  }
+  if (result.timedOut) {
+    console.error(`  timed out after ${testTimeoutMs}ms`);
   }
 }
 

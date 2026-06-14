@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  bufferLineImageBlob,
   formatLineImageListenerError,
   isLineImageReadTimeout,
 } from "../src/services/line-bot.js";
@@ -13,9 +14,41 @@ assert.equal(
   `${readFailedPrefix}: OCR timeout after 300s. Please resend/crop clearer image.`,
 );
 
-const regularError = new Error("Codex OAuth token response missing required fields");
-assert.equal(isLineImageReadTimeout(regularError), false);
-assert.equal(
-  formatLineImageListenerError(regularError, 300000),
-  `${readFailedPrefix}: Codex OAuth token response missing required fields`,
-);
+async function main(): Promise<void> {
+  const regularError = new Error("Codex OAuth token response missing required fields");
+  assert.equal(isLineImageReadTimeout(regularError), false);
+  assert.equal(
+    formatLineImageListenerError(regularError, 300000),
+    `${readFailedPrefix}: OCR failed. Please try again.`,
+  );
+
+  const pngBlob = new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])]);
+  const png = await bufferLineImageBlob(pngBlob, 1024);
+  assert.equal(png.mimeType, "image/png");
+
+  await assert.rejects(
+    () => bufferLineImageBlob(new Blob([Buffer.alloc(5)], { type: "image/jpeg" }), 4),
+    /too large/i,
+  );
+  await assert.rejects(
+    () => bufferLineImageBlob(new Blob([Buffer.from("not an image")], { type: "text/plain" }), 1024),
+    /unsupported/i,
+  );
+  await assert.rejects(
+    () => bufferLineImageBlob(new Blob([Buffer.from("not an image")], { type: "image/jpeg" }), 1024),
+    /unsupported/i,
+  );
+
+  const secretError = new Error("Provider failed: Bearer sk-test-secret code=abc123 refresh_token=rt");
+  assert.equal(
+    formatLineImageListenerError(secretError, 300000),
+    `${readFailedPrefix}: OCR failed. Please try again.`,
+  );
+
+  console.log("line-image-listener: all assertions passed");
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

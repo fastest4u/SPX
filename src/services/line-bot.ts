@@ -99,6 +99,7 @@ const LINEJS_PACKAGE = "@evex/linejs";
 const LINEJS_STORAGE_PACKAGE = "@evex/linejs/storage";
 const QR_WAIT_MS = 2500;
 const LINE_IMAGE_READ_FAILED_PREFIX = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
+const SUPPORTED_LINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 // ── Singleton state ────────────────────────────────────────────────────
 
@@ -287,11 +288,11 @@ export async function getClient(): Promise<LineJsClient> {
             currentQrUrl = url;
             qrUrlWaiter?.(url);
             qrUrlWaiter = null;
-            logger.warn("line-bot-qr-required", { qrUrl: url });
+            logger.warn("line-bot-qr-required", { qrIssued: true });
           },
           onPincodeRequest(pincode: string) {
             currentPincode = pincode;
-            logger.warn("line-bot-pincode-required", { pincode });
+            logger.warn("line-bot-pincode-required", { pinIssued: true });
           },
         },
         {
@@ -643,12 +644,69 @@ export function isLineImageReadTimeout(error: unknown): boolean {
 }
 
 export function formatLineImageListenerError(error: unknown, timeoutMs: number): string {
-  const message = error instanceof Error ? error.message : String(error);
   if (isLineImageReadTimeout(error)) {
     const timeoutSeconds = Math.ceil(timeoutMs / 1000);
     return `${LINE_IMAGE_READ_FAILED_PREFIX}: OCR timeout after ${timeoutSeconds}s. Please resend/crop clearer image.`;
   }
-  return `${LINE_IMAGE_READ_FAILED_PREFIX}: ${message}`;
+  return `${LINE_IMAGE_READ_FAILED_PREFIX}: OCR failed. Please try again.`;
+}
+
+function sniffImageMimeType(buffer: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    buffer.length >= 8
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+    && buffer[4] === 0x0d
+    && buffer[5] === 0x0a
+    && buffer[6] === 0x1a
+    && buffer[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    buffer.length >= 12
+    && buffer.subarray(0, 4).toString("ascii") === "RIFF"
+    && buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function extensionForLineImageMimeType(mimeType: string): ".jpg" | ".png" | ".webp" {
+  if (mimeType === "image/png") return ".png";
+  if (mimeType === "image/webp") return ".webp";
+  return ".jpg";
+}
+
+export async function bufferLineImageBlob(blob: Blob, maxBytes: number): Promise<{ buffer: Buffer; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
+  const declaredType = blob.type.trim().toLowerCase();
+  if (declaredType && !SUPPORTED_LINE_IMAGE_MIME_TYPES.has(declaredType)) {
+    throw new Error("Unsupported LINE image type. Supported image types are JPEG, PNG, and WebP.");
+  }
+  if (Number.isFinite(blob.size) && blob.size > maxBytes) {
+    throw new Error(`LINE image is too large. Image must be ${maxBytes} bytes or smaller.`);
+  }
+
+  const buffer = Buffer.from(await blob.arrayBuffer());
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`LINE image is too large. Image must be ${maxBytes} bytes or smaller.`);
+  }
+
+  const sniffedType = sniffImageMimeType(buffer);
+  if (!sniffedType) {
+    throw new Error("Unsupported LINE image content. Supported image types are JPEG, PNG, and WebP.");
+  }
+  if (declaredType && declaredType !== sniffedType) {
+    throw new Error("LINE image MIME type does not match its content.");
+  }
+
+  return { buffer, mimeType: sniffedType };
 }
 
 async function replyToLineImageMessage(msg: LineImageMessage, text: string): Promise<boolean> {
@@ -711,10 +769,10 @@ function attachImageListener(c: LineJsClient): void {
     });
     try {
       const blob = await msg.getData();
-      const buffer = Buffer.from(await blob.arrayBuffer());
+      const { buffer, mimeType } = await bufferLineImageBlob(blob, env.CODEX_IMAGE_MAX_BYTES);
 
       tempDir = await mkdtemp(join(tmpdir(), "spx-line-image-"));
-      const imagePath = join(tempDir, "line-upload.jpg");
+      const imagePath = join(tempDir, `line-upload${extensionForLineImageMimeType(mimeType)}`);
 
       await pipeline(Readable.from(buffer), createWriteStream(imagePath, { flags: "wx" }));
 
@@ -748,7 +806,7 @@ function attachImageListener(c: LineJsClient): void {
       const read = await readLineImageWithRetry(
         (promptOverride) => readImageWithCodex({
           imagePath,
-          mimeType: "image/jpeg",
+          mimeType,
           prompt: promptOverride ?? "", // default 6-field prompt on the first pass
           timeoutMs,
         }),

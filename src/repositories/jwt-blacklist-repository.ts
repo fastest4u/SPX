@@ -32,6 +32,21 @@ function ensurePruneTimer(): void {
 
 let mysqlPruneTimer: ReturnType<typeof setInterval> | null = null;
 const MYSQL_PRUNE_INTERVAL_MS = 5 * 60_000;
+const JWT_BLACKLIST_LOOKUP_TIMEOUT_MS = 1_500;
+
+async function withDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            operation,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`jwt blacklist lookup timed out after ${timeoutMs}ms`)), timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 async function pruneMysql(): Promise<void> {
     const pool = getPool();
@@ -87,9 +102,10 @@ export async function revokeJti(jti: string, expiresAtMs: number): Promise<void>
     const now = Date.now();
     if (expiresAtMs <= now) return;
 
+    memoryBlacklist.set(jti, { jti, revokedAt: now, expiresAt: expiresAtMs });
+    ensurePruneTimer();
+
     if (env.DB_MODE === "memory") {
-        memoryBlacklist.set(jti, { jti, revokedAt: now, expiresAt: expiresAtMs });
-        ensurePruneTimer();
         return;
     }
 
@@ -111,18 +127,23 @@ export async function revokeJti(jti: string, expiresAtMs: number): Promise<void>
 
 export async function isJtiRevoked(jti: string | undefined): Promise<boolean> {
     if (!jti) return false;
+    pruneMemory();
+    if (memoryBlacklist.has(jti)) return true;
     if (env.DB_MODE === "memory") {
-        pruneMemory();
-        return memoryBlacklist.has(jti);
+        return false;
     }
 
     try {
-        await ensureTable();
+        await withDeadline(ensureTable(), JWT_BLACKLIST_LOOKUP_TIMEOUT_MS);
         const pool = getPool();
-        if (!pool) return false;
-        const [rows] = await pool.query("SELECT 1 FROM jwt_blacklist WHERE jti = ? AND expires_at > ? LIMIT 1", [jti, Date.now()]);
+        if (!pool) return true;
+        const [rows] = await withDeadline(
+            pool.query("SELECT 1 FROM jwt_blacklist WHERE jti = ? AND expires_at > ? LIMIT 1", [jti, Date.now()]),
+            JWT_BLACKLIST_LOOKUP_TIMEOUT_MS,
+        );
         return (rows as unknown[]).length > 0;
-    } catch {
-        return false;
+    } catch (err) {
+        logger.warn("jwt-blacklist-check-failed", { error: err instanceof Error ? err.message : String(err) });
+        return true;
     }
 }
