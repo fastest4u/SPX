@@ -75,3 +75,25 @@ export function splitCsv(value: string): string[] {
     .map((item) => item.trim())
     .filter(Boolean)
 }
+
+export function safeBrowserUrl(
+  value: string | null | undefined,
+  options?: { allowedProtocols?: readonly string[] },
+): string | null {
+  const raw = value?.trim()
+  if (!raw) return null
+
+  const allowedProtocols = new Set(options?.allowedProtocols ?? ['http:', 'https:'])
+  const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+
+  try {
+    const parsed = new URL(raw, base)
+    if (!allowedProtocols.has(parsed.protocol)) return null
+    if (raw.startsWith('/') && !raw.startsWith('//')) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+    return parsed.href
+  } catch {
+    return null
+  }
+}

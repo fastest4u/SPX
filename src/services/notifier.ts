@@ -558,6 +558,7 @@ async function acceptAutoAcceptMatch(
     logger.info("auto-accept-calling", { bookingId, requestIds, ruleId: match.ruleId, ruleName: match.ruleName });
 
     const result = await apiClient.acceptBookingRequests(bookingId, requestIds);
+    const ambiguousAccept = result.httpStatus === 0;
 
     // When the SPX API returns an error, it may still have partially accepted some
     // requests in the batch (e.g. "Time-out or accept by other agency" for one request
@@ -565,6 +566,7 @@ async function acceptAutoAcceptMatch(
     // and notify based on what really happened rather than the raw retcode.
     let verifiedAcceptedIds: number[] = result.ok ? requestIds : [];
     let verifiedFailedIds: number[] = result.ok ? [] : requestIds;
+    let deferredIds: number[] = [];
     // Whether verification actually ran and produced a usable answer. When the
     // accept itself succeeded there is nothing to verify. When it failed, this
     // is only true once at least one tab fetch returns data; a transient double
@@ -573,7 +575,7 @@ async function acceptAutoAcceptMatch(
 
     if (!result.ok) {
       try {
-        if (result.httpStatus === 0) {
+        if (ambiguousAccept) {
           // Ambiguous delivery (abort/network): the accept may still commit
           // server-side after the client gave up — give SPX a moment before
           // reading the tabs so a late commit is not misread as failure.
@@ -615,11 +617,30 @@ async function acceptAutoAcceptMatch(
           );
           verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
           verifiedFailedIds = requestIds.filter((id) => !acceptedSet.has(id));
+          if (ambiguousAccept && verifiedFailedIds.length > 0) {
+            deferredIds = verifiedFailedIds;
+            verifiedFailedIds = [];
+          }
           if (verifiedAcceptedIds.length > 0) {
             logger.info("auto-accept-partial-verified", {
               bookingId,
               acceptedIds: verifiedAcceptedIds,
               failedIds: verifiedFailedIds,
+              deferredIds,
+              ruleId: entry.ruleId,
+              originalError: result.error,
+            });
+          }
+          if (ambiguousAccept && deferredIds.length > 0) {
+            // A timed-out/network-failed accept can still commit after this
+            // verify window. If we already received tab data but did not see
+            // status=2 yet, defer instead of declaring failure and releasing
+            // quota; a false failure alert is worse than holding the claim
+            // until the NeedBudget TTL.
+            if (verifiedAcceptedIds.length === 0) verificationRan = false;
+            logger.warn("auto-accept-ambiguous-unverified-deferred", {
+              bookingId,
+              requestIds: deferredIds,
               ruleId: entry.ruleId,
               originalError: result.error,
             });
@@ -654,10 +675,10 @@ async function acceptAutoAcceptMatch(
       }
     }
 
-    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, verificationRan };
+    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan };
   }));
 
-  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, verificationRan } of acceptResults) {
+  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan } of acceptResults) {
     if (verifiedAcceptedIds.length > 0) {
       const logLevel = result.ok ? "auto-accept-success" : "auto-accept-partial-success";
       logger.info(logLevel, { bookingId, requestIds: verifiedAcceptedIds, ruleId: entry.ruleId, httpStatus: result.httpStatus });
@@ -703,7 +724,15 @@ async function acceptAutoAcceptMatch(
       }));
     }
 
-    if (verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
+    if (deferredIds.length > 0) {
+      for (const requestId of deferredIds) {
+        releaseAutoAcceptRequest(bookingId, requestId);
+      }
+      deferredRequests += deferredIds.length;
+      logger.warn("auto-accept-deferred-unverified", { bookingId, requestIds: deferredIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
+    }
+
+    if (verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0 && deferredIds.length === 0) {
       // Verification actually ran and confirmed the requests are absent —
       // treat the original batch as fully failed.
       for (const requestId of requestIds) {
@@ -724,7 +753,7 @@ async function acceptAutoAcceptMatch(
         status: "failed",
         errorMessage: result.error,
       }));
-    } else if (!verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0) {
+    } else if (!verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0 && deferredIds.length === 0) {
       // Verification could not run (transient double fetch failure or fetch
       // threw). Defer: release the claimed request keys so a later poll can
       // retry, but do NOT assert failure or fire the false-failure alert.

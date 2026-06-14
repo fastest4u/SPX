@@ -6,6 +6,7 @@ import { createServer, type Server } from "node:http";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { logger } from "../utils/logger.js";
+import { decryptString, encryptString, isEncrypted } from "../utils/crypto.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE_URL = "https://auth.openai.com";
@@ -189,10 +190,17 @@ async function readStoredToken(): Promise<StoredToken | null> {
   try {
     const raw = await readFile(AUTH_PATH, "utf8");
     const token = JSON.parse(raw) as StoredToken;
-    if (!token.accessToken || !token.refreshToken || !token.accountId || !Number.isFinite(token.expiresAt)) {
+    const accessToken = decryptString(token.accessToken);
+    const refreshToken = decryptString(token.refreshToken);
+    const idToken = token.idToken ? decryptString(token.idToken) : undefined;
+    if (!accessToken || !refreshToken || !token.accountId || !Number.isFinite(token.expiresAt)) {
       return null;
     }
-    return token;
+    const usableToken = { ...token, idToken, accessToken, refreshToken };
+    if (!isEncrypted(token.accessToken) || !isEncrypted(token.refreshToken) || (token.idToken && !isEncrypted(token.idToken))) {
+      await writeStoredToken(usableToken);
+    }
+    return usableToken;
   } catch {
     return null;
   }
@@ -200,7 +208,13 @@ async function readStoredToken(): Promise<StoredToken | null> {
 
 async function writeStoredToken(token: TokenResult): Promise<void> {
   await mkdir(dirname(AUTH_PATH), { recursive: true });
-  await writeFile(AUTH_PATH, JSON.stringify({ ...token, updatedAt: new Date().toISOString() }, null, 2), {
+  await writeFile(AUTH_PATH, JSON.stringify({
+    ...token,
+    idToken: token.idToken ? encryptString(token.idToken) : undefined,
+    accessToken: encryptString(token.accessToken),
+    refreshToken: encryptString(token.refreshToken),
+    updatedAt: new Date().toISOString(),
+  }, null, 2), {
     encoding: "utf8",
     mode: 0o600,
   });

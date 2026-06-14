@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,21 +25,25 @@ async function main(): Promise<void> {
   const originalCwd = process.cwd();
   const originalFetch = globalThis.fetch;
   const originalProvider = process.env.CODEX_IMAGE_PROVIDER;
+  const originalSecretsKey = process.env.SECRETS_KEY;
   const tempDir = await mkdtemp(join(tmpdir(), "spx-codex-image-test-"));
 
   try {
     process.chdir(tempDir);
     process.env.CODEX_IMAGE_PROVIDER = "codex-device";
+    process.env.SECRETS_KEY = `codex-test-secret-${randomUUID()}`;
     await mkdir("data", { recursive: true });
     await writeFile("image.jpg", Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
     const expiresAt = Date.now() + 60 * 60_000;
+    const accessToken = fakeJwt({
+      exp: Math.floor(expiresAt / 1000),
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_test" },
+    });
+    const refreshToken = `refresh_${randomUUID()}`;
     await writeFile("data/codex-device-auth.json", JSON.stringify({
-      accessToken: fakeJwt({
-        exp: Math.floor(expiresAt / 1000),
-        "https://api.openai.com/auth": { chatgpt_account_id: "acct_test" },
-      }),
-      refreshToken: `refresh_${randomUUID()}`,
+      accessToken,
+      refreshToken,
       expiresAt,
       accountId: "acct_test",
       updatedAt: new Date().toISOString(),
@@ -113,12 +117,24 @@ async function main(): Promise<void> {
     assert.ok((capturedBody.instructions as string).trim().length > 0);
     assert.equal(capturedBody.store, false);
     assert.equal(capturedBody.stream, true);
+
+    const storedAuth = await readFile("data/codex-device-auth.json", "utf8");
+    assert.equal(storedAuth.includes(accessToken), false);
+    assert.equal(storedAuth.includes(refreshToken), false);
+    const storedAuthJson = JSON.parse(storedAuth) as { accessToken?: string; refreshToken?: string };
+    assert.equal(storedAuthJson.accessToken?.startsWith("enc:v1:"), true);
+    assert.equal(storedAuthJson.refreshToken?.startsWith("enc:v1:"), true);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalProvider === undefined) {
       delete process.env.CODEX_IMAGE_PROVIDER;
     } else {
       process.env.CODEX_IMAGE_PROVIDER = originalProvider;
+    }
+    if (originalSecretsKey === undefined) {
+      delete process.env.SECRETS_KEY;
+    } else {
+      process.env.SECRETS_KEY = originalSecretsKey;
     }
     process.chdir(originalCwd);
     await removeTempDir(tempDir);

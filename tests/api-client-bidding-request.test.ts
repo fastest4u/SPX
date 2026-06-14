@@ -182,6 +182,90 @@ async function main(): Promise<void> {
     globalThis.fetch = originalFetch;
   }
 
+  const fetchBeforeFailedExtraPage = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { pageno?: number };
+      const pageNo = body.pageno ?? 1;
+      if (pageNo === 2) {
+        return new Response(JSON.stringify({ retcode: 500, message: "page failed", data: {} }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        retcode: 0,
+        message: "",
+        data: {
+          pageno: 1,
+          count: 100,
+          total: 200,
+          request_list: [{ request_id: 1, booking_id: 123 }],
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const client = new ApiClient();
+    const partialResult = await client.fetchBookingRequestList(123);
+    assert.equal(partialResult, null, "extra request-list page failure must mark the full result incomplete");
+  } finally {
+    globalThis.fetch = fetchBeforeFailedExtraPage;
+  }
+
+  const fetchBeforeRequestListRetcode = globalThis.fetch;
+  try {
+    globalThis.fetch = async (): Promise<Response> =>
+      new Response(JSON.stringify({
+        retcode: 500,
+        message: "request-list failed",
+        data: {
+          pageno: 1,
+          count: 100,
+          total: 1,
+          request_list: [{ request_id: 1, booking_id: 123 }],
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+
+    const client = new ApiClient();
+    const retcodeResult = await client.fetchBookingRequestList(123);
+    assert.equal(retcodeResult, null, "request-list retcode!=0 must not be treated as usable detail data");
+  } finally {
+    globalThis.fetch = fetchBeforeRequestListRetcode;
+  }
+
+  const fetchBeforeFailedBiddingExtraPage = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { pageno?: number };
+      const pageNo = body.pageno ?? 1;
+      if (pageNo === 2) {
+        return new Response(JSON.stringify({ retcode: 500, message: "page failed", data: { list: [] } }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        retcode: 0,
+        message: "",
+        data: {
+          pageno: 1,
+          count: 100,
+          total: 200,
+          list: [{ booking_id: 123 }],
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const client = new ApiClient();
+    const pollResult = await client.fetch(2);
+    assert.equal(pollResult.success, false);
+    if (!pollResult.success) {
+      assert.match(pollResult.error ?? "", /Incomplete bidding list/);
+    }
+  } finally {
+    globalThis.fetch = fetchBeforeFailedBiddingExtraPage;
+  }
+
   // Session expiry signaled as HTTP 200 + body retcode must surface the
   // retcode on the failure result so the poller's classifier reaches
   // session_expired (alert + dashboard banner path) instead of "unknown".

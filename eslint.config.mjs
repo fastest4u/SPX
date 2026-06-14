@@ -27,6 +27,7 @@ export default tseslint.config(
       "test-api.js",
       "test-api.ts",
       "poll-bidding.js",
+      "scratch/**",
     ],
   },
   js.configs.recommended,

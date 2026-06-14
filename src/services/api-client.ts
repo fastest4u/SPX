@@ -430,6 +430,16 @@ export class ApiClient {
       }
 
       const allPagesResponse = await this.fetchRemainingBiddingListPages(apiResponse);
+      if (!allPagesResponse) {
+        return {
+          success: false,
+          latencyMs: Date.now() - startTime,
+          httpStatus: response.status,
+          error: "Incomplete bidding list response: one or more extra pages failed",
+          timestamp: new Date(),
+          requestNumber,
+        };
+      }
 
       return {
         success: true,
@@ -464,7 +474,7 @@ export class ApiClient {
     }, `bidding-list:${pageNo}`, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs));
   }
 
-  private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse> {
+  private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse | null> {
     const firstList = firstPage.data.list;
     const total = safeTotal(firstPage.data.total);
     if (firstList.length >= total) {
@@ -516,6 +526,10 @@ export class ApiClient {
             logger.warn("bidding-list-page-unexpected-shape", { pageNo });
             return null;
           }
+          if (page.retcode !== 0) {
+            logger.warn("bidding-list-page-retcode-failed", { pageNo, retcode: page.retcode, message: page.message });
+            return null;
+          }
 
           return page;
         } catch (err) {
@@ -527,7 +541,10 @@ export class ApiClient {
 
     const allList = [...firstList];
     for (const page of pageResults) {
-      if (!page) continue;
+      if (!page) {
+        logger.warn("bidding-list-incomplete", { total, requestedPages: pageNumbers.length });
+        return null;
+      }
       allList.push(...page.data.list);
     }
 
@@ -601,6 +618,10 @@ export class ApiClient {
         }
       );
       for (const page of pages) {
+        if (!page) {
+          logger.warn("booking-request-list-incomplete", { bookingId, total, pageSize, requestedPages: pageNumbers.length });
+          return null;
+        }
         if (page && page.data.request_list.length > 0) {
           requests.push(...page.data.request_list);
         }
@@ -718,7 +739,18 @@ export class ApiClient {
 
       if (!response.ok) return null;
       const data: unknown = await response.json();
-      return normalizeBookingRequestListResponse(data);
+      const page = normalizeBookingRequestListResponse(data);
+      if (!page) return null;
+      if (page.retcode !== 0) {
+        logger.warn("booking-request-list-retcode-failed", {
+          bookingId,
+          pageNo,
+          retcode: page.retcode,
+          message: page.message,
+        });
+        return null;
+      }
+      return page;
     } catch (err) {
       logger.warn("booking-request-list-failed", { bookingId, pageNo, error: err instanceof Error ? err.message : String(err) });
       return null;

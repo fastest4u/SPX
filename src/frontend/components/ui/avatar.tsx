@@ -1,4 +1,4 @@
-import { cn } from '../../lib/utils'
+import { cn, safeBrowserUrl } from '../../lib/utils'
 
 interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   name?: string
@@ -13,6 +13,7 @@ const sizeMap = {
 }
 
 function Avatar({ name, src, size = 'md', className, ...props }: AvatarProps) {
+  const safeSrc = safeBrowserUrl(src)
   const initials = name
     ? name
       .split(' ')
@@ -33,8 +34,8 @@ function Avatar({ name, src, size = 'md', className, ...props }: AvatarProps) {
       {...props}
       aria-label={name || 'Avatar'}
     >
-      {src ? (
-        <img src={src} alt={name} className="h-full w-full rounded-full object-cover" />
+      {safeSrc ? (
+        <img src={safeSrc} alt={name} className="h-full w-full rounded-full object-cover" />
       ) : (
         initials
       )}

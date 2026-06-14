@@ -9,10 +9,10 @@ import fastifyStatic from "@fastify/static";
 import fastifyFormbody from "@fastify/formbody";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { hasRole, type AuthUser, type UserRole, normalizeRole } from "./authz.js";
+import { hasRole, type AuthUser, type UserRole } from "./authz.js";
+import { resolveAuthUserFromJwtPayload } from "./auth-session.js";
 import { sendError } from "../utils/response.js";
 import { isAppError } from "../utils/errors.js";
-import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { resolve } from "node:path";
 
 import { authController } from "../controllers/auth-controller.js";
@@ -246,16 +246,12 @@ export async function startHttpServer(port: number): Promise<void> {
   async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
       const decoded = await req.jwtVerify({ onlyCookie: true });
-      const user = decoded as Partial<AuthUser> & { role?: unknown; jti?: unknown };
-
-      // Server-side JWT revocation check.
-      const jti = typeof user.jti === "string" ? user.jti : undefined;
-      if (jti && (await isJtiRevoked(jti))) {
-        return sendApiError(reply, 401, "Token revoked", "TOKEN_REVOKED");
+      req.user = await resolveAuthUserFromJwtPayload(decoded);
+    } catch (error) {
+      const errorCode = error instanceof Error && "errorCode" in error ? (error as { errorCode?: string }).errorCode : undefined;
+      if (errorCode === "TOKEN_REVOKED" || errorCode === "TOKEN_INVALID") {
+        return sendApiError(reply, 401, error instanceof Error ? error.message : "Unauthorized", errorCode);
       }
-
-      req.user = { ...user, role: normalizeRole(user.role) } as AuthUser;
-    } catch {
       return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
     }
   }

@@ -69,12 +69,11 @@ function parseCommaSeparated(value: string | undefined): string[] {
  *   - "true"/"false"         → trust all / trust none
  *   - an integer (e.g. "1")  → trust that many proxy hops closest to the server
  *   - a comma list of IPs/CIDRs → trust exactly those proxy addresses
- * Defaults to `true` to preserve existing behavior; production deployments
- * behind a reverse proxy should set this to the hop count or proxy CIDR so
- * clients cannot spoof their identity via a forged X-Forwarded-For header.
+ * Defaults to `false`; production deployments behind a reverse proxy should
+ * set this to the hop count or proxy CIDR after verifying the proxy path.
  */
-function parseTrustProxy(value: string | undefined): boolean | number | string[] {
-  if (value === undefined || value.trim() === "") return true;
+export function parseTrustProxy(value: string | undefined): boolean | number | string[] {
+  if (value === undefined || value.trim() === "") return false;
   const v = value.trim();
   if (v === "true") return true;
   if (v === "false") return false;

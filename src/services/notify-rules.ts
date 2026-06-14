@@ -71,6 +71,7 @@ const RULES_FILE = resolve(process.cwd(), "notify-rules.json");
 // after committing; the short TTL is only a safety net for out-of-band
 // writes (manual SQL edits, another process sharing the DB).
 const RULES_CACHE_TTL_MS = 5_000;
+const RULES_CACHE_STALE_FILL_RETRIES = 3;
 
 let rulesCache: { rules: NotifyRule[]; fromDb: boolean; expiresAt: number } | null = null;
 let rulesCacheFill: Promise<NotifyRule[]> | null = null;
@@ -88,6 +89,13 @@ function setRulesCache(rules: NotifyRule[], fromDb: boolean): void {
 function invalidateRulesCache(): void {
   rulesCacheGeneration += 1;
   rulesCache = null;
+}
+
+function getFreshRulesCache(fromDb: boolean): NotifyRule[] | null {
+  if (!rulesCache || rulesCache.fromDb !== fromDb || Date.now() >= rulesCache.expiresAt) {
+    return null;
+  }
+  return rulesCache.rules;
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────
@@ -255,6 +263,34 @@ async function readRulesDb(): Promise<NotifyRule[]> {
   return rows.map(dbRowToRule);
 }
 
+async function readRulesDbForCacheFill(): Promise<NotifyRule[]> {
+  for (let attempt = 0; attempt < RULES_CACHE_STALE_FILL_RETRIES; attempt += 1) {
+    const generationAtReadStart = rulesCacheGeneration;
+    const rules = await readRulesDb();
+
+    if (rulesCacheGeneration === generationAtReadStart) {
+      setRulesCache(rules, true);
+      return rules;
+    }
+
+    // A writer committed and refreshed while our SELECT was in flight. Return
+    // that newer cache to callers instead of handing back this stale snapshot.
+    const freshCache = getFreshRulesCache(true);
+    if (freshCache) return freshCache;
+  }
+
+  logger.warn("notify-rules-cache-fill-retried", {
+    retries: RULES_CACHE_STALE_FILL_RETRIES,
+  });
+
+  const generationAtFinalReadStart = rulesCacheGeneration;
+  const rules = await readRulesDb();
+  if (rulesCacheGeneration === generationAtFinalReadStart) {
+    setRulesCache(rules, true);
+  }
+  return rules;
+}
+
 async function broadcastAllRules(): Promise<void> {
   // Called right after a writer commit. Invalidate first so no reader serves
   // pre-commit data, then refresh — but install the SELECT result only if no
@@ -274,9 +310,8 @@ async function broadcastAllRules(): Promise<void> {
 
 export async function readRules(): Promise<NotifyRule[]> {
   const fromDb = usesDb();
-  if (rulesCache && rulesCache.fromDb === fromDb && Date.now() < rulesCache.expiresAt) {
-    return rulesCache.rules;
-  }
+  const cachedRules = getFreshRulesCache(fromDb);
+  if (cachedRules) return cachedRules;
 
   if (!fromDb) {
     const rules = readRulesFile();
@@ -287,16 +322,7 @@ export async function readRules(): Promise<NotifyRule[]> {
   // Single-flight: concurrent cache misses (poller tick + HTTP handlers)
   // share one SELECT instead of stampeding the DB.
   if (!rulesCacheFill) {
-    const generationAtFillStart = rulesCacheGeneration;
-    rulesCacheFill = readRulesDb()
-      .then((rules) => {
-        // A writer refreshed the cache while this SELECT was in flight; its
-        // data is newer than this read — don't clobber it.
-        if (rulesCacheGeneration === generationAtFillStart) {
-          setRulesCache(rules, true);
-        }
-        return rules;
-      })
+    rulesCacheFill = readRulesDbForCacheFill()
       .finally(() => {
         rulesCacheFill = null;
       });

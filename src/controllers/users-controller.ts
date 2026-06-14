@@ -105,7 +105,8 @@ export const usersController: FastifyPluginAsync = async (app) => {
     if (password.trim().length < MIN_USER_PASSWORD_LENGTH) return sendError(reply, 400, "VALIDATION_ERROR", `Password must be at least ${MIN_USER_PASSWORD_LENGTH} characters`);
 
     try {
-      await updateUserPassword(id, password);
+      const updated = await updateUserPassword(id, password);
+      if (!updated) return sendError(reply, 404, "NOT_FOUND", "User not found");
       await insertAuditLog(currentUser(req).username, "Update User", `Changed password for user ID: ${id}`);
       return sendSuccess(reply, null, "Password updated successfully");
     } catch {
@@ -121,7 +122,8 @@ export const usersController: FastifyPluginAsync = async (app) => {
     if (currentUser(req).id === id) return sendError(reply, 400, "VALIDATION_ERROR", "Cannot change your own role");
 
     try {
-      await updateUserRole(id, role);
+      const updated = await updateUserRole(id, role);
+      if (!updated) return sendError(reply, 404, "NOT_FOUND", "User not found");
       await insertAuditLog(currentUser(req).username, "Update Role", `Changed role for user ID: ${id} to ${role}`);
       return sendSuccess(reply, null, "Role updated successfully");
     } catch {
@@ -134,7 +136,8 @@ export const usersController: FastifyPluginAsync = async (app) => {
     if (!Number.isInteger(id) || id < 0) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid user id");
     if (currentUser(req).id === id) return sendError(reply, 400, "VALIDATION_ERROR", "Cannot delete yourself");
 
-    await deleteUser(id);
+    const deleted = await deleteUser(id);
+    if (!deleted) return sendError(reply, 404, "NOT_FOUND", "User not found");
     await insertAuditLog(currentUser(req).username, "Delete User", `Deleted user ID: ${id}`);
     return sendSuccess(reply, null, "User deleted successfully");
   });

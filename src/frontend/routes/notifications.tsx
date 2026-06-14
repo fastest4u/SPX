@@ -8,6 +8,7 @@ import { PageHeader } from '../components/ui/page-header'
 import { toast } from 'sonner'
 import { Bell, Send, Eye } from 'lucide-react'
 import type { NotificationPreview, NotificationTestResult } from '../types'
+import { safeBrowserUrl } from '../lib/utils'
 
 export const Route = createFileRoute('/notifications')({
   component: NotificationsComponent,
@@ -19,6 +20,10 @@ function NotificationsComponent() {
   const lineJsQrChallenge = testResult?.channels.find(
     (channel) => channel.channel === 'linejs_test' && channel.qrUrl
   )
+  const lineJsQrUrl = safeBrowserUrl(lineJsQrChallenge?.qrUrl, {
+    allowedProtocols: ['http:', 'https:', 'line:'],
+  })
+  const lineJsQrPincode = lineJsQrChallenge?.pincode
 
   const previewMutation = useMutation({
     mutationFn: notificationsApi.preview,
@@ -93,20 +98,20 @@ function NotificationsComponent() {
           {testResult ? (
             <div className="space-y-2">
               <h4 className="section-title">Test Result</h4>
-              {lineJsQrChallenge?.qrUrl ? (
+              {lineJsQrUrl ? (
                 <div className="rounded-xl border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] p-4 text-sm">
                   <div className="font-medium text-foreground">LINEJS QR Login</div>
                   <a
-                    href={lineJsQrChallenge.qrUrl}
+                    href={lineJsQrUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-2 block break-all text-info underline underline-offset-4"
                   >
-                    {lineJsQrChallenge.qrUrl}
+                    {lineJsQrUrl}
                   </a>
-                  {lineJsQrChallenge.pincode ? (
+                  {lineJsQrPincode ? (
                     <div className="mt-2 text-muted-foreground">
-                      PIN: <span className="font-data text-foreground">{lineJsQrChallenge.pincode}</span>
+                      PIN: <span className="font-data text-foreground">{lineJsQrPincode}</span>
                     </div>
                   ) : null}
                   <div className="mt-2 text-xs text-muted-foreground">
