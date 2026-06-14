@@ -82,7 +82,7 @@ export class Poller {
   private nonPendingAttemptedKeys = new Set<string>();
   /** booking_ids already logged by the list-freshness instrumentation (first sight on the bidding list). */
   private seenListBookingIds = new Set<number>();
-  /** Newly observed booking IDs keep fast-lane priority until launched or removed from the live list. */
+  /** Newly observed booking IDs keep fast-lane priority until launched or evicted by the safety cap. */
   private pendingFastLaneBookingIds = new Set<number>();
   /** False until the first list pass after startup has silently primed seenListBookingIds. */
   private listFreshnessPrimed = false;
