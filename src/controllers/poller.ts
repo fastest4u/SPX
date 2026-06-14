@@ -18,6 +18,10 @@ import {
   formatStatus,
 } from "../utils/logger.js";
 import { orderBookingsByOriginHint } from "../utils/booking-priority.js";
+import {
+  fastLaneReserveForConcurrency,
+  partitionBookingsByFastLane,
+} from "../utils/booking-fast-lane.js";
 import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
@@ -64,6 +68,9 @@ export class Poller {
   private recentlyProcessed = new Map<number, number>();
   /** Tracks how many detail-fetch tasks are currently in-flight (bounded by BOOKING_DETAIL_CONCURRENCY). */
   private detailInflight = 0;
+  /** Fast-lane tasks may use the full detail limit; recurring work cannot consume the reserved share. */
+  private fastLaneDetailInflight = 0;
+  private backgroundDetailInflight = 0;
   private historySaveQueue: BookingHistorySaveQueue;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
@@ -75,9 +82,12 @@ export class Poller {
   private nonPendingAttemptedKeys = new Set<string>();
   /** booking_ids already logged by the list-freshness instrumentation (first sight on the bidding list). */
   private seenListBookingIds = new Set<number>();
+  /** Newly observed booking IDs keep fast-lane priority until launched or evicted by the safety cap. */
+  private pendingFastLaneBookingIds = new Set<number>();
   /** False until the first list pass after startup has silently primed seenListBookingIds. */
   private listFreshnessPrimed = false;
   private static readonly SEEN_LIST_BOOKINGS_CAP = 20000;
+  private static readonly PENDING_FAST_LANE_CAP = 20000;
   /** bookingId → consecutive non-clean processing rounds; cleared on clean success. Drives the failure backoff below. */
   private detailFailureCounts = new Map<number, number>();
   private static readonly FAILURE_RETRY_BASE_MS = 1_000;
@@ -282,8 +292,8 @@ export class Poller {
   }
 
   /**
-   * Fire-and-forget: each booking launches its own independent async task, bounded only by
-   * BOOKING_DETAIL_CONCURRENCY.  No batching, no pending queue, no Head-of-Line Blocking.
+   * Fire-and-forget: each booking launches its own independent async task. Fast-lane
+   * priority is retained in a bounded ID set, without a work queue or Head-of-Line Blocking.
    */
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
@@ -336,6 +346,7 @@ export class Poller {
     // delaying the accept path right after a deploy — and every lingering
     // booking would pollute the freshness dataset with restart artifacts.
     const firstSeenNowMs = Date.now();
+    let newlyQueuedFastLane = 0;
     if (!this.listFreshnessPrimed) {
       for (const booking of sortedBookings) {
         this.seenListBookingIds.add(booking.booking_id);
@@ -346,10 +357,17 @@ export class Poller {
       for (const booking of sortedBookings) {
         if (this.seenListBookingIds.has(booking.booking_id)) continue;
         this.seenListBookingIds.add(booking.booking_id);
+        this.pendingFastLaneBookingIds.add(booking.booking_id);
+        newlyQueuedFastLane++;
         while (this.seenListBookingIds.size > Poller.SEEN_LIST_BOOKINGS_CAP) {
           const oldest = this.seenListBookingIds.values().next().value;
           if (oldest === undefined) break;
           this.seenListBookingIds.delete(oldest);
+        }
+        while (this.pendingFastLaneBookingIds.size > Poller.PENDING_FAST_LANE_CAP) {
+          const oldest = this.pendingFastLaneBookingIds.values().next().value;
+          if (oldest === undefined) break;
+          this.pendingFastLaneBookingIds.delete(oldest);
         }
         const ctimeMs = typeof booking.ctime === "number" && booking.ctime > 0 ? booking.ctime * 1000 : null;
         const mtimeMs = typeof booking.mtime === "number" && booking.mtime > 0 ? booking.mtime * 1000 : null;
@@ -364,6 +382,14 @@ export class Poller {
         });
       }
     }
+
+    // Preserve the existing origin-hint ordering inside each lane, but always
+    // schedule newly observed bookings before recurring scans.
+    const partitioned = partitionBookingsByFastLane(sortedBookings, this.pendingFastLaneBookingIds);
+    const orderedBookings = partitioned.ordered;
+    const detailConcurrency = env.BOOKING_DETAIL_CONCURRENCY;
+    const fastLaneReserve = fastLaneReserveForConcurrency(detailConcurrency);
+    const backgroundConcurrency = Math.max(1, detailConcurrency - fastLaneReserve);
 
     // Re-process cooldown: prune expired entries up front (or clear the map when
     // disabled) so it never grows unbounded.
@@ -381,8 +407,13 @@ export class Poller {
     let skippedDuplicate = 0;
     let skippedConcurrency = 0;
     let skippedCooldown = 0;
+    let fastLaneLaunched = 0;
+    let fastLaneBlocked = 0;
+    let backgroundLaunched = 0;
+    let backgroundBlocked = 0;
 
-    for (const booking of sortedBookings) {
+    for (const booking of orderedBookings) {
+      const isFastLane = this.pendingFastLaneBookingIds.has(booking.booking_id);
       // Dedup: skip bookings already being processed
       if (this.activeDetailBookingIds.has(booking.booking_id)) {
         skippedDuplicate++;
@@ -398,16 +429,29 @@ export class Poller {
           continue;
         }
       }
-      // Concurrency guard: bounded by BOOKING_DETAIL_CONCURRENCY
-      if (this.detailInflight >= env.BOOKING_DETAIL_CONCURRENCY) {
-        // Count all remaining un-iterated bookings
-        skippedConcurrency = sortedBookings.length - launched - skippedDuplicate - skippedCooldown;
-        break;
+
+      // Fast-lane work may use any free slot. Background work has its own
+      // lower ceiling so recurring scans can never occupy the reserved share.
+      const totalCapacityFull = this.detailInflight >= detailConcurrency;
+      const backgroundCapacityFull = !isFastLane && this.backgroundDetailInflight >= backgroundConcurrency;
+      if (totalCapacityFull || backgroundCapacityFull) {
+        skippedConcurrency++;
+        if (isFastLane) fastLaneBlocked++;
+        else backgroundBlocked++;
+        continue;
       }
 
       // Reserve slot immediately (synchronous)
       this.activeDetailBookingIds.add(booking.booking_id);
       this.detailInflight++;
+      if (isFastLane) {
+        this.pendingFastLaneBookingIds.delete(booking.booking_id);
+        this.fastLaneDetailInflight++;
+        fastLaneLaunched++;
+      } else {
+        this.backgroundDetailInflight++;
+        backgroundLaunched++;
+      }
       launched++;
 
       // Fire-and-forget: each booking is independent
@@ -437,8 +481,24 @@ export class Poller {
         .finally(() => {
           this.activeDetailBookingIds.delete(booking.booking_id);
           this.detailInflight--;
+          if (isFastLane) this.fastLaneDetailInflight--;
+          else this.backgroundDetailInflight--;
           this.recordDetailRuntime();
         });
+    }
+
+    if (newlyQueuedFastLane > 0 || fastLaneLaunched > 0 || fastLaneBlocked > 0) {
+      logger.info("booking-fast-lane-scheduled", {
+        newlyQueued: newlyQueuedFastLane,
+        launched: fastLaneLaunched,
+        blocked: fastLaneBlocked,
+        pending: this.pendingFastLaneBookingIds.size,
+        reserve: fastLaneReserve,
+        fastLaneInflight: this.fastLaneDetailInflight,
+        backgroundInflight: this.backgroundDetailInflight,
+        totalInflight: this.detailInflight,
+        limit: detailConcurrency,
+      });
     }
 
     if (skippedConcurrency > 0) {
@@ -448,7 +508,12 @@ export class Poller {
         skippedDuplicate,
         skippedCooldown,
         inflight: this.detailInflight,
-        limit: env.BOOKING_DETAIL_CONCURRENCY,
+        limit: detailConcurrency,
+        fastLaneLaunched,
+        fastLaneBlocked,
+        backgroundLaunched,
+        backgroundBlocked,
+        fastLaneReserve,
       });
     }
 
