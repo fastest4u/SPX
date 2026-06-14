@@ -1,6 +1,6 @@
 import { copyFile, mkdir, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, extname, relative, resolve } from "node:path";
 import { getLineImageExtractionByTripNumber, insertLineImageExtraction } from "../repositories/line-image-extraction-repository.js";
 
 export const REQUIRED_LINE_IMAGE_AGENCY = "LH-PWL";
@@ -19,6 +19,13 @@ export const LINE_IMAGE_EXAMPLE_OUTPUT = `\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48 :
 
 const UNCLEAR_TH = "\u0e44\u0e21\u0e48\u0e0a\u0e31\u0e14";
 const STORED_IMAGE_ROOT = resolve(process.cwd(), "data", "line-images");
+
+export function storedLineImageExtensionForPath(imagePath: string): ".jpg" | ".png" | ".webp" {
+  const extension = extname(imagePath).toLowerCase();
+  if (extension === ".png") return ".png";
+  if (extension === ".webp") return ".webp";
+  return ".jpg";
+}
 
 export interface ParsedLineImageExtraction {
   dateText: string;
@@ -295,7 +302,7 @@ export async function persistValidLineImageExtraction(input: {
 
   const now = new Date();
   const dateFolder = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const absoluteImagePath = resolve(STORED_IMAGE_ROOT, dateFolder, `${Date.now()}-${randomUUID()}.jpg`);
+  const absoluteImagePath = resolve(STORED_IMAGE_ROOT, dateFolder, `${Date.now()}-${randomUUID()}${storedLineImageExtensionForPath(input.tempImagePath)}`);
   await mkdir(dirname(absoluteImagePath), { recursive: true });
   await copyFile(input.tempImagePath, absoluteImagePath);
 
