@@ -30,7 +30,7 @@
 - [x] Write a failing poller scheduling test with concurrency 4. Prime four startup bookings and hold their detail promises open; assert only three background jobs launch. Add a fifth unseen booking and assert it launches immediately while the fourth old booking remains blocked.
 - [x] Run `npm test -- poller-fast-lane` and confirm the old scheduler launches all four startup bookings, causing the assertion to fail.
 - [x] Add a bounded `pendingFastLaneBookingIds` set and separate fast/background inflight counters.
-- [x] During list freshness processing, queue unseen post-startup IDs and prune pending IDs absent from the current list.
+- [x] During list freshness processing, queue unseen post-startup IDs and retain them across transient list omissions until launch or bounded FIFO eviction.
 - [x] Partition origin-ordered bookings into fast and background lanes.
 - [x] Allow fast work up to total concurrency and background work only up to `total - reserve`.
 - [x] Remove a pending ID only when its detail task launches; decrement the matching lane counter in `finally`.

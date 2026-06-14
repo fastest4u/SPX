@@ -6,7 +6,7 @@ Ensure a booking first observed after poller startup can begin its detail fetch 
 
 ## Architecture
 
-The poller keeps a bounded set of booking IDs waiting for the fast lane. The first list observed after startup only primes the seen-booking set, so old bookings are not misclassified as new. Later unseen booking IDs enter the fast-lane set and remain there until they are launched or disappear from the current bidding list.
+The poller keeps a bounded set of booking IDs waiting for the fast lane. The first list observed after startup only primes the seen-booking set, so old bookings are not misclassified as new. Later unseen booking IDs enter the fast-lane set and remain there until they are launched. A transient partial list response cannot remove their priority; the bounded set evicts the oldest entry only if it reaches its safety cap.
 
 Detail concurrency is divided logically:
 
@@ -36,7 +36,7 @@ Fast-lane bookings run before recurring bookings. Existing origin-hint ordering 
 - Preserve cross-tick `NeedBudget` and accept request deduplication.
 - Do not classify startup bookings as new.
 - Do not remove a pending fast-lane booking merely because all slots are busy; retry it on the next poll.
-- Prune pending IDs that no longer appear in the bidding list.
+- Keep pending priority across transient list omissions; bound memory with FIFO eviction.
 - Do not change Accept retry or verification behavior.
 
 ## Observability

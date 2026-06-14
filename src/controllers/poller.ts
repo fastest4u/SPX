@@ -292,8 +292,8 @@ export class Poller {
   }
 
   /**
-   * Fire-and-forget: each booking launches its own independent async task, bounded only by
-   * BOOKING_DETAIL_CONCURRENCY.  No batching, no pending queue, no Head-of-Line Blocking.
+   * Fire-and-forget: each booking launches its own independent async task. Fast-lane
+   * priority is retained in a bounded ID set, without a work queue or Head-of-Line Blocking.
    */
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
@@ -381,11 +381,6 @@ export class Poller {
           acceptanceStatus: booking.request_acceptance_status,
         });
       }
-    }
-
-    const listedBookingIds = new Set(sortedBookings.map((booking) => booking.booking_id));
-    for (const bookingId of this.pendingFastLaneBookingIds) {
-      if (!listedBookingIds.has(bookingId)) this.pendingFastLaneBookingIds.delete(bookingId);
     }
 
     // Preserve the existing origin-hint ordering inside each lane, but always

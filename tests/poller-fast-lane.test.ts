@@ -63,6 +63,22 @@ async function main(): Promise<void> {
     "a newly observed booking must launch immediately through the reserved fast-lane slot"
   );
 
+  // A second new booking is pending because all four slots are occupied.
+  await schedule([booking(1), booking(2), booking(3), booking(4), booking(5), booking(6)]);
+  assert.deepEqual(launched, [1, 2, 3, 5], "the second new booking must wait while total capacity is full");
+
+  // A partial/stale list response may omit the pending booking for one poll.
+  // That must not permanently downgrade it to background work.
+  await schedule([booking(1), booking(2), booking(3), booking(4), booking(5)]);
+  releases.get(5)?.();
+  await new Promise((resolve) => setImmediate(resolve));
+  await schedule([booking(1), booking(2), booking(3), booking(4), booking(6)]);
+  assert.deepEqual(
+    launched,
+    [1, 2, 3, 5, 6],
+    "a pending fast-lane booking must keep priority across a transient list omission"
+  );
+
   for (const release of releases.values()) release();
   await new Promise((resolve) => setImmediate(resolve));
 }
