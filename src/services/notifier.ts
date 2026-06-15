@@ -808,17 +808,19 @@ export async function acceptAndNotifyMatchedRules(
   options: AutoAcceptOptions = {}
 ): Promise<AutoAcceptResult> {
   const autoAcceptRules = options.autoAcceptRules ?? await getActiveAutoAcceptRules();
-  const ruleResults = await Promise.all(autoAcceptRules.map((rule) => {
-    const [match] = matchAutoAcceptRuleTripsWithRules(trips, [rule]);
-    if (!match) return Promise.resolve(emptyAutoAcceptRuleRunResult());
-    return acceptAutoAcceptMatch(match, apiClient, options);
-  }));
+  // Match every rule in a single pass so trips are NFKC-normalized once per
+  // call (not once per rule), then fan out the API accepts in parallel.
+  const matches = matchAutoAcceptRuleTripsWithRules(trips, autoAcceptRules);
 
-  const autoAcceptMatches = ruleResults.flatMap((result) => result.autoAcceptMatches);
-
-  if (autoAcceptMatches.length === 0) {
+  if (matches.length === 0) {
     return { autoAcceptMatches: [], accepted: [], failed: [], deferredRequests: 0, notified: false };
   }
+
+  const ruleResults = await Promise.all(
+    matches.map((match) => acceptAutoAcceptMatch(match, apiClient, options))
+  );
+
+  const autoAcceptMatches = ruleResults.flatMap((result) => result.autoAcceptMatches);
 
   logger.info("auto-accept-matched", {
     ruleCount: autoAcceptMatches.length,

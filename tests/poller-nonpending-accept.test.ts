@@ -73,7 +73,11 @@ interface Harness {
   processOne: (booking: Booking) => Promise<boolean>;
 }
 
-function buildHarness(bookingId: number, nonPendingStatuses: number[], options: { verifyReturnsNull: boolean }): Harness {
+function buildHarness(
+  bookingId: number,
+  nonPendingStatuses: number[],
+  options: { verifyReturnsNull: boolean; acceptHttpStatus?: number }
+): Harness {
   const poller = new Poller();
   const acceptCalls: Array<{ bookingId: number; requestIds: number[] }> = [];
   const needBudget = new NeedBudget();
@@ -101,7 +105,7 @@ function buildHarness(bookingId: number, nonPendingStatuses: number[], options: 
       acceptBookingRequests: async (calledBookingId: number, requestIds: number[]) => {
         acceptCalls.push({ bookingId: calledBookingId, requestIds });
         verifyFetchesRemaining = 2;
-        return { ok: false, httpStatus: 200, error: "Time-out or accept by other agency" };
+        return { ok: false, httpStatus: options.acceptHttpStatus ?? 200, error: "Time-out or accept by other agency" };
       },
     },
   });
@@ -154,7 +158,7 @@ async function main(): Promise<void> {
 
   // ── Case 2: deferred (indeterminate) verify un-consumes the one-shot key ──
   {
-    const h = buildHarness(2661500, [4], { verifyReturnsNull: true });
+    const h = buildHarness(2661500, [4], { verifyReturnsNull: true, acceptHttpStatus: 0 });
 
     const deferredClean = await h.processOne(booking(2661500));
     assert.equal(h.acceptCalls.length, 1, "first attempt fires");

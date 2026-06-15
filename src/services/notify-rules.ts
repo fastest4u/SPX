@@ -172,12 +172,84 @@ function normalize(value: unknown): string {
   return typeof value === "string" ? value.normalize("NFKC").trim().toLowerCase() : "";
 }
 
-function matchesAny(haystack: string, needles: string[]): boolean {
-  if (needles.length === 0) return true;
-  return needles.some((needle) => {
-    const normalized = normalize(needle);
-    return normalized.length > 0 && haystack.includes(normalized);
-  });
+// Pre-compiled filter. `hasFilter` preserves the original "no filter ⇒ match
+// anything" semantics off the RAW array length, while `needles` are NFKC-
+// normalized once (rule needles are constant) instead of being re-normalized on
+// every trip × rule comparison on the auto-accept hot path. hasFilter true with
+// an empty needles list (filter present but all-whitespace) ⇒ matches nothing.
+interface CompiledFilter {
+  hasFilter: boolean;
+  needles: string[];
+}
+
+interface CompiledRuleFilters {
+  origins: CompiledFilter;
+  destinations: CompiledFilter;
+  vehicleTypes: CompiledFilter;
+}
+
+interface CompiledTrip {
+  origin: string;
+  destination: string;
+  vehicleType: string;
+  trip: TripLike;
+}
+
+function compileFilter(values: string[]): CompiledFilter {
+  const needles: string[] = [];
+  for (const value of values) {
+    const normalized = normalize(value);
+    if (normalized.length > 0) needles.push(normalized);
+  }
+  return { hasFilter: values.length > 0, needles };
+}
+
+// Rule objects are immutable once cached (writers replace the array wholesale,
+// never mutate entries), so a WeakMap keyed by the rule reuses one compilation
+// across every booking/trip within a tick and is GC'd when the cache refreshes.
+const compiledRuleCache = new WeakMap<NotifyRule, CompiledRuleFilters>();
+
+function compileRuleFilters(rule: NotifyRule): CompiledRuleFilters {
+  const cached = compiledRuleCache.get(rule);
+  if (cached) return cached;
+  const compiled: CompiledRuleFilters = {
+    origins: compileFilter(rule.origins),
+    destinations: compileFilter(rule.destinations),
+    vehicleTypes: compileFilter(rule.vehicle_types),
+  };
+  compiledRuleCache.set(rule, compiled);
+  return compiled;
+}
+
+function compileTrip(trip: TripLike): CompiledTrip {
+  return {
+    origin: normalize(trip.origin ?? trip["ต้นทาง"]),
+    destination: normalize(trip.destination ?? trip["ปลายทาง"]),
+    vehicleType: normalize(trip.vehicle_type ?? trip["ประเภทรถ"]),
+    trip,
+  };
+}
+
+function matchesCompiledFilter(haystack: string, filter: CompiledFilter): boolean {
+  if (!filter.hasFilter) return true;
+  for (const needle of filter.needles) {
+    if (haystack.includes(needle)) return true;
+  }
+  return false;
+}
+
+function compiledTripMatchesRule(compiled: CompiledTrip, filters: CompiledRuleFilters): boolean {
+  return matchesCompiledFilter(compiled.origin, filters.origins)
+    && matchesCompiledFilter(compiled.destination, filters.destinations)
+    && matchesCompiledFilter(compiled.vehicleType, filters.vehicleTypes);
+}
+
+function collectRuleMatchedTrips(filters: CompiledRuleFilters, compiledTrips: CompiledTrip[]): TripLike[] {
+  const matched: TripLike[] = [];
+  for (const compiled of compiledTrips) {
+    if (compiledTripMatchesRule(compiled, filters)) matched.push(compiled.trip);
+  }
+  return matched;
 }
 
 // ── DB row converters ────────────────────────────────────────────────────
@@ -428,25 +500,20 @@ export function getAutoAcceptOriginFilters(rules: NotifyRule[]): string[] {
 }
 
 function ruleMatchesTrips(rule: NotifyRule, trips: TripLike[]): TripLike[] {
-  return trips.filter((trip) => {
-    const origin = normalize(trip.origin ?? trip["ต้นทาง"]);
-    const destination = normalize(trip.destination ?? trip["ปลายทาง"]);
-    const vehicleType = normalize(trip.vehicle_type ?? trip["ประเภทรถ"]);
-
-    return matchesAny(origin, rule.origins)
-      && matchesAny(destination, rule.destinations)
-      && matchesAny(vehicleType, rule.vehicle_types);
-  });
+  return collectRuleMatchedTrips(compileRuleFilters(rule), trips.map(compileTrip));
 }
 
 export async function matchRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]> {
   const rules = await readRules();
   const matches: RuleTripMatch[] = [];
+  // Compile trips once and reuse across every rule (normalization is the hot cost).
+  let compiledTrips: CompiledTrip[] | null = null;
 
   for (const rule of rules) {
     if (!rule.enabled || rule.fulfilled) continue;
+    if (!compiledTrips) compiledTrips = trips.map(compileTrip);
 
-    const matchedTrips = ruleMatchesTrips(rule, trips);
+    const matchedTrips = collectRuleMatchedTrips(compileRuleFilters(rule), compiledTrips);
 
     if (matchedTrips.length >= Math.max(1, rule.need)) {
       matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
@@ -477,11 +544,14 @@ export function previewRuleAgainstTrips(input: NotifyRuleInput, trips: TripLike[
 
 export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: NotifyRule[]): RuleTripMatch[] {
   const matches: RuleTripMatch[] = [];
+  // Compile trips once and reuse across every rule (normalization is the hot cost).
+  let compiledTrips: CompiledTrip[] | null = null;
 
   for (const rule of rules) {
     if (!rule.enabled || rule.fulfilled || rule.need <= 0) continue;
+    if (!compiledTrips) compiledTrips = trips.map(compileTrip);
 
-    const matchedTrips = ruleMatchesTrips(rule, trips);
+    const matchedTrips = collectRuleMatchedTrips(compileRuleFilters(rule), compiledTrips);
     if (matchedTrips.length > 0) {
       matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
     }
