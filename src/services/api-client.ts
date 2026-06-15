@@ -67,7 +67,7 @@ export function listPollTimeoutMs(intervalMs: number): number {
 
 interface BookingRequestListOptions {
   tabPendingConfirmation?: boolean;
-  onPage?: (page: BookingRequestListResponse) => void;
+  onPage?: (page: BookingRequestListResponse) => boolean | void;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -580,7 +580,10 @@ export class ApiClient {
     if (!firstPage) {
       return null;
     }
-    this.notifyBookingRequestListPage(bookingId, firstPage, options.onPage);
+    const continueFetching = this.notifyBookingRequestListPage(bookingId, firstPage, options.onPage);
+    if (!continueFetching) {
+      return firstPage;
+    }
 
     const requests = [...firstPage.data.request_list];
     const total = safeTotal(firstPage.data.total);
@@ -608,21 +611,29 @@ export class ApiClient {
     for (let p = 2; p <= totalPages; p++) pageNumbers.push(p);
 
     if (pageNumbers.length > 0) {
+      let aborted = false;
       const pages = await mapWithConcurrency(
         pageNumbers,
         REQUEST_LIST_PAGE_CONCURRENCY,
         async (p) => {
+          if (aborted) return null;
           const page = await this.fetchBookingRequestListPage(bookingId, p, tabPendingConfirmation);
-          if (page) this.notifyBookingRequestListPage(bookingId, page, options.onPage);
+          if (page) {
+            const cont = this.notifyBookingRequestListPage(bookingId, page, options.onPage);
+            if (!cont) aborted = true;
+          }
           return page;
         }
       );
       for (const page of pages) {
         if (!page) {
+          if (aborted) {
+            break;
+          }
           logger.warn("booking-request-list-incomplete", { bookingId, total, pageSize, requestedPages: pageNumbers.length });
           return null;
         }
-        if (page && page.data.request_list.length > 0) {
+        if (page.data.request_list.length > 0) {
           requests.push(...page.data.request_list);
         }
       }
@@ -641,16 +652,18 @@ export class ApiClient {
     bookingId: number,
     page: BookingRequestListResponse,
     onPage: BookingRequestListOptions["onPage"]
-  ): void {
-    if (!onPage) return;
+  ): boolean {
+    if (!onPage) return true;
     try {
-      onPage(page);
+      const res = onPage(page);
+      return res !== false;
     } catch (err) {
       logger.warn("booking-request-list-page-callback-failed", {
         bookingId,
         pageNo: page.data.pageno,
         error: err instanceof Error ? err.message : String(err),
       });
+      return true;
     }
   }
 

@@ -84,6 +84,8 @@ export class Poller {
   private seenListBookingIds = new Set<number>();
   /** Newly observed booking IDs keep fast-lane priority until launched or evicted by the safety cap. */
   private pendingFastLaneBookingIds = new Set<number>();
+  /** bookingId → last seen status/mtime from bidding list to bypass cooldown on update. */
+  private bookingLastStates = new Map<number, { mtime: number; acceptanceStatus: number; assignmentStatus: number }>();
   /** False until the first list pass after startup has silently primed seenListBookingIds. */
   private listFreshnessPrimed = false;
   private static readonly SEEN_LIST_BOOKINGS_CAP = 20000;
@@ -422,12 +424,30 @@ export class Poller {
       // Cooldown: skip bookings we recently finished, to stop re-scanning the same
       // lingering booking every tick. New bookings are never in the map, so they
       // are still processed instantly — this only suppresses redundant re-scans.
-      if (cooldownMs > 0) {
+      // Bypass cooldown if mtime, request_acceptance_status, or request_assignment_status changed.
+      const lastState = this.bookingLastStates.get(booking.booking_id);
+      const stateChanged = !lastState ||
+        lastState.mtime !== booking.mtime ||
+        lastState.acceptanceStatus !== booking.request_acceptance_status ||
+        lastState.assignmentStatus !== booking.request_assignment_status;
+
+      if (cooldownMs > 0 && !stateChanged) {
         const completedAt = this.recentlyProcessed.get(booking.booking_id);
         if (completedAt !== undefined && nowMs - completedAt < cooldownMs) {
           skippedCooldown++;
           continue;
         }
+      }
+
+      this.bookingLastStates.set(booking.booking_id, {
+        mtime: booking.mtime,
+        acceptanceStatus: booking.request_acceptance_status,
+        assignmentStatus: booking.request_assignment_status,
+      });
+      while (this.bookingLastStates.size > Poller.SEEN_LIST_BOOKINGS_CAP) {
+        const oldest = this.bookingLastStates.keys().next().value;
+        if (oldest === undefined) break;
+        this.bookingLastStates.delete(oldest);
       }
 
       // Fast-lane work may use any free slot. Background work has its own
@@ -559,7 +579,9 @@ export class Poller {
               }
               autoAcceptHandledByPage = true;
               autoAcceptTasks.push(this.runAutoAcceptForTrips(pageTrips, booking.booking_id));
+              return false; // STOP fetching more pages!
             }
+            return true;
           }
         : undefined,
     }).finally(() => {
@@ -597,9 +619,14 @@ export class Poller {
     );
 
     if (env.SAVE_TO_DB || autoAcceptEnabled) {
-      const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
-        tabPendingConfirmation: false,
-      });
+      if (autoAcceptTasks.length > 0) {
+        // Skip fetching non-pending list if we are in the middle of accepting a pending trip.
+        // This prioritizes network bandwidth/sockets for the accept POST call.
+        nonPendingFetchOk = true;
+      } else {
+        const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+          tabPendingConfirmation: false,
+        });
       if (nonPendingRequestList) {
         const nonPendingExtractedTrips = extractAllRequestListTrips(nonPendingRequestList.data, context);
         const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
@@ -688,6 +715,7 @@ export class Poller {
         nonPendingFetchOk = false;
       }
     }
+  }
 
     if (totalSkipped > 0) {
       logger.warn("booking-detail-vehicle-type-filtered", {
