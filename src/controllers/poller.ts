@@ -42,6 +42,23 @@ import { pollerControl } from "../services/poller-control.js";
  */
 const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
 
+function collectAutoAcceptMatchedTrips(
+  trips: ExtractedTripInfo[],
+  rules: NotifyRule[]
+): ExtractedTripInfo[] {
+  const byRequestId = new Map<number, ExtractedTripInfo>();
+
+  for (const match of matchAutoAcceptRuleTripsWithRules(trips, rules)) {
+    for (const trip of match.trips) {
+      if (typeof trip.request_id === "number") {
+        byRequestId.set(trip.request_id, trip as ExtractedTripInfo);
+      }
+    }
+  }
+
+  return [...byRequestId.values()];
+}
+
 export class Poller {
   private apiClient: ApiClient;
   private dataProcessor: DataProcessor;
@@ -569,17 +586,17 @@ export class Poller {
               extractAllRequestListTrips(page.data, context),
               env.BIDDING_VEHICLE_TYPE
             ).trips;
-            if (pageTrips.length > 0) {
+            const matchedPageTrips = collectAutoAcceptMatchedTrips(pageTrips, this.tickAutoAcceptRules);
+            if (matchedPageTrips.length > 0) {
               // Time-to-first-match: request-list page-1 fetch → first accept-eligible
-              // trip. This is the on-critical-path detail hop (later pages don't gate
-              // the accept thanks to this page-level fast lane).
+              // trip. Accept is scheduled immediately, while remaining pages keep
+              // flowing so later matching request_ids can be accepted too.
               if (!firstMatchRecorded) {
                 firstMatchRecorded = true;
                 metrics.recordOperation("detailToFirstMatch", Date.now() - startedAt);
               }
               autoAcceptHandledByPage = true;
-              autoAcceptTasks.push(this.runAutoAcceptForTrips(pageTrips, booking.booking_id));
-              return false; // STOP fetching more pages!
+              autoAcceptTasks.push(this.runAutoAcceptForTrips(matchedPageTrips, booking.booking_id));
             }
             return true;
           }
