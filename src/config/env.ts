@@ -131,7 +131,7 @@ export const env = {
   // they are still processed instantly — this only suppresses redundant re-scans
   // of bookings that linger in the list, which is the churn an aggressive
   // POLL_INTERVAL_MS otherwise produces (see Mistake-009). 0 disables it.
-  BOOKING_REPROCESS_COOLDOWN_MS: readIntegerEnv("BOOKING_REPROCESS_COOLDOWN_MS", 0),
+  BOOKING_REPROCESS_COOLDOWN_MS: readIntegerEnv("BOOKING_REPROCESS_COOLDOWN_MS", 10000),
   BIDDING_PAGE_NO: readIntegerEnv("BIDDING_PAGE_NO", 1),
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",

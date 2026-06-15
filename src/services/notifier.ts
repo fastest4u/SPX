@@ -410,8 +410,8 @@ function runDetached(label: string, promise: Promise<unknown>): void {
 
 function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
   const now = new Date();
-  const thaiDateShort = now.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
-  const timeStr = now.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const thaiDateShort = now.toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "short", year: "2-digit" });
+  const timeStr = now.toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", hour12: false });
 
   const item = accepted[0];
   const vehicleType = textValue(item.trip["ประเภทรถ"] ?? item.trip.vehicle_type);
@@ -574,104 +574,122 @@ async function acceptAutoAcceptMatch(
     let verificationRan = result.ok;
 
     if (!result.ok) {
-      try {
-        if (ambiguousAccept) {
-          // Ambiguous delivery (abort/network): the accept may still commit
-          // server-side after the client gave up — give SPX a moment before
-          // reading the tabs so a late commit is not misread as failure.
-          // Deliberate tradeoff: this sleep holds the booking's bounded detail
-          // slot for 2.5s; correctness of the money path outranks slot churn.
-          await new Promise((resolve) => setTimeout(resolve, AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS));
-        }
-        // Verify against BOTH tabs because SPX moves accepted requests out of the
-        // "pending confirmation" tab into the "confirmed" tab. Fetching only the
-        // pending tab (the default) misses requests we just accepted, causing
-        // the verify branch to falsely report success=0 and notify failure for
-        // the whole batch.
-        const [pendingList, confirmedList] = await Promise.all([
-          apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: true }),
-          apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: false }),
-        ]);
-        const merged = new Map<number, number>();
-        for (const list of [pendingList, confirmedList]) {
-          if (!list) continue;
-          for (const r of list.data.request_list) {
-            const prev = merged.get(r.request_id);
-            // Prefer the highest-progress status (accepted=2 wins over waiting=1)
-            if (prev === undefined || r.request_acceptance_status > prev) {
-              merged.set(r.request_id, r.request_acceptance_status);
+      // OPTIMIZATION: If there is only 1 request in the batch and we got a clear,
+      // non-ambiguous error response from the server (not a network timeout/abort),
+      // there is no possibility of partial success. We can skip the expensive
+      // verification double-fetch (2 API calls).
+      const canSkipVerify = requestIds.length === 1 && !ambiguousAccept;
+
+      if (canSkipVerify) {
+        verifiedAcceptedIds = [];
+        verifiedFailedIds = requestIds;
+        verificationRan = true;
+        logger.info("auto-accept-verify-skipped", {
+          bookingId,
+          requestId: requestIds[0],
+          reason: "single-request-clear-failure",
+          error: result.error,
+        });
+      } else {
+        try {
+          if (ambiguousAccept) {
+            // Ambiguous delivery (abort/network): the accept may still commit
+            // server-side after the client gave up — give SPX a moment before
+            // reading the tabs so a late commit is not misread as failure.
+            // Deliberate tradeoff: this sleep holds the booking's bounded detail
+            // slot for 2.5s; correctness of the money path outranks slot churn.
+            await new Promise((resolve) => setTimeout(resolve, AMBIGUOUS_ACCEPT_VERIFY_DELAY_MS));
+          }
+          // Verify against BOTH tabs because SPX moves accepted requests out of the
+          // "pending confirmation" tab into the "confirmed" tab. Fetching only the
+          // pending tab (the default) misses requests we just accepted, causing
+          // the verify branch to falsely report success=0 and notify failure for
+          // the whole batch.
+          const [pendingList, confirmedList] = await Promise.all([
+            apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: true }),
+            apiClient.fetchBookingRequestList(bookingId, { tabPendingConfirmation: false }),
+          ]);
+          const merged = new Map<number, number>();
+          for (const list of [pendingList, confirmedList]) {
+            if (!list) continue;
+            for (const r of list.data.request_list) {
+              const prev = merged.get(r.request_id);
+              // Prefer the highest-progress status (accepted=2 wins over waiting=1)
+              if (prev === undefined || r.request_acceptance_status > prev) {
+                merged.set(r.request_id, r.request_acceptance_status);
+              }
             }
           }
-        }
-        if (pendingList || confirmedList) {
-          // At least one tab fetch succeeded — verification actually ran.
-          verificationRan = true;
-          // ONLY status 2 proves OUR accept landed. Status 6 is deliberately
-          // NOT counted: its ownership scope is unproven (see
-          // OWN_ACCEPTED_STATUSES), and a false win here would decrement need
-          // and notify success for a job another agency may own.
-          const acceptedSet = new Set(
-            [...merged.entries()]
-              .filter(([, status]) => status === 2)
-              .map(([requestId]) => requestId)
-          );
-          verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
-          verifiedFailedIds = requestIds.filter((id) => !acceptedSet.has(id));
-          if (ambiguousAccept && verifiedFailedIds.length > 0) {
-            deferredIds = verifiedFailedIds;
+          if (pendingList || confirmedList) {
+            // At least one tab fetch succeeded — verification actually ran.
+            verificationRan = true;
+            // ONLY status 2 proves OUR accept landed. Status 6 is deliberately
+            // NOT counted: its ownership scope is unproven (see
+            // OWN_ACCEPTED_STATUSES), and a false win here would decrement need
+            // and notify success for a job another agency may own.
+            const acceptedSet = new Set(
+              [...merged.entries()]
+                .filter(([, status]) => status === 2)
+                .map(([requestId]) => requestId)
+            );
+            verifiedAcceptedIds = requestIds.filter((id) => acceptedSet.has(id));
+            verifiedFailedIds = requestIds.filter((id) => !acceptedSet.has(id));
+            if (ambiguousAccept && verifiedFailedIds.length > 0) {
+              deferredIds = verifiedFailedIds;
+              verifiedFailedIds = [];
+            }
+            if (verifiedAcceptedIds.length > 0) {
+              logger.info("auto-accept-partial-verified", {
+                bookingId,
+                acceptedIds: verifiedAcceptedIds,
+                failedIds: verifiedFailedIds,
+                deferredIds,
+                ruleId: entry.ruleId,
+                originalError: result.error,
+              });
+            }
+            if (ambiguousAccept && deferredIds.length > 0) {
+              // A timed-out/network-failed accept can still commit after this
+              // verify window. If we already received tab data but did not see
+              // status=2 yet, defer instead of declaring failure and releasing
+              // quota; a false failure alert is worse than holding the claim
+              // until the NeedBudget TTL.
+              if (verifiedAcceptedIds.length === 0) verificationRan = false;
+              logger.warn("auto-accept-ambiguous-unverified-deferred", {
+                bookingId,
+                requestIds: deferredIds,
+                ruleId: entry.ruleId,
+                originalError: result.error,
+              });
+            }
+          } else {
+            // Both tab fetches returned null/empty — verification could NOT run
+            // (transient double failure). This is indeterminate, NOT a confirmed
+            // failure, so defer: do not assert failure and do not fire the
+            // false-failure notification. Leave both verified lists empty and
+            // mark verification as not-run so the consumer skips the batch.
+            verificationRan = false;
+            logger.warn("auto-accept-verify-indeterminate", {
+              bookingId,
+              requestIds,
+              ruleId: entry.ruleId,
+              originalError: result.error,
+            });
+            verifiedAcceptedIds = [];
             verifiedFailedIds = [];
           }
-          if (verifiedAcceptedIds.length > 0) {
-            logger.info("auto-accept-partial-verified", {
-              bookingId,
-              acceptedIds: verifiedAcceptedIds,
-              failedIds: verifiedFailedIds,
-              deferredIds,
-              ruleId: entry.ruleId,
-              originalError: result.error,
-            });
-          }
-          if (ambiguousAccept && deferredIds.length > 0) {
-            // A timed-out/network-failed accept can still commit after this
-            // verify window. If we already received tab data but did not see
-            // status=2 yet, defer instead of declaring failure and releasing
-            // quota; a false failure alert is worse than holding the claim
-            // until the NeedBudget TTL.
-            if (verifiedAcceptedIds.length === 0) verificationRan = false;
-            logger.warn("auto-accept-ambiguous-unverified-deferred", {
-              bookingId,
-              requestIds: deferredIds,
-              ruleId: entry.ruleId,
-              originalError: result.error,
-            });
-          }
-        } else {
-          // Both tab fetches returned null/empty — verification could NOT run
-          // (transient double failure). This is indeterminate, NOT a confirmed
-          // failure, so defer: do not assert failure and do not fire the
-          // false-failure notification. Leave both verified lists empty and
-          // mark verification as not-run so the consumer skips the batch.
+        } catch (verifyErr) {
+          // The verification fetch itself threw — verification could not run, so
+          // defer rather than falsely asserting failure for the whole batch.
           verificationRan = false;
-          logger.warn("auto-accept-verify-indeterminate", {
-            bookingId,
-            requestIds,
-            ruleId: entry.ruleId,
-            originalError: result.error,
-          });
           verifiedAcceptedIds = [];
           verifiedFailedIds = [];
+          logger.warn("auto-accept-verify-failed", {
+            bookingId,
+            ruleId: entry.ruleId,
+            error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+          });
         }
-      } catch (verifyErr) {
-        // The verification fetch itself threw — verification could not run, so
-        // defer rather than falsely asserting failure for the whole batch.
-        verificationRan = false;
-        verifiedAcceptedIds = [];
-        verifiedFailedIds = [];
-        logger.warn("auto-accept-verify-failed", {
-          bookingId,
-          ruleId: entry.ruleId,
-          error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
-        });
       }
     }
 
@@ -884,7 +902,7 @@ export async function acceptAndNotifyMatchedRules(
     const failLines = failedToAlert.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
     const failAlertText = [
       "⚠️ SPX Auto-Accept ล้มเหลว",
-      `เวลา: ${new Date().toLocaleString("th-TH")}`,
+      `เวลา: ${new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`,
       "",
       ...failLines,
     ].join("\n");
