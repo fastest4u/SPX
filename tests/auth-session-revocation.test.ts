@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+process.env.SECRETS_KEY = "auth-session-revocation-test-key";
+
 import { resetMemoryDb } from "../src/db/client-memory.js";
+import { createTeam } from "../src/repositories/team-repository.js";
 import {
   createUser,
   deleteUser,
@@ -34,7 +37,7 @@ async function main(): Promise<void> {
   };
 
   const resolved = await resolveAuthUserFromJwtPayload(originalPayload);
-  assert.deepEqual(resolved, { id: user.id, username: user.username, role: "admin" });
+  assert.deepEqual(resolved, { id: user.id, username: user.username, role: "admin", teamId: null });
 
   const passwordChanged = await updateUserPassword(user.id, "changed-password-123");
   assert.equal(passwordChanged, true);
@@ -53,9 +56,11 @@ async function main(): Promise<void> {
     id: user.id,
     username: user.username,
     role: "admin",
+    teamId: null,
   });
 
-  const roleChanged = await updateUserRole(user.id, "user");
+  const team = await createTeam({ name: "Revocation Team", enabled: true, spxCookie: "c", spxDeviceId: "d", lineGroupId: "g" });
+  const roleChanged = await updateUserRole(user.id, "user", team.id);
   assert.equal(roleChanged, true);
   await assertRejectedToken(freshPayload);
 
@@ -70,6 +75,7 @@ async function main(): Promise<void> {
     id: user.id,
     username: user.username,
     role: "user",
+    teamId: team.id,
   });
 
   const missingPasswordChanged = await updateUserPassword(99_999, "missing-password-123");

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { lineBotApi } from '../lib/api'
-import { Card, CardContent } from '../components/ui/card'
+import { ContentSection, PageShell } from '../components/layout/Page'
 import { Button } from '../components/ui/button'
 import { PageHeader } from '../components/ui/page-header'
 import { toast } from 'sonner'
@@ -90,16 +90,16 @@ function LineBotComponent() {
 
   if (statusQuery.isLoading) {
     return (
-      <div className="space-y-5 sm:space-y-6">
-        <Card className="glass border-white/10">
+      <PageShell>
+        <ContentSection>
           <SkeletonCard />
-        </Card>
-      </div>
+        </ContentSection>
+      </PageShell>
     )
   }
 
   return (
-    <div className="space-y-5 page-enter sm:space-y-6">
+    <PageShell>
       <PageHeader
         icon={MessageCircle}
         title="LINE Bot"
@@ -107,8 +107,7 @@ function LineBotComponent() {
       />
 
       {/* Status Card */}
-      <Card className="glass border-white/10">
-        <CardContent className="space-y-5 p-5 sm:p-6">
+      <ContentSection contentClassName="space-y-5">
           {/* Connection Status */}
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
             {isAuthenticated ? (
@@ -283,8 +282,7 @@ function LineBotComponent() {
               </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }

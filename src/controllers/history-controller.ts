@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getBookingHistory, getBookingHistoryPaginated } from "../repositories/booking-history-repository.js";
+import { getBookingHistoryForScope, getBookingHistoryPaginatedForScope } from "../repositories/booking-history-repository.js";
 import type { HistoryFilterQuery } from "../repositories/booking-history-repository.js";
+import { resolveScopedTeamId } from "../services/team-scope.js";
+import type { AuthUser } from "../services/authz.js";
 import { sendSuccess, sendPaginated } from "../utils/response.js";
 
 const filterSchemaProps = {
@@ -12,9 +14,20 @@ const filterSchemaProps = {
   vehicleType: { type: "string", maxLength: 50 },
   sortBy: { type: "string", enum: ["created_at", "request_id"] },
   sortDir: { type: "string", enum: ["asc", "desc"] },
+  teamId: { type: "integer", minimum: 1 },
 } as const;
 
-type HistoryListQuery = HistoryFilterQuery & { limit?: number };
+type HistoryListQuery = HistoryFilterQuery & { limit?: number; teamId?: number };
+
+function currentUser(req: { user?: unknown }): AuthUser {
+  return req.user as AuthUser;
+}
+
+function historyTeamScope(req: { user?: unknown }, explicitTeamId?: number): number | null {
+  const user = currentUser(req);
+  if (user.role === "admin" && typeof explicitTeamId !== "number") return null;
+  return resolveScopedTeamId(req, explicitTeamId);
+}
 
 export const historyController: FastifyPluginAsync = async (app) => {
   app.get(
@@ -32,7 +45,8 @@ export const historyController: FastifyPluginAsync = async (app) => {
     },
     async (req, reply) => {
       const query = req.query as HistoryListQuery;
-      const rows = await getBookingHistory({
+      const teamId = historyTeamScope(req, query.teamId);
+      const rows = await getBookingHistoryForScope(teamId, {
         limit: query.limit ?? 200,
         search: query.search,
         requestId: query.requestId,
@@ -62,8 +76,9 @@ export const historyController: FastifyPluginAsync = async (app) => {
       },
     },
     async (req, reply) => {
-      const query = req.query as HistoryFilterQuery & { page?: number; pageSize?: number };
-      const result = await getBookingHistoryPaginated({
+      const query = req.query as HistoryFilterQuery & { page?: number; pageSize?: number; teamId?: number };
+      const teamId = historyTeamScope(req, query.teamId);
+      const result = await getBookingHistoryPaginatedForScope(teamId, {
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 25,
         search: query.search,

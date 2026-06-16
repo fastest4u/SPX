@@ -15,9 +15,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
 const EXPECTED_SCHEMA = {
+  teams: {
+    columns: {
+      id: { type: "int", nullable: false, extraIncludes: ["auto_increment"] },
+      name: { type: "varchar(100)", nullable: false },
+      enabled: { type: "int", nullable: false, defaultIncludes: "1" },
+      spx_cookie: { type: "varchar(4000)", nullable: false, defaultIncludes: "" },
+      spx_device_id: { type: "varchar(1000)", nullable: false, defaultIncludes: "" },
+      line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "teams_enabled_idx", unique: false, columns: ["enabled"] },
+      { name: "teams_name_idx", unique: false, columns: ["name"] },
+    ],
+  },
   spx_booking_history: {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: false, defaultIncludes: "1" },
       request_id: { type: "bigint unsigned", nullable: false },
       booking_id: { type: "bigint unsigned", nullable: true },
       booking_name: { type: "varchar(255)", nullable: true },
@@ -36,9 +54,10 @@ const EXPECTED_SCHEMA = {
     },
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
-      { name: "request_id_idx", unique: true, columns: ["request_id"] },
+      { name: "spx_booking_history_team_request_uidx", unique: true, columns: ["team_id", "request_id"] },
       { name: "booking_id_idx", unique: false, columns: ["booking_id"] },
       { name: "created_at_idx", unique: false, columns: ["created_at"] },
+      { name: "spx_booking_history_team_created_idx", unique: false, columns: ["team_id", "created_at"] },
     ],
   },
   users: {
@@ -47,17 +66,23 @@ const EXPECTED_SCHEMA = {
       username: { type: "varchar(50)", nullable: false },
       password_hash: { type: "varchar(255)", nullable: false },
       role: { type: "varchar(20)", nullable: false, defaultIncludes: "viewer" },
+      team_id: { type: "int", nullable: true },
       auth_version: { type: "int", nullable: false, defaultIncludes: "0" },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
     },
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
       { unique: true, columns: ["username"] },
+      { name: "users_team_id_idx", unique: false, columns: ["team_id"] },
     ],
   },
   audit_logs: {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: true },
+      actor_user_id: { type: "int", nullable: true },
+      actor_team_id: { type: "int", nullable: true },
+      target_team_id: { type: "int", nullable: true },
       username: { type: "varchar(50)", nullable: false },
       action: { type: "varchar(100)", nullable: false },
       details: { type: "varchar(1000)", nullable: true },
@@ -68,11 +93,13 @@ const EXPECTED_SCHEMA = {
       { name: "audit_created_at_idx", unique: false, columns: ["created_at"] },
       { name: "audit_username_created_at_idx", unique: false, columns: ["username", "created_at"] },
       { name: "audit_action_created_at_idx", unique: false, columns: ["action", "created_at"] },
+      { name: "audit_target_team_created_at_idx", unique: false, columns: ["target_team_id", "created_at"] },
     ],
   },
   notify_rules: {
     columns: {
       id: { type: "varchar(255)", nullable: false },
+      team_id: { type: "int", nullable: false, defaultIncludes: "1" },
       name: { type: "varchar(128)", nullable: false },
       origins: { type: "varchar(4000)", nullable: false, defaultIncludes: "[]" },
       destinations: { type: "varchar(4000)", nullable: false, defaultIncludes: "[]" },
@@ -87,11 +114,13 @@ const EXPECTED_SCHEMA = {
     },
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "notify_rules_team_id_idx", unique: false, columns: ["team_id"] },
     ],
   },
   auto_accept_history: {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: false, defaultIncludes: "1" },
       rule_id: { type: "varchar(255)", nullable: false },
       rule_name: { type: "varchar(128)", nullable: false },
       booking_id: { type: "bigint unsigned", nullable: false },
@@ -109,11 +138,14 @@ const EXPECTED_SCHEMA = {
       { name: "aah_created_at_idx", unique: false, columns: ["created_at"] },
       { name: "aah_rule_id_idx", unique: false, columns: ["rule_id"] },
       { name: "aah_status_created_at_idx", unique: false, columns: ["status", "created_at"] },
+      { name: "aah_team_created_at_idx", unique: false, columns: ["team_id", "created_at"] },
+      { name: "aah_team_status_created_at_idx", unique: false, columns: ["team_id", "status", "created_at"] },
     ],
   },
   metrics_snapshots: {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: false, defaultIncludes: "1" },
       uptime: { type: "int", nullable: false },
       total_requests: { type: "int", nullable: false, defaultIncludes: "0" },
       success_count: { type: "int", nullable: false, defaultIncludes: "0" },
@@ -131,6 +163,7 @@ const EXPECTED_SCHEMA = {
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
       { name: "metrics_created_at_idx", unique: false, columns: ["created_at"] },
+      { name: "metrics_team_created_at_idx", unique: false, columns: ["team_id", "created_at"] },
     ],
   },
   line_bot_sessions: {
@@ -206,6 +239,7 @@ const EXPECTED_SCHEMA = {
 
 const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_"];
 const APP_TABLE_NAMES = new Set([
+  "teams",
   "users",
   "audit_logs",
   "notify_rules",

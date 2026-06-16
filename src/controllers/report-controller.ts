@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getBookingHistory } from "../repositories/booking-history-repository.js";
 import { getAuditLogs } from "../repositories/audit-repository.js";
 import { metrics } from "../services/metrics.js";
+import { resolveScopedTeamId } from "../services/team-scope.js";
 
 function csvEscape(value: unknown): string {
   let text = String(value ?? "");
@@ -64,8 +65,10 @@ export const reportController: FastifyPluginAsync = async (app) => {
       .send(csvStream(rows));
   });
 
-  app.get("/history.csv", async (_req, reply) => {
-    const rows = await getBookingHistory(1000);
+  app.get("/history.csv", async (req, reply) => {
+    const query = req.query as { teamId?: number };
+    const teamId = resolveScopedTeamId(req, query.teamId);
+    const rows = await getBookingHistory(teamId, 1000);
     const header = ["request_id", "booking_id", "origin", "destination", "vehicle_type", "standby_datetime", "created_at"];
     function* body(): Generator<unknown[]> {
       yield header;

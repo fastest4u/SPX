@@ -3,10 +3,10 @@ import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { CalendarDays, Car, FileImage, ImageIcon, Map, Search, SlidersHorizontal, X } from 'lucide-react'
 import { lineImageExtractionApi } from '../lib/api'
-import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { SkeletonTable } from '../components/ui/skeleton'
 import { formatDateTime, safeBrowserUrl } from '../lib/utils'
@@ -134,22 +134,23 @@ function LineImageExtractionsComponent() {
 
   if (isLoading) {
     return (
-      <Card className="glass border-white/10">
+      <PageShell>
+        <ContentSection>
         <SkeletonTable rows={5} cols={5} />
-      </Card>
+        </ContentSection>
+      </PageShell>
     )
   }
 
   return (
-    <div className="space-y-5 page-enter sm:space-y-6">
+    <PageShell>
       <PageHeader
         icon={FileImage}
         title="LINE Runsheets"
         subtitle={total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Metric label="Saved records" value={total} icon={FileImage} tone="info" />
             <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="primary" />
@@ -194,7 +195,7 @@ function LineImageExtractionsComponent() {
           </div>
 
           {showFilters && (
-            <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+            <FilterPanel className="mb-4 bg-white/[0.02]">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <FilterInput label="Agency" value={agency} placeholder="LH-PWL" onChange={setAgency} onPageReset={() => setPage(1)} />
                 <FilterInput label="Trip number" value={tripNumber} placeholder="LT0Q5L2657AJ2" onChange={setTripNumber} onPageReset={() => setPage(1)} />
@@ -219,7 +220,7 @@ function LineImageExtractionsComponent() {
                   Clear filters
                 </Button>
               </div>
-            </div>
+            </FilterPanel>
           )}
 
           <DataTable
@@ -251,9 +252,8 @@ function LineImageExtractionsComponent() {
               },
             }}
           />
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }
 

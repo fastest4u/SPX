@@ -173,7 +173,7 @@ async function main(): Promise<void> {
     const { insertAutoAcceptHistory, getRecentAutoAcceptRequestKeys } = await import(
       "../src/repositories/auto-accept-repository.js"
     );
-    await insertAutoAcceptHistory({
+    await insertAutoAcceptHistory(1, {
       ruleId: "rule-seed-test",
       ruleName: "เชียงใหม่",
       bookingId: 2661488,
@@ -185,7 +185,7 @@ async function main(): Promise<void> {
       status: "failed",
       errorMessage: "Time-out or accept by other agency",
     });
-    const keys = await getRecentAutoAcceptRequestKeys();
+    const keys = await getRecentAutoAcceptRequestKeys(1);
     assert.ok(keys.includes("2661488:37502323"), "seed keys must include bookingId:requestId from history");
     assert.ok(keys.includes("2661488:37502245"), "seed keys must include every requestId in the row");
   }

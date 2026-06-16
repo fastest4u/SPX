@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import type { ReactNode } from 'react'
 import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   ArrowUp,
   ArrowDown,
   Rows3,
@@ -15,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from './ui/button'
+import { PaginationControls } from './PaginationControls'
 
 export interface DataTableColumn<T> {
   header: string
@@ -77,7 +74,6 @@ export interface DataTableProps<T> {
   bulkActions?: BulkAction<T>[]
 }
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const DENSITY_NEXT: Record<DataTableDensity, DataTableDensity> = {
   compact: 'cozy',
   cozy: 'comfortable',
@@ -92,21 +88,6 @@ const DENSITY_ICON: Record<DataTableDensity, typeof Rows2> = {
   compact: Rows2,
   cozy: Rows3,
   comfortable: Rows4,
-}
-
-function getPageNumbers(page: number, totalPages: number) {
-  const pages: number[] = []
-  let start = Math.max(1, page - 2)
-  if (start + 4 > totalPages) {
-    start = Math.max(1, totalPages - 4)
-  }
-  for (let i = 0; i < 5; i++) {
-    const p = start + i
-    if (p <= totalPages && p > 0) {
-      pages.push(p)
-    }
-  }
-  return pages
 }
 
 function readDensity(densityKey: string | undefined, fallback: DataTableDensity): DataTableDensity {
@@ -554,91 +535,14 @@ export function DataTable<T>({
         totalPages !== undefined &&
         onPageChange &&
         onPageSizeChange ? (
-        <div className="flex flex-col items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:flex-row">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>แสดง</span>
-            <select
-              className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} className="bg-popover text-foreground" value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-            <span>รายการต่อหน้า</span>
-          </div>
-
-          <div className="flex flex-col items-center gap-4 text-sm text-muted-foreground sm:flex-row">
-            <span className="font-data">
-              {totalItems > 0
-                ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, totalItems)} จาก ${totalItems.toLocaleString()} รายการ`
-                : '0 รายการ'}
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 rounded-md border-white/10 bg-transparent"
-                onClick={() => onPageChange(1)}
-                disabled={page === 1}
-                aria-label="หน้าแรก"
-              >
-                <ChevronsLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 rounded-md border-white/10 bg-transparent"
-                onClick={() => onPageChange(Math.max(1, page - 1))}
-                disabled={page === 1}
-                aria-label="หน้าก่อนหน้า"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-
-              {getPageNumbers(page, totalPages).map((p) => (
-                <Button
-                  key={p}
-                  variant={page === p ? 'default' : 'outline'}
-                  className={cn(
-                    'h-8 w-8 rounded-md p-0',
-                    page === p
-                      ? 'border-transparent font-bold'
-                      : 'border-white/10 bg-transparent text-muted-foreground hover:text-foreground'
-                  )}
-                  onClick={() => onPageChange(p)}
-                  aria-current={page === p ? 'page' : undefined}
-                >
-                  {p}
-                </Button>
-              ))}
-
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 rounded-md border-white/10 bg-transparent"
-                onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-                disabled={page === totalPages || totalPages === 0}
-                aria-label="หน้าถัดไป"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 rounded-md border-white/10 bg-transparent"
-                onClick={() => onPageChange(totalPages)}
-                disabled={page === totalPages || totalPages === 0}
-                aria-label="หน้าสุดท้าย"
-              >
-                <ChevronsRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          totalPages={totalPages}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
       ) : null}
     </div>
   )

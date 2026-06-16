@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { autoAcceptHistoryApi } from '../lib/api'
-import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { PaginationControls } from '../components/PaginationControls'
+import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
 import { Search, CheckCircle2, XCircle, Truck } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useAuth } from '../hooks/useAuth'
 import type { AutoAcceptHistoryItem, AutoAcceptHistoryQuery } from '../types'
 
 export const Route = createFileRoute('/auto-accept-history')({
@@ -80,6 +82,8 @@ const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryItem>[] = [
 ]
 
 function AutoAcceptHistoryComponent() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [ruleName, setRuleName] = useState('')
@@ -106,13 +110,28 @@ function AutoAcceptHistoryComponent() {
     staleTime: 2 * 60 * 1000,
   })
 
+  const columns = useMemo<DataTableColumn<AutoAcceptHistoryItem>[]>(() => {
+    if (!isAdmin) return AAH_COLUMNS
+    return [
+      {
+        header: 'ทีม',
+        render: (item) => (
+          <span className="status-pill border-white/10 bg-white/[0.04] text-foreground">
+            {item.teamName || `Team #${item.teamId}`}
+          </span>
+        ),
+      },
+      ...AAH_COLUMNS,
+    ]
+  }, [isAdmin])
+
   if (isLoading) {
     return (
-      <div className="space-y-5 sm:space-y-6">
-        <Card className="glass border-white/10">
+      <PageShell>
+        <ContentSection>
           <SkeletonTable rows={5} cols={4} />
-        </Card>
-      </div>
+        </ContentSection>
+      </PageShell>
     )
   }
 
@@ -128,17 +147,16 @@ function AutoAcceptHistoryComponent() {
   }
 
   return (
-    <div className="space-y-5 page-enter sm:space-y-6">
+    <PageShell>
       <PageHeader
         icon={Truck}
         title="ประวัติการรับงานอัตโนมัติ"
         subtitle="บันทึกการ auto-accept ทุกครั้ง"
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           {/* Filters */}
-          <div className="mb-6 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+          <FilterPanel>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
               <div className="space-y-2">
                 <label htmlFor="aah-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ค้นหา'}</label>
@@ -179,43 +197,117 @@ function AutoAcceptHistoryComponent() {
                 </Button>
               </div>
             </div>
-          </div>
+          </FilterPanel>
 
-          {/* Data Table */}
-          <DataTable
-            columns={AAH_COLUMNS}
-            data={items}
-            keyField={(item) => item.id}
-            densityKey="auto-accept-history"
-            emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-            emptyMessage={'ไม่พบประวัติการรับงานอัตโนมัติ'}
-            pagination={
-              items.length > 0
-                ? {
-                  page,
-                  pageSize,
-                  totalItems: total,
-                  totalPages,
-                  onPageChange: setPage,
-                  onPageSizeChange: (size) => {
+          <div className="md:hidden">
+            {items.length === 0 ? (
+              <EmptyPanel icon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}>
+                ไม่พบประวัติการรับงานอัตโนมัติ
+              </EmptyPanel>
+            ) : (
+              <div className="space-y-3">
+                {items.map((item) => (
+                  <AutoAcceptMobileCard key={item.id} item={item} showTeam={isAdmin} />
+                ))}
+                <PaginationControls
+                  variant="mobile"
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={total}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
                     setPageSize(size)
                     setPage(1)
-                  },
-                }
-                : undefined
-            }
-            sorting={{
-              sortKey,
-              sortDir,
-              onSortChange: (nextSortKey, nextSortDir) => {
-                setSortKey((nextSortKey as AutoAcceptHistoryQuery['sortBy'] | null) ?? 'created_at')
-                setSortDir(nextSortDir ?? 'desc')
-                setPage(1)
-              },
-            }}
-          />
-        </CardContent>
-      </Card>
-    </div>
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              columns={columns}
+              data={items}
+              keyField={(item) => item.id}
+              densityKey="auto-accept-history"
+              minWidth={isAdmin ? '860px' : '760px'}
+              emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
+              emptyMessage={'ไม่พบประวัติการรับงานอัตโนมัติ'}
+              pagination={
+                items.length > 0
+                  ? {
+                    page,
+                    pageSize,
+                    totalItems: total,
+                    totalPages,
+                    onPageChange: setPage,
+                    onPageSizeChange: (size) => {
+                      setPageSize(size)
+                      setPage(1)
+                    },
+                  }
+                  : undefined
+              }
+              sorting={{
+                sortKey,
+                sortDir,
+                onSortChange: (nextSortKey, nextSortDir) => {
+                  setSortKey((nextSortKey as AutoAcceptHistoryQuery['sortBy'] | null) ?? 'created_at')
+                  setSortDir(nextSortDir ?? 'desc')
+                  setPage(1)
+                },
+              }}
+            />
+          </div>
+      </ContentSection>
+    </PageShell>
+  )
+}
+
+function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryItem; showTeam: boolean }) {
+  const isSuccess = item.status === 'success'
+
+  return (
+    <MobileRecordCard>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <span className="font-data text-xs text-muted-foreground">#{item.id}</span>
+          <div className="mt-1 break-words text-sm font-semibold leading-snug text-primary">
+            {item.ruleName}
+          </div>
+        </div>
+        <span className={isSuccess ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-success' : 'flex shrink-0 items-center gap-1 text-xs font-semibold text-danger'}>
+          {isSuccess ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+          {isSuccess ? 'สำเร็จ' : 'ล้มเหลว'}
+        </span>
+      </div>
+
+      <div className="mt-3 rounded-[8px] border border-white/[0.06] bg-black/10 p-3">
+        <div className="break-words text-sm text-foreground">
+          {item.origin} {'\u2192'} {item.destination}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          {showTeam ? (
+            <span className="status-pill border-white/10 bg-white/[0.04] text-foreground">
+              {item.teamName || `Team #${item.teamId}`}
+            </span>
+          ) : null}
+          <span className="status-pill border-white/10 bg-white/[0.04]">{item.vehicleType || '\u2014'}</span>
+          <span className="status-pill border-white/10 bg-white/[0.04]">{item.requestIds.length} requests</span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>เวลา</span>
+        <span className="text-right">{formatDateTime(item.createdAt)}</span>
+      </div>
+
+      {!isSuccess && item.errorMessage ? (
+        <div className="mt-3 break-words rounded-[8px] border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-2 text-xs text-danger">
+          {item.errorMessage}
+        </div>
+      ) : null}
+    </MobileRecordCard>
   )
 }

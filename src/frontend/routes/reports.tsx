@@ -13,6 +13,7 @@ import type { LucideIcon } from 'lucide-react'
 import { metricsApi, reportsApi } from '../lib/api'
 import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { ContentSection, EmptyPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { StatCard } from '../components/ui/stat-card'
 import { ErrorState } from '../components/ui/error-state'
@@ -94,15 +95,14 @@ function ReportsComponent() {
   })
 
   return (
-    <div className="space-y-5 page-enter">
+    <PageShell>
       <PageHeader
         icon={FileBarChart}
         title="รายงาน"
         subtitle="ดาวน์โหลดรายงาน CSV และดู metrics ย้อนหลัง"
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="section-title">Metrics history</h2>
@@ -121,28 +121,23 @@ function ReportsComponent() {
               onRetry={() => refetchHistory()}
             />
           ) : history.length === 0 ? (
-            <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] text-sm text-muted-foreground">
-              ยังไม่มีข้อมูล metrics
-            </div>
+            <EmptyPanel className="flex h-64 items-center justify-center py-0 text-sm">ยังไม่มีข้อมูล metrics</EmptyPanel>
           ) : (
             <MetricsChart rows={history} />
           )}
 
           <MetricsSummary rows={history} loading={historyLoading} />
-        </CardContent>
-      </Card>
+      </ContentSection>
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           <h2 className="section-title mb-3">Export CSV</h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             {tiles.map((tile) => (
               <ReportTileCard key={tile.title} tile={tile} />
             ))}
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }
 

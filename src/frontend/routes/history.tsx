@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { historyApi } from '../lib/api'
 
-import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { ContentSection, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { StatCard } from '../components/ui/stat-card'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -17,6 +17,7 @@ import { SkeletonTable } from '../components/ui/skeleton'
 import { Hand, History as HistoryIcon, Search, SlidersHorizontal, X, MapPin, Car, Hash } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSavedView } from '../hooks/useSavedView'
+import { useAuth } from '../hooks/useAuth'
 import type { BookingHistory, HistoryFilterQuery } from '../types'
 
 export const Route = createFileRoute('/history')({
@@ -81,6 +82,8 @@ const HISTORY_DEFAULT_VIEW: HistoryView = {
 }
 
 function HistoryComponent() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [searchInput, setSearchInput] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
@@ -110,13 +113,28 @@ function HistoryComponent() {
     staleTime: 2 * 60 * 1000,
   })
 
+  const columns = useMemo<DataTableColumn<BookingHistory>[]>(() => {
+    if (!isAdmin) return HISTORY_COLUMNS
+    return [
+      {
+        header: 'ทีม',
+        render: (item) => (
+          <Badge variant="neutral">
+            {item.teamName || (item.teamId ? `Team #${item.teamId}` : 'ไม่ระบุทีม')}
+          </Badge>
+        ),
+      },
+      ...HISTORY_COLUMNS,
+    ]
+  }, [isAdmin])
+
   if (isLoading) {
     return (
-      <div className="space-y-5 sm:space-y-6">
-        <Card className="glass border-white/10">
+      <PageShell>
+        <ContentSection>
           <SkeletonTable rows={5} cols={4} />
-        </Card>
-      </div>
+        </ContentSection>
+      </PageShell>
     )
   }
 
@@ -137,7 +155,7 @@ function HistoryComponent() {
   }
 
   return (
-    <div className="space-y-5 page-enter sm:space-y-6">
+    <PageShell>
       <PageHeader
         icon={HistoryIcon}
         title="ประวัติงาน"
@@ -145,8 +163,7 @@ function HistoryComponent() {
         meta={total > 0 ? <Badge variant="info"><Hash className="h-3 w-3" />{total.toLocaleString()}</Badge> : undefined}
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           {isError ? (
             <ErrorState
               title="โหลดประวัติงานไม่สำเร็จ"
@@ -253,10 +270,11 @@ function HistoryComponent() {
 
               {/* Data Table */}
               <DataTable
-                columns={HISTORY_COLUMNS}
+                columns={columns}
                 data={history}
                 keyField={(item) => item.id}
                 densityKey="history"
+                minWidth={isAdmin ? '860px' : '760px'}
                 emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
                 emptyMessage={'ไม่พบประวัติงาน'}
                 pagination={
@@ -288,9 +306,8 @@ function HistoryComponent() {
               />
             </>
           )}
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }
 

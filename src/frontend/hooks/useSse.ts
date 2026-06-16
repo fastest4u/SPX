@@ -17,6 +17,26 @@ interface SessionExpiredEvent {
   timestamp: string
 }
 
+interface TeamSseEvent<T> {
+  teamId: number
+  event: string
+  data: T
+}
+
+function unwrapSseData<T>(raw: string): T {
+  const parsed = JSON.parse(raw) as T | TeamSseEvent<T>
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'teamId' in parsed &&
+    'event' in parsed &&
+    'data' in parsed
+  ) {
+    return (parsed as TeamSseEvent<T>).data
+  }
+  return parsed as T
+}
+
 const SSE_INITIAL_RECONNECT_MS = 5000
 const SSE_MAX_RECONNECT_MS = 60_000
 const SSE_MAX_RETRIES = 10
@@ -68,7 +88,7 @@ export function useSse(url: string, enabled: boolean = true) {
     es.addEventListener('metrics', (event) => {
       if (!isMountedRef.current) return
       try {
-        const data = JSON.parse(event.data) as MetricsSnapshot
+        const data = unwrapSseData<MetricsSnapshot>(event.data)
         setState((prev: SseState) => ({ ...prev, data }))
       } catch (error) {
         console.error('Failed to parse SSE metrics data:', error)
@@ -78,7 +98,7 @@ export function useSse(url: string, enabled: boolean = true) {
     es.addEventListener('rules', (event) => {
       if (!isMountedRef.current) return
       try {
-        const rules = JSON.parse(event.data) as NotifyRule[]
+        const rules = unwrapSseData<NotifyRule[]>(event.data)
         setState((prev: SseState) => ({ ...prev, rules }))
       } catch (error) {
         console.error('Failed to parse SSE rules data:', error)
@@ -88,7 +108,7 @@ export function useSse(url: string, enabled: boolean = true) {
     es.addEventListener('session-expired', (event) => {
       if (!isMountedRef.current) return
       try {
-        const sessionAlert = JSON.parse(event.data) as SessionExpiredEvent
+        const sessionAlert = unwrapSseData<SessionExpiredEvent>(event.data)
         setState((prev: SseState) => ({ ...prev, sessionAlert, status: 'disconnected' }))
       } catch (error) {
         console.error('Failed to parse SSE session-expired data:', error)

@@ -1,8 +1,23 @@
 import { sql } from "drizzle-orm";
 import { bigint, datetime, index, int, mysqlTable, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
+export const teams = mysqlTable("teams", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  enabled: int("enabled").notNull().default(1),
+  spxCookie: varchar("spx_cookie", { length: 4000 }).notNull().default(""),
+  spxDeviceId: varchar("spx_device_id", { length: 1000 }).notNull().default(""),
+  lineGroupId: varchar("line_group_id", { length: 255 }).notNull().default(""),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  enabledIdx: index("teams_enabled_idx").on(table.enabled),
+  nameIdx: index("teams_name_idx").on(table.name),
+}));
+
 export const spxBookingHistory = mysqlTable("spx_booking_history", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  teamId: int("team_id").notNull().default(1),
   requestId: bigint("request_id", { mode: "number", unsigned: true }).notNull(),
   bookingId: bigint("booking_id", { mode: "number", unsigned: true }),
   bookingName: varchar("booking_name", { length: 255 }),
@@ -19,9 +34,10 @@ export const spxBookingHistory = mysqlTable("spx_booking_history", {
   assignmentStatus: int("assignment_status"),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
-  requestIdIdx: uniqueIndex("request_id_idx").on(table.requestId),
+  teamRequestIdIdx: uniqueIndex("spx_booking_history_team_request_uidx").on(table.teamId, table.requestId),
   bookingIdIdx: index("booking_id_idx").on(table.bookingId),
   createdAtIdx: index("created_at_idx").on(table.createdAt),
+  teamCreatedAtIdx: index("spx_booking_history_team_created_idx").on(table.teamId, table.createdAt),
 }));
 
 export const users = mysqlTable("users", {
@@ -29,12 +45,19 @@ export const users = mysqlTable("users", {
   username: varchar("username", { length: 50 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   role: varchar("role", { length: 20 }).notNull().default("viewer"),
+  teamId: int("team_id"),
   authVersion: int("auth_version").notNull().default(0),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => ({
+  teamIdIdx: index("users_team_id_idx").on(table.teamId),
+}));
 
 export const auditLogs = mysqlTable("audit_logs", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  teamId: int("team_id"),
+  actorUserId: int("actor_user_id"),
+  actorTeamId: int("actor_team_id"),
+  targetTeamId: int("target_team_id"),
   username: varchar("username", { length: 50 }).notNull(),
   action: varchar("action", { length: 100 }).notNull(),
   details: varchar("details", { length: 1000 }),
@@ -43,10 +66,12 @@ export const auditLogs = mysqlTable("audit_logs", {
   createdAtIdx: index("audit_created_at_idx").on(table.createdAt),
   usernameCreatedAtIdx: index("audit_username_created_at_idx").on(table.username, table.createdAt),
   actionCreatedAtIdx: index("audit_action_created_at_idx").on(table.action, table.createdAt),
+  targetTeamCreatedAtIdx: index("audit_target_team_created_at_idx").on(table.targetTeamId, table.createdAt),
 }));
 
 export const notifyRules = mysqlTable("notify_rules", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  teamId: int("team_id").notNull().default(1),
   name: varchar("name", { length: 128 }).notNull(),
   origins: varchar("origins", { length: 4000 }).notNull().default("[]"),
   destinations: varchar("destinations", { length: 4000 }).notNull().default("[]"),
@@ -58,10 +83,13 @@ export const notifyRules = mysqlTable("notify_rules", {
   autoAccepted: int("auto_accepted").notNull().default(0),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => ({
+  teamIdIdx: index("notify_rules_team_id_idx").on(table.teamId),
+}));
 
 export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  teamId: int("team_id").notNull().default(1),
   ruleId: varchar("rule_id", { length: 255 }).notNull(),
   ruleName: varchar("rule_name", { length: 128 }).notNull(),
   bookingId: bigint("booking_id", { mode: "number", unsigned: true }).notNull(),
@@ -77,10 +105,13 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   createdAtIdx: index("aah_created_at_idx").on(table.createdAt),
   ruleIdIdx: index("aah_rule_id_idx").on(table.ruleId),
   statusCreatedAtIdx: index("aah_status_created_at_idx").on(table.status, table.createdAt),
+  teamCreatedAtIdx: index("aah_team_created_at_idx").on(table.teamId, table.createdAt),
+  teamStatusCreatedAtIdx: index("aah_team_status_created_at_idx").on(table.teamId, table.status, table.createdAt),
 }));
 
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  teamId: int("team_id").notNull().default(1),
   uptime: int("uptime").notNull(),
   totalRequests: int("total_requests").notNull().default(0),
   successCount: int("success_count").notNull().default(0),
@@ -96,6 +127,7 @@ export const metricsSnapshots = mysqlTable("metrics_snapshots", {
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
   createdAtIdx: index("metrics_created_at_idx").on(table.createdAt),
+  teamCreatedAtIdx: index("metrics_team_created_at_idx").on(table.teamId, table.createdAt),
 }));
 
 export const lineBotSessions = mysqlTable("line_bot_sessions", {

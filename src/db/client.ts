@@ -198,6 +198,7 @@ async function createSpxBookingHistoryTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS spx_booking_history (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL DEFAULT 1,
       request_id BIGINT UNSIGNED NOT NULL,
       booking_id BIGINT UNSIGNED NULL,
       booking_name VARCHAR(255) NULL,
@@ -213,11 +214,16 @@ async function createSpxBookingHistoryTable(): Promise<void> {
       acceptance_status INT NULL,
       assignment_status INT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY request_id_idx (request_id),
+      UNIQUE KEY spx_booking_history_team_request_uidx (team_id, request_id),
       KEY booking_id_idx (booking_id),
-      KEY created_at_idx (created_at)
+      KEY created_at_idx (created_at),
+      KEY spx_booking_history_team_created_idx (team_id, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await ensureMysqlColumn(pool, "spx_booking_history", "team_id", "ALTER TABLE spx_booking_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
+  await dropMysqlIndexIfExists(pool, "spx_booking_history", "request_id_idx");
+  await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_request_uidx", "ALTER TABLE spx_booking_history ADD UNIQUE KEY spx_booking_history_team_request_uidx (team_id, request_id)");
+  await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_created_idx", "ALTER TABLE spx_booking_history ADD INDEX spx_booking_history_team_created_idx (team_id, created_at)");
 }
 
 async function createDashboardTables(): Promise<void> {
@@ -225,11 +231,27 @@ async function createDashboardTables(): Promise<void> {
   if (!pool) return; // Skip in memory mode
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      enabled INT NOT NULL DEFAULT 1,
+      spx_cookie VARCHAR(4000) NOT NULL DEFAULT '',
+      spx_device_id VARCHAR(1000) NOT NULL DEFAULT '',
+      line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY teams_enabled_idx (enabled),
+      KEY teams_name_idx (name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
       username VARCHAR(50) NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
       role VARCHAR(20) NOT NULL DEFAULT 'viewer',
+      team_id INT NULL,
       auth_version INT NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
@@ -240,6 +262,12 @@ async function createDashboardTables(): Promise<void> {
     await pool!.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer' AFTER password_hash");
   }
 
+  const [teamIdColumnRows] = await pool!.query("SHOW COLUMNS FROM users LIKE 'team_id'");
+  if ((teamIdColumnRows as unknown[]).length === 0) {
+    await pool!.query("ALTER TABLE users ADD COLUMN team_id INT NULL AFTER role");
+  }
+  await ensureMysqlIndex(pool, "users", "users_team_id_idx", "ALTER TABLE users ADD INDEX users_team_id_idx (team_id)");
+
   const [authVersionColumnRows] = await pool!.query("SHOW COLUMNS FROM users LIKE 'auth_version'");
   if ((authVersionColumnRows as unknown[]).length === 0) {
     await pool!.query("ALTER TABLE users ADD COLUMN auth_version INT NOT NULL DEFAULT 0 AFTER role");
@@ -248,20 +276,30 @@ async function createDashboardTables(): Promise<void> {
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NULL,
+      actor_user_id INT NULL,
+      actor_team_id INT NULL,
+      target_team_id INT NULL,
       username VARCHAR(50) NOT NULL,
       action VARCHAR(100) NOT NULL,
       details VARCHAR(1000) NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await ensureMysqlColumn(pool, "audit_logs", "team_id", "ALTER TABLE audit_logs ADD COLUMN team_id INT NULL AFTER id");
+  await ensureMysqlColumn(pool, "audit_logs", "actor_user_id", "ALTER TABLE audit_logs ADD COLUMN actor_user_id INT NULL AFTER team_id");
+  await ensureMysqlColumn(pool, "audit_logs", "actor_team_id", "ALTER TABLE audit_logs ADD COLUMN actor_team_id INT NULL AFTER actor_user_id");
+  await ensureMysqlColumn(pool, "audit_logs", "target_team_id", "ALTER TABLE audit_logs ADD COLUMN target_team_id INT NULL AFTER actor_team_id");
 
   await ensureMysqlIndex(pool, "audit_logs", "audit_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_created_at_idx (created_at)");
   await ensureMysqlIndex(pool, "audit_logs", "audit_username_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_username_created_at_idx (username, created_at)");
   await ensureMysqlIndex(pool, "audit_logs", "audit_action_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_action_created_at_idx (action, created_at)");
+  await ensureMysqlIndex(pool, "audit_logs", "audit_target_team_created_at_idx", "ALTER TABLE audit_logs ADD INDEX audit_target_team_created_at_idx (target_team_id, created_at)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS notify_rules (
       id VARCHAR(255) NOT NULL PRIMARY KEY,
+      team_id INT NOT NULL DEFAULT 1,
       name VARCHAR(128) NOT NULL,
       origins VARCHAR(4000) NOT NULL DEFAULT '[]',
       destinations VARCHAR(4000) NOT NULL DEFAULT '[]',
@@ -275,10 +313,13 @@ async function createDashboardTables(): Promise<void> {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await ensureMysqlColumn(pool, "notify_rules", "team_id", "ALTER TABLE notify_rules ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
+  await ensureMysqlIndex(pool, "notify_rules", "notify_rules_team_id_idx", "ALTER TABLE notify_rules ADD INDEX notify_rules_team_id_idx (team_id)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS auto_accept_history (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL DEFAULT 1,
       rule_id VARCHAR(255) NOT NULL,
       rule_name VARCHAR(128) NOT NULL,
       booking_id BIGINT UNSIGNED NOT NULL,
@@ -292,11 +333,16 @@ async function createDashboardTables(): Promise<void> {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY aah_created_at_idx (created_at),
       KEY aah_rule_id_idx (rule_id),
-      KEY aah_status_created_at_idx (status, created_at)
+      KEY aah_status_created_at_idx (status, created_at),
+      KEY aah_team_created_at_idx (team_id, created_at),
+      KEY aah_team_status_created_at_idx (team_id, status, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await ensureMysqlColumn(pool, "auto_accept_history", "team_id", "ALTER TABLE auto_accept_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
 
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_status_created_at_idx (status, created_at)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_created_at_idx (team_id, created_at)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_status_created_at_idx (team_id, status, created_at)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
@@ -353,5 +399,25 @@ async function ensureMysqlIndex(pool: Pool, tableName: string, indexName: string
   );
   if ((rows as unknown[]).length === 0) {
     await pool.query(ddl);
+  }
+}
+
+async function ensureMysqlColumn(pool: Pool, tableName: string, columnName: string, ddl: string): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT 1 FROM information_schema.COLUMNS WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1",
+    [tableName, columnName]
+  );
+  if ((rows as unknown[]).length === 0) {
+    await pool.query(ddl);
+  }
+}
+
+async function dropMysqlIndexIfExists(pool: Pool, tableName: string, indexName: string): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT 1 FROM information_schema.STATISTICS WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1",
+    [tableName, indexName]
+  );
+  if ((rows as unknown[]).length > 0) {
+    await pool.query(`ALTER TABLE ${tableName} DROP INDEX ${indexName}`);
   }
 }

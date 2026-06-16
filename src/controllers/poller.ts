@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters, matchAutoAcceptRuleTripsWithRules } from "../services/notify-rules.js";
@@ -28,7 +28,7 @@ import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
 import type { Booking, PollingStats } from "../models/types.js";
-import { pollerControl } from "../services/poller-control.js";
+import { isTeamPaused } from "../services/poller-control.js";
 
 /**
  * Non-pending-tab statuses eligible for the one-shot accept attempt: 4 = taken
@@ -41,6 +41,17 @@ import { pollerControl } from "../services/poller-control.js";
  * a doomed accept against it.
  */
 const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
+
+export interface TeamPollerContext {
+  teamId: number;
+  teamName: string;
+  apiClient: ApiClient;
+  lineGroupId: string;
+  manageHttpServer?: boolean;
+  manageProcessSignals?: boolean;
+  closeSharedResourcesOnStop?: boolean;
+  exitOnStop?: boolean;
+}
 
 function collectAutoAcceptMatchedTrips(
   trips: ExtractedTripInfo[],
@@ -89,6 +100,13 @@ export class Poller {
   private fastLaneDetailInflight = 0;
   private backgroundDetailInflight = 0;
   private historySaveQueue: BookingHistorySaveQueue;
+  private readonly teamId: number;
+  private readonly teamName: string;
+  private readonly notificationContext: TeamNotificationContext;
+  private readonly manageHttpServer: boolean;
+  private readonly manageProcessSignals: boolean;
+  private readonly closeSharedResourcesOnStop: boolean;
+  private readonly exitOnStop: boolean;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
   private static readonly STOP_TICK_DEADLINE_MS = 30_000;
@@ -114,12 +132,25 @@ export class Poller {
   private static readonly DETAIL_FAILURE_COUNTS_CAP = 1000;
   private tickNeedBudget = new NeedBudget();
 
-  constructor(intervalSec?: number) {
+  constructor(intervalSec?: number, context?: TeamPollerContext) {
+    this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
+    this.teamId = context?.teamId ?? 1;
+    this.teamName = context?.teamName ?? "Default Team";
+    this.manageHttpServer = context?.manageHttpServer ?? true;
+    this.manageProcessSignals = context?.manageProcessSignals ?? true;
+    this.closeSharedResourcesOnStop = context?.closeSharedResourcesOnStop ?? true;
+    this.exitOnStop = context?.exitOnStop ?? true;
+    this.notificationContext = {
+      teamId: this.teamId,
+      teamName: this.teamName,
+      lineGroupId: context?.lineGroupId ?? env.LINE_USER_ID,
+    };
     // Lazy provider: getIntervalMs() prefers the CLI override set below, so
     // the adaptive list-poll math always targets the poller's real cadence.
-    this.apiClient = new ApiClient(() => this.getIntervalMs());
+    this.apiClient = context?.apiClient ?? new ApiClient({ pollIntervalMsProvider: () => this.getIntervalMs() });
     this.dataProcessor = new DataProcessor();
     this.historySaveQueue = new BookingHistorySaveQueue({
+      teamId: this.teamId,
       onResult: (dbResult) => {
         for (let i = 0; i < dbResult.inserted; i++) metrics.recordTrip("inserted");
         for (let i = 0; i < dbResult.skipped; i++) metrics.recordTrip("skipped");
@@ -140,7 +171,6 @@ export class Poller {
         logger.warn("booking-history-queue-drop", { trips: trips.length, reason });
       },
     });
-    this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
     this.stats = {
       totalRequests: 0,
       errorCount: 0,
@@ -178,7 +208,7 @@ export class Poller {
       logger.info("poller-features", { features });
     }
 
-    if (env.HTTP_ENABLED) {
+    if (this.manageHttpServer && env.HTTP_ENABLED) {
       await startHttpServer(env.HTTP_PORT);
     }
 
@@ -199,7 +229,7 @@ export class Poller {
     // auto-accept runs (no SAVE_TO_DB gate), AUTO_ACCEPT_ENABLED already
     // requires DB config, and the query degrades to [] on DB failure.
     if (env.AUTO_ACCEPT_ENABLED) {
-      const seededKeys = await getRecentAutoAcceptRequestKeys();
+      const seededKeys = await getRecentAutoAcceptRequestKeys(this.teamId);
       // Repository returns newest-first; insert oldest-first so the FIFO cap
       // evicts stale keys, never the freshest races.
       for (const key of [...seededKeys].reverse()) this.addNonPendingAttemptedKey(key);
@@ -214,16 +244,22 @@ export class Poller {
 
     void this.run();
 
-    process.once("SIGINT", () => void this.stop());
-    process.once("SIGTERM", () => void this.stop());
-    process.once("uncaughtException", (error) => {
-      logger.error("uncaught-exception", error instanceof Error ? error : new Error(String(error)));
-      void this.stop(1);
-    });
-    process.once("unhandledRejection", (reason) => {
-      logger.error("unhandled-rejection", reason instanceof Error ? reason : new Error(String(reason)));
-      void this.stop(1);
-    });
+    if (this.manageProcessSignals) {
+      process.once("SIGINT", () => void this.stop());
+      process.once("SIGTERM", () => void this.stop());
+      process.once("uncaughtException", (error) => {
+        logger.error("uncaught-exception", error instanceof Error ? error : new Error(String(error)));
+        void this.stop(1);
+      });
+      process.once("unhandledRejection", (reason) => {
+        logger.error("unhandled-rejection", reason instanceof Error ? reason : new Error(String(reason)));
+        void this.stop(1);
+      });
+    }
+  }
+
+  private metricsSnapshot() {
+    return metrics.snapshot({ teamId: this.teamId, teamName: this.teamName });
   }
 
   private async run(): Promise<void> {
@@ -234,7 +270,7 @@ export class Poller {
     // Measure tick duration so we can subtract it from the interval below (drift compensation).
     const tickStart = Date.now();
     try {
-      if (!pollerControl.isPaused) {
+      if (!isTeamPaused(this.teamId)) {
         this.activeTick = this.tick();
         await this.activeTick;
       }
@@ -248,7 +284,7 @@ export class Poller {
         // duration so cadence does not drift under latency. POLL_INTERVAL_MS is never floored — when
         // a tick takes longer than the interval, waitMs collapses to 0 and the next tick fires ASAP.
         let waitMs: number;
-        if (pollerControl.isPaused) {
+        if (isTeamPaused(this.teamId)) {
           waitMs = 1000;
         } else {
           const tickDuration = Date.now() - tickStart;
@@ -272,7 +308,7 @@ export class Poller {
       this.stats.errorCount++;
       const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
-      sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
+      sseBroadcaster.broadcast({ event: "metrics", teamId: this.teamId, data: this.metricsSnapshot() });
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
 
       // Alert on session expiry — send notification once
@@ -297,7 +333,8 @@ export class Poller {
     // Broadcast live metrics to SSE clients
     sseBroadcaster.broadcast({
       event: "metrics",
-      data: metrics.snapshot(),
+      teamId: this.teamId,
+      data: this.metricsSnapshot(),
     });
 
     const summary = this.dataProcessor.extractSummary(result.data);
@@ -328,7 +365,7 @@ export class Poller {
     // Refresh shared auto-accept rules once per tick (cheap — cached in notify-rules.ts)
     if (env.AUTO_ACCEPT_ENABLED) {
       try {
-        this.tickAutoAcceptRules = await getActiveAutoAcceptRules();
+        this.tickAutoAcceptRules = await getActiveAutoAcceptRules(this.teamId);
       } catch (err) {
         logger.error("auto-accept-rules-fetch-failed", err instanceof Error ? err : new Error(String(err)));
         this.tickAutoAcceptRules = [];
@@ -822,6 +859,8 @@ export class Poller {
     const startedAt = Date.now();
     try {
       const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+        teamId: this.teamId,
+        notificationContext: this.notificationContext,
         autoAcceptRules: this.tickAutoAcceptRules,
         deferSideEffects: true,
       });
@@ -857,6 +896,8 @@ export class Poller {
     const startedAt = Date.now();
     try {
       const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
+        teamId: this.teamId,
+        notificationContext: this.notificationContext,
         autoAcceptRules: this.tickAutoAcceptRules,
         deferSideEffects: true,
         needBudget: this.tickNeedBudget,
@@ -886,7 +927,7 @@ export class Poller {
 
   async stop(exitCode = 0): Promise<void> {
     if (this.stopped) {
-      if (exitCode !== 0) process.exit(exitCode);
+      if (exitCode !== 0 && this.exitOnStop) process.exit(exitCode);
       return;
     }
 
@@ -922,12 +963,14 @@ export class Poller {
       }
     }
 
-    // Close the keep-alive pool so no sockets linger after the last SPX call.
-    // Detail tasks have drained above, so no further upstream requests occur.
-    try {
-      await getSpxDispatcher().close();
-    } catch (err) {
-      logger.error("http-dispatcher-close-error", err instanceof Error ? err : new Error(String(err)));
+    if (this.closeSharedResourcesOnStop) {
+      // Close the keep-alive pool so no sockets linger after the last SPX call.
+      // Detail tasks have drained above, so no further upstream requests occur.
+      try {
+        await getSpxDispatcher().close();
+      } catch (err) {
+        logger.error("http-dispatcher-close-error", err instanceof Error ? err : new Error(String(err)));
+      }
     }
 
     await this.historySaveQueue.flush();
@@ -937,29 +980,35 @@ export class Poller {
 
     formatFooter(this.stats);
 
-    sseBroadcaster.closeAll();
-
-    try {
-      await stopHttpServer();
-    } catch (err) {
-      logger.error("http-shutdown-error", err instanceof Error ? err : new Error(String(err)));
+    if (this.closeSharedResourcesOnStop) {
+      sseBroadcaster.closeAll();
     }
 
-    try {
-      await closePool();
-    } catch (err) {
-      logger.error("db-shutdown-error", err instanceof Error ? err : new Error(String(err)));
-      process.exit(1);
+    if (this.manageHttpServer) {
+      try {
+        await stopHttpServer();
+      } catch (err) {
+        logger.error("http-shutdown-error", err instanceof Error ? err : new Error(String(err)));
+      }
     }
 
-    process.exit(exitCode);
+    if (this.closeSharedResourcesOnStop) {
+      try {
+        await closePool();
+      } catch (err) {
+        logger.error("db-shutdown-error", err instanceof Error ? err : new Error(String(err)));
+        if (this.exitOnStop) process.exit(1);
+      }
+    }
+
+    if (this.exitOnStop) process.exit(exitCode);
   }
 
   private async persistMetrics(): Promise<void> {
     if (!env.SAVE_TO_DB) return;
     try {
-      const snap = metrics.snapshot();
-      await insertMetricsSnapshot(snap);
+      const snap = this.metricsSnapshot();
+      await insertMetricsSnapshot(snap, this.teamId);
       if (!env.HTTP_ENABLED) {
         logger.info("metrics-persisted", { uptime: snap.uptime, totalRequests: snap.polling.totalRequests });
       }
@@ -978,6 +1027,7 @@ export class Poller {
 
     sseBroadcaster.broadcast({
       event: "session-expired",
+      teamId: this.teamId,
       data: {
         message: errorMessage,
         timestamp: new Date(now).toISOString(),
@@ -985,7 +1035,7 @@ export class Poller {
     });
 
     try {
-      const result = await sendSessionExpiryNotification(errorMessage);
+      const result = await sendSessionExpiryNotification(errorMessage, this.notificationContext);
       if (result.sent) {
         logger.warn("session-expiry-alert-sent", {
           channels: result.results.filter((channel) => channel.ok).map((channel) => channel.channel),

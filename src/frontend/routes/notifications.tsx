@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
 import { notificationsApi } from '../lib/api'
-import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { ContentSection, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { toast } from 'sonner'
 import { Bell, Send, Eye } from 'lucide-react'
@@ -57,15 +57,14 @@ function NotificationsComponent() {
   })
 
   return (
-    <div className="space-y-5 page-enter">
+    <PageShell>
       <PageHeader
         icon={Bell}
         title="แจ้งเตือน"
         subtitle="ตรวจสอบและทดสอบการแจ้งเตือนจาก SPX"
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="space-y-5 p-5 sm:space-y-6 sm:p-6">
+      <ContentSection contentClassName="space-y-5 sm:space-y-6">
           <div className="grid gap-3 sm:grid-cols-2">
             <Button
               variant="outline"
@@ -134,8 +133,7 @@ function NotificationsComponent() {
               การแจ้งเตือนจะถูกส่งผ่าน LINE OA, LINEJS test และ/หรือ Discord Webhook ตามการตั้งค่าใน Settings
             </p>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }

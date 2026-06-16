@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import type { BookingHistoryRecord } from "../src/repositories/booking-history-repository.js";
 
 async function main(): Promise<void> {
+  const teamId = 1;
   const { eq } = await import("drizzle-orm");
   const { ensureSpxBookingHistoryTable, getDb, closePool } = await import("../src/db/client.js");
   const { spxBookingHistory } = await import("../src/db/schema.js");
@@ -34,21 +35,21 @@ async function main(): Promise<void> {
     await ensureSpxBookingHistoryTable();
     const db = await getDb();
 
-    let result = await insertBookingHistories([rec(1), rec(2), rec(3)]);
+    let result = await insertBookingHistories(teamId, [rec(1), rec(2), rec(3)]);
     assert.deepEqual(result, { inserted: 3, skipped: 0 });
 
-    result = await insertBookingHistories([rec(1), rec(2)]);
+    result = await insertBookingHistories(teamId, [rec(1), rec(2)]);
     assert.deepEqual(result, { inserted: 0, skipped: 2 });
 
-    result = await insertBookingHistories([rec(3), rec(4)]);
+    result = await insertBookingHistories(teamId, [rec(3), rec(4)]);
     assert.deepEqual(result, { inserted: 1, skipped: 1 });
 
     await db.delete(spxBookingHistory).where(eq(spxBookingHistory.requestId, 4));
-    result = await insertBookingHistories([rec(4)]);
+    result = await insertBookingHistories(teamId, [rec(4)]);
     assert.equal(result.inserted, 1);
 
     await assert.rejects(
-      insertBookingHistories([{ ...rec(99), route: null as unknown as string }]),
+      insertBookingHistories(teamId, [{ ...rec(99), route: null as unknown as string }]),
       /NOT NULL|constraint|datatype|column/i,
     );
   } finally {

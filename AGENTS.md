@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+> **MANDATORY FIRST ACTION (every task):** Your FIRST tool call MUST be `memory_sessionStart` (project-memory MCP) BEFORE reading code, running commands, SSH, or answering — even for quick diagnosis. Then call `memory_selfCheck` before risky work and `memory_sessionEnd` to close, as ONE continuous lifecycle per task. Full rules in "Auto Memory Management (project-memory MCP)" below. No exceptions.
+
 ## Project Structure & Module Organization
 
 This is one npm package for a TypeScript SPX bidding poller plus React dashboard. Backend code is in `src/`: `app.ts` boots the app, `controllers/` handles Fastify routes and polling, `services/` contains API/notify/SSE/metrics logic, `db/` holds schemas, and `repositories/` owns persistence. Frontend code is in `src/frontend/`. SQL lives in `migrations/`; scripts live in `src/scripts/` and `scripts/`. Do not edit generated `src/frontend/routeTree.gen.ts`, `dist/`, `data/`, `logs/`, `node_modules/`, `.env`, or `notify-rules.json`.

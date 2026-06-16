@@ -17,6 +17,7 @@ import type {
   EnvSettings,
   HealthResponse,
   HistoryFilterQuery,
+  LineBotGroupList,
   LineBotSendInput,
   LineBotSendResult,
   LineBotStatus,
@@ -35,6 +36,8 @@ import type {
   RuleInput,
   RulePatch,
   RulePreviewResult,
+  Team,
+  TeamInput,
   User,
 } from '../types'
 
@@ -312,6 +315,7 @@ export const rulesApi = {
       method: 'POST',
       body: JSON.stringify({
         rule: {
+          teamId: rule.teamId,
           name: rule.name,
           origins: rule.origins,
           destinations: rule.destinations,
@@ -443,15 +447,72 @@ export const usersApi = {
       body: JSON.stringify({ password } as PasswordInput),
     }),
 
-  updateRole: (id: number, role: 'user' | 'admin'): Promise<null> =>
+  updateRole: (id: number, role: 'user' | 'admin', teamId?: number | null): Promise<null> =>
     fetchJson<null>(`${API_BASE}/users/${id}/role`, {
       method: 'PUT',
-      body: JSON.stringify({ role } as RoleInput),
+      body: JSON.stringify({ role, teamId } as RoleInput),
+    }),
+
+  updateTeam: (id: number, teamId: number | null): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/users/${id}/team`, {
+      method: 'PUT',
+      body: JSON.stringify({ teamId }),
     }),
 
   delete: (id: number): Promise<null> =>
     fetchJson<null>(`${API_BASE}/users/${id}`, {
       method: 'DELETE',
+    }),
+}
+
+// Teams API
+export const teamsApi = {
+  list: (): Promise<Team[]> =>
+    fetchJson<Team[]>(`${API_BASE}/teams`),
+
+  get: (id: number): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams/${id}`),
+
+  create: (team: TeamInput): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams`, {
+      method: 'POST',
+      body: JSON.stringify(team),
+    }),
+
+  update: (id: number, team: Partial<TeamInput>): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(team),
+    }),
+
+  disable: (id: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/teams/${id}/disable`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  restart: (id: number): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams/${id}/restart-poller`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  pause: (id: number): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams/${id}/pause`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  resume: (id: number): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/teams/${id}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  restartAll: (): Promise<Team[]> =>
+    fetchJson<Team[]>(`${API_BASE}/teams/restart-all`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 }
 
@@ -552,8 +613,8 @@ export const lineBotApi = {
       body: JSON.stringify(input),
     }),
 
-  getGroups: (): Promise<{ chats: Array<{ chatMid: string, chatName: string }> }> =>
-    fetchJson(`${API_BASE}/line-bot/groups`),
+  getGroups: (): Promise<LineBotGroupList> =>
+    fetchJson<LineBotGroupList>(`${API_BASE}/line-bot/groups`),
 
   getProfile: (): Promise<{ displayName: string; mid: string; statusMessage?: string; pictureUrl?: string }> =>
     fetchJson(`${API_BASE}/line-bot/profile`),

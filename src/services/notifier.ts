@@ -15,6 +15,12 @@ type NotificationChannel = "line" | "discord" | "linejs_test";
 const NOTIFY_FETCH_TIMEOUT_MS = 10_000;
 const LINE_QUOTA_FETCH_TIMEOUT_MS = 5_000;
 
+export interface TeamNotificationContext {
+  teamId: number;
+  teamName: string;
+  lineGroupId: string;
+}
+
 async function fetchWithTimeout(input: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
   const { timeoutMs = NOTIFY_FETCH_TIMEOUT_MS, ...options } = init;
   const controller = new AbortController();
@@ -34,7 +40,8 @@ type NotificationSendResult = {
   pincode?: string;
 };
 
-function hasNotificationTarget(): boolean {
+function hasNotificationTarget(context?: TeamNotificationContext): boolean {
+  if (context) return Boolean(context.lineGroupId.trim());
   return Boolean(env.LINE_CHANNEL_ACCESS_TOKEN || env.DISCORD_WEBHOOK_URL || isLineBotEnabled());
 }
 
@@ -67,9 +74,9 @@ async function sendDiscordNotification(title: string, message: string): Promise<
   }
 }
 
-async function sendLineOaMessage(title: string, message: string): Promise<void> {
+async function sendLineOaMessage(title: string, message: string, targetId: string = env.LINE_USER_ID): Promise<void> {
   const body = JSON.stringify({
-    to: env.LINE_USER_ID,
+    to: targetId,
     messages: [{
       type: "text",
       text: `${title}\n${truncate(message, 4500)}`,
@@ -95,6 +102,15 @@ function getAutoAcceptSuccessLineJsTarget(): string {
   return env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
 }
 
+function getTeamLineTarget(context: TeamNotificationContext | undefined, logPrefix: string): string | null {
+  if (!context) return null;
+  const target = context.lineGroupId.trim();
+  if (!target) {
+    logger.warn(`${logPrefix}-line-target-missing`, { teamId: context.teamId, teamName: context.teamName });
+  }
+  return target;
+}
+
 function maskTarget(value: string): string {
   if (!value) return "";
   return value.length <= 4 ? "****" : `****${value.slice(-4)}`;
@@ -103,10 +119,18 @@ function maskTarget(value: string): string {
 async function sendLineJsThenOa(
   title: string,
   message: string,
-  options: { lineJsTarget?: string; logPrefix: string; results?: NotificationSendResult[] }
+  options: {
+    lineJsTarget?: string;
+    lineOaTarget?: string;
+    logPrefix: string;
+    results?: NotificationSendResult[];
+    useGlobalFallback?: boolean;
+  }
 ): Promise<boolean> {
   const text = `${title}\n${message}`;
-  const lineJsTarget = options.lineJsTarget || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
+  const useGlobalFallback = options.useGlobalFallback !== false;
+  const lineJsTarget = options.lineJsTarget || (useGlobalFallback ? env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "" : "");
+  const lineOaTarget = options.lineOaTarget || (useGlobalFallback ? env.LINE_USER_ID : "");
 
   if (lineJsTarget && isLineBotEnabled()) {
     try {
@@ -138,9 +162,9 @@ async function sendLineJsThenOa(
     });
   }
 
-  if (env.LINE_CHANNEL_ACCESS_TOKEN && env.LINE_USER_ID) {
+  if (env.LINE_CHANNEL_ACCESS_TOKEN && lineOaTarget) {
     try {
-      await sendLineOaMessage(title, message);
+      await sendLineOaMessage(title, message, lineOaTarget);
       logger.info(`${options.logPrefix}-line-oa-sent`, { title });
       options.results?.push({ channel: "line", ok: true });
       return true;
@@ -153,7 +177,7 @@ async function sendLineJsThenOa(
     logger.warn(`${options.logPrefix}-line-oa-skipped`, {
       title,
       tokenConfigured: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
-      userConfigured: Boolean(env.LINE_USER_ID),
+      userConfigured: Boolean(lineOaTarget),
     });
   }
 
@@ -161,15 +185,28 @@ async function sendLineJsThenOa(
 }
 
 /** Send auto-accept success to LINEJS first, then fallback to LINE OA. */
-async function sendAutoAcceptAlert(title: string, message: string): Promise<boolean> {
+async function sendAutoAcceptAlert(title: string, message: string, context?: TeamNotificationContext): Promise<boolean> {
+  const teamTarget = getTeamLineTarget(context, "auto-accept-alert");
+  if (teamTarget === "") return false;
+
   return sendLineJsThenOa(title, message, {
-    lineJsTarget: getAutoAcceptSuccessLineJsTarget(),
+    lineJsTarget: teamTarget ?? getAutoAcceptSuccessLineJsTarget(),
+    lineOaTarget: teamTarget ?? undefined,
     logPrefix: "auto-accept-alert",
+    useGlobalFallback: !context,
   });
 }
 
-export async function sendNotificationMessage(title: string, message: string): Promise<{ sent: boolean; results: NotificationSendResult[] }> {
+export async function sendNotificationMessage(
+  title: string,
+  message: string,
+  context?: TeamNotificationContext
+): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
   const results: NotificationSendResult[] = [];
+  const teamTarget = getTeamLineTarget(context, "notification");
+  if (teamTarget === "") {
+    return { sent: false, skipped: true, results };
+  }
 
   if (env.DISCORD_WEBHOOK_URL) {
     try {
@@ -182,13 +219,19 @@ export async function sendNotificationMessage(title: string, message: string): P
     }
   }
 
-  await sendLineJsThenOa(title, message, { logPrefix: "notification", results });
+  await sendLineJsThenOa(title, message, {
+    lineJsTarget: teamTarget ?? undefined,
+    lineOaTarget: teamTarget ?? undefined,
+    logPrefix: "notification",
+    results,
+    useGlobalFallback: !context,
+  });
 
   return { sent: results.some((result) => result.ok), results };
 }
 
-export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?: boolean; forceTest?: boolean }) {
-  const matches = await matchRules(trips);
+export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?: boolean; forceTest?: boolean; teamId?: number }) {
+  const matches = await matchRules(options?.teamId ?? 1, trips);
   if (options?.dryRun) {
     return { matches, sent: false, dryRun: true };
   }
@@ -226,6 +269,8 @@ const failureAlertLastSentByBooking = new Map<string, number>();
 const FAILURE_ALERT_THROTTLE_MS = 60_000;
 
 interface AutoAcceptOptions {
+  teamId?: number;
+  notificationContext?: TeamNotificationContext;
   deferSideEffects?: boolean;
   needBudget?: NeedBudget;
   autoAcceptRules?: NotifyRule[];
@@ -708,7 +753,7 @@ async function acceptAutoAcceptMatch(
         }
       }
       acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: verifiedAcceptedIds.length });
-      historyWrites.push(() => insertAutoAcceptHistory({
+      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -728,7 +773,7 @@ async function acceptAutoAcceptMatch(
       options.needBudget?.release(entry.ruleId, claimToken, verifiedFailedIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds: verifiedFailedIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds: verifiedFailedIds, error: result.error || "Unknown error" });
-      historyWrites.push(() => insertAutoAcceptHistory({
+      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -759,7 +804,7 @@ async function acceptAutoAcceptMatch(
       options.needBudget?.release(entry.ruleId, claimToken, requestIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
-      historyWrites.push(() => insertAutoAcceptHistory({
+      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -807,7 +852,8 @@ export async function acceptAndNotifyMatchedRules(
   apiClient: ApiClient,
   options: AutoAcceptOptions = {}
 ): Promise<AutoAcceptResult> {
-  const autoAcceptRules = options.autoAcceptRules ?? await getActiveAutoAcceptRules();
+  const teamId = options.teamId ?? 1;
+  const autoAcceptRules = options.autoAcceptRules ?? await getActiveAutoAcceptRules(teamId);
   // Match every rule in a single pass so trips are NFKC-normalized once per
   // call (not once per rule), then fan out the API accepts in parallel.
   const matches = matchAutoAcceptRuleTripsWithRules(trips, autoAcceptRules);
@@ -846,7 +892,7 @@ export async function acceptAndNotifyMatchedRules(
     if (match) tokenByRule.set(match.ruleId, result.claimToken);
   }
   try {
-    await applyAutoAcceptProgress(acceptedProgress, (ruleId, acceptedCount) => {
+    await applyAutoAcceptProgress(teamId, acceptedProgress, (ruleId, acceptedCount) => {
       const token = tokenByRule.get(ruleId);
       if (token !== undefined) options.needBudget?.settle(ruleId, token, acceptedCount);
     });
@@ -875,9 +921,9 @@ export async function acceptAndNotifyMatchedRules(
     const message = buildAcceptNotificationMessage(accepted);
 
     if (options.deferSideEffects) {
-      runDetached("auto-accept-notification", sendAutoAcceptAlert(title, message));
+      runDetached("auto-accept-notification", sendAutoAcceptAlert(title, message, options.notificationContext));
     } else {
-      notified = await sendAutoAcceptAlert(title, message);
+      notified = await sendAutoAcceptAlert(title, message, options.notificationContext);
       if (notified) {
         logger.info("auto-accept-notified", { acceptedCount: accepted.length });
       }
@@ -900,7 +946,8 @@ export async function acceptAndNotifyMatchedRules(
   for (const key of alertKeys) failureAlertLastSentByBooking.set(key, alertNow);
 
   if (failedToAlert.length > 0) {
-    const failGroupMid = env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "";
+    const teamTarget = getTeamLineTarget(options.notificationContext, "auto-accept-failure-alert");
+    const failGroupMid = teamTarget ?? (env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "");
     const failLines = failedToAlert.map((f) => `❌ booking_id=${f.bookingId} requests=[${f.requestIds.join(",")}]\n   error: ${f.error}`);
     const failAlertText = [
       "⚠️ SPX Auto-Accept ล้มเหลว",
@@ -910,13 +957,16 @@ export async function acceptAndNotifyMatchedRules(
     ].join("\n");
 
     const sendFailAlert = async () => {
+      if (teamTarget === "") return;
       // Roll the throttle slots back when no channel delivered, so a
       // transient LINE outage cannot permanently silence a one-shot
       // lost-race alert (the attempt itself is never re-run).
       try {
         const sent = await sendLineJsThenOa("SPX Auto-Accept ล้มเหลว", failAlertText, {
           lineJsTarget: failGroupMid,
+          lineOaTarget: teamTarget ?? undefined,
           logPrefix: "auto-accept-failure-alert",
+          useGlobalFallback: !options.notificationContext,
         });
         if (!sent) {
           for (const key of alertKeys) failureAlertLastSentByBooking.delete(key);
@@ -938,8 +988,14 @@ export async function acceptAndNotifyMatchedRules(
 }
 
 /** Send a critical alert when SPX session cookie expires */
-export async function sendSessionExpiryNotification(errorMessage: string): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
-  if (!hasNotificationTarget()) {
+export async function sendSessionExpiryNotification(
+  errorMessage: string,
+  context?: TeamNotificationContext
+): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
+  if (!hasNotificationTarget(context)) {
+    if (context) {
+      logger.warn("session-expiry-notification-line-target-missing", { teamId: context.teamId, teamName: context.teamName });
+    }
     return { sent: false, skipped: true, results: [] };
   }
 
@@ -957,7 +1013,7 @@ export async function sendSessionExpiryNotification(errorMessage: string): Promi
     "3. ระบบจะ restart และเริ่มทำงานใหม่อัตโนมัติ",
   ].join("\n");
 
-  return sendNotificationMessage(title, message);
+  return sendNotificationMessage(title, message, context);
 }
 
 let lineQuotaCache: { totalUsage: number; limit: number; type: string; fetchedAt: number } | null = null;

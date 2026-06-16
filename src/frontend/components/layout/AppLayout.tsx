@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils'
 import {
   LayoutDashboard, History, FileText, Users, Settings, Bell, FileBarChart,
   LogOut, ChevronLeft, ChevronRight, ChevronDown, Truck, MessageCircle,
-  Search, Command, Menu, FileImage, Wifi, BellRing
+  Search, Command, Menu, FileImage, Wifi, BellRing, Building2
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Avatar } from '../ui/avatar'
@@ -46,7 +46,8 @@ const navItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText, shortcut: '7' },
   { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '8' },
-  { path: '/users', label: 'จัดการผู้ใช้', icon: Users, shortcut: '9' },
+  { path: '/teams', label: 'จัดการทีม', icon: Building2, shortcut: '9' },
+  { path: '/users', label: 'จัดการผู้ใช้', icon: Users },
   {
     path: '/settings',
     label: 'ตั้งค่า',
@@ -76,6 +77,7 @@ const pageLabels: Record<string, string> = {
   '/line-image-extractions': 'LINE Runsheets',
   '/auto-accept-history': 'ประวัติรับงานอัตโนมัติ',
   '/audit': 'ประวัติการใช้งาน',
+  '/teams': 'จัดการทีม',
   '/users': 'จัดการผู้ใช้',
   '/settings': 'ตั้งค่า',
   '/settings/api': 'ตั้งค่า / API & Polling',

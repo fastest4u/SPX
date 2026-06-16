@@ -19,6 +19,7 @@ import { authController } from "../controllers/auth-controller.js";
 import { rulesController } from "../controllers/rules-controller.js";
 import { usersController } from "../controllers/users-controller.js";
 import { settingsController } from "../controllers/settings-controller.js";
+import { teamsController } from "../controllers/teams-controller.js";
 import { historyController } from "../controllers/history-controller.js";
 import { auditController } from "../controllers/audit-controller.js";
 import { dashboardController } from "../controllers/dashboard-controller.js";
@@ -352,6 +353,7 @@ export async function startHttpServer(port: number): Promise<void> {
           return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
         }
       });
+      await adminScope.register(teamsController, { prefix: "/teams" });
       await adminScope.register(usersController, { prefix: "/users" });
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });

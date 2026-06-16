@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { rulesApi } from '../lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { rulesApi, teamsApi } from '../lib/api'
 import type { RuleInput } from '../types'
+import { useAuth } from '../hooks/useAuth'
 import { Button } from './ui/button'
 import { splitCsv } from '../lib/utils'
 import {
@@ -34,15 +35,30 @@ const defaultFormData: RuleInput = {
 
 export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [formData, setFormData] = useState<RuleInput>(defaultFormData)
+  const [selectedTeamId, setSelectedTeamId] = useState<number | ''>('')
   const [originsText, setOriginsText] = useState('')
   const [destinationsText, setDestinationsText] = useState('')
 
+  const { data: teams = [], isLoading: teamsLoading, isError: teamsError } = useQuery({
+    queryKey: ['teams'],
+    queryFn: teamsApi.list,
+    enabled: open && isAdmin,
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const resetForm = () => {
+    setFormData(defaultFormData)
+    setSelectedTeamId('')
+    setOriginsText('')
+    setDestinationsText('')
+  }
+
   const handleOpenChange = (open: boolean) => {
     if (!open) {
-      setFormData(defaultFormData)
-      setOriginsText('')
-      setDestinationsText('')
+      resetForm()
     }
     onOpenChange(open)
   }
@@ -55,9 +71,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       })
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       onOpenChange(false)
-      setFormData(defaultFormData)
-      setOriginsText('')
-      setDestinationsText('')
+      resetForm()
     },
     onError: (error: Error) => {
       toast.error('สร้างไม่สำเร็จ', {
@@ -72,12 +86,22 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
       toast.error('กรุณากรอกชื่อรายการ')
       return
     }
+    if (isAdmin && typeof selectedTeamId !== 'number') {
+      toast.error('กรุณาเลือกทีมเจ้าของเส้นทาง')
+      return
+    }
     createMutation.mutate({
       ...formData,
+      teamId: isAdmin && typeof selectedTeamId === 'number' ? selectedTeamId : undefined,
       origins: splitCsv(originsText),
       destinations: splitCsv(destinationsText),
     })
   }
+
+  const createDisabled =
+    createMutation.isPending ||
+    !formData.name.trim() ||
+    (isAdmin && (teamsLoading || typeof selectedTeamId !== 'number'))
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -116,6 +140,29 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 autoFocus
               />
             </div>
+
+            {isAdmin ? (
+              <div className="grid gap-2">
+                <Label htmlFor="create-team">
+                  ทีมเจ้าของเส้นทาง <span className="text-danger">*</span>
+                </Label>
+                <select
+                  id="create-team"
+                  value={selectedTeamId}
+                  onChange={e => setSelectedTeamId(e.target.value ? Number(e.target.value) : '')}
+                  disabled={teamsLoading || createMutation.isPending}
+                  className="flex h-11 w-full rounded-xl border border-white/10 bg-slate-900/50 px-3.5 py-2 text-base text-foreground transition-all duration-200 hover:border-white/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                >
+                  <option value="">เลือกทีม</option>
+                  {teams.map(team => (
+                    <option key={team.id} value={team.id}>{team.name}</option>
+                  ))}
+                </select>
+                {teamsError ? (
+                  <p className="text-xs text-danger">โหลดรายชื่อทีมไม่สำเร็จ</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Origins */}
             <div className="grid gap-2">
@@ -184,7 +231,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={createMutation.isPending}
               className="border-white/10 bg-white/5 hover:bg-white/10"
             >
@@ -192,7 +239,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
             </Button>
             <Button
               type="submit"
-              disabled={createMutation.isPending || !formData.name.trim()}
+              disabled={createDisabled}
               className=""
             >
               {createMutation.isPending ? (

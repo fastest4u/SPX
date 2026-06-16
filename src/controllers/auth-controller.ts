@@ -28,6 +28,7 @@ interface AuthTokenPayload {
   username: string;
   id: number;
   role: string;
+  teamId?: number | null;
   jti: string;
   authVersion?: number;
   iat?: number;
@@ -56,7 +57,7 @@ export const authController: FastifyPluginAsync = async (app) => {
 
     const jti = randomUUID();
     const token = await reply.jwtSign(
-      { username: user.username, id: user.id, role: user.role, authVersion: user.authVersion ?? 0, jti },
+      { username: user.username, id: user.id, role: user.role, teamId: user.teamId, authVersion: user.authVersion ?? 0, jti },
       { expiresIn: `${TOKEN_TTL_SECONDS}s` },
     );
 
@@ -70,7 +71,7 @@ export const authController: FastifyPluginAsync = async (app) => {
 
     // Do NOT return the JWT in the body. Cookie is httpOnly + signed; the body
     // payload only carries non-sensitive identity info for the SPA.
-    return sendSuccess(reply, { id: user.id, username: user.username, role: user.role }, "Login successful", 200);
+    return sendSuccess(reply, { id: user.id, username: user.username, role: user.role, teamId: user.teamId }, "Login successful", 200);
   });
 
   app.post("/logout", async (req, reply) => {
@@ -105,7 +106,7 @@ export const authController: FastifyPluginAsync = async (app) => {
 
       const newJti = randomUUID();
       const token = await reply.jwtSign(
-        { username: currentUser.username, id: currentUser.id, role: currentUser.role, authVersion: tokenPayload.authVersion ?? 0, jti: newJti },
+        { username: currentUser.username, id: currentUser.id, role: currentUser.role, teamId: currentUser.teamId, authVersion: tokenPayload.authVersion ?? 0, jti: newJti },
         { expiresIn: `${TOKEN_TTL_SECONDS}s` },
       );
       setAuthCookie(reply, token);
@@ -120,7 +121,7 @@ export const authController: FastifyPluginAsync = async (app) => {
     try {
       const decoded = await req.jwtVerify({ onlyCookie: true });
       const currentUser = await resolveAuthUserFromJwtPayload(decoded);
-      return sendSuccess(reply, { id: currentUser.id, username: currentUser.username, role: currentUser.role });
+      return sendSuccess(reply, { id: currentUser.id, username: currentUser.username, role: currentUser.role, teamId: currentUser.teamId });
     } catch (error) {
       if (error instanceof Error && "errorCode" in error && (error as { errorCode?: string }).errorCode === "TOKEN_REVOKED") {
         return sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");

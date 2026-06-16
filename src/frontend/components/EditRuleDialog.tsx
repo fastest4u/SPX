@@ -104,6 +104,15 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
           </DialogHeader>
 
           <div className="grid gap-4 py-4">
+            {(rule.teamName || rule.teamId) ? (
+              <div className="grid gap-2">
+                <Label>ทีมเจ้าของเส้นทาง</Label>
+                <div className="flex h-11 items-center rounded-xl border border-white/10 bg-white/5 px-3.5 text-sm font-semibold text-foreground">
+                  {rule.teamName || `Team #${rule.teamId}`}
+                </div>
+              </div>
+            ) : null}
+
             {/* Rule Name */}
             <div className="grid gap-2">
               <Label htmlFor="name">ชื่อรายการ</Label>

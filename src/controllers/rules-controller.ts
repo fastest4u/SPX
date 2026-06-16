@@ -1,9 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { createRule, deleteRule, previewRuleAgainstTrips, readRules, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
+import { createRule, deleteRule, getRuleTeamId, previewRuleAgainstTrips, readRulesForScope, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
 import { getBookingHistory } from "../repositories/booking-history-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
+import { resolveScopedTeamId } from "../services/team-scope.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { AppError } from "../utils/errors.js";
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -22,6 +24,38 @@ interface RuleParams {
 
 function currentUser(req: { user?: unknown }): AuthUser {
   return req.user as AuthUser;
+}
+
+function queryTeamId(req: { query?: unknown }): number | undefined {
+  const query = req.query as { teamId?: number } | undefined;
+  return typeof query?.teamId === "number" ? query.teamId : undefined;
+}
+
+function bodyTeamId(body: { teamId?: unknown } | undefined): number | undefined {
+  return typeof body?.teamId === "number" ? body.teamId : undefined;
+}
+
+function listTeamScope(req: { user?: unknown; query?: unknown }): number | null {
+  const user = currentUser(req);
+  const explicitTeamId = queryTeamId(req);
+  if (user.role === "admin" && typeof explicitTeamId !== "number") return null;
+  return resolveScopedTeamId(req, explicitTeamId);
+}
+
+function createTeamScope(req: { user?: unknown }, explicitTeamId?: number): number {
+  const user = currentUser(req);
+  if (user.role === "admin" && typeof explicitTeamId !== "number") {
+    throw new AppError("Admin requests must include teamId", 400, "TEAM_REQUIRED");
+  }
+  return resolveScopedTeamId(req, explicitTeamId);
+}
+
+async function existingRuleTeamScope(req: { user?: unknown; query?: unknown }, id: string, explicitTeamId?: number): Promise<number | null> {
+  const user = currentUser(req);
+  if (user.role === "admin") {
+    return typeof explicitTeamId === "number" ? explicitTeamId : getRuleTeamId(id);
+  }
+  return resolveScopedTeamId(req, explicitTeamId);
 }
 
 function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
@@ -57,6 +91,7 @@ const ruleSchema = {
   required: ["name"],
   properties: {
     name: { type: "string", minLength: 1, maxLength: 128 },
+    teamId: { type: "integer", minimum: 1 },
     origins: { type: "array", items: { type: "string", maxLength: 255 }, maxItems: MAX_FILTER_ENTRIES },
     destinations: { type: "array", items: { type: "string", maxLength: 255 }, maxItems: MAX_FILTER_ENTRIES },
     vehicle_types: { type: "array", items: { type: "string", maxLength: 100 }, maxItems: MAX_FILTER_ENTRIES },
@@ -65,6 +100,14 @@ const ruleSchema = {
     fulfilled: { type: "boolean" },
     auto_accept: { type: "boolean" },
     auto_accepted: { type: "boolean" },
+  },
+} as const;
+
+const teamQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    teamId: { type: "integer", minimum: 1 },
   },
 } as const;
 
@@ -80,21 +123,23 @@ const rulePreviewSchema = {
 } as const;
 
 type RulePreviewBody = {
-  rule: NotifyRuleInput;
+  rule: NotifyRuleInput & { teamId?: number };
   limit?: number;
   sampleLimit?: number;
 };
 
 export const rulesController: FastifyPluginAsync = async (app) => {
-  app.get("/", async (req, reply) => {
-    const rules = await readRules();
+  app.get("/", { schema: { querystring: teamQuerySchema } }, async (req, reply) => {
+    const teamId = listTeamScope(req);
+    const rules = await readRulesForScope(teamId);
     return sendSuccess(reply, rules);
   });
 
   app.post<{ Body: RulePreviewBody }>("/preview", { schema: { body: rulePreviewSchema } }, async (req, reply) => {
     const limit = req.body.limit ?? 200;
     const sampleLimit = req.body.sampleLimit ?? 8;
-    const historyRows = await getBookingHistory({ limit, sortBy: "created_at", sortDir: "desc" });
+    const teamId = createTeamScope(req, bodyTeamId(req.body.rule));
+    const historyRows = await getBookingHistory(teamId, { limit, sortBy: "created_at", sortDir: "desc" });
     const trips = historyRows.map((row) => ({
       origin: row.origin ?? "",
       destination: row.destination ?? "",
@@ -112,30 +157,40 @@ export const rulesController: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post<{ Body: Partial<NotifyRuleInput> }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
-    const newRule = await createRule(toRuleInput(req.body));
-    await insertAuditLog(currentUser(req).username, "Add Rule", `Added rule: ${newRule.name}`);
+  app.post<{ Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
+    const teamId = createTeamScope(req, bodyTeamId(req.body));
+    const newRule = await createRule(teamId, toRuleInput(req.body));
+    const user = currentUser(req);
+    await insertAuditLog(user.username, "Add Rule", `Added rule: ${newRule.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, newRule, "Rule created successfully", 201);
   });
 
-  app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
-    const updated = await updateRule(req.params.id, toRulePatch(req.body));
+  app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
+    const teamId = await existingRuleTeamScope(req, req.params.id, bodyTeamId(req.body));
+    if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const updated = await updateRule(teamId, req.params.id, toRulePatch(req.body));
     if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
-    await insertAuditLog(currentUser(req).username, "Update Rule", `Updated rule: ${updated.name}`);
+    const user = currentUser(req);
+    await insertAuditLog(user.username, "Update Rule", `Updated rule: ${updated.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, updated, "Rule updated successfully");
   });
 
-  app.get<{ Params: RuleParams }>("/:id", async (req, reply) => {
-    const rules = await readRules();
+  app.get<{ Params: RuleParams }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, querystring: teamQuerySchema } }, async (req, reply) => {
+    const teamId = await existingRuleTeamScope(req, req.params.id, queryTeamId(req));
+    if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const rules = await readRulesForScope(teamId);
     const rule = rules.find((item) => item.id === req.params.id);
     if (!rule) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     return sendSuccess(reply, rule);
   });
 
-  app.delete<{ Params: RuleParams }>("/:id", async (req, reply) => {
-    const deleted = await deleteRule(req.params.id);
+  app.delete<{ Params: RuleParams }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, querystring: teamQuerySchema } }, async (req, reply) => {
+    const teamId = await existingRuleTeamScope(req, req.params.id, queryTeamId(req));
+    if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const deleted = await deleteRule(teamId, req.params.id);
     if (!deleted) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
-    await insertAuditLog(currentUser(req).username, "Delete Rule", `Deleted rule: ${deleted.name}`);
+    const user = currentUser(req);
+    await insertAuditLog(user.username, "Delete Rule", `Deleted rule: ${deleted.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, null, "Rule deleted successfully", 204);
   });
 };

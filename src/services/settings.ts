@@ -4,17 +4,19 @@ import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-
 import { reconfigureSpxDispatcher } from "../utils/http-dispatcher.js";
 
 const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
+const LEGACY_TEAM_SETTINGS_KEYS = [
+  "COOKIE",
+  "DEVICE_ID",
+  "LINE_USER_ID",
+  "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS",
+  "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE",
+] as const;
 
 export const SETTINGS_KEYS = [
   "API_URL",
-  "COOKIE",
-  "DEVICE_ID",
   "LINE_CHANNEL_ACCESS_TOKEN",
-  "LINE_USER_ID",
   "LINEJS_TEST_ENABLED",
   "LINEJS_TEST_TARGET_ID",
-  "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS",
-  "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE",
   "LINEJS_TEST_DEVICE",
   "LINEJS_TEST_STORAGE_PATH",
   "DISCORD_WEBHOOK_URL",
@@ -26,18 +28,16 @@ export const SETTINGS_KEYS = [
 ] as const;
 
 export type SettingsKey = typeof SETTINGS_KEYS[number];
+type LegacyTeamSettingsKey = typeof LEGACY_TEAM_SETTINGS_KEYS[number];
+type RuntimeSettingsKey = SettingsKey | LegacyTeamSettingsKey;
 export type EnvSettings = Partial<Record<SettingsKey, string>>;
+type RuntimeSettings = Partial<Record<RuntimeSettingsKey, string>>;
 
 const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
   API_URL: "",
-  COOKIE: "",
-  DEVICE_ID: "",
   LINE_CHANNEL_ACCESS_TOKEN: "",
-  LINE_USER_ID: "",
   LINEJS_TEST_ENABLED: "false",
   LINEJS_TEST_TARGET_ID: "",
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: "",
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: "",
   LINEJS_TEST_DEVICE: "IOSIPAD",
   LINEJS_TEST_STORAGE_PATH: "data/linejs-storage.json",
   DISCORD_WEBHOOK_URL: "",
@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
   BIDDING_VEHICLE_TYPE: "13",
   CODEX_IMAGE_PROVIDER: "auto",
 };
+
+const RUNTIME_SETTINGS_KEYS = [...SETTINGS_KEYS, ...LEGACY_TEAM_SETTINGS_KEYS] as const;
 
 function readIntegerSetting(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
@@ -135,8 +137,8 @@ function syncEnvObjectFromProcess(): void {
   reconfigureSpxDispatcher(mutableEnv.POLL_INTERVAL_MS as number);
 }
 
-function applySettingsToEnv(settings: EnvSettings): void {
-  for (const [key, value] of Object.entries(settings) as Array<[SettingsKey, string | undefined]>) {
+function applySettingsToEnv(settings: RuntimeSettings): void {
+  for (const [key, value] of Object.entries(settings) as Array<[RuntimeSettingsKey, string | undefined]>) {
     if (typeof value === "string") {
       process.env[key] = value;
     }
@@ -144,9 +146,9 @@ function applySettingsToEnv(settings: EnvSettings): void {
   syncEnvObjectFromProcess();
 }
 
-function readProcessSettings(): Record<string, string> {
+function readProcessSettings(keys: readonly RuntimeSettingsKey[] = SETTINGS_KEYS): Record<string, string> {
   const settings: Record<string, string> = {};
-  for (const key of SETTINGS_KEYS) {
+  for (const key of keys) {
     const value = process.env[key];
     if (typeof value === "string") {
       settings[key] = value;
@@ -225,14 +227,14 @@ export async function reloadSettingsLive(): Promise<void> {
 }
 
 export async function migrateEnvSettingsToDb(): Promise<void> {
-  const envSettings = pickKnownSettings(readProcessSettings());
+  const envSettings = readProcessSettings(RUNTIME_SETTINGS_KEYS);
   for (const key of REMOVED_SETTINGS_KEYS) {
-    delete envSettings[key as SettingsKey];
+    delete envSettings[key];
   }
 
-  const currentSettings = await getAppSettings(SETTINGS_KEYS);
-  const missingSettings: EnvSettings = {};
-  for (const [key, value] of Object.entries(envSettings) as Array<[SettingsKey, string | undefined]>) {
+  const currentSettings = await getAppSettings(RUNTIME_SETTINGS_KEYS);
+  const missingSettings: RuntimeSettings = {};
+  for (const [key, value] of Object.entries(envSettings) as Array<[RuntimeSettingsKey, string | undefined]>) {
     if (typeof value === "string" && currentSettings[key] === undefined) {
       missingSettings[key] = value;
     }
@@ -244,6 +246,6 @@ export async function migrateEnvSettingsToDb(): Promise<void> {
 }
 
 export async function loadDbSettingsIntoEnv(): Promise<void> {
-  const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
+  const dbSettings = await getAppSettings(RUNTIME_SETTINGS_KEYS);
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
 }

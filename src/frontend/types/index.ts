@@ -33,6 +33,8 @@ export interface AuthUser {
   id: number;
   username: string;
   role: 'user' | 'admin';
+  teamId: number | null;
+  teamName?: string | null;
 }
 
 export interface LoginResponse {
@@ -50,6 +52,8 @@ export interface MeResponse {
 // Rule Types
 export interface NotifyRule {
   id: string;
+  teamId?: number;
+  teamName?: string;
   name: string;
   origins: string[];
   destinations: string[];
@@ -63,6 +67,7 @@ export interface NotifyRule {
 }
 
 export interface RuleInput {
+  teamId?: number;
   name: string;
   origins: string[];
   destinations: string[];
@@ -72,6 +77,7 @@ export interface RuleInput {
 }
 
 export interface RulePatch {
+  teamId?: number;
   name?: string;
   origins?: string[];
   destinations?: string[];
@@ -106,6 +112,8 @@ export interface RulePreviewResult {
 // History/Booking Types
 export interface BookingHistory {
   id: number;
+  teamId?: number;
+  teamName?: string | null;
   requestId: number;
   bookingId: number;
   bookingName?: string;
@@ -198,6 +206,8 @@ export interface User {
   id: number;
   username: string;
   role: 'user' | 'admin';
+  teamId: number | null;
+  teamName?: string | null;
   createdAt: string;
 }
 
@@ -205,6 +215,7 @@ export interface CreateUserInput {
   username: string;
   password: string;
   role?: 'user' | 'admin';
+  teamId?: number | null;
 }
 
 export interface PasswordInput {
@@ -213,19 +224,39 @@ export interface PasswordInput {
 
 export interface RoleInput {
   role: 'user' | 'admin';
+  teamId?: number | null;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  enabled: boolean;
+  hasSpxCookie: boolean;
+  hasSpxDeviceId: boolean;
+  hasLineGroupId: boolean;
+  spxCookiePreview: string;
+  spxDeviceIdPreview: string;
+  lineGroupIdPreview: string;
+  runtimeStatus?: 'stopped' | 'running' | 'paused' | 'misconfigured' | 'session_expired' | 'error';
+  usersCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamInput {
+  name: string;
+  enabled?: boolean;
+  spxCookie?: string;
+  spxDeviceId?: string;
+  lineGroupId?: string;
 }
 
 // Settings Types
 export interface EnvSettings {
   API_URL?: string;
-  COOKIE?: string;
-  DEVICE_ID?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
-  LINE_USER_ID?: string;
   LINEJS_TEST_ENABLED?: string;
   LINEJS_TEST_TARGET_ID?: string;
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS?: string;
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE?: string;
   LINEJS_TEST_DEVICE?: string;
   LINEJS_TEST_STORAGE_PATH?: string;
   DISCORD_WEBHOOK_URL?: string;
@@ -310,6 +341,8 @@ export interface PoolStats {
 }
 
 export interface MetricsSnapshot {
+  teamId: number | null;
+  teamName?: string;
   isPaused?: boolean;
   uptime: number;
   startedAt: string;
@@ -366,6 +399,7 @@ export interface MetricsSnapshot {
 
 export interface MetricsHistoryRow {
   id: number;
+  teamId?: number;
   createdAt: string;
   successRate: number;
   latencyAvg: number;
@@ -405,6 +439,7 @@ export interface ReadyResponse {
 
 // Bidding Types
 export interface AcceptBookingInput {
+  teamId?: number;
   bookingId: number;
   requestIds: number[];
   confirm: true;
@@ -465,6 +500,8 @@ export interface ApiError {
 // Auto-Accept History Types
 export interface AutoAcceptHistoryItem {
   id: number;
+  teamId: number;
+  teamName?: string | null;
   ruleId: string;
   ruleName: string;
   bookingId: number;
@@ -496,6 +533,15 @@ export interface LineBotStatus {
   qrUrl?: string;
   pincode?: string;
   message: string;
+}
+
+export interface LineBotChat {
+  chatMid: string;
+  chatName: string;
+}
+
+export interface LineBotGroupList {
+  chats: LineBotChat[];
 }
 
 export interface LineBotSendInput {

@@ -2,11 +2,13 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { rulesApi, metricsApi } from '../lib/api'
 import { useSseStream } from '../hooks/useSseContext'
+import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
+import { PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { Sparkline } from '../components/Sparkline'
 import {
@@ -34,6 +36,8 @@ export const Route = createFileRoute('/')({
 
 function DashboardComponent() {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<NotifyRule | null>(null)
   const [deletingRule, setDeletingRule] = useState<NotifyRule | null>(null)
@@ -45,7 +49,7 @@ function DashboardComponent() {
   const handleDeleteRule = useCallback((rule: NotifyRule) => setDeletingRule(rule), [])
   const handlePreviewRule = useCallback((rule: NotifyRule) => setPreviewingRule(rule), [])
 
-  const { data: rules = [], isLoading: rulesLoading } = useQuery({
+  const { data: rules = [], isLoading: rulesLoading, isError: rulesIsError, error: rulesError } = useQuery({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
     staleTime: 2 * 60 * 1000,
@@ -86,15 +90,19 @@ function DashboardComponent() {
 
   useEffect(() => {
     if (sseRules) {
+      if (isAdmin) {
+        void queryClient.invalidateQueries({ queryKey: ['rules'] })
+        return
+      }
       queryClient.setQueryData(['rules'], sseRules)
     }
-  }, [queryClient, sseRules])
+  }, [isAdmin, queryClient, sseRules])
 
   useEffect(() => {
     if (!sessionAlertTimestamp) return
     toast.error('SPX session หมดอายุ', {
       description:
-        'อัปเดต COOKIE ใหม่ใน Settings เพื่อให้ระบบ poll และ auto-accept กลับมาทำงาน',
+        'อัปเดต SPX Cookie ใน Teams เพื่อให้ระบบ poll และ auto-accept ของทีมนั้นกลับมาทำงาน',
       duration: 20_000,
     })
   }, [sessionAlertTimestamp])
@@ -147,7 +155,7 @@ function DashboardComponent() {
   )
 
   return (
-    <div className="space-y-5">
+    <PageShell>
       <PageHeader
         icon={LayoutDashboard}
         title="ภาพรวมระบบ"
@@ -159,7 +167,7 @@ function DashboardComponent() {
         <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-3 text-foreground sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />
-            <span className="text-sm font-bold">SPX session หมดอายุ — อัปเดต COOKIE ใน Settings</span>
+            <span className="text-sm font-bold">SPX session หมดอายุ — อัปเดต Cookie ใน Teams</span>
           </div>
           <Button asChild variant="outline" size="sm">
             <Link to="/settings">Settings</Link>
@@ -184,7 +192,14 @@ function DashboardComponent() {
           <CreateRuleDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
         </div>
         <CardContent className="p-0">
-          {rules.length === 0 ? (
+          {rulesIsError ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="โหลดรายการค้นหาไม่สำเร็จ"
+              description={rulesError instanceof Error ? rulesError.message : 'ไม่สามารถโหลด rule ได้'}
+              className="py-16"
+            />
+          ) : rules.length === 0 ? (
             <EmptyState
               icon={Search}
               title="ยังไม่มีกฎค้นหา"
@@ -203,6 +218,7 @@ function DashboardComponent() {
                 <thead>
                   <tr>
                     <th>สถานะ</th>
+                    {isAdmin ? <th>ทีม</th> : null}
                     <th>ชื่อรายการ</th>
                     <th>ต้นทาง</th>
                     <th>ปลายทาง</th>
@@ -216,6 +232,7 @@ function DashboardComponent() {
                     <RuleRow
                       key={rule.id}
                       rule={rule}
+                      showTeam={isAdmin}
                       onEdit={handleEditRule}
                       onDelete={handleDeleteRule}
                       onPreview={handlePreviewRule}
@@ -231,7 +248,7 @@ function DashboardComponent() {
       <EditRuleDialog rule={editingRule} open={editingRule !== null} onOpenChange={(open) => { if (!open) setEditingRule(null) }} />
       <DeleteConfirmDialog rule={deletingRule} open={deletingRule !== null} onOpenChange={(open) => { if (!open) setDeletingRule(null) }} />
       <RulePreviewDialog rule={previewingRule} open={previewingRule !== null} onOpenChange={(open) => { if (!open) setPreviewingRule(null) }} />
-    </div>
+    </PageShell>
   )
 }
 
@@ -406,10 +423,15 @@ function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDe
   )
 }
 
-const RuleRow = memo(function RuleRow({ rule, onEdit, onDelete, onPreview }: { rule: NotifyRule; onEdit: (rule: NotifyRule) => void; onDelete: (rule: NotifyRule) => void; onPreview: (rule: NotifyRule) => void }) {
+const RuleRow = memo(function RuleRow({ rule, showTeam, onEdit, onDelete, onPreview }: { rule: NotifyRule; showTeam: boolean; onEdit: (rule: NotifyRule) => void; onDelete: (rule: NotifyRule) => void; onPreview: (rule: NotifyRule) => void }) {
   return (
     <tr>
       <td>{getStatusBadge(rule)}</td>
+      {showTeam ? (
+        <td>
+          <Badge variant="neutral">{rule.teamName || (rule.teamId ? `Team #${rule.teamId}` : 'ไม่ระบุทีม')}</Badge>
+        </td>
+      ) : null}
       <td className="font-semibold text-foreground">{rule.name}</td>
       <td className="text-muted-foreground">{rule.origins.join(', ') || '—'}</td>
       <td className="text-muted-foreground">{rule.destinations.join(', ') || '—'}</td>
