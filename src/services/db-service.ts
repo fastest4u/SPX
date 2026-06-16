@@ -23,12 +23,13 @@ function toBookingHistoryRecord(trip: ExtractedTripInfo): BookingHistoryRecord {
 }
 
 export async function saveBookingRequest(
+  teamId: number,
   trip: ExtractedTripInfo
 ): Promise<{ saved: boolean; action: string; message: string }> {
   try {
     await ensureSpxBookingHistoryTable();
 
-    const { action } = await insertBookingHistory(toBookingHistoryRecord(trip));
+    const { action } = await insertBookingHistory(teamId, toBookingHistoryRecord(trip));
 
     return {
       saved: action === "inserted",
@@ -42,6 +43,7 @@ export async function saveBookingRequest(
 }
 
 export async function saveBookingRequests(
+  teamId: number,
   trips: ExtractedTripInfo[]
 ): Promise<{ inserted: number; skipped: number; errors: number; message: string }> {
   if (trips.length === 0) {
@@ -53,7 +55,7 @@ export async function saveBookingRequests(
   // after a single transient failure.
   await ensureSpxBookingHistoryTable();
 
-  const result = await insertBookingHistories(trips.map(toBookingHistoryRecord));
+  const result = await insertBookingHistories(teamId, trips.map(toBookingHistoryRecord));
   return {
     inserted: result.inserted,
     skipped: result.skipped,

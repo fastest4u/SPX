@@ -1,10 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { readStoredSettings, writeSettings, reloadSettingsLive, type EnvSettings, type SettingsKey } from "../services/settings.js";
+import { readStoredSettings, writeSettings, reloadSettingsLive, SETTINGS_KEYS, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { sendSuccess } from "../utils/response.js";
 
-const SECRET_KEYS = new Set<SettingsKey>(["COOKIE", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_USER_ID", "LINEJS_TEST_TARGET_ID", "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS", "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE", "DISCORD_WEBHOOK_URL"]);
+const SECRET_KEYS = new Set<SettingsKey>(["LINE_CHANNEL_ACCESS_TOKEN", "LINEJS_TEST_TARGET_ID", "DISCORD_WEBHOOK_URL"]);
+const WRITABLE_SETTINGS_KEYS = new Set<string>(SETTINGS_KEYS);
 const REDACTED_PREFIX = "********";
 
 const settingsSchema = {
@@ -12,14 +13,9 @@ const settingsSchema = {
   additionalProperties: false,
   properties: {
     API_URL: { type: "string" },
-    COOKIE: { type: "string" },
-    DEVICE_ID: { type: "string" },
     LINE_CHANNEL_ACCESS_TOKEN: { type: "string" },
-    LINE_USER_ID: { type: "string" },
     LINEJS_TEST_ENABLED: { type: "string" },
     LINEJS_TEST_TARGET_ID: { type: "string" },
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: { type: "string" },
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: { type: "string" },
     LINEJS_TEST_DEVICE: { type: "string" },
     LINEJS_TEST_STORAGE_PATH: { type: "string" },
     DISCORD_WEBHOOK_URL: { type: "string" },
@@ -48,14 +44,9 @@ async function readPublicSettings(): Promise<EnvSettings> {
   const envVars = await readStoredSettings();
   return {
     API_URL: envVars.API_URL || "",
-    COOKIE: redactSecret(envVars.COOKIE),
-    DEVICE_ID: envVars.DEVICE_ID || "",
     LINE_CHANNEL_ACCESS_TOKEN: redactSecret(envVars.LINE_CHANNEL_ACCESS_TOKEN),
-    LINE_USER_ID: redactSecret(envVars.LINE_USER_ID),
     LINEJS_TEST_ENABLED: envVars.LINEJS_TEST_ENABLED || "false",
     LINEJS_TEST_TARGET_ID: redactSecret(envVars.LINEJS_TEST_TARGET_ID),
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: redactSecret(envVars.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS),
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: redactSecret(envVars.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE),
     LINEJS_TEST_DEVICE: envVars.LINEJS_TEST_DEVICE || "IOSIPAD",
     LINEJS_TEST_STORAGE_PATH: envVars.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json",
     DISCORD_WEBHOOK_URL: redactSecret(envVars.DISCORD_WEBHOOK_URL),
@@ -67,12 +58,14 @@ async function readPublicSettings(): Promise<EnvSettings> {
   };
 }
 
-function writableSettings(body: Partial<Record<SettingsKey, string>>): EnvSettings {
+function writableSettings(body: Record<string, unknown>): EnvSettings {
   const result: EnvSettings = {};
-  for (const [key, value] of Object.entries(body) as Array<[SettingsKey, string | undefined]>) {
+  for (const [key, value] of Object.entries(body)) {
+    if (!WRITABLE_SETTINGS_KEYS.has(key)) continue;
     if (typeof value !== "string") continue;
-    if (SECRET_KEYS.has(key) && isRedactedSecret(value)) continue;
-    result[key] = value;
+    const settingsKey = key as SettingsKey;
+    if (SECRET_KEYS.has(settingsKey) && isRedactedSecret(value)) continue;
+    result[settingsKey] = value;
   }
   return result;
 }
@@ -86,7 +79,7 @@ export const settingsController: FastifyPluginAsync = async (app) => {
     "/",
     { schema: { body: settingsSchema } },
     async (req, reply) => {
-      const data = writableSettings(req.body as Partial<Record<SettingsKey, string>>);
+      const data = writableSettings(req.body as Record<string, unknown>);
       await writeSettings(data);
       await reloadSettingsLive();
       await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Live Reload)");

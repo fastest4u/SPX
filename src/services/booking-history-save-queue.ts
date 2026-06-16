@@ -27,6 +27,7 @@ export type BookingHistorySaveQueueOptions = {
   maxPendingTrips?: number;
   maxBatchSize?: number;
   deadLetterPath?: string | null;
+  teamId?: number;
 };
 
 const defaultMaxPendingTrips = 50_000;
@@ -42,12 +43,14 @@ export class BookingHistorySaveQueue {
   private readonly maxPendingTrips: number;
   private readonly maxBatchSize: number;
   private readonly deadLetterPath: string | null;
+  private readonly teamId: number;
   private pendingTrips = new Map<number, ExtractedTripInfo>();
   private activeRequestIds = new Set<number>();
   private activeDrain: Promise<void> | null = null;
 
   constructor(options: BookingHistorySaveQueueOptions = {}) {
-    this.save = options.save ?? saveBookingRequests;
+    this.teamId = options.teamId ?? 1;
+    this.save = options.save ?? ((trips) => saveBookingRequests(this.teamId, trips));
     this.onResult = options.onResult;
     this.onError = options.onError;
     this.onLatency = options.onLatency;

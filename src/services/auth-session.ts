@@ -7,6 +7,7 @@ export interface AuthTokenPayload {
   id: number;
   username: string;
   role: string;
+  teamId?: number | null;
   jti?: string;
   authVersion?: number;
   exp?: number;
@@ -37,5 +38,5 @@ export async function resolveAuthUserFromJwtPayload(decoded: unknown): Promise<A
     throw new AppError("Token revoked", 401, "TOKEN_REVOKED");
   }
 
-  return { id: current.id, username: current.username, role: current.role };
+  return { id: current.id, username: current.username, role: current.role, teamId: current.teamId };
 }

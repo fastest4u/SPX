@@ -1,17 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
 import { insertAuditLog } from "../repositories/audit-repository.js";
+import { getTeamRuntimeConfig } from "../repositories/team-repository.js";
 import { ApiClient } from "../services/api-client.js";
-import type { AuthUser } from "../services/authz.js";
+import { requireRequestUser, resolveScopedTeamId } from "../services/team-scope.js";
+import { AppError } from "../utils/errors.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 interface AcceptBody {
+  teamId?: number;
   bookingId?: number;
   requestIds?: number[];
   confirm?: boolean;
-}
-
-function currentUser(req: { user?: unknown }): AuthUser {
-  return req.user as AuthUser;
 }
 
 function uniquePositiveIntegers(values: unknown): number[] {
@@ -19,13 +18,23 @@ function uniquePositiveIntegers(values: unknown): number[] {
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
 }
 
-/** Singleton API client shared across accept requests */
-let sharedApiClient: ApiClient | null = null;
-function getApiClient(): ApiClient {
-  if (!sharedApiClient) {
-    sharedApiClient = new ApiClient();
+async function getApiClientForTeam(teamId: number): Promise<ApiClient> {
+  const team = await getTeamRuntimeConfig(teamId);
+  if (!team) {
+    throw new AppError("Team not found", 404, "TEAM_NOT_FOUND");
   }
-  return sharedApiClient;
+  if (!team.enabled) {
+    throw new AppError("Team is disabled", 400, "TEAM_DISABLED");
+  }
+  if (!team.spxCookie || !team.spxDeviceId) {
+    throw new AppError("Team SPX credentials are incomplete", 400, "TEAM_CREDENTIALS_REQUIRED");
+  }
+  return new ApiClient({
+    credentials: {
+      spxCookie: team.spxCookie,
+      spxDeviceId: team.spxDeviceId,
+    },
+  });
 }
 
 const acceptSchema = {
@@ -33,6 +42,7 @@ const acceptSchema = {
   additionalProperties: false,
   required: ["bookingId", "requestIds", "confirm"],
   properties: {
+    teamId: { type: "integer", minimum: 1 },
     bookingId: { type: "integer", minimum: 1 },
     requestIds: { type: "array", minItems: 1, maxItems: 100, items: { type: "integer", minimum: 1 } },
     confirm: { type: "boolean", const: true },
@@ -49,14 +59,16 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     }
 
     const validBookingId: number = bookingId;
-    const apiClient = getApiClient();
+    const actor = requireRequestUser(req);
+    const teamId = resolveScopedTeamId(req, req.body.teamId);
+    const apiClient = await getApiClientForTeam(teamId);
     const result = await apiClient.acceptBookingRequests(validBookingId, requestIds);
-    const actor = currentUser(req).username;
 
     await insertAuditLog(
-      actor,
+      actor.username,
       result.ok ? "Accept Booking Request" : "Accept Booking Request Failed",
       `booking_id=${bookingId}; request_ids=${requestIds.join(",")}; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
+      { actorUserId: actor.id, actorTeamId: actor.teamId, targetTeamId: teamId },
     );
 
     if (!result.ok) {

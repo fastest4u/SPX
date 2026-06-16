@@ -1,6 +1,7 @@
 export const spxBookingHistoryMigrationSql = `
 CREATE TABLE IF NOT EXISTS spx_booking_history (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT NOT NULL DEFAULT 1,
   request_id BIGINT UNSIGNED NOT NULL,
   booking_id BIGINT UNSIGNED NULL,
   booking_name VARCHAR(255) NULL,
@@ -16,15 +17,17 @@ CREATE TABLE IF NOT EXISTS spx_booking_history (
   acceptance_status INT NULL,
   assignment_status INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY request_id_idx (request_id),
+  UNIQUE KEY spx_booking_history_team_request_uidx (team_id, request_id),
   KEY booking_id_idx (booking_id),
-  KEY created_at_idx (created_at)
+  KEY created_at_idx (created_at),
+  KEY spx_booking_history_team_created_idx (team_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 
 export const notifyRulesMigrationSql = `
 CREATE TABLE IF NOT EXISTS notify_rules (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
+  team_id INT NOT NULL DEFAULT 1,
   name VARCHAR(128) NOT NULL,
   origins VARCHAR(4000) NOT NULL DEFAULT '[]',
   destinations VARCHAR(4000) NOT NULL DEFAULT '[]',
@@ -35,13 +38,15 @@ CREATE TABLE IF NOT EXISTS notify_rules (
   auto_accept INT NOT NULL DEFAULT 0,
   auto_accepted INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY notify_rules_team_id_idx (team_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 
 export const autoAcceptHistoryMigrationSql = `
 CREATE TABLE IF NOT EXISTS auto_accept_history (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT NOT NULL DEFAULT 1,
   rule_id VARCHAR(255) NOT NULL,
   rule_name VARCHAR(128) NOT NULL,
   booking_id BIGINT UNSIGNED NOT NULL,
@@ -55,13 +60,16 @@ CREATE TABLE IF NOT EXISTS auto_accept_history (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY aah_created_at_idx (created_at),
   KEY aah_rule_id_idx (rule_id),
-  KEY aah_status_created_at_idx (status, created_at)
+  KEY aah_status_created_at_idx (status, created_at),
+  KEY aah_team_created_at_idx (team_id, created_at),
+  KEY aah_team_status_created_at_idx (team_id, status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 
 export const metricsSnapshotsMigrationSql = `
 CREATE TABLE IF NOT EXISTS metrics_snapshots (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT NOT NULL DEFAULT 1,
   uptime INT NOT NULL,
   total_requests INT NOT NULL DEFAULT 0,
   success_count INT NOT NULL DEFAULT 0,
@@ -75,7 +83,8 @@ CREATE TABLE IF NOT EXISTS metrics_snapshots (
   trips_inserted INT NOT NULL DEFAULT 0,
   trips_skipped INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY metrics_created_at_idx (created_at)
+  KEY metrics_created_at_idx (created_at),
+  KEY metrics_team_created_at_idx (team_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 

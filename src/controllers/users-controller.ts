@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getAllUsers, createUser, updateUserPassword, deleteUser, updateUserRole } from "../repositories/user-repository.js";
+import { getAllUsers, createUser, updateUserPassword, deleteUser, updateUserRole, updateUserTeam } from "../repositories/user-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser, UserRole } from "../services/authz.js";
 import { sendSuccess, sendError } from "../utils/response.js";
@@ -10,6 +10,7 @@ interface CreateUserBody {
   username?: unknown;
   password?: unknown;
   role?: UserRole;
+  teamId?: number | null;
 }
 
 interface PasswordBody {
@@ -18,6 +19,11 @@ interface PasswordBody {
 
 interface RoleBody {
   role?: UserRole;
+  teamId?: number | null;
+}
+
+interface TeamBody {
+  teamId?: number | null;
 }
 
 interface IdParams {
@@ -36,6 +42,11 @@ function isUserRole(value: unknown): value is UserRole {
   return value === "user" || value === "admin";
 }
 
+function isValidTeamIdForRole(role: UserRole, teamId: unknown): teamId is number | null | undefined {
+  if (role === "admin") return teamId === undefined || teamId === null || typeof teamId === "number";
+  return typeof teamId === "number";
+}
+
 const createUserSchema = {
   type: "object",
   additionalProperties: false,
@@ -44,6 +55,7 @@ const createUserSchema = {
     username: { type: "string", minLength: 1, maxLength: 50 },
     password: { type: "string", minLength: MIN_USER_PASSWORD_LENGTH, maxLength: 256 },
     role: { type: "string", enum: ["user", "admin"] },
+    teamId: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] },
   },
 } as const;
 
@@ -70,6 +82,16 @@ const roleSchema = {
   required: ["role"],
   properties: {
     role: { type: "string", enum: ["user", "admin"] },
+    teamId: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] },
+  },
+} as const;
+
+const teamSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["teamId"],
+  properties: {
+    teamId: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] },
   },
 } as const;
 
@@ -80,16 +102,20 @@ export const usersController: FastifyPluginAsync = async (app) => {
   });
 
   app.post<{ Body: CreateUserBody }>("/", { schema: { body: createUserSchema } }, async (req, reply) => {
-    const { username, password, role } = req.body ?? {};
+    const { username, password, role, teamId } = req.body ?? {};
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
       return sendError(reply, 400, "VALIDATION_ERROR", "Missing username or password");
     }
     if (password.trim().length < MIN_USER_PASSWORD_LENGTH) {
       return sendError(reply, 400, "VALIDATION_ERROR", `Password must be at least ${MIN_USER_PASSWORD_LENGTH} characters`);
     }
+    const nextRole = role ?? "user";
+    if (!isValidTeamIdForRole(nextRole, teamId)) {
+      return sendError(reply, 400, "TEAM_REQUIRED", "User role requires a team");
+    }
 
     try {
-      await createUser(username.trim(), password, role ?? "user");
+      await createUser(username.trim(), password, nextRole, teamId ?? null);
       await insertAuditLog(currentUser(req).username, "Add User", `Created user: ${username}`);
       return sendSuccess(reply, null, "User created successfully", 201);
     } catch {
@@ -116,18 +142,36 @@ export const usersController: FastifyPluginAsync = async (app) => {
 
   app.put<{ Params: IdParams; Body: RoleBody }>("/:id/role", { schema: { params: idParamSchema, body: roleSchema } }, async (req, reply) => {
     const id = Number.parseInt(req.params.id, 10);
-    const { role } = req.body ?? {};
+    const { role, teamId } = req.body ?? {};
     if (!Number.isInteger(id) || id < 0) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid user id");
     if (!isUserRole(role)) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid role");
+    if (!isValidTeamIdForRole(role, teamId)) return sendError(reply, 400, "TEAM_REQUIRED", "User role requires a team");
     if (currentUser(req).id === id) return sendError(reply, 400, "VALIDATION_ERROR", "Cannot change your own role");
 
     try {
-      const updated = await updateUserRole(id, role);
+      const updated = await updateUserRole(id, role, teamId);
       if (!updated) return sendError(reply, 404, "NOT_FOUND", "User not found");
       await insertAuditLog(currentUser(req).username, "Update Role", `Changed role for user ID: ${id} to ${role}`);
       return sendSuccess(reply, null, "Role updated successfully");
     } catch {
       return sendError(reply, 400, "UPDATE_FAILED", "Cannot change role");
+    }
+  });
+
+  app.put<{ Params: IdParams; Body: TeamBody }>("/:id/team", { schema: { params: idParamSchema, body: teamSchema } }, async (req, reply) => {
+    const id = Number.parseInt(req.params.id, 10);
+    const { teamId } = req.body ?? {};
+    if (!Number.isInteger(id) || id < 0) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid user id");
+    if (teamId !== null && typeof teamId !== "number") return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+    if (currentUser(req).id === id) return sendError(reply, 400, "VALIDATION_ERROR", "Cannot change your own team");
+
+    try {
+      const updated = await updateUserTeam(id, teamId);
+      if (!updated) return sendError(reply, 400, "TEAM_REQUIRED", "Cannot update team for this user");
+      await insertAuditLog(currentUser(req).username, "Update User Team", `Changed team for user ID: ${id} to ${teamId ?? "none"}`);
+      return sendSuccess(reply, null, "Team updated successfully");
+    } catch {
+      return sendError(reply, 400, "UPDATE_FAILED", "Cannot change team");
     }
   });
 

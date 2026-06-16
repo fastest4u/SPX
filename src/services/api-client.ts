@@ -70,6 +70,17 @@ interface BookingRequestListOptions {
   onPage?: (page: BookingRequestListResponse) => boolean | void;
 }
 
+export interface ApiClientCredentials {
+  spxCookie: string;
+  spxDeviceId: string;
+}
+
+export interface ApiClientOptions {
+  credentials?: ApiClientCredentials;
+  credentialsProvider?: () => ApiClientCredentials;
+  pollIntervalMsProvider?: () => number;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -270,7 +281,14 @@ function getMessage(value: unknown): string {
   return isRecord(value) && typeof value.message === "string" ? value.message : "";
 }
 
-function buildHeaders(): Record<string, string> {
+function envCredentials(): ApiClientCredentials {
+  return {
+    spxCookie: env.COOKIE,
+    spxDeviceId: env.DEVICE_ID,
+  };
+}
+
+export function buildHeadersForRequest(credentials: ApiClientCredentials): Record<string, string> {
   const origin = (() => {
     try {
       return new URL(env.REFERER).origin;
@@ -295,7 +313,7 @@ function buildHeaders(): Record<string, string> {
     "accept-language": "th,en;q=0.9",
     app: env.APP_NAME,
     "content-type": "application/json;charset=UTF-8",
-    "device-id": env.DEVICE_ID,
+    "device-id": credentials.spxDeviceId,
     priority: "u=1, i",
     "sec-ch-ua": '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
     "sec-ch-ua-mobile": "?0",
@@ -305,7 +323,7 @@ function buildHeaders(): Record<string, string> {
     "sec-fetch-site": "same-origin",
     origin,
     "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-    cookie: env.COOKIE,
+    cookie: credentials.spxCookie,
     Referer: env.REFERER,
   };
 }
@@ -326,25 +344,32 @@ export function buildBiddingListBody(pageNo: number): BiddingRequest {
 }
 
 export class ApiClient {
-  private cookieOverride: string | null = null;
   /**
    * Effective poll cadence for the adaptive list-poll retry/timeout math.
    * Injected by the Poller because a CLI interval override
    * (`node dist/app.js <seconds>`) takes precedence over env.POLL_INTERVAL_MS.
    */
   private readonly pollIntervalMsProvider: () => number;
+  private readonly credentialsProvider: () => ApiClientCredentials;
 
-  constructor(pollIntervalMsProvider: () => number = () => env.POLL_INTERVAL_MS) {
-    // No caching — all env reads happen per-fetch via getters below
-    this.pollIntervalMsProvider = pollIntervalMsProvider;
+  constructor(optionsOrPollIntervalMsProvider: ApiClientOptions | (() => number) = {}) {
+    if (typeof optionsOrPollIntervalMsProvider === "function") {
+      // Legacy constructor shape used by Poller tests.
+      this.pollIntervalMsProvider = optionsOrPollIntervalMsProvider;
+      this.credentialsProvider = envCredentials;
+      return;
+    }
+
+    this.pollIntervalMsProvider = optionsOrPollIntervalMsProvider.pollIntervalMsProvider ?? (() => env.POLL_INTERVAL_MS);
+    this.credentialsProvider =
+      optionsOrPollIntervalMsProvider.credentialsProvider
+        ?? (optionsOrPollIntervalMsProvider.credentials
+          ? () => optionsOrPollIntervalMsProvider.credentials as ApiClientCredentials
+          : envCredentials);
   }
 
   private get headers(): Record<string, string> {
-    const h = buildHeaders();
-    if (this.cookieOverride) {
-      h.cookie = this.cookieOverride;
-    }
-    return h;
+    return buildHeadersForRequest(this.credentialsProvider());
   }
 
   private get body(): BiddingRequest {
@@ -768,9 +793,5 @@ export class ApiClient {
       logger.warn("booking-request-list-failed", { bookingId, pageNo, error: err instanceof Error ? err.message : String(err) });
       return null;
     }
-  }
-
-  setCookie(cookie: string): void {
-    this.cookieOverride = cookie;
   }
 }

@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb, ensureDashboardTables } from "../db/client.js";
-import { notifyRules as notifyRulesTable } from "../db/schema.js";
+import { notifyRules as notifyRulesTable, teams as teamsTable } from "../db/schema.js";
 import { env } from "../config/env.js";
 import { sseBroadcaster } from "./sse.js";
 import { logger } from "../utils/logger.js";
@@ -21,6 +21,8 @@ export interface TripLike {
 
 export interface NotifyRule {
   id: string;
+  teamId?: number;
+  teamName?: string;
   name: string;
   origins: string[];
   destinations: string[];
@@ -72,37 +74,47 @@ const RULES_FILE = resolve(process.cwd(), "notify-rules.json");
 // writes (manual SQL edits, another process sharing the DB).
 const RULES_CACHE_TTL_MS = 5_000;
 const RULES_CACHE_STALE_FILL_RETRIES = 3;
+const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 
-let rulesCache: { rules: NotifyRule[]; fromDb: boolean; expiresAt: number } | null = null;
-let rulesCacheFill: Promise<NotifyRule[]> | null = null;
+let rulesCache = new Map<number, { rules: NotifyRule[]; fromDb: boolean; expiresAt: number }>();
+const rulesCacheFill = new Map<number, Promise<NotifyRule[]>>();
 // Bumped on every writer refresh/invalidate. An in-flight cache fill captures
 // the generation at SELECT start and discards its result if a writer
 // committed meanwhile — otherwise a stale fill could resurrect a just-deleted
 // rule for up to RULES_CACHE_TTL_MS.
 let rulesCacheGeneration = 0;
 
-function setRulesCache(rules: NotifyRule[], fromDb: boolean): void {
-  rulesCacheGeneration += 1;
-  rulesCache = { rules, fromDb, expiresAt: Date.now() + RULES_CACHE_TTL_MS };
+function cacheKey(teamId: number, fromDb: boolean): number {
+  return fromDb ? teamId : 1;
 }
 
-function invalidateRulesCache(): void {
+function setRulesCache(teamId: number, rules: NotifyRule[], fromDb: boolean): void {
   rulesCacheGeneration += 1;
-  rulesCache = null;
+  rulesCache.set(cacheKey(teamId, fromDb), { rules, fromDb, expiresAt: Date.now() + RULES_CACHE_TTL_MS });
 }
 
-function getFreshRulesCache(fromDb: boolean): NotifyRule[] | null {
-  if (!rulesCache || rulesCache.fromDb !== fromDb || Date.now() >= rulesCache.expiresAt) {
+function invalidateRulesCache(teamId?: number): void {
+  rulesCacheGeneration += 1;
+  if (typeof teamId === "number") {
+    rulesCache.delete(teamId);
+    return;
+  }
+  rulesCache = new Map();
+}
+
+function getFreshRulesCache(teamId: number, fromDb: boolean): NotifyRule[] | null {
+  const cached = rulesCache.get(cacheKey(teamId, fromDb));
+  if (!cached || cached.fromDb !== fromDb || Date.now() >= cached.expiresAt) {
     return null;
   }
-  return rulesCache.rules;
+  return cached.rules;
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────
 
 function usesDb(): boolean {
-  return (env.SAVE_TO_DB || env.HTTP_ENABLED || env.AUTO_ACCEPT_ENABLED)
-    && env.NODE_ENV === "production";
+  return env.DB_MODE === "memory"
+    || ((env.SAVE_TO_DB || env.HTTP_ENABLED || env.AUTO_ACCEPT_ENABLED) && env.NODE_ENV === "production");
 }
 
 function toStringArray(value: unknown): string[] {
@@ -256,7 +268,15 @@ function collectRuleMatchedTrips(filters: CompiledRuleFilters, compiledTrips: Co
 
 type DbRow = typeof notifyRulesTable.$inferSelect;
 
-function dbRowToRule(row: DbRow): NotifyRule {
+function withRuleTeam(rule: NotifyRule, teamId: number, teamName?: string | null): NotifyRule {
+  return {
+    ...rule,
+    teamId,
+    ...(teamName ? { teamName } : {}),
+  };
+}
+
+function dbRowToRule(row: DbRow, teamName?: string | null): NotifyRule {
   const parseArray = (val: string): string[] => {
     try { return JSON.parse(val) as string[]; } catch { return []; }
   };
@@ -265,6 +285,8 @@ function dbRowToRule(row: DbRow): NotifyRule {
 
   return {
     id: row.id,
+    teamId: row.teamId,
+    ...(teamName ? { teamName } : {}),
     name: row.name,
     origins: parseArray(row.origins),
     destinations: parseArray(row.destinations),
@@ -278,9 +300,10 @@ function dbRowToRule(row: DbRow): NotifyRule {
   };
 }
 
-function ruleToDbRow(rule: NotifyRule) {
+function ruleToDbRow(teamId: number, rule: NotifyRule) {
   return {
     id: rule.id,
+    teamId,
     name: rule.name,
     origins: JSON.stringify(rule.origins),
     destinations: JSON.stringify(rule.destinations),
@@ -322,32 +345,50 @@ function writeRulesFile(rules: NotifyRule[]): void {
       throw err;
     }
   }
-  setRulesCache(normalized, false);
+  setRulesCache(1, normalized, false);
   sseBroadcaster.broadcast({ event: "rules", data: normalized });
 }
 
 // ── DB-based operations (PROD mode) ──────────────────────────────────────
 
-async function readRulesDb(): Promise<NotifyRule[]> {
+async function readRulesDb(teamId: number): Promise<NotifyRule[]> {
   await ensureDashboardTables();
   const db = await getDb();
-  const rows = await db.select().from(notifyRulesTable);
+  const rows = await db.select().from(notifyRulesTable).where(eq(notifyRulesTable.teamId, teamId));
   return rows.map(dbRowToRule);
 }
 
-async function readRulesDbForCacheFill(): Promise<NotifyRule[]> {
+async function readRulesDbAllTeams(): Promise<NotifyRule[]> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const rows = await db
+    .select({ rule: notifyRulesTable, teamName: teamsTable.name })
+    .from(notifyRulesTable)
+    .leftJoin(teamsTable, eq(notifyRulesTable.teamId, teamsTable.id));
+  return rows.map((row: { rule: DbRow; teamName: string | null }) => dbRowToRule(row.rule, row.teamName));
+}
+
+async function getTeamName(teamId: number): Promise<string | undefined> {
+  if (!usesDb()) return undefined;
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [team] = await db.select({ name: teamsTable.name }).from(teamsTable).where(eq(teamsTable.id, teamId)).limit(1);
+  return team?.name;
+}
+
+async function readRulesDbForCacheFill(teamId: number): Promise<NotifyRule[]> {
   for (let attempt = 0; attempt < RULES_CACHE_STALE_FILL_RETRIES; attempt += 1) {
     const generationAtReadStart = rulesCacheGeneration;
-    const rules = await readRulesDb();
+    const rules = await readRulesDb(teamId);
 
     if (rulesCacheGeneration === generationAtReadStart) {
-      setRulesCache(rules, true);
+      setRulesCache(teamId, rules, true);
       return rules;
     }
 
     // A writer committed and refreshed while our SELECT was in flight. Return
     // that newer cache to callers instead of handing back this stale snapshot.
-    const freshCache = getFreshRulesCache(true);
+    const freshCache = getFreshRulesCache(teamId, true);
     if (freshCache) return freshCache;
   }
 
@@ -356,87 +397,109 @@ async function readRulesDbForCacheFill(): Promise<NotifyRule[]> {
   });
 
   const generationAtFinalReadStart = rulesCacheGeneration;
-  const rules = await readRulesDb();
+  const rules = await readRulesDb(teamId);
   if (rulesCacheGeneration === generationAtFinalReadStart) {
-    setRulesCache(rules, true);
+    setRulesCache(teamId, rules, true);
   }
   return rules;
 }
 
-async function broadcastAllRules(): Promise<void> {
+async function broadcastAllRules(teamId: number): Promise<void> {
   // Called right after a writer commit. Invalidate first so no reader serves
   // pre-commit data, then refresh — but install the SELECT result only if no
   // newer writer invalidated meanwhile: two writers' SELECTs can resolve out
   // of order on different pool connections, and the loser must not resurrect
   // a just-decremented or just-deleted rule on the auto-accept path.
-  invalidateRulesCache();
+  invalidateRulesCache(teamId);
   const generationAtRefreshStart = rulesCacheGeneration;
-  const rules = await readRulesDb();
+  const rules = await readRulesDb(teamId);
   if (rulesCacheGeneration === generationAtRefreshStart) {
-    setRulesCache(rules, true);
+    setRulesCache(teamId, rules, true);
   }
-  sseBroadcaster.broadcast({ event: "rules", data: rules });
+  sseBroadcaster.broadcast({ event: "rules", teamId, data: rules });
 }
 
 // ── Public API (dual mode) ───────────────────────────────────────────────
 
-export async function readRules(): Promise<NotifyRule[]> {
+export async function readRules(teamId: number): Promise<NotifyRule[]> {
   const fromDb = usesDb();
-  const cachedRules = getFreshRulesCache(fromDb);
+  const cachedRules = getFreshRulesCache(teamId, fromDb);
   if (cachedRules) return cachedRules;
 
   if (!fromDb) {
     const rules = readRulesFile();
-    setRulesCache(rules, false);
+    setRulesCache(teamId, rules, false);
     return rules;
   }
 
   // Single-flight: concurrent cache misses (poller tick + HTTP handlers)
   // share one SELECT instead of stampeding the DB.
-  if (!rulesCacheFill) {
-    rulesCacheFill = readRulesDbForCacheFill()
+  if (!rulesCacheFill.has(teamId)) {
+    rulesCacheFill.set(teamId, readRulesDbForCacheFill(teamId)
       .finally(() => {
-        rulesCacheFill = null;
-      });
+        rulesCacheFill.delete(teamId);
+      }));
   }
-  return rulesCacheFill;
+  return rulesCacheFill.get(teamId)!;
 }
 
-export async function createRule(input: NotifyRuleInput): Promise<NotifyRule> {
+export async function readRulesForScope(teamId: number | null): Promise<NotifyRule[]> {
+  if (teamId === null) {
+    if (!usesDb()) return readRulesFile().map((rule) => withRuleTeam(rule, 1));
+    return readRulesDbAllTeams();
+  }
+
+  const rules = await readRules(teamId);
+  const teamName = await getTeamName(teamId);
+  return rules.map((rule) => withRuleTeam(rule, teamId, teamName));
+}
+
+export async function getRuleTeamId(id: string): Promise<number | null> {
+  if (!usesDb()) {
+    return readRulesFile().some((rule) => rule.id === id) ? 1 : null;
+  }
+
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [row] = await db.select({ teamId: notifyRulesTable.teamId }).from(notifyRulesTable).where(eq(notifyRulesTable.id, id)).limit(1);
+  return row?.teamId ?? null;
+}
+
+export async function createRule(teamId: number, input: NotifyRuleInput): Promise<NotifyRule> {
   const normalized = normalizeRules([{ ...input, id: randomUUID() }])[0];
 
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
     await db.insert(notifyRulesTable).values({
-      ...ruleToDbRow(normalized),
-      createdAt: sql`UTC_TIMESTAMP()`,
-      updatedAt: sql`UTC_TIMESTAMP()`,
+      ...ruleToDbRow(teamId, normalized),
+      createdAt: currentTimestamp,
+      updatedAt: currentTimestamp,
     });
-    await broadcastAllRules();
-    return normalized;
+    await broadcastAllRules(teamId);
+    return withRuleTeam(normalized, teamId, await getTeamName(teamId));
   }
 
   const rules = readRulesFile();
   rules.push(normalized);
   writeRulesFile(rules);
-  return normalized;
+  return withRuleTeam(normalized, 1);
 }
 
-export async function updateRule(id: string, patch: NotifyRulePatch): Promise<NotifyRule | null> {
+export async function updateRule(teamId: number, id: string, patch: NotifyRulePatch): Promise<NotifyRule | null> {
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
-    const rows = await db.select().from(notifyRulesTable).where(eq(notifyRulesTable.id, id));
+    const rows = await db.select().from(notifyRulesTable).where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id)));
     if (rows.length === 0) return null;
 
     const existing = dbRowToRule(rows[0]);
     const updated = normalizeRules([{ ...existing, ...patch, id: existing.id }])[0];
     await db.update(notifyRulesTable)
-      .set({ ...ruleToDbRow(updated), updatedAt: sql`UTC_TIMESTAMP()` })
-      .where(eq(notifyRulesTable.id, id));
-    await broadcastAllRules();
-    return updated;
+      .set({ ...ruleToDbRow(teamId, updated), updatedAt: currentTimestamp })
+      .where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id)));
+    await broadcastAllRules(teamId);
+    return withRuleTeam(updated, teamId, await getTeamName(teamId));
   }
 
   const rules = readRulesFile();
@@ -446,20 +509,20 @@ export async function updateRule(id: string, patch: NotifyRulePatch): Promise<No
   const updated = normalizeRules([{ ...rules[index], ...patch, id: rules[index].id }])[0];
   rules[index] = updated;
   writeRulesFile(rules);
-  return updated;
+  return withRuleTeam(updated, 1);
 }
 
-export async function deleteRule(id: string): Promise<NotifyRule | null> {
+export async function deleteRule(teamId: number, id: string): Promise<NotifyRule | null> {
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
-    const rows = await db.select().from(notifyRulesTable).where(eq(notifyRulesTable.id, id));
+    const rows = await db.select().from(notifyRulesTable).where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id)));
     if (rows.length === 0) return null;
 
     const deleted = dbRowToRule(rows[0]);
-    await db.delete(notifyRulesTable).where(eq(notifyRulesTable.id, id));
-    await broadcastAllRules();
-    return deleted;
+    await db.delete(notifyRulesTable).where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id)));
+    await broadcastAllRules(teamId);
+    return withRuleTeam(deleted, teamId, await getTeamName(teamId));
   }
 
   const rules = readRulesFile();
@@ -468,16 +531,16 @@ export async function deleteRule(id: string): Promise<NotifyRule | null> {
 
   const [deleted] = rules.splice(index, 1);
   writeRulesFile(rules);
-  return deleted;
+  return withRuleTeam(deleted, 1);
 }
 
-export async function matchRules(trips: TripLike[]): Promise<RuleMatch[]> {
-  const ruleTrips = await matchRuleTrips(trips);
+export async function matchRules(teamId: number, trips: TripLike[]): Promise<RuleMatch[]> {
+  const ruleTrips = await matchRuleTrips(teamId, trips);
   return ruleTrips.map(({ ruleId, ruleName, matchedCount }) => ({ ruleId, ruleName, matchedCount }));
 }
 
-export async function getActiveAutoAcceptRules(): Promise<NotifyRule[]> {
-  const rules = await readRules();
+export async function getActiveAutoAcceptRules(teamId: number): Promise<NotifyRule[]> {
+  const rules = await readRules(teamId);
   return rules.filter((rule) =>
     rule.enabled && !rule.fulfilled && rule.need > 0
   );
@@ -503,8 +566,8 @@ function ruleMatchesTrips(rule: NotifyRule, trips: TripLike[]): TripLike[] {
   return collectRuleMatchedTrips(compileRuleFilters(rule), trips.map(compileTrip));
 }
 
-export async function matchRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]> {
-  const rules = await readRules();
+export async function matchRuleTrips(teamId: number, trips: TripLike[]): Promise<RuleTripMatch[]> {
+  const rules = await readRules(teamId);
   const matches: RuleTripMatch[] = [];
   // Compile trips once and reuse across every rule (normalization is the hot cost).
   let compiledTrips: CompiledTrip[] | null = null;
@@ -560,15 +623,16 @@ export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: Noti
   return matches;
 }
 
-export async function matchAutoAcceptRuleTrips(trips: TripLike[]): Promise<RuleTripMatch[]> {
-  return matchAutoAcceptRuleTripsWithRules(trips, await readRules());
+export async function matchAutoAcceptRuleTrips(teamId: number, trips: TripLike[]): Promise<RuleTripMatch[]> {
+  return matchAutoAcceptRuleTripsWithRules(trips, await readRules(teamId));
 }
 
-export async function getActiveAutoAcceptOriginFilters(): Promise<string[]> {
-  return getAutoAcceptOriginFilters(await getActiveAutoAcceptRules());
+export async function getActiveAutoAcceptOriginFilters(teamId: number): Promise<string[]> {
+  return getAutoAcceptOriginFilters(await getActiveAutoAcceptRules(teamId));
 }
 
 export async function applyAutoAcceptProgress(
+  teamId: number,
   updates: Array<{ ruleId: string; acceptedCount: number }>,
   onRuleCommitted?: (ruleId: string, acceptedCount: number) => void
 ): Promise<void> {
@@ -597,9 +661,9 @@ export async function applyAutoAcceptProgress(
             need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
             fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
             autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-            updatedAt: sql`UTC_TIMESTAMP()`,
+            updatedAt: currentTimestamp,
           })
-          .where(eq(notifyRulesTable.id, ruleId));
+          .where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, ruleId)));
         onRuleCommitted?.(ruleId, accepted);
       } catch (err) {
         // Lost quota decrement on the money path: the upstream accept already
@@ -612,7 +676,7 @@ export async function applyAutoAcceptProgress(
         });
       }
     }
-    await broadcastAllRules();
+    await broadcastAllRules(teamId);
     return;
   }
 
@@ -634,16 +698,16 @@ export async function applyAutoAcceptProgress(
   }
 }
 
-export async function markRulesFulfilled(ruleIds: string[]): Promise<void> {
+export async function markRulesFulfilled(teamId: number, ruleIds: string[]): Promise<void> {
   if (ruleIds.length === 0) return;
 
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
     await db.update(notifyRulesTable)
-      .set({ fulfilled: 1, updatedAt: sql`UTC_TIMESTAMP()` })
-      .where(inArray(notifyRulesTable.id, ruleIds));
-    await broadcastAllRules();
+      .set({ fulfilled: 1, updatedAt: currentTimestamp })
+      .where(and(eq(notifyRulesTable.teamId, teamId), inArray(notifyRulesTable.id, ruleIds)));
+    await broadcastAllRules(teamId);
     return;
   }
 
@@ -658,16 +722,16 @@ export async function markRulesFulfilled(ruleIds: string[]): Promise<void> {
   if (changed) writeRulesFile(rules);
 }
 
-export async function markRulesAutoAccepted(ruleIds: string[]): Promise<void> {
+export async function markRulesAutoAccepted(teamId: number, ruleIds: string[]): Promise<void> {
   if (ruleIds.length === 0) return;
 
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
     await db.update(notifyRulesTable)
-      .set({ autoAccepted: 1, updatedAt: sql`UTC_TIMESTAMP()` })
-      .where(inArray(notifyRulesTable.id, ruleIds));
-    await broadcastAllRules();
+      .set({ autoAccepted: 1, updatedAt: currentTimestamp })
+      .where(and(eq(notifyRulesTable.teamId, teamId), inArray(notifyRulesTable.id, ruleIds)));
+    await broadcastAllRules(teamId);
     return;
   }
 
@@ -710,9 +774,9 @@ export async function migrateJsonToDb(): Promise<void> {
     if (rules.length === 0) return;
 
     await db.insert(notifyRulesTable).values(rules.map((rule) => ({
-      ...ruleToDbRow(rule),
-      createdAt: sql`UTC_TIMESTAMP()`,
-      updatedAt: sql`UTC_TIMESTAMP()`,
+      ...ruleToDbRow(1, rule),
+      createdAt: currentTimestamp,
+      updatedAt: currentTimestamp,
     })));
 
     invalidateRulesCache();

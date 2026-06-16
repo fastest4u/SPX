@@ -29,14 +29,9 @@ import {
 export const INITIAL_SETTINGS_FORM = {
     API_URL: '',
     POLL_INTERVAL_MS: '30000',
-    COOKIE: '',
-    DEVICE_ID: '',
     LINE_CHANNEL_ACCESS_TOKEN: '',
-    LINE_USER_ID: '',
     LINEJS_TEST_ENABLED: 'false',
     LINEJS_TEST_TARGET_ID: '',
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: '',
-    LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: '',
     LINEJS_TEST_DEVICE: 'IOSIPAD',
     LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
     DISCORD_WEBHOOK_URL: '',
@@ -138,16 +133,9 @@ function formFromSettings(settings: Awaited<ReturnType<typeof settingsApi.get>>)
     return {
         API_URL: settings.API_URL || '',
         POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
-        COOKIE: settings.COOKIE || '',
-        DEVICE_ID: settings.DEVICE_ID || '',
         LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
-        LINE_USER_ID: settings.LINE_USER_ID || '',
         LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
         LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
-        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS:
-            settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || '',
-        LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE:
-            settings.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || '',
         LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
         LINEJS_TEST_STORAGE_PATH:
             settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
@@ -271,22 +259,22 @@ export function Section({
     rightSlot?: React.ReactNode
 }) {
     return (
-        <Card className="border-white/[0.06] bg-card shadow-none">
-            <header className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
-                <div className="flex min-w-0 items-start gap-3">
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-muted-foreground">
+        <Card className="min-w-0 max-w-full overflow-hidden rounded-[8px] border-white/[0.06] bg-card/80 shadow-none">
+            <header className="flex min-w-0 items-start justify-between gap-3 border-b border-white/[0.06] px-4 py-3.5 sm:px-5">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] border border-white/[0.06] bg-white/[0.03] text-muted-foreground">
                         <Icon className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
                         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
                         {description ? (
-                            <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+                            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
                         ) : null}
                     </div>
                 </div>
                 {rightSlot ? <div className="shrink-0">{rightSlot}</div> : null}
             </header>
-            <div className="px-5 py-5">{children}</div>
+            <div className="px-4 py-4 sm:px-5">{children}</div>
         </Card>
     )
 }
@@ -308,7 +296,7 @@ export function Field({
 }) {
     return (
         <div className="space-y-1.5">
-            <div className="flex items-baseline justify-between gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <label htmlFor={id} className="text-sm font-medium text-foreground">
                     {label}
                 </label>
@@ -322,7 +310,7 @@ export function Field({
                     {error}
                 </p>
             ) : helper ? (
-                <p className="text-xs text-muted-foreground/70">{helper}</p>
+                <p className="text-xs leading-relaxed text-muted-foreground/70">{helper}</p>
             ) : null}
         </div>
     )
@@ -370,10 +358,23 @@ export function ApiSection({
     const { fieldErrors } = useSettingsForm()
     const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
     const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
+    const cooldownMs = Number(formData.BOOKING_REPROCESS_COOLDOWN_MS || 0)
+    const providerLabel =
+        formData.CODEX_IMAGE_PROVIDER === 'codex-device'
+            ? 'OAuth'
+            : formData.CODEX_IMAGE_PROVIDER === 'codex-cli'
+                ? 'CLI'
+                : 'Auto'
 
     return (
-        <div className="space-y-5">
-            <Section icon={KeyRound} title="API credentials" description="เชื่อมต่อระบบกับ SPX">
+        <div className="min-w-0 space-y-5">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+                <SettingMetric label="Poll" value={intervalSec ? `${intervalSec}s` : '-'} helper="interval" />
+                <SettingMetric label="Detail" value={concurrency > 0 ? `${concurrency}` : '-'} helper="parallel jobs" />
+                <SettingMetric label="AI" value={providerLabel} helper={cooldownMs > 0 ? `cooldown ${Math.round(cooldownMs / 1000)}s` : 'no cooldown'} />
+            </div>
+
+            <Section icon={KeyRound} title="SPX API" description="ค่า endpoint กลางที่ใช้ร่วมกันทุกทีม">
                 <div className="space-y-4">
                     <Field id="s-api-url" label="SPX API URL" helper="URL สำหรับเรียก booking/bidding/list">
                         <Input
@@ -381,30 +382,6 @@ export function ApiSection({
                             value={formData.API_URL}
                             onChange={(e) => setField('API_URL', e.target.value)}
                             placeholder="https://logistics.example.com/api/..."
-                        />
-                    </Field>
-
-                    <Field
-                        id="s-cookie"
-                        label="Cookie"
-                        helper="Session cookie จาก SPX — ค่าจะ masked หากไม่เปลี่ยนจะไม่ถูกเขียนทับ"
-                        hint={<MaskedHint value={formData.COOKIE} />}
-                    >
-                        <textarea
-                            id="s-cookie"
-                            value={formData.COOKIE}
-                            onChange={(e) => setField('COOKIE', e.target.value)}
-                            className="flex min-h-[6rem] w-full resize-y rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                            placeholder="fms_user_id=...; session=..."
-                        />
-                    </Field>
-
-                    <Field id="s-device-id" label="Device ID" helper="UUID ของอุปกรณ์ที่ผูกกับ session ปัจจุบัน">
-                        <Input
-                            id="s-device-id"
-                            value={formData.DEVICE_ID}
-                            onChange={(e) => setField('DEVICE_ID', e.target.value)}
-                            placeholder="e.g. 7342ce6cb4d0fdc351..."
                         />
                     </Field>
                 </div>
@@ -525,6 +502,26 @@ export function ApiSection({
     )
 }
 
+function SettingMetric({
+    label,
+    value,
+    helper,
+}: {
+    label: string
+    value: string
+    helper: string
+}) {
+    return (
+        <div className="min-w-0 rounded-[8px] border border-white/[0.06] bg-white/[0.025] px-3 py-2.5">
+            <div className="text-[0.65rem] font-semibold uppercase text-muted-foreground">{label}</div>
+            <div className="mt-1 flex min-w-0 items-end justify-between gap-2">
+                <span className="font-data text-lg font-semibold leading-none text-foreground">{value}</span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">{helper}</span>
+            </div>
+        </div>
+    )
+}
+
 function OpenAILogo(props: React.SVGProps<SVGSVGElement>) {
     return (
         <svg
@@ -605,12 +602,12 @@ function CodexAuthSection() {
             description="จัดการการเชื่อมต่อบริการ AI สำหรับอ่าน Runsheet"
         >
             <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 last:border-0 last:pb-0">
-                    <div className="flex items-center gap-3.5">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-white/[0.08] text-white">
+                <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-slate-900 border border-white/[0.08] text-white">
                             <OpenAILogo className="h-5 w-5" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <h4 className="text-sm font-semibold text-foreground">OpenAI</h4>
                             <p className="text-xs text-muted-foreground mt-0.5">
                                 {isAuthenticated && codexStatus.data?.accountIdSuffix ? (
@@ -629,13 +626,13 @@ function CodexAuthSection() {
                             </p>
                         </div>
                     </div>
-                    <div>
+                    <div className="sm:shrink-0">
                         {isAuthenticated ? (
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="text-muted-foreground hover:bg-white/[0.04] hover:text-white"
+                                className="w-full text-muted-foreground hover:bg-white/[0.04] hover:text-white sm:w-auto"
                                 onClick={() => logoutCodexAuth.mutate()}
                                 disabled={logoutCodexAuth.isPending}
                             >
@@ -646,7 +643,7 @@ function CodexAuthSection() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="border-white/[0.1] hover:bg-white/[0.05]"
+                                className="w-full border-white/[0.1] hover:bg-white/[0.05] sm:w-auto"
                                 onClick={() => setIsDialogOpen(true)}
                             >
                                 <Plus className="mr-1 h-3.5 w-3.5" />
@@ -658,7 +655,7 @@ function CodexAuthSection() {
             </div>
 
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="max-w-md bg-slate-950 border border-white/[0.08] text-foreground p-0 overflow-hidden shadow-2xl rounded-2xl">
+                <DialogContent className="max-w-md rounded-[8px] border border-white/[0.08] bg-slate-950 p-0 text-foreground shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
                         <div className="flex items-center gap-2">
@@ -763,7 +760,7 @@ function CodexAuthSection() {
                                             <input
                                                 type="text"
                                                 placeholder="http://localhost:1455/auth/callback?code=..."
-                                                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none transition-colors"
+                                                className="w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none transition-colors"
                                                 onPaste={(e) => {
                                                     const val = e.clipboardData.getData('text').trim()
                                                     if (val) {
@@ -854,18 +851,6 @@ export function NotifySection({
                             placeholder="********"
                         />
                     </Field>
-                    <Field
-                        id="s-line-uid"
-                        label="User / Group ID"
-                        helper="ใช้ Group ID ขึ้นต้นด้วย C เพื่อส่งเข้ากลุ่ม"
-                    >
-                        <Input
-                            id="s-line-uid"
-                            value={formData.LINE_USER_ID}
-                            onChange={(e) => setField('LINE_USER_ID', e.target.value)}
-                            placeholder="Uxxx... หรือ Cxxx..."
-                        />
-                    </Field>
                 </div>
             </Section>
 
@@ -893,15 +878,15 @@ export function NotifySection({
                 </Field>
             </Section>
 
-            <div className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-muted-foreground">
+            <div className="flex items-start gap-3 rounded-[8px] border border-white/[0.06] bg-white/[0.02] p-4">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] border border-white/[0.06] bg-white/[0.03] text-muted-foreground">
                     <Lock className="h-3.5 w-3.5" />
                 </div>
                 <div>
                     <p className="text-sm font-medium text-foreground">Routing แบบละเอียด</p>
                     <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                         ไปที่{' '}
-                        <strong className="text-foreground">LINE Bot</strong> เพื่อกำหนดปลายทางแยกตาม rule match, auto-accept สำเร็จ และ auto-accept ล้มเหลว
+                        <strong className="text-foreground">Teams</strong> เพื่อกำหนด LINE group แยกตามทีม
                     </p>
                 </div>
             </div>

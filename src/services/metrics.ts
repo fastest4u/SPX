@@ -1,7 +1,7 @@
 /** Lightweight polling metrics collector — no external dependencies */
 
 import { getPoolStats, type PoolStats } from "../db/client.js";
-import { pollerControl } from "./poller-control.js";
+import { isTeamPaused, pollerControl } from "./poller-control.js";
 import { getUpstreamConnectionCount } from "../utils/http-dispatcher.js";
 
 export interface LatencyBucket {
@@ -45,6 +45,8 @@ export interface RuntimeMetrics {
 type RuntimeState = Omit<RuntimeMetrics, "detailQueuePressure">;
 
 export interface MetricsSnapshot {
+  teamId: number | null;
+  teamName?: string;
   isPaused: boolean;
   uptime: number;
   startedAt: string;
@@ -105,7 +107,14 @@ export interface MetricsSnapshot {
 
 const MAX_LATENCY_SAMPLES = 1000;
 
+export interface MetricsSnapshotContext {
+  teamId?: number | null;
+  teamName?: string;
+}
+
 export class MetricsCollector {
+  private readonly defaultTeamId: number | null;
+  private readonly defaultTeamName: string | undefined;
   private startTime = Date.now();
   private totalRequests = 0;
   private successCount = 0;
@@ -143,6 +152,11 @@ export class MetricsCollector {
     queuedDetailBookings: 0,
     sseClients: 0,
   };
+
+  constructor(context: MetricsSnapshotContext = {}) {
+    this.defaultTeamId = context.teamId ?? null;
+    this.defaultTeamName = context.teamName;
+  }
 
   recordPoll(latencyMs: number, success: boolean, status: string, recordCount: number | null): void {
     this.totalRequests++;
@@ -233,7 +247,9 @@ export class MetricsCollector {
     };
   }
 
-  snapshot(): MetricsSnapshot {
+  snapshot(context: MetricsSnapshotContext = {}): MetricsSnapshot {
+    const teamId = context.teamId !== undefined ? context.teamId : this.defaultTeamId;
+    const teamName = context.teamName ?? this.defaultTeamName;
     const pollingLatency = this.summarize(this.latencies);
     const upstreamConnections = getUpstreamConnectionCount();
     const detailQueuePressure = this.runtime.detailConcurrency > 0
@@ -241,7 +257,9 @@ export class MetricsCollector {
       : 0;
 
     return {
-      isPaused: pollerControl.isPaused,
+      teamId,
+      ...(teamName ? { teamName } : {}),
+      isPaused: typeof teamId === "number" ? isTeamPaused(teamId) : pollerControl.isPaused,
       uptime: Math.round((Date.now() - this.startTime) / 1000),
       startedAt: new Date(this.startTime).toISOString(),
       polling: {

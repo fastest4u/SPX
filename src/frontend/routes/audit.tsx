@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { auditApi } from '../lib/api'
-import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
+import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
@@ -84,11 +84,11 @@ function AuditComponent() {
 
   if (isLoading) {
     return (
-      <div className="space-y-5 sm:space-y-6">
-        <Card className="glass border-white/10">
+      <PageShell>
+        <ContentSection>
           <SkeletonTable rows={5} cols={4} />
-        </Card>
-      </div>
+        </ContentSection>
+      </PageShell>
     )
   }
 
@@ -104,17 +104,16 @@ function AuditComponent() {
   }
 
   return (
-    <div className="space-y-5 page-enter sm:space-y-6">
+    <PageShell>
       <PageHeader
         icon={FileText}
         title="ประวัติการใช้งาน"
         subtitle="ค้นหาและกรองกิจกรรมผู้ใช้"
       />
 
-      <Card className="glass border-white/10">
-        <CardContent className="p-5 sm:p-6">
+      <ContentSection>
           {/* Filters */}
-          <div className="mb-6 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+          <FilterPanel>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
               <div className="space-y-2">
                 <label htmlFor="audit-search" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">{'ค้นหา'}</label>
@@ -149,7 +148,7 @@ function AuditComponent() {
                 </Button>
               </div>
             </div>
-          </div>
+          </FilterPanel>
 
           {/* Data Table */}
           <DataTable
@@ -184,8 +183,7 @@ function AuditComponent() {
               },
             }}
           />
-        </CardContent>
-      </Card>
-    </div>
+      </ContentSection>
+    </PageShell>
   )
 }

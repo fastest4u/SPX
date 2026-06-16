@@ -183,8 +183,6 @@ export function validateRuntimeConfig(): void {
   const usesDatabase = env.SAVE_TO_DB || env.HTTP_ENABLED || env.AUTO_ACCEPT_ENABLED;
 
   if (!env.API_URL) missing.push("API_URL");
-  if (!env.COOKIE) missing.push("COOKIE");
-  if (!env.DEVICE_ID) missing.push("DEVICE_ID");
   if (!env.APP_NAME) missing.push("APP_NAME");
   if (!env.REFERER) missing.push("REFERER");
 
@@ -232,7 +230,6 @@ export function validateRuntimeConfig(): void {
     if (!isPositiveInteger(env.DB_PORT) || env.DB_PORT > 65535) invalid.push("DB_PORT must be an integer from 1 to 65535");
   }
 
-  if (env.LINE_CHANNEL_ACCESS_TOKEN && !env.LINE_USER_ID) invalid.push("LINE_CHANNEL_ACCESS_TOKEN is set but LINE_USER_ID is not");
   if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
   if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
 

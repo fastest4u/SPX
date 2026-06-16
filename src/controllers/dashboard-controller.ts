@@ -8,11 +8,13 @@ import { fetchLineQuota } from "../services/notifier.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "../services/authz.js";
+import { isTeamPaused, pauseTeam, resumeTeam } from "../services/poller-control.js";
 
 interface AuthTokenLike {
   username?: string;
   id?: number;
   role?: unknown;
+  teamId?: number | null;
   jti?: string;
 }
 
@@ -32,6 +34,7 @@ async function authenticate(req: FastifyRequest, reply: FastifyReply, requiredRo
       id: typeof decoded.id === "number" ? decoded.id : 0,
       username: typeof decoded.username === "string" ? decoded.username : "unknown",
       role,
+      teamId: typeof decoded.teamId === "number" ? decoded.teamId : null,
     };
     req.user = user;
     return user;
@@ -52,6 +55,31 @@ interface DashboardHealthData {
     consecutiveErrors: number;
     lastSessionWarning: string | null;
   };
+}
+
+interface TeamScopedQuery {
+  teamId?: number | string;
+}
+
+function parseOptionalTeamId(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return parsed > 0 ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function snapshotForUser(user: AuthUser, explicitTeamId?: number): MetricsSnapshot {
+  const teamId = user.role === "admin" ? explicitTeamId ?? null : user.teamId;
+  return metrics.snapshot({ teamId });
+}
+
+function resolveOperationalTeamId(user: AuthUser, explicitTeamId?: number): number | null {
+  if (user.role === "admin") {
+    return typeof explicitTeamId === "number" ? explicitTeamId : null;
+  }
+  return typeof user.teamId === "number" ? user.teamId : null;
 }
 
 export function buildDashboardHealthResponse(snap: MetricsSnapshot): {
@@ -101,29 +129,43 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
   });
 
   // Authenticated — full metrics include database/pool internals and runtime details.
-  app.get("/metrics", async (req, reply) => {
-    if (!(await authenticate(req, reply))) return;
-    return sendSuccess(reply, metrics.snapshot());
-  });
-
-  app.get("/events", async (req, reply) => {
-    if (!(await authenticate(req, reply))) return;
-    reply.hijack();
-    sseBroadcaster.addClient(reply.raw);
-  });
-
-  app.get<{ Querystring: { limit?: number } }>("/metrics/history", {
+  app.get<{ Querystring: TeamScopedQuery }>("/metrics", {
     schema: {
       querystring: {
         type: "object",
-        properties: { limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } },
+        properties: { teamId: { type: "integer", minimum: 1 } },
       },
     },
   }, async (req, reply) => {
-    if (!(await authenticate(req, reply))) return;
+    const user = await authenticate(req, reply);
+    if (!user) return;
+    return sendSuccess(reply, snapshotForUser(user, parseOptionalTeamId(req.query.teamId)));
+  });
+
+  app.get("/events", async (req, reply) => {
+    const user = await authenticate(req, reply);
+    if (!user) return;
+    reply.hijack();
+    sseBroadcaster.addClient(reply.raw, { teamId: user.role === "admin" ? null : user.teamId });
+  });
+
+  app.get<{ Querystring: { limit?: number; teamId?: number | string } }>("/metrics/history", {
+    schema: {
+      querystring: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+          teamId: { type: "integer", minimum: 1 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const user = await authenticate(req, reply);
+    if (!user) return;
     try {
       const limit = (req.query as { limit?: number }).limit ?? 100;
-      const history = await getRecentMetricsSnapshots(limit);
+      const scopedTeamId = user.role === "admin" ? parseOptionalTeamId(req.query.teamId) : user.teamId ?? undefined;
+      const history = await getRecentMetricsSnapshots(limit, scopedTeamId);
       return sendSuccess(reply, history);
     } catch {
       return sendSuccess(reply, []);
@@ -141,23 +183,38 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     return sendSuccess(reply, quota);
   });
 
-  app.post("/system/pause", async (req, reply) => {
-    const user = await authenticate(req, reply, "admin");
+  const teamControlQuerySchema = {
+    type: "object",
+    properties: { teamId: { type: "integer", minimum: 1 } },
+  } as const;
+
+  app.post<{ Querystring: TeamScopedQuery }>("/system/pause", { schema: { querystring: teamControlQuerySchema } }, async (req, reply) => {
+    const user = await authenticate(req, reply);
     if (!user) return;
-    const { pollerControl } = await import("../services/poller-control.js");
-    pollerControl.isPaused = true;
-    sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
-    await insertAuditLog(user.username, "Pause Poller", "Paused SPX polling");
-    return sendSuccess(reply, { paused: true });
+    const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
+    if (teamId === null) return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
+    pauseTeam(teamId);
+    sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+    await insertAuditLog(user.username, "Pause Team Poller", `Paused team ${teamId} polling`, {
+      actorUserId: user.id,
+      actorTeamId: user.teamId,
+      targetTeamId: teamId,
+    });
+    return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
   });
 
-  app.post("/system/resume", async (req, reply) => {
-    const user = await authenticate(req, reply, "admin");
+  app.post<{ Querystring: TeamScopedQuery }>("/system/resume", { schema: { querystring: teamControlQuerySchema } }, async (req, reply) => {
+    const user = await authenticate(req, reply);
     if (!user) return;
-    const { pollerControl } = await import("../services/poller-control.js");
-    pollerControl.isPaused = false;
-    sseBroadcaster.broadcast({ event: "metrics", data: metrics.snapshot() });
-    await insertAuditLog(user.username, "Resume Poller", "Resumed SPX polling");
-    return sendSuccess(reply, { paused: false });
+    const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
+    if (teamId === null) return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
+    resumeTeam(teamId);
+    sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+    await insertAuditLog(user.username, "Resume Team Poller", `Resumed team ${teamId} polling`, {
+      actorUserId: user.id,
+      actorTeamId: user.teamId,
+      targetTeamId: teamId,
+    });
+    return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
   });
 };

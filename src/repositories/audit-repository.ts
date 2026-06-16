@@ -1,6 +1,6 @@
 import { getDb } from "../db/client.js";
 import { auditLogs } from "../db/schema.js";
-import { and, asc, desc, eq, like, or, count, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, count } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
 
@@ -9,14 +9,29 @@ type AuditQuery = {
   search?: string;
   username?: string;
   action?: string;
+  targetTeamId?: number;
   sortBy?: "created_at" | "id";
   sortDir?: "asc" | "desc";
 };
 
-export async function insertAuditLog(username: string, action: string, details?: string) {
+type AuditInsertOptions = {
+  actorUserId?: number;
+  actorTeamId?: number | null;
+  targetTeamId?: number | null;
+};
+
+export async function insertAuditLog(username: string, action: string, details?: string, options: AuditInsertOptions = {}) {
   try {
     const db = await getDb();
-    await db.insert(auditLogs).values({ username, action, details: details?.substring(0, 1000), createdAt: sql`UTC_TIMESTAMP()` });
+    await db.insert(auditLogs).values({
+      username,
+      action,
+      details: details?.substring(0, 1000),
+      actorUserId: options.actorUserId,
+      actorTeamId: options.actorTeamId,
+      targetTeamId: options.targetTeamId,
+      teamId: options.targetTeamId,
+    });
   } catch (error) {
     logger.warn("audit-log-insert-failed", {
       username,
@@ -36,6 +51,7 @@ export async function getAuditLogs(query: AuditQuery | number = 100) {
   const filters: SQL[] = [];
   if (query.username) filters.push(eq(auditLogs.username, query.username));
   if (query.action) filters.push(eq(auditLogs.action, query.action));
+  if (query.targetTeamId) filters.push(eq(auditLogs.targetTeamId, query.targetTeamId));
   if (query.search) {
     const term = `%${query.search}%`;
     const searchFilter = or(like(auditLogs.username, term), like(auditLogs.action, term), like(auditLogs.details, term));
@@ -58,6 +74,7 @@ export async function getAuditLogsPaginated(query: AuditQuery & { page?: number;
   const filters: SQL[] = [];
   if (query.username) filters.push(eq(auditLogs.username, query.username));
   if (query.action) filters.push(eq(auditLogs.action, query.action));
+  if (query.targetTeamId) filters.push(eq(auditLogs.targetTeamId, query.targetTeamId));
   if (query.search) {
     const term = `%${query.search}%`;
     const searchFilter = or(like(auditLogs.username, term), like(auditLogs.action, term), like(auditLogs.details, term));

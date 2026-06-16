@@ -1,6 +1,18 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getAutoAcceptHistory, getAutoAcceptHistoryPaginated } from "../repositories/auto-accept-repository.js";
+import { getAutoAcceptHistoryForScope, getAutoAcceptHistoryPaginatedForScope } from "../repositories/auto-accept-repository.js";
+import { resolveScopedTeamId } from "../services/team-scope.js";
+import type { AuthUser } from "../services/authz.js";
 import { sendSuccess, sendPaginated } from "../utils/response.js";
+
+function currentUser(req: { user?: unknown }): AuthUser {
+  return req.user as AuthUser;
+}
+
+function autoAcceptTeamScope(req: { user?: unknown }, explicitTeamId?: number): number | null {
+  const user = currentUser(req);
+  if (user.role === "admin" && typeof explicitTeamId !== "number") return null;
+  return resolveScopedTeamId(req, explicitTeamId);
+}
 
 export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
   app.get(
@@ -16,6 +28,7 @@ export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
             status: { type: "string", enum: ["success", "failed"] },
             sortBy: { type: "string", enum: ["created_at", "id"] },
             sortDir: { type: "string", enum: ["asc", "desc"] },
+            teamId: { type: "integer", minimum: 1 },
           },
         },
       },
@@ -28,8 +41,10 @@ export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
         status?: string;
         sortBy?: "created_at" | "id";
         sortDir?: "asc" | "desc";
+        teamId?: number;
       };
-      const rows = await getAutoAcceptHistory({
+      const teamId = autoAcceptTeamScope(req, query.teamId);
+      const rows = await getAutoAcceptHistoryForScope(teamId, {
         limit: query.limit ?? 200,
         search: query.search,
         ruleName: query.ruleName,
@@ -55,6 +70,7 @@ export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
             status: { type: "string", enum: ["success", "failed"] },
             sortBy: { type: "string", enum: ["created_at", "id"] },
             sortDir: { type: "string", enum: ["asc", "desc"] },
+            teamId: { type: "integer", minimum: 1 },
           },
         },
       },
@@ -68,8 +84,10 @@ export const autoAcceptHistoryController: FastifyPluginAsync = async (app) => {
         status?: string;
         sortBy?: "created_at" | "id";
         sortDir?: "asc" | "desc";
+        teamId?: number;
       };
-      const result = await getAutoAcceptHistoryPaginated({
+      const teamId = autoAcceptTeamScope(req, query.teamId);
+      const result = await getAutoAcceptHistoryPaginatedForScope(teamId, {
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 25,
         search: query.search,

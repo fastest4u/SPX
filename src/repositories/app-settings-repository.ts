@@ -9,7 +9,10 @@ import { decryptString, encryptString, isEncrypted } from "../utils/crypto.js";
  * before insert/update and decrypted on read so DB dumps cannot leak them.
  */
 const SECRET_SETTING_KEYS = new Set<string>([
+  // Legacy team-scoped secrets remain decryptable so Default Team bootstrap can
+  // migrate existing single-team installs without exposing them through Settings.
   "COOKIE",
+  "DEVICE_ID",
   "LINE_CHANNEL_ACCESS_TOKEN",
   "LINE_USER_ID",
   "LINEJS_TEST_TARGET_ID",

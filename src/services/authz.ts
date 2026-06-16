@@ -1,10 +1,11 @@
 export type UserRole = "admin" | "user";
 
-export type AuthUser = {
+export interface AuthUser {
   id: number;
   username: string;
   role: UserRole;
-};
+  teamId: number | null;
+}
 
 const ROLE_ORDER: UserRole[] = ["user", "admin"];
 

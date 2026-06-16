@@ -3,21 +3,32 @@ import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 
 export type SseEvent = {
+  teamId?: number;
   event: string;
   data: unknown;
 };
+
+export interface TeamSseEvent<T> {
+  teamId: number;
+  event: string;
+  data: T;
+}
+
+interface SseClientScope {
+  teamId: number | null;
+}
 
 const MAX_CLIENTS = 50;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 class SseBroadcaster {
-  private clients = new Set<ServerResponse>();
+  private clients = new Map<ServerResponse, SseClientScope>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Register a new SSE client connection */
-  addClient(res: ServerResponse): void {
+  addClient(res: ServerResponse, scope: SseClientScope = { teamId: null }): void {
     if (this.clients.size >= MAX_CLIENTS) {
-      const oldest = this.clients.values().next().value;
+      const oldest = this.clients.keys().next().value;
       if (oldest) this.removeClient(oldest);
     }
 
@@ -29,7 +40,7 @@ class SseBroadcaster {
     });
 
     res.write(": connected\n\n");
-    this.clients.add(res);
+    this.clients.set(res, scope);
 
     res.on("close", () => this.removeClient(res));
 
@@ -37,7 +48,7 @@ class SseBroadcaster {
       this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
 
-    logger.info("sse-client-connected", { total: this.clients.size });
+    logger.info("sse-client-connected", { total: this.clients.size, teamId: scope.teamId });
     metrics.recordRuntimeState({ sseClients: this.clients.size });
   }
 
@@ -57,10 +68,16 @@ class SseBroadcaster {
   broadcast(event: SseEvent): void {
     if (this.clients.size === 0) return;
 
-    const payload = `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
+    const data = typeof event.teamId === "number"
+      ? { teamId: event.teamId, event: event.event, data: event.data }
+      : event.data;
+    const payload = `event: ${event.event}\ndata: ${JSON.stringify(data)}\n\n`;
     const dead: ServerResponse[] = [];
 
-    for (const client of this.clients) {
+    for (const [client, scope] of this.clients) {
+      if (typeof event.teamId === "number" && scope.teamId !== null && scope.teamId !== event.teamId) {
+        continue;
+      }
       try {
         if (client.writableEnded || client.destroyed) {
           dead.push(client);
@@ -81,7 +98,7 @@ class SseBroadcaster {
   private sendHeartbeat(): void {
     const dead: ServerResponse[] = [];
 
-    for (const client of this.clients) {
+    for (const client of this.clients.keys()) {
       try {
         if (client.writableEnded || client.destroyed) {
           dead.push(client);
@@ -104,7 +121,7 @@ class SseBroadcaster {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    for (const client of this.clients) {
+    for (const client of this.clients.keys()) {
       try { client.end(); } catch { /* ignore */ }
     }
     this.clients.clear();

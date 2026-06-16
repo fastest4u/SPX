@@ -1,5 +1,5 @@
 import { getDb, getPool } from "../db/client.js";
-import { spxBookingHistory } from "../db/schema.js";
+import { spxBookingHistory, teams } from "../db/schema.js";
 import { and, count, desc, asc, eq, like, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import type { SQL } from "drizzle-orm";
@@ -37,8 +37,12 @@ type BookingHistoryQuery = HistoryFilterQuery & { limit?: number };
 
 type PaginatedHistoryQuery = HistoryFilterQuery & { page?: number; pageSize?: number };
 
-function buildHistoryFilters(query: HistoryFilterQuery): SQL | undefined {
+export type BookingHistoryRow = typeof spxBookingHistory.$inferSelect & { teamName?: string | null };
+type HistoryJoinRow = { history: typeof spxBookingHistory.$inferSelect; teamName: string | null };
+
+function buildHistoryFilters(teamId: number | null, query: HistoryFilterQuery): SQL | undefined {
   const filters: SQL[] = [];
+  if (typeof teamId === "number") filters.push(eq(spxBookingHistory.teamId, teamId));
   if (query.requestId) filters.push(eq(spxBookingHistory.requestId, query.requestId));
   if (query.bookingId) filters.push(eq(spxBookingHistory.bookingId, query.bookingId));
   if (query.origin) filters.push(like(spxBookingHistory.origin, `%${query.origin}%`));
@@ -72,14 +76,14 @@ function buildHistoryOrderBy(query: HistoryFilterQuery) {
     : (query.sortDir === "asc" ? asc(spxBookingHistory.createdAt) : desc(spxBookingHistory.createdAt));
 }
 
-const historyColumns = ["request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
+const historyColumns = ["team_id", "request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
 const requestIdLookupChunkSize = 1000;
 const seenRequestIdTtlMs = 6 * 60 * 60 * 1000;
 const seenRequestIdCacheMax = 100_000;
-const seenRequestIdCache = new Map<number, number>();
+const seenRequestIdCache = new Map<string, number>();
 
-function historyValues(record: BookingHistoryRecord): unknown[] {
-  return [record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
+function historyValues(teamId: number, record: BookingHistoryRecord): unknown[] {
+  return [teamId, record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
 }
 
 export function dedupeBookingHistoryRecords(records: BookingHistoryRecord[]): { records: BookingHistoryRecord[]; skipped: number } {
@@ -105,14 +109,19 @@ export function filterKnownBookingHistoryRecords(
   return { records: unknownRecords, skipped: records.length - unknownRecords.length };
 }
 
-function isRequestIdCached(requestId: number, now: number): boolean {
-  const expiresAt = seenRequestIdCache.get(requestId);
+function requestCacheKey(teamId: number, requestId: number): string {
+  return `${teamId}:${requestId}`;
+}
+
+function isRequestIdCached(teamId: number, requestId: number, now: number): boolean {
+  const key = requestCacheKey(teamId, requestId);
+  const expiresAt = seenRequestIdCache.get(key);
   if (expiresAt === undefined) {
     return false;
   }
 
   if (expiresAt <= now) {
-    seenRequestIdCache.delete(requestId);
+    seenRequestIdCache.delete(key);
     return false;
   }
 
@@ -127,7 +136,7 @@ function pruneExpiredSeenRequestIds(now: number): void {
   }
 }
 
-function rememberBookingHistoryRequestIds(requestIds: Iterable<number>, now = Date.now()): void {
+function rememberBookingHistoryRequestIds(teamId: number, requestIds: Iterable<number>, now = Date.now()): void {
   const expiresAt = now + seenRequestIdTtlMs;
   let remembered = 0;
 
@@ -135,7 +144,7 @@ function rememberBookingHistoryRequestIds(requestIds: Iterable<number>, now = Da
     if (!Number.isFinite(requestId)) {
       continue;
     }
-    seenRequestIdCache.set(requestId, expiresAt);
+    seenRequestIdCache.set(requestCacheKey(teamId, requestId), expiresAt);
     remembered += 1;
   }
 
@@ -156,7 +165,7 @@ function rememberBookingHistoryRequestIds(requestIds: Iterable<number>, now = Da
   }
 }
 
-async function findExistingBookingHistoryRequestIds(pool: Pool, requestIds: number[]): Promise<Set<number>> {
+async function findExistingBookingHistoryRequestIds(pool: Pool, teamId: number, requestIds: number[]): Promise<Set<number>> {
   const existingRequestIds = new Set<number>();
 
   for (let index = 0; index < requestIds.length; index += requestIdLookupChunkSize) {
@@ -167,8 +176,8 @@ async function findExistingBookingHistoryRequestIds(pool: Pool, requestIds: numb
 
     const placeholders = chunk.map(() => "?").join(", ");
     const [rows] = await pool.query(
-      `SELECT request_id FROM spx_booking_history WHERE request_id IN (${placeholders})`,
-      chunk
+      `SELECT request_id FROM spx_booking_history WHERE team_id = ? AND request_id IN (${placeholders})`,
+      [teamId, ...chunk]
     );
 
     for (const row of rows as Array<{ request_id: number | string | bigint }>) {
@@ -179,12 +188,12 @@ async function findExistingBookingHistoryRequestIds(pool: Pool, requestIds: numb
   return existingRequestIds;
 }
 
-export async function insertBookingHistory(record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
-  const { inserted } = await insertBookingHistories([record]);
+export async function insertBookingHistory(teamId: number, record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
+  const { inserted } = await insertBookingHistories(teamId, [record]);
   return { action: inserted > 0 ? "inserted" : "skipped" };
 }
 
-export async function insertBookingHistories(records: BookingHistoryRecord[]): Promise<{ inserted: number; skipped: number }> {
+export async function insertBookingHistories(teamId: number, records: BookingHistoryRecord[]): Promise<{ inserted: number; skipped: number }> {
   if (records.length === 0) {
     return { inserted: 0, skipped: 0 };
   }
@@ -198,6 +207,7 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
   if (env.DB_MODE === "memory") {
     const db = await getDb();
     const rows = deduped.records.map((record) => ({
+      teamId,
       requestId: record.requestId,
       bookingId: record.bookingId ?? null,
       bookingName: record.bookingName ?? null,
@@ -244,64 +254,92 @@ export async function insertBookingHistories(records: BookingHistoryRecord[]): P
   // re-insert. We therefore INSERT IGNORE the full deduped set unconditionally.
   const uncachedRequestIds = deduped.records
     .map((record) => record.requestId)
-    .filter((requestId) => !isRequestIdCached(requestId, now));
+    .filter((requestId) => !isRequestIdCached(teamId, requestId, now));
 
   if (uncachedRequestIds.length > 0) {
-    const existingRequestIds = await findExistingBookingHistoryRequestIds(pool, uncachedRequestIds);
+      const existingRequestIds = await findExistingBookingHistoryRequestIds(pool, teamId, uncachedRequestIds);
     // Remember confirmed-existing ids so future ticks can skip the SELECT for them.
-    rememberBookingHistoryRequestIds(existingRequestIds, now);
+    rememberBookingHistoryRequestIds(teamId, existingRequestIds, now);
   }
 
   const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
-  const values = deduped.records.flatMap(historyValues);
+  const values = deduped.records.flatMap((record) => historyValues(teamId, record));
   const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${deduped.records.map(() => placeholders).join(", ")}`;
   const [result] = await pool.query(query, values);
   const inserted = (result as { affectedRows: number }).affectedRows;
-  rememberBookingHistoryRequestIds(deduped.records.map((record) => record.requestId), now);
+  rememberBookingHistoryRequestIds(teamId, deduped.records.map((record) => record.requestId), now);
   return { inserted, skipped: records.length - inserted };
 }
 
-export async function getBookingHistory(query: BookingHistoryQuery | number = 100): Promise<Array<typeof spxBookingHistory.$inferSelect>> {
+export async function getBookingHistory(teamId: number, query: BookingHistoryQuery | number = 100): Promise<Array<typeof spxBookingHistory.$inferSelect>> {
+  return getBookingHistoryForScope(teamId, query);
+}
+
+export async function getBookingHistoryForScope(teamId: number | null, query: BookingHistoryQuery | number = 100): Promise<BookingHistoryRow[]> {
   const db = await getDb();
   if (typeof query === "number") {
-    const rows = await db.select().from(spxBookingHistory).orderBy(desc(spxBookingHistory.id)).limit(query);
-    return rows;
+    const whereClause = typeof teamId === "number" ? eq(spxBookingHistory.teamId, teamId) : undefined;
+    const rows = await db
+      .select({ history: spxBookingHistory, teamName: teams.name })
+      .from(spxBookingHistory)
+      .leftJoin(teams, eq(spxBookingHistory.teamId, teams.id))
+      .where(whereClause)
+      .orderBy(desc(spxBookingHistory.id))
+      .limit(query);
+    return rows.map((row: HistoryJoinRow) => ({ ...row.history, teamName: row.teamName }));
   }
 
   const limit = query.limit ?? 200;
-  const whereClause = buildHistoryFilters(query);
+  const whereClause = buildHistoryFilters(teamId, query);
   const orderBy = buildHistoryOrderBy(query);
 
-  const rows = await db.select().from(spxBookingHistory).where(whereClause).orderBy(orderBy).limit(limit);
-  return rows;
+  const rows = await db
+    .select({ history: spxBookingHistory, teamName: teams.name })
+    .from(spxBookingHistory)
+    .leftJoin(teams, eq(spxBookingHistory.teamId, teams.id))
+    .where(whereClause)
+    .orderBy(orderBy)
+    .limit(limit);
+  return rows.map((row: HistoryJoinRow) => ({ ...row.history, teamName: row.teamName }));
 }
 
 export type PaginatedBookingHistory = {
-  data: Array<typeof spxBookingHistory.$inferSelect>;
+  data: BookingHistoryRow[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
 };
 
-export async function getBookingHistoryPaginated(query: PaginatedHistoryQuery): Promise<PaginatedBookingHistory> {
+export async function getBookingHistoryPaginated(teamId: number, query: PaginatedHistoryQuery): Promise<PaginatedBookingHistory> {
+  return getBookingHistoryPaginatedForScope(teamId, query);
+}
+
+export async function getBookingHistoryPaginatedForScope(teamId: number | null, query: PaginatedHistoryQuery): Promise<PaginatedBookingHistory> {
   const db = await getDb();
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(200, Math.max(1, query.pageSize ?? 25));
   const offset = (page - 1) * pageSize;
 
-  const whereClause = buildHistoryFilters(query);
+  const whereClause = buildHistoryFilters(teamId, query);
   const orderBy = buildHistoryOrderBy(query);
 
-  const [data, [countResult]] = await Promise.all([
-    db.select().from(spxBookingHistory).where(whereClause).orderBy(orderBy).limit(pageSize).offset(offset),
+  const [rows, [countResult]] = await Promise.all([
+    db
+      .select({ history: spxBookingHistory, teamName: teams.name })
+      .from(spxBookingHistory)
+      .leftJoin(teams, eq(spxBookingHistory.teamId, teams.id))
+      .where(whereClause)
+      .orderBy(orderBy)
+      .limit(pageSize)
+      .offset(offset),
     db.select({ total: count() }).from(spxBookingHistory).where(whereClause),
   ]);
 
   const total = countResult?.total ?? 0;
 
   return {
-    data,
+    data: rows.map((row: HistoryJoinRow) => ({ ...row.history, teamName: row.teamName })),
     total,
     page,
     pageSize,

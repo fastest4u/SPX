@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as NotificationsRouteImport } from './routes/notifications'
@@ -27,6 +28,11 @@ import { Route as SettingsApiRouteImport } from './routes/settings.api'
 const UsersRoute = UsersRouteImport.update({
   id: '/users',
   path: '/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamsRoute = TeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
   '/settings/api': typeof SettingsApiRoute
   '/settings/line-bot': typeof SettingsLineBotRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
   '/settings/api': typeof SettingsApiRoute
   '/settings/line-bot': typeof SettingsLineBotRoute
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
   '/settings/api': typeof SettingsApiRoute
   '/settings/line-bot': typeof SettingsLineBotRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/reports'
     | '/settings'
+    | '/teams'
     | '/users'
     | '/settings/api'
     | '/settings/line-bot'
@@ -173,6 +183,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/reports'
     | '/settings'
+    | '/teams'
     | '/users'
     | '/settings/api'
     | '/settings/line-bot'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/reports'
     | '/settings'
+    | '/teams'
     | '/users'
     | '/settings/api'
     | '/settings/line-bot'
@@ -206,6 +218,7 @@ export interface RootRouteChildren {
   NotificationsRoute: typeof NotificationsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  TeamsRoute: typeof TeamsRoute
   UsersRoute: typeof UsersRoute
 }
 
@@ -216,6 +229,13 @@ declare module '@tanstack/react-router' {
       path: '/users'
       fullPath: '/users'
       preLoaderRoute: typeof UsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/teams': {
+      id: '/teams'
+      path: '/teams'
+      fullPath: '/teams'
+      preLoaderRoute: typeof TeamsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -339,6 +359,7 @@ const rootRouteChildren: RootRouteChildren = {
   NotificationsRoute: NotificationsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  TeamsRoute: TeamsRoute,
   UsersRoute: UsersRoute,
 }
 export const routeTree = rootRouteImport
