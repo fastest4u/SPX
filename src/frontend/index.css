@@ -226,6 +226,26 @@
     text-rendering: geometricPrecision;
   }
 
+  select {
+    color-scheme: dark;
+  }
+
+  select option {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+
+  select option:checked {
+    background:
+      linear-gradient(var(--primary), var(--primary)),
+      var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  select option:disabled {
+    color: var(--muted-foreground);
+  }
+
   #root {
     min-height: 100dvh;
   }

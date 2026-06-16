@@ -6,9 +6,10 @@ import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
+import { Input } from '../components/ui/input'
 import { SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
-import { PageShell } from '../components/layout/Page'
+import { FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { Sparkline } from '../components/Sparkline'
 import {
@@ -19,8 +20,10 @@ import {
   Plus,
   Radio,
   Search,
+  SlidersHorizontal,
   WifiOff,
   ChevronRight,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, memo } from 'react'
 import { toast } from 'sonner'
@@ -34,6 +37,17 @@ export const Route = createFileRoute('/')({
   component: DashboardComponent,
 })
 
+type RuleStatusFilter = 'all' | 'active' | 'fulfilled' | 'paused'
+
+const ruleStatusOptions: Array<{ value: RuleStatusFilter; label: string }> = [
+  { value: 'all', label: 'ทุกสถานะ' },
+  { value: 'active', label: 'กำลังค้นหา' },
+  { value: 'fulfilled', label: 'ครบแล้ว' },
+  { value: 'paused', label: 'ปิดอยู่' },
+]
+
+const filterSelectClassName = 'h-10 w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25'
+
 function DashboardComponent() {
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -42,6 +56,10 @@ function DashboardComponent() {
   const [editingRule, setEditingRule] = useState<NotifyRule | null>(null)
   const [deletingRule, setDeletingRule] = useState<NotifyRule | null>(null)
   const [previewingRule, setPreviewingRule] = useState<NotifyRule | null>(null)
+  const [ruleSearch, setRuleSearch] = useState('')
+  const [ruleStatusFilter, setRuleStatusFilter] = useState<RuleStatusFilter>('all')
+  const [ruleTeamFilter, setRuleTeamFilter] = useState('all')
+  const [ruleVehicleFilter, setRuleVehicleFilter] = useState('all')
 
   // Stable per-row handlers so memoized RuleRow does not re-render on every SSE
   // metrics tick (~6-7×/sec at a 150ms poll) — only when the rules data changes.
@@ -106,6 +124,64 @@ function DashboardComponent() {
       duration: 20_000,
     })
   }, [sessionAlertTimestamp])
+
+  const teamFilterOptions = useMemo(() => {
+    const teams = new Map<string, string>()
+    for (const rule of rules) {
+      const id = rule.teamId == null ? 'none' : String(rule.teamId)
+      if (!teams.has(id)) {
+        teams.set(id, rule.teamName || (rule.teamId ? `Team #${rule.teamId}` : 'ไม่ระบุทีม'))
+      }
+    }
+    return Array.from(teams, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'th'))
+  }, [rules])
+
+  const vehicleFilterOptions = useMemo(() => {
+    const vehicles = new Set<string>()
+    for (const rule of rules) {
+      for (const vehicle of rule.vehicle_types) {
+        if (vehicle.trim()) vehicles.add(vehicle.trim())
+      }
+    }
+    return Array.from(vehicles).sort((a, b) => a.localeCompare(b, 'th'))
+  }, [rules])
+
+  const filteredRules = useMemo(() => {
+    const normalizedSearch = ruleSearch.trim().toLowerCase()
+
+    return rules.filter((rule) => {
+      if (ruleStatusFilter !== 'all' && getRuleStatusKey(rule) !== ruleStatusFilter) return false
+      if (ruleTeamFilter !== 'all') {
+        const teamKey = rule.teamId == null ? 'none' : String(rule.teamId)
+        if (teamKey !== ruleTeamFilter) return false
+      }
+      if (ruleVehicleFilter !== 'all' && !rule.vehicle_types.some((vehicle) => vehicle === ruleVehicleFilter)) return false
+      if (!normalizedSearch) return true
+
+      return [
+        rule.name,
+        rule.teamName,
+        rule.teamId ? `Team #${rule.teamId}` : '',
+        ...rule.origins,
+        ...rule.destinations,
+        ...rule.vehicle_types,
+      ].some((value) => value?.toLowerCase().includes(normalizedSearch))
+    })
+  }, [ruleSearch, ruleStatusFilter, ruleTeamFilter, ruleVehicleFilter, rules])
+
+  const activeRuleFilterCount = [
+    ruleSearch.trim(),
+    ruleStatusFilter !== 'all',
+    ruleTeamFilter !== 'all',
+    ruleVehicleFilter !== 'all',
+  ].filter(Boolean).length
+
+  const resetRuleFilters = useCallback(() => {
+    setRuleSearch('')
+    setRuleStatusFilter('all')
+    setRuleTeamFilter('all')
+    setRuleVehicleFilter('all')
+  }, [])
 
   if (rulesLoading) {
     return (
@@ -213,33 +289,70 @@ function DashboardComponent() {
               className="py-16"
             />
           ) : (
-            <div className="data-scroll border-0 rounded-none">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>สถานะ</th>
-                    {isAdmin ? <th>ทีม</th> : null}
-                    <th>ชื่อรายการ</th>
-                    <th>ต้นทาง</th>
-                    <th>ปลายทาง</th>
-                    <th>ประเภทรถ</th>
-                    <th>ต้องการ</th>
-                    <th>จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rules.map((rule) => (
-                    <RuleRow
-                      key={rule.id}
-                      rule={rule}
-                      showTeam={isAdmin}
-                      onEdit={handleEditRule}
-                      onDelete={handleDeleteRule}
-                      onPreview={handlePreviewRule}
-                    />
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              <div className="border-b border-white/[0.06] px-4 py-4 sm:px-5">
+                <RuleFilterPanel
+                  activeFilterCount={activeRuleFilterCount}
+                  filteredCount={filteredRules.length}
+                  isAdmin={isAdmin}
+                  onReset={resetRuleFilters}
+                  search={ruleSearch}
+                  setSearch={setRuleSearch}
+                  setStatus={setRuleStatusFilter}
+                  setTeam={setRuleTeamFilter}
+                  setVehicle={setRuleVehicleFilter}
+                  status={ruleStatusFilter}
+                  team={ruleTeamFilter}
+                  teamOptions={teamFilterOptions}
+                  totalCount={rules.length}
+                  vehicle={ruleVehicleFilter}
+                  vehicleOptions={vehicleFilterOptions}
+                />
+              </div>
+
+              {filteredRules.length === 0 ? (
+                <EmptyState
+                  icon={Search}
+                  title="ไม่พบรายการที่ตรงกับตัวกรอง"
+                  description="ลองล้างตัวกรองหรือค้นหาด้วยชื่อรายการ เส้นทาง ทีม หรือประเภทรถอื่น"
+                  action={
+                    <Button variant="outline" size="sm" onClick={resetRuleFilters}>
+                      <X className="h-4 w-4" />
+                      ล้างตัวกรอง
+                    </Button>
+                  }
+                  className="py-14"
+                />
+              ) : (
+                <div className="data-scroll border-0 rounded-none">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>สถานะ</th>
+                        {isAdmin ? <th>ทีม</th> : null}
+                        <th>ชื่อรายการ</th>
+                        <th>ต้นทาง</th>
+                        <th>ปลายทาง</th>
+                        <th>ประเภทรถ</th>
+                        <th>ต้องการ</th>
+                        <th>จัดการ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRules.map((rule) => (
+                        <RuleRow
+                          key={rule.id}
+                          rule={rule}
+                          showTeam={isAdmin}
+                          onEdit={handleEditRule}
+                          onDelete={handleDeleteRule}
+                          onPreview={handlePreviewRule}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -404,6 +517,139 @@ function getStatusBadge(rule: NotifyRule) {
   if (!rule.enabled) return <Badge variant="neutral">ปิดอยู่</Badge>
   if (rule.fulfilled) return <Badge variant="success">ครบแล้ว</Badge>
   return <Badge variant="info">กำลังค้นหา</Badge>
+}
+
+function getRuleStatusKey(rule: NotifyRule): RuleStatusFilter {
+  if (!rule.enabled) return 'paused'
+  if (rule.fulfilled) return 'fulfilled'
+  return 'active'
+}
+
+function RuleFilterPanel({
+  activeFilterCount,
+  filteredCount,
+  isAdmin,
+  onReset,
+  search,
+  setSearch,
+  setStatus,
+  setTeam,
+  setVehicle,
+  status,
+  team,
+  teamOptions,
+  totalCount,
+  vehicle,
+  vehicleOptions,
+}: {
+  activeFilterCount: number
+  filteredCount: number
+  isAdmin: boolean
+  onReset: () => void
+  search: string
+  setSearch: (value: string) => void
+  setStatus: (value: RuleStatusFilter) => void
+  setTeam: (value: string) => void
+  setVehicle: (value: string) => void
+  status: RuleStatusFilter
+  team: string
+  teamOptions: Array<{ value: string; label: string }>
+  totalCount: number
+  vehicle: string
+  vehicleOptions: string[]
+}) {
+  return (
+    <FilterPanel className="mb-0 space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
+            <SlidersHorizontal className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-foreground">Filter panel</div>
+            <div className="text-xs text-muted-foreground">
+              แสดง {filteredCount.toLocaleString()} จาก {totalCount.toLocaleString()} รายการ
+            </div>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onReset}
+          disabled={activeFilterCount === 0}
+          className="self-start sm:self-auto"
+        >
+          <X className="h-4 w-4" />
+          ล้างตัวกรอง{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+        </Button>
+      </div>
+
+      <div className={`grid gap-3 ${isAdmin ? 'lg:grid-cols-[minmax(14rem,1.4fr)_minmax(9rem,0.85fr)_minmax(9rem,0.9fr)_minmax(10rem,0.95fr)]' : 'lg:grid-cols-[minmax(14rem,1.5fr)_minmax(9rem,0.9fr)_minmax(10rem,1fr)]'}`}>
+        <label className="space-y-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ค้นหา</span>
+          <span className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-10 rounded-[8px] border-white/[0.08] bg-white/[0.03] pl-9"
+              placeholder="ชื่อรายการ, เส้นทาง, ทีม, ประเภทรถ"
+            />
+          </span>
+        </label>
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">สถานะ</span>
+          <select
+            className={filterSelectClassName}
+            value={status}
+            onChange={(event) => setStatus(event.target.value as RuleStatusFilter)}
+          >
+            {ruleStatusOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {isAdmin ? (
+          <label className="space-y-1.5">
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ทีม</span>
+            <select
+              className={filterSelectClassName}
+              value={team}
+              onChange={(event) => setTeam(event.target.value)}
+            >
+              <option value="all">ทุกทีม</option>
+              {teamOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        <label className="space-y-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</span>
+          <select
+            className={filterSelectClassName}
+            value={vehicle}
+            onChange={(event) => setVehicle(event.target.value)}
+          >
+            <option value="all">ทุกประเภท</option>
+            {vehicleOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </FilterPanel>
+  )
 }
 
 function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDelete: () => void; onPreview: () => void }) {
