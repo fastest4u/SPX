@@ -647,6 +647,7 @@ export async function applyAutoAcceptProgress(
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
+    const touchedTeamIds = new Set<number>();
     // Atomic per-rule decrement: compute need/fulfilled inside SQL so concurrent
     // auto-accept tasks cannot lose updates via read-modify-write (two tasks both
     // reading need=5 and the later write clobbering the earlier). CASE WHEN is
@@ -654,16 +655,56 @@ export async function applyAutoAcceptProgress(
     // in-memory SQLite backend used in tests.
     // Per-rule isolation: one rule's failed UPDATE must not block the other
     // rules' decrements (or their budget settlement via onRuleCommitted).
+    const affectedRows = (result: unknown): number | null => {
+      if (Array.isArray(result)) return affectedRows(result[0]);
+      if (!result || typeof result !== "object") return null;
+      const record = result as Record<string, unknown>;
+      for (const key of ["affectedRows", "changes", "rowsAffected"]) {
+        if (typeof record[key] === "number") return record[key] as number;
+      }
+      return null;
+    };
+
+    const decrementRuleNeed = (whereClause: ReturnType<typeof and> | ReturnType<typeof eq>, accepted: number) =>
+      db.update(notifyRulesTable)
+        .set({
+          need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
+          fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+          autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+          updatedAt: currentTimestamp,
+        })
+        .where(whereClause);
+
     for (const [ruleId, accepted] of acceptedByRule) {
       try {
-        await db.update(notifyRulesTable)
-          .set({
-            need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
-            fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-            autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-            updatedAt: currentTimestamp,
-          })
-          .where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, ruleId)));
+        const scopedResult = await decrementRuleNeed(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, ruleId)), accepted);
+        let committedTeamId: number | null = affectedRows(scopedResult) === 0 ? null : teamId;
+
+        if (committedTeamId === null) {
+          const [owner] = await db
+            .select({ teamId: notifyRulesTable.teamId })
+            .from(notifyRulesTable)
+            .where(eq(notifyRulesTable.id, ruleId))
+            .limit(1);
+
+          if (owner) {
+            logger.warn("auto-accept-progress-team-scope-mismatch", {
+              ruleId,
+              accepted,
+              attemptedTeamId: teamId,
+              actualTeamId: owner.teamId,
+            });
+            const ownerResult = await decrementRuleNeed(and(eq(notifyRulesTable.teamId, owner.teamId), eq(notifyRulesTable.id, ruleId)), accepted);
+            committedTeamId = affectedRows(ownerResult) === 0 ? null : owner.teamId;
+          }
+        }
+
+        if (committedTeamId === null) {
+          logger.error("auto-accept-progress-update-missed", { ruleId, accepted, teamId });
+          continue;
+        }
+
+        touchedTeamIds.add(committedTeamId);
         onRuleCommitted?.(ruleId, accepted);
       } catch (err) {
         // Lost quota decrement on the money path: the upstream accept already
@@ -676,7 +717,9 @@ export async function applyAutoAcceptProgress(
         });
       }
     }
-    await broadcastAllRules(teamId);
+    for (const touchedTeamId of touchedTeamIds) {
+      await broadcastAllRules(touchedTeamId);
+    }
     return;
   }
 
