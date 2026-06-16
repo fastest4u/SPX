@@ -35,6 +35,19 @@ function getPageNumbers(page: number, totalPages: number) {
   return pages
 }
 
+function getMobilePageNumbers(page: number, totalPages: number) {
+  const pages: number[] = []
+  let start = Math.max(1, page - 1)
+  if (start + 3 > totalPages) {
+    start = Math.max(1, totalPages - 3)
+  }
+  for (let i = 0; i < 4; i++) {
+    const p = start + i
+    if (p <= totalPages && p > 0) pages.push(p)
+  }
+  return pages
+}
+
 export function PaginationControls({
   page,
   pageSize,
@@ -103,39 +116,59 @@ function PageSizeSelect({
 
 function MobilePaginationPanel(props: PaginationControlsProps) {
   const { page, pageSize, totalItems, totalPages, onPageChange, onPageSizeChange, className } = props
+  const mobilePages = getMobilePageNumbers(page, totalPages)
+
   return (
     <div className={className}>
-      <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span className="font-data">{pageRange(page, pageSize, totalItems).replace(' รายการ', '')}</span>
-          <label className="flex items-center gap-2">
-            <span>แสดง</span>
-            <PageSizeSelect
-              pageSize={pageSize}
-              onPageSizeChange={onPageSizeChange}
-              className="text-xs focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </label>
-        </div>
+      <div
+        className="flex min-h-14 w-full items-center justify-between gap-1 rounded-[8px] border border-white/10 bg-white/[0.04] px-2 py-2 shadow-sm shadow-black/10"
+        aria-label={pageRange(page, pageSize, totalItems)}
+      >
+        <label className="shrink-0">
+          <span className="sr-only">จำนวนรายการต่อหน้า</span>
+          <PageSizeSelect
+            pageSize={pageSize}
+            onPageSizeChange={onPageSizeChange}
+            className="h-9 w-[3.75rem] rounded-[8px] border-white/10 bg-black/20 px-2 text-center text-sm font-semibold text-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
+        </label>
 
-        <div className="mt-3 grid grid-cols-[2.5rem_1fr_2.5rem] items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <Button
             variant="outline"
             size="icon"
-            className="h-9 w-9 rounded-[8px] border-white/10 bg-transparent"
+            className="h-9 w-9 shrink-0 rounded-[8px] border-white/10 bg-transparent p-0"
             onClick={() => onPageChange(Math.max(1, page - 1))}
             disabled={page === 1}
             aria-label="หน้าก่อนหน้า"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="text-center text-xs font-semibold text-muted-foreground">
-            หน้า {page} / {Math.max(1, totalPages)}
+
+          <div className="grid shrink-0 grid-flow-col auto-cols-[2.1rem] gap-1">
+            {mobilePages.map((p) => (
+              <Button
+                key={p}
+                variant={page === p ? 'default' : 'outline'}
+                className={cn(
+                  'h-9 w-[2.1rem] rounded-[8px] p-0 text-sm',
+                  page === p
+                    ? 'border-transparent font-bold shadow-none'
+                    : 'border-white/10 bg-transparent text-muted-foreground hover:text-foreground'
+                )}
+                onClick={() => onPageChange(p)}
+                aria-current={page === p ? 'page' : undefined}
+                aria-label={`หน้า ${p} จาก ${Math.max(1, totalPages)}`}
+              >
+                {p}
+              </Button>
+            ))}
           </div>
+
           <Button
             variant="outline"
             size="icon"
-            className="h-9 w-9 rounded-[8px] border-white/10 bg-transparent"
+            className="h-9 w-9 shrink-0 rounded-[8px] border-white/10 bg-transparent p-0"
             onClick={() => onPageChange(Math.min(totalPages, page + 1))}
             disabled={page === totalPages || totalPages === 0}
             aria-label="หน้าถัดไป"
