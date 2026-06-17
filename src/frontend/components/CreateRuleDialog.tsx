@@ -31,6 +31,7 @@ const defaultFormData: RuleInput = {
   vehicle_types: [],
   need: 1,
   enabled: true,
+  accept_all: false,
 }
 
 export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) {
@@ -224,6 +225,21 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 เปิดใช้งานทันที
               </Label>
             </div>
+
+            {isAdmin ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="create-accept-all"
+                  checked={formData.accept_all === true}
+                  onChange={e => setFormData(prev => ({ ...prev, accept_all: e.target.checked }))}
+                  className="h-4 w-4 rounded border-white/15 bg-white/10 text-info focus:ring-info focus:ring-offset-background"
+                />
+                <Label htmlFor="create-accept-all" className="cursor-pointer">
+                  ใช้ accept_all สำหรับ booking ที่ตรงเงื่อนไข
+                </Label>
+              </div>
+            ) : null}
 
           </div>
 

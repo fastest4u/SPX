@@ -58,7 +58,7 @@ async function existingRuleTeamScope(req: { user?: unknown; query?: unknown }, i
   return resolveScopedTeamId(req, explicitTeamId);
 }
 
-function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
+function toRuleInput(body: Partial<NotifyRuleInput>, allowAcceptAll: boolean): NotifyRuleInput {
   return {
     name: typeof body.name === "string" ? body.name.trim() : "",
     origins: clampStringArray(body.origins),
@@ -67,11 +67,12 @@ function toRuleInput(body: Partial<NotifyRuleInput>): NotifyRuleInput {
     need: typeof body.need === "number" && body.need >= 0 ? body.need : 1,
     enabled: body.enabled ?? true,
     fulfilled: body.fulfilled ?? false,
+    accept_all: allowAcceptAll && body.accept_all === true,
     auto_accepted: body.auto_accepted ?? false,
   };
 }
 
-function toRulePatch(body: Partial<NotifyRuleInput>): NotifyRulePatch {
+function toRulePatch(body: Partial<NotifyRuleInput>, allowAcceptAll: boolean): NotifyRulePatch {
   const patch: NotifyRulePatch = {};
   if (typeof body.name === "string") patch.name = body.name.trim();
   if (isStringArray(body.origins)) patch.origins = clampStringArray(body.origins);
@@ -80,6 +81,7 @@ function toRulePatch(body: Partial<NotifyRuleInput>): NotifyRulePatch {
   if (typeof body.need === "number" && body.need >= 0) patch.need = body.need;
   if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
   if (typeof body.fulfilled === "boolean") patch.fulfilled = body.fulfilled;
+  if (allowAcceptAll && typeof body.accept_all === "boolean") patch.accept_all = body.accept_all;
   if (typeof body.auto_accepted === "boolean") patch.auto_accepted = body.auto_accepted;
   return patch;
 }
@@ -99,6 +101,7 @@ const ruleSchema = {
     enabled: { type: "boolean" },
     fulfilled: { type: "boolean" },
     auto_accept: { type: "boolean" },
+    accept_all: { type: "boolean" },
     auto_accepted: { type: "boolean" },
   },
 } as const;
@@ -159,8 +162,8 @@ export const rulesController: FastifyPluginAsync = async (app) => {
 
   app.post<{ Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
     const teamId = createTeamScope(req, bodyTeamId(req.body));
-    const newRule = await createRule(teamId, toRuleInput(req.body));
     const user = currentUser(req);
+    const newRule = await createRule(teamId, toRuleInput(req.body, user.role === "admin"));
     await insertAuditLog(user.username, "Add Rule", `Added rule: ${newRule.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, newRule, "Rule created successfully", 201);
   });
@@ -168,9 +171,9 @@ export const rulesController: FastifyPluginAsync = async (app) => {
   app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
     const teamId = await existingRuleTeamScope(req, req.params.id, bodyTeamId(req.body));
     if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
-    const updated = await updateRule(teamId, req.params.id, toRulePatch(req.body));
-    if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     const user = currentUser(req);
+    const updated = await updateRule(teamId, req.params.id, toRulePatch(req.body, user.role === "admin"));
+    if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     await insertAuditLog(user.username, "Update Rule", `Updated rule: ${updated.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, updated, "Rule updated successfully");
   });

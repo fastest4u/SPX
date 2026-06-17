@@ -108,6 +108,7 @@ const EXPECTED_SCHEMA = {
       enabled: { type: "int", nullable: false, defaultIncludes: "1" },
       fulfilled: { type: "int", nullable: false, defaultIncludes: "0" },
       auto_accept: { type: "int", nullable: false, defaultIncludes: "0" },
+      accept_all: { type: "int", nullable: false, defaultIncludes: "0" },
       auto_accepted: { type: "int", nullable: false, defaultIncludes: "0" },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
       updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp", extraIncludes: ["on update"] },

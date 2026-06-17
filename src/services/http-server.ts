@@ -326,6 +326,7 @@ export async function startHttpServer(port: number): Promise<void> {
   await app.register(async (apiScope) => {
     apiScope.addHook("preHandler", authenticateRequest);
     await apiScope.register(historyController, { prefix: "/history" });
+    await apiScope.register(autoAcceptHistoryController, { prefix: "/auto-accept-history" });
     await apiScope.register(reportController, { prefix: "/reports" });
 
     await apiScope.register(async (userScope) => {
@@ -358,7 +359,6 @@ export async function startHttpServer(port: number): Promise<void> {
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });
       await adminScope.register(auditReportController, { prefix: "/reports" });
-      await adminScope.register(autoAcceptHistoryController, { prefix: "/auto-accept-history" });
     });
   }, { prefix: "/api" });
 

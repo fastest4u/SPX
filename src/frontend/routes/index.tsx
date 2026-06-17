@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/badge'
 import { Input } from '../components/ui/input'
 import { SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
+import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { Sparkline } from '../components/Sparkline'
@@ -25,7 +26,7 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { NotifyRule, TimingSummary } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
@@ -183,6 +184,96 @@ function DashboardComponent() {
     setRuleVehicleFilter('all')
   }, [])
 
+  const ruleColumns = useMemo<DataTableColumn<NotifyRule>[]>(() => {
+    const columns: DataTableColumn<NotifyRule>[] = [
+      {
+        id: 'status',
+        header: 'สถานะ',
+        required: true,
+        sortable: false,
+        render: (rule) => getStatusBadge(rule),
+        sortValue: (rule) => getRuleStatusKey(rule),
+      },
+    ]
+
+    if (isAdmin) {
+      columns.push({
+        id: 'team',
+        header: 'ทีม',
+        sortKey: 'team',
+        render: (rule) => (
+          <Badge variant="neutral">{rule.teamName || (rule.teamId ? `Team #${rule.teamId}` : 'ไม่ระบุทีม')}</Badge>
+        ),
+        sortValue: (rule) => rule.teamName || (rule.teamId ? `Team #${rule.teamId}` : 'ไม่ระบุทีม'),
+      })
+    }
+
+    columns.push(
+      {
+        id: 'name',
+        header: 'ชื่อรายการ',
+        required: true,
+        sortKey: 'name',
+        render: (rule) => <span className="font-semibold text-foreground">{rule.name}</span>,
+        sortValue: (rule) => rule.name,
+      },
+      {
+        id: 'origins',
+        header: 'ต้นทาง',
+        sortKey: 'origins',
+        render: (rule) => <span className="text-muted-foreground">{rule.origins.join(', ') || '—'}</span>,
+        sortValue: (rule) => rule.origins.join(', '),
+      },
+      {
+        id: 'destinations',
+        header: 'ปลายทาง',
+        sortKey: 'destinations',
+        render: (rule) => <span className="text-muted-foreground">{rule.destinations.join(', ') || '—'}</span>,
+        sortValue: (rule) => rule.destinations.join(', '),
+      },
+      {
+        id: 'vehicle_types',
+        header: 'ประเภทรถ',
+        sortKey: 'vehicle_types',
+        render: (rule) => <span className="text-muted-foreground">{rule.vehicle_types.join(', ') || '—'}</span>,
+        sortValue: (rule) => rule.vehicle_types.join(', '),
+      },
+      {
+        id: 'need',
+        header: 'ต้องการ',
+        sortKey: 'need',
+        render: (rule) => <span className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></span>,
+        sortValue: (rule) => rule.need,
+      },
+    )
+
+    if (isAdmin) {
+      columns.push({
+        id: 'mode',
+        header: 'โหมด',
+        sortKey: 'mode',
+        render: (rule) => rule.accept_all ? <Badge variant="warning">accept_all</Badge> : <Badge variant="neutral">request ID</Badge>,
+        sortValue: (rule) => rule.accept_all ? 'accept_all' : 'request ID',
+      })
+    }
+
+    columns.push({
+      id: 'actions',
+      header: 'จัดการ',
+      required: true,
+      sortable: false,
+      render: (rule) => (
+        <RuleActions
+          onEdit={() => handleEditRule(rule)}
+          onDelete={() => handleDeleteRule(rule)}
+          onPreview={() => handlePreviewRule(rule)}
+        />
+      ),
+    })
+
+    return columns
+  }, [handleDeleteRule, handleEditRule, handlePreviewRule, isAdmin])
+
   if (rulesLoading) {
     return (
       <div className="space-y-3 sm:space-y-4">
@@ -324,33 +415,14 @@ function DashboardComponent() {
                   className="py-14"
                 />
               ) : (
-                <div className="data-scroll border-0 rounded-none">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>สถานะ</th>
-                        {isAdmin ? <th>ทีม</th> : null}
-                        <th>ชื่อรายการ</th>
-                        <th>ต้นทาง</th>
-                        <th>ปลายทาง</th>
-                        <th>ประเภทรถ</th>
-                        <th>ต้องการ</th>
-                        <th>จัดการ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredRules.map((rule) => (
-                        <RuleRow
-                          key={rule.id}
-                          rule={rule}
-                          showTeam={isAdmin}
-                          onEdit={handleEditRule}
-                          onDelete={handleDeleteRule}
-                          onPreview={handlePreviewRule}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="px-4 py-4 sm:px-5">
+                  <DataTable
+                    columns={ruleColumns}
+                    data={filteredRules}
+                    keyField={(rule) => rule.id}
+                    densityKey="notify-rules"
+                    minWidth={isAdmin ? '1120px' : '960px'}
+                  />
                 </div>
               )}
             </div>
@@ -668,24 +740,3 @@ function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDe
     </div>
   )
 }
-
-const RuleRow = memo(function RuleRow({ rule, showTeam, onEdit, onDelete, onPreview }: { rule: NotifyRule; showTeam: boolean; onEdit: (rule: NotifyRule) => void; onDelete: (rule: NotifyRule) => void; onPreview: (rule: NotifyRule) => void }) {
-  return (
-    <tr>
-      <td>{getStatusBadge(rule)}</td>
-      {showTeam ? (
-        <td>
-          <Badge variant="neutral">{rule.teamName || (rule.teamId ? `Team #${rule.teamId}` : 'ไม่ระบุทีม')}</Badge>
-        </td>
-      ) : null}
-      <td className="font-semibold text-foreground">{rule.name}</td>
-      <td className="text-muted-foreground">{rule.origins.join(', ') || '—'}</td>
-      <td className="text-muted-foreground">{rule.destinations.join(', ') || '—'}</td>
-      <td className="text-muted-foreground">{rule.vehicle_types.join(', ') || '—'}</td>
-      <td className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></td>
-      <td>
-        <RuleActions onEdit={() => onEdit(rule)} onDelete={() => onDelete(rule)} onPreview={() => onPreview(rule)} />
-      </td>
-    </tr>
-  )
-})

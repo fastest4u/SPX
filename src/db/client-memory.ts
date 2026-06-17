@@ -159,6 +159,7 @@ function initSchema(db: Database.Database): void {
       enabled INTEGER NOT NULL DEFAULT 1,
       fulfilled INTEGER NOT NULL DEFAULT 0,
       auto_accept INTEGER NOT NULL DEFAULT 0,
+      accept_all INTEGER NOT NULL DEFAULT 0,
       auto_accepted INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))

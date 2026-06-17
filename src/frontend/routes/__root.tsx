@@ -40,7 +40,8 @@ function RootComponent() {
     return <Navigate to="/" />
   }
 
-  if (isAuthenticated && user?.role !== 'admin' && ADMIN_ONLY_PATHS.has(currentPath)) {
+  const isAdminPath = Array.from(ADMIN_ONLY_PATHS).some(p => currentPath === p || currentPath.startsWith(p + '/'))
+  if (isAuthenticated && user?.role !== 'admin' && isAdminPath) {
     return <Navigate to="/" />
   }
 

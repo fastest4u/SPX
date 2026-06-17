@@ -80,6 +80,7 @@ export const notifyRules = mysqlTable("notify_rules", {
   enabled: int("enabled").notNull().default(1),
   fulfilled: int("fulfilled").notNull().default(0),
   autoAccept: int("auto_accept").notNull().default(0),
+  acceptAll: int("accept_all").notNull().default(0),
   autoAccepted: int("auto_accepted").notNull().default(0),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

@@ -7,6 +7,9 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const testsDir = join(repoRoot, "tests");
 
+process.env.NODE_ENV = "test";
+process.env.DB_MODE = "memory";
+
 /**
  * Lightweight test runner for the standalone tsx test scripts in tests/.
  * Each *.test.ts file is a self-contained executable that exits 0 on success
@@ -40,7 +43,7 @@ function runTest(file) {
     const child = spawn(process.execPath, ["--import", "tsx", join(testsDir, file)], {
       cwd: repoRoot,
       stdio: "inherit",
-      env: { ...process.env, DB_MODE: "memory" },
+      env: { ...process.env, NODE_ENV: "test", DB_MODE: "memory" },
     });
 
     const timeout = setTimeout(() => {

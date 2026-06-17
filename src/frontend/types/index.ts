@@ -63,6 +63,7 @@ export interface NotifyRule {
   fulfilled: boolean;
   /** Always true for enabled rules. Field kept for wire compatibility. */
   auto_accept: boolean;
+  accept_all: boolean;
   auto_accepted: boolean;
 }
 
@@ -74,6 +75,7 @@ export interface RuleInput {
   vehicle_types: string[];
   need: number;
   enabled?: boolean;
+  accept_all?: boolean;
 }
 
 export interface RulePatch {
@@ -85,6 +87,7 @@ export interface RulePatch {
   need?: number;
   enabled?: boolean;
   fulfilled?: boolean;
+  accept_all?: boolean;
   auto_accepted?: boolean;
 }
 
@@ -103,6 +106,7 @@ export interface RulePreviewResult {
   ruleName: string;
   matchedCount: number;
   need: number;
+  acceptAll: boolean;
   sampleSize: number;
   scannedCount: number;
   wouldMatch: boolean;
@@ -445,6 +449,12 @@ export interface AcceptBookingInput {
   confirm: true;
 }
 
+export interface AcceptAllBookingInput {
+  teamId: number;
+  bookingId: number;
+  confirm: true;
+}
+
 export interface AcceptBookingResponse {
   ok: boolean;
   bookingId?: number;
@@ -455,6 +465,13 @@ export interface AcceptBookingResponse {
     message: string;
     details?: unknown;
   };
+}
+
+export interface AcceptAllBookingResponse {
+  bookingId: number;
+  teamId: number;
+  acceptAll: true;
+  response?: unknown;
 }
 
 // Notification Types

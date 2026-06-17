@@ -13,6 +13,12 @@ interface AcceptBody {
   confirm?: boolean;
 }
 
+interface AcceptAllBody {
+  teamId?: number;
+  bookingId?: number;
+  confirm?: boolean;
+}
+
 function uniquePositiveIntegers(values: unknown): number[] {
   if (!Array.isArray(values)) return [];
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
@@ -45,6 +51,17 @@ const acceptSchema = {
     teamId: { type: "integer", minimum: 1 },
     bookingId: { type: "integer", minimum: 1 },
     requestIds: { type: "array", minItems: 1, maxItems: 100, items: { type: "integer", minimum: 1 } },
+    confirm: { type: "boolean", const: true },
+  },
+} as const;
+
+const acceptAllSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["bookingId", "confirm"],
+  properties: {
+    teamId: { type: "integer", minimum: 1 },
+    bookingId: { type: "integer", minimum: 1 },
     confirm: { type: "boolean", const: true },
   },
 } as const;
@@ -87,5 +104,50 @@ export const biddingController: FastifyPluginAsync = async (app) => {
       requestIds,
       response: result.response,
     }, "Booking accepted successfully");
+  });
+
+  app.post<{ Body: AcceptAllBody }>("/accept-all", { schema: { body: acceptAllSchema } }, async (req, reply) => {
+    const actor = requireRequestUser(req);
+    if (actor.role !== "admin") {
+      return sendError(reply, 403, "FORBIDDEN", "Accept-all is restricted to admins");
+    }
+
+    const bookingId = req.body.bookingId;
+    if (!Number.isInteger(bookingId) || bookingId === undefined || bookingId <= 0 || req.body.confirm !== true) {
+      return sendError(reply, 400, "VALIDATION_ERROR", "bookingId and confirm=true are required");
+    }
+    if (!Number.isInteger(req.body.teamId) || req.body.teamId === undefined || req.body.teamId <= 0) {
+      return sendError(reply, 400, "TEAM_REQUIRED", "Admin accept-all requests must include teamId");
+    }
+
+    const validBookingId: number = bookingId;
+    const teamId = req.body.teamId;
+    const apiClient = await getApiClientForTeam(teamId);
+    const result = await apiClient.acceptAllBookingRequests(validBookingId);
+
+    await insertAuditLog(
+      actor.username,
+      result.ok ? "Accept All Booking Requests" : "Accept All Booking Requests Failed",
+      `booking_id=${bookingId}; accept_all=true; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
+      { actorUserId: actor.id, actorTeamId: actor.teamId, targetTeamId: teamId },
+    );
+
+    if (!result.ok) {
+      const statusCode = result.httpStatus >= 400 ? result.httpStatus : 502;
+      return sendError(
+        reply,
+        statusCode,
+        "ACCEPT_ALL_FAILED",
+        result.error || result.response?.message || "Accept-all request failed",
+        result.response
+      );
+    }
+
+    return sendSuccess(reply, {
+      bookingId,
+      teamId,
+      acceptAll: true,
+      response: result.response,
+    }, "Booking accept-all submitted successfully");
   });
 };

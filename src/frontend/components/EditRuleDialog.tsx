@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { rulesApi } from '../lib/api'
 import type { NotifyRule, RulePatch } from '../types'
+import { useAuth } from '../hooks/useAuth'
 import { Button } from './ui/button'
 import { splitCsv } from '../lib/utils'
 import {
@@ -26,6 +27,8 @@ interface EditRuleDialogProps {
 
 export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps) {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [formData, setFormData] = useState<RulePatch>({})
   const [originsText, setOriginsText] = useState('')
   const [destinationsText, setDestinationsText] = useState('')
@@ -42,18 +45,20 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
 
   useEffect(() => {
     if (open && rule) {
-      setFormData({
+      const nextFormData: RulePatch = {
         name: rule.name,
         origins: rule.origins,
         destinations: rule.destinations,
         vehicle_types: rule.vehicle_types,
         need: rule.need,
         enabled: rule.enabled,
-      })
+      }
+      if (isAdmin) nextFormData.accept_all = rule.accept_all
+      setFormData(nextFormData)
       setOriginsText(rule.origins.join(', '))
       setDestinationsText(rule.destinations.join(', '))
     }
-  }, [open, rule])
+  }, [isAdmin, open, rule])
 
   const updateMutation = useMutation({
     mutationFn: (data: RulePatch) => {
@@ -216,6 +221,21 @@ export function EditRuleDialog({ rule, open, onOpenChange }: EditRuleDialogProps
                 </Label>
               </div>
             )}
+
+            {isAdmin ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="accept-all"
+                  checked={formData.accept_all ?? rule.accept_all}
+                  onChange={e => setFormData(prev => ({ ...prev, accept_all: e.target.checked }))}
+                  className="h-4 w-4 rounded border-white/15 bg-white/10 text-info focus:ring-info focus:ring-offset-background"
+                />
+                <Label htmlFor="accept-all" className="cursor-pointer">
+                  ใช้ accept_all สำหรับ booking ที่ตรงเงื่อนไข
+                </Label>
+              </div>
+            ) : null}
           </div>
 
           <DialogFooter className="gap-2">

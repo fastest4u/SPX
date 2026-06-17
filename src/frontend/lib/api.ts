@@ -1,5 +1,7 @@
 import type {
   AcceptBookingInput,
+  AcceptAllBookingInput,
+  AcceptAllBookingResponse,
   AcceptBookingResponse,
   ApiErrorResponse,
   ApiPaginatedResponse,
@@ -561,6 +563,12 @@ export const healthApi = {
 export const biddingApi = {
   accept: (input: AcceptBookingInput): Promise<AcceptBookingResponse> =>
     fetchJson<AcceptBookingResponse>(`${API_BASE}/bidding/accept`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  acceptAll: (input: AcceptAllBookingInput): Promise<AcceptAllBookingResponse> =>
+    fetchJson<AcceptAllBookingResponse>(`${API_BASE}/bidding/accept-all`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),

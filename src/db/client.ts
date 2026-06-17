@@ -308,12 +308,14 @@ async function createDashboardTables(): Promise<void> {
       enabled INT NOT NULL DEFAULT 1,
       fulfilled INT NOT NULL DEFAULT 0,
       auto_accept INT NOT NULL DEFAULT 0,
+      accept_all INT NOT NULL DEFAULT 0,
       auto_accepted INT NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await ensureMysqlColumn(pool, "notify_rules", "team_id", "ALTER TABLE notify_rules ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
+  await ensureMysqlColumn(pool, "notify_rules", "accept_all", "ALTER TABLE notify_rules ADD COLUMN accept_all INT NOT NULL DEFAULT 0 AFTER auto_accept");
   await ensureMysqlIndex(pool, "notify_rules", "notify_rules_team_id_idx", "ALTER TABLE notify_rules ADD INDEX notify_rules_team_id_idx (team_id)");
 
   await pool!.query(`
