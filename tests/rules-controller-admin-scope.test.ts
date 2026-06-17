@@ -74,12 +74,13 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/rules",
       headers: { "x-test-actor": "admin" },
-      payload: { teamId: beta.id, name: "Admin beta route", origins: ["E"], destinations: ["F"], vehicle_types: ["10W"], need: 2, enabled: true },
+      payload: { teamId: beta.id, name: "Admin beta route", origins: ["E"], destinations: ["F"], vehicle_types: ["10W"], need: 2, enabled: true, accept_all: true },
     });
     assert.equal(adminCreate.statusCode, 201);
-    const adminCreated = parseBody<{ name: string; teamId?: number; teamName?: string }>(adminCreate).data;
+    const adminCreated = parseBody<{ name: string; teamId?: number; teamName?: string; accept_all?: boolean }>(adminCreate).data;
     assert.equal(adminCreated?.teamId, beta.id);
     assert.equal(adminCreated?.teamName, "Beta Ops");
+    assert.equal(adminCreated?.accept_all, true);
 
     const userList = await app.inject({ method: "GET", url: "/api/rules", headers: { "x-test-actor": "user" } });
     assert.equal(userList.statusCode, 200);
@@ -91,12 +92,13 @@ async function main(): Promise<void> {
       method: "POST",
       url: "/api/rules",
       headers: { "x-test-actor": "user" },
-      payload: { teamId: beta.id, name: "User cannot cross team", origins: ["X"], destinations: ["Y"], vehicle_types: ["4W"], need: 1, enabled: true },
+      payload: { teamId: beta.id, name: "User cannot cross team", origins: ["X"], destinations: ["Y"], vehicle_types: ["4W"], need: 1, enabled: true, accept_all: true },
     });
     assert.equal(userCreate.statusCode, 201);
-    const userCreated = parseBody<{ teamId?: number; teamName?: string }>(userCreate).data;
+    const userCreated = parseBody<{ teamId?: number; teamName?: string; accept_all?: boolean }>(userCreate).data;
     assert.equal(userCreated?.teamId, alpha.id);
     assert.equal(userCreated?.teamName, "Alpha Ops");
+    assert.equal(userCreated?.accept_all, false);
 
     const auditRows = await getAuditLogs({ action: "Add Rule", sortBy: "id", sortDir: "asc" });
     assert.equal(auditRows.length, 2);

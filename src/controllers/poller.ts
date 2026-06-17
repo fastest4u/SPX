@@ -6,10 +6,16 @@ import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.
 import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
-import { getActiveAutoAcceptRules, getAutoAcceptOriginFilters, matchAutoAcceptRuleTripsWithRules } from "../services/notify-rules.js";
-import type { NotifyRule } from "../services/notify-rules.js";
+import {
+  applyAutoAcceptProgress,
+  getActiveAutoAcceptRules,
+  getAutoAcceptOriginFilters,
+  matchAcceptAllBookingNameRules,
+  matchAutoAcceptRuleTripsWithRules,
+} from "../services/notify-rules.js";
+import type { AcceptAllBookingNameRuleMatch, NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
-import { getRecentAutoAcceptRequestKeys } from "../repositories/auto-accept-repository.js";
+import { getRecentAutoAcceptRequestKeys, insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import {
   logger,
   formatHeader,
@@ -41,6 +47,15 @@ import { isTeamPaused } from "../services/poller-control.js";
  * a doomed accept against it.
  */
 const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
+
+function acceptAllSuccessCount(response: { data?: unknown } | null): number {
+  const data = response?.data;
+  if (!data || typeof data !== "object") return 1;
+  const successCount = (data as Record<string, unknown>).success_count;
+  return typeof successCount === "number" && Number.isFinite(successCount) && successCount > 0
+    ? Math.floor(successCount)
+    : 1;
+}
 
 export interface TeamPollerContext {
   teamId: number;
@@ -111,6 +126,7 @@ export class Poller {
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
   private static readonly STOP_TICK_DEADLINE_MS = 30_000;
   private static readonly NON_PENDING_ATTEMPTED_CAP = 5000;
+  private static readonly FAST_ACCEPT_ALL_ATTEMPTED_CAP = 5000;
   /** Shared auto-accept budget & rules, refreshed each tick to avoid redundant DB lookups across per-booking tasks. */
   private tickAutoAcceptRules: NotifyRule[] = [];
   /** bookingId:requestId keys from the non-pending tab already attempted, so a lingering taken trip is attempted/alerted once — not on every detail cycle. */
@@ -131,6 +147,8 @@ export class Poller {
   private static readonly FAILURE_RETRY_MAX_EXPONENT = 5;
   private static readonly DETAIL_FAILURE_COUNTS_CAP = 1000;
   private tickNeedBudget = new NeedBudget();
+  /** ruleId:bookingId keys accepted via booking-list route fast path; there is no request_id before detail fetch. */
+  private fastAcceptAllAttemptedKeys = new Set<string>();
 
   constructor(intervalSec?: number, context?: TeamPollerContext) {
     this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
@@ -616,6 +634,11 @@ export class Poller {
     let firstMatchRecorded = false;
     let nonPendingFetchOk = true;
 
+    if (autoAcceptEnabled) {
+      const fastAcceptAllResult = await this.runFastAcceptAllForBookingName(booking);
+      if (fastAcceptAllResult !== null) return fastAcceptAllResult;
+    }
+
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
       onPage: autoAcceptEnabled
         ? (page) => {
@@ -800,6 +823,136 @@ export class Poller {
       return nonPendingFetchOk && settled.every((task) => task.status === "fulfilled" && task.value === true);
     }
     return nonPendingFetchOk;
+  }
+
+  private async runFastAcceptAllForBookingName(booking: Booking): Promise<boolean | null> {
+    const matches = matchAcceptAllBookingNameRules(booking.booking_name, this.tickAutoAcceptRules);
+    if (matches.length === 0) return null;
+
+    for (const match of matches) {
+      const { granted, token } = this.tickNeedBudget.claim(match.ruleId, match.need, 1);
+      if (granted <= 0) {
+        logger.info("auto-accept-list-name-budget-empty", {
+          bookingId: booking.booking_id,
+          ruleId: match.ruleId,
+          ruleName: match.ruleName,
+        });
+        continue;
+      }
+
+      const key = `${match.ruleId}:${booking.booking_id}`;
+      if (!this.addFastAcceptAllAttemptedKey(key)) {
+        this.tickNeedBudget.release(match.ruleId, token, granted);
+        continue;
+      }
+
+      const startedAt = Date.now();
+      try {
+        logger.info("auto-accept-list-name-calling", {
+          bookingId: booking.booking_id,
+          bookingName: booking.booking_name,
+          origin: match.origin,
+          destination: match.destination,
+          ruleId: match.ruleId,
+          ruleName: match.ruleName,
+          acceptAll: true,
+        });
+
+        const result = await this.apiClient.acceptAllBookingRequests(booking.booking_id);
+        if (!result.ok) {
+          metrics.recordAutoAccept(false);
+          this.tickNeedBudget.release(match.ruleId, token, granted);
+          this.fastAcceptAllAttemptedKeys.delete(key);
+          this.recordFastAcceptAllHistory(booking, match, "failed", 0, result.error);
+          logger.error("auto-accept-list-name-failed", {
+            bookingId: booking.booking_id,
+            ruleId: match.ruleId,
+            error: result.error,
+            httpStatus: result.httpStatus,
+          });
+          return false;
+        }
+
+        const acceptedCount = acceptAllSuccessCount(result.response);
+        for (let i = 0; i < acceptedCount; i++) metrics.recordAutoAccept(true);
+        try {
+          await applyAutoAcceptProgress(this.teamId, [
+            { ruleId: match.ruleId, acceptedCount },
+          ], (ruleId, committedCount) => {
+            this.tickNeedBudget.settle(ruleId, token, committedCount);
+          });
+        } catch (err) {
+          logger.error("auto-accept-list-name-progress-failed", {
+            bookingId: booking.booking_id,
+            ruleId: match.ruleId,
+            acceptedCount,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        this.recordFastAcceptAllHistory(booking, match, "success", acceptedCount);
+        logger.info("auto-accept-list-name-success", {
+          bookingId: booking.booking_id,
+          ruleId: match.ruleId,
+          acceptedCount,
+          httpStatus: result.httpStatus,
+        });
+        return true;
+      } catch (err) {
+        metrics.recordAutoAccept(false);
+        this.tickNeedBudget.release(match.ruleId, token, granted);
+        this.fastAcceptAllAttemptedKeys.delete(key);
+        const error = err instanceof Error ? err.message : String(err);
+        this.recordFastAcceptAllHistory(booking, match, "failed", 0, error);
+        logger.error("auto-accept-list-name-threw", {
+          bookingId: booking.booking_id,
+          ruleId: match.ruleId,
+          error,
+        });
+        return false;
+      } finally {
+        metrics.recordOperation("autoAccept", Date.now() - startedAt);
+      }
+    }
+
+    return true;
+  }
+
+  private addFastAcceptAllAttemptedKey(key: string): boolean {
+    if (this.fastAcceptAllAttemptedKeys.has(key)) return false;
+    this.fastAcceptAllAttemptedKeys.add(key);
+    while (this.fastAcceptAllAttemptedKeys.size > Poller.FAST_ACCEPT_ALL_ATTEMPTED_CAP) {
+      const oldest = this.fastAcceptAllAttemptedKeys.values().next().value;
+      if (oldest === undefined) break;
+      this.fastAcceptAllAttemptedKeys.delete(oldest);
+    }
+    return true;
+  }
+
+  private recordFastAcceptAllHistory(
+    booking: Booking,
+    match: AcceptAllBookingNameRuleMatch,
+    status: "success" | "failed",
+    acceptedCount: number,
+    errorMessage?: string
+  ): void {
+    void insertAutoAcceptHistory(this.teamId, {
+      ruleId: match.ruleId,
+      ruleName: match.ruleName,
+      bookingId: booking.booking_id,
+      requestIds: [],
+      acceptedCount,
+      origin: match.origin,
+      destination: match.destination,
+      vehicleType: "",
+      status,
+      errorMessage,
+    }).catch((err) => {
+      logger.warn("auto-accept-list-name-history-write-failed", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   /** Escalating failure backoff for a non-clean processing round (backdated cooldown stamp). */

@@ -289,6 +289,57 @@ async function main(): Promise<void> {
   } finally {
     globalThis.fetch = fetchBeforeExpiry;
   }
+
+  const fetchBeforeAccept = globalThis.fetch;
+  try {
+    let acceptUrl = "";
+    let acceptBody: unknown = null;
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      acceptUrl = String(input);
+      acceptBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({ retcode: 0, message: "ok", data: { success_count: 2 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const client = new ApiClient();
+    const acceptResult = await client.acceptBookingRequests(12345, [67890, 67891]);
+    assert.equal(acceptResult.ok, true);
+    assert.equal(acceptUrl, "https://spx.example.test/booking/bidding/accept");
+    assert.deepEqual(acceptBody, {
+      booking_id: 12345,
+      accept_all: false,
+      request_id_list: [67890, 67891],
+    });
+  } finally {
+    globalThis.fetch = fetchBeforeAccept;
+  }
+
+  const fetchBeforeAcceptAll = globalThis.fetch;
+  try {
+    let acceptAllBody: unknown = null;
+
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      acceptAllBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({ retcode: 0, message: "ok", data: { success_count: 3 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const client = new ApiClient();
+    const acceptAllResult = await client.acceptAllBookingRequests(12345);
+    assert.equal(acceptAllResult.ok, true);
+    assert.deepEqual(acceptAllBody, {
+      booking_id: 12345,
+      accept_all: true,
+      request_id_list: [],
+    });
+  } finally {
+    globalThis.fetch = fetchBeforeAcceptAll;
+  }
   } finally {
     Object.assign(mutableEnv, original);
   }

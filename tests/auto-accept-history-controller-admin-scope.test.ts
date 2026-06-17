@@ -91,6 +91,18 @@ async function main(): Promise<void> {
     assert.deepEqual(userRows.map((row) => row.ruleName), ["Alpha rule"]);
     assert.equal(userRows[0]?.teamId, alpha.id);
     assert.equal(userRows[0]?.teamName, "Alpha Ops");
+
+    const userCrossTeamList = await app.inject({ method: "GET", url: `/api/auto-accept-history/paginated?teamId=${beta.id}`, headers: { "x-test-actor": "user" } });
+    assert.equal(userCrossTeamList.statusCode, 200);
+    const userCrossTeamRows = parseBody<Array<{ ruleName: string; teamId?: number; teamName?: string }>>(userCrossTeamList).data ?? [];
+    assert.deepEqual(userCrossTeamRows.map((row) => row.ruleName), ["Alpha rule"]);
+    assert.equal(userCrossTeamRows[0]?.teamId, alpha.id);
+
+    const userCrossTeamFlatList = await app.inject({ method: "GET", url: `/api/auto-accept-history?teamId=${beta.id}`, headers: { "x-test-actor": "user" } });
+    assert.equal(userCrossTeamFlatList.statusCode, 200);
+    const userCrossTeamFlatRows = parseBody<Array<{ ruleName: string; teamId?: number }>>(userCrossTeamFlatList).data ?? [];
+    assert.deepEqual(userCrossTeamFlatRows.map((row) => row.ruleName), ["Alpha rule"]);
+    assert.equal(userCrossTeamFlatRows[0]?.teamId, alpha.id);
   } finally {
     await app.close();
   }

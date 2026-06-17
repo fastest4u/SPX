@@ -14,7 +14,7 @@ import { Badge } from '../components/ui/badge'
 import { ErrorState } from '../components/ui/error-state'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
-import { Hand, History as HistoryIcon, Search, SlidersHorizontal, X, MapPin, Car, Hash } from 'lucide-react'
+import { History as HistoryIcon, Search, SlidersHorizontal, X, MapPin, Car, Hash } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSavedView } from '../hooks/useSavedView'
 import { useAuth } from '../hooks/useAuth'
@@ -56,10 +56,6 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
     header: 'บันทึกเมื่อ',
     sortKey: 'created_at',
     render: (item) => formatDateTime(item.createdAt),
-  },
-  {
-    header: 'รับงาน',
-    render: (item) => <AcceptButton item={item} />,
   },
 ]
 
@@ -274,7 +270,7 @@ function HistoryComponent() {
                 data={history}
                 keyField={(item) => item.id}
                 densityKey="history"
-                minWidth={isAdmin ? '860px' : '760px'}
+                minWidth={isAdmin ? '780px' : '680px'}
                 emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
                 emptyMessage={'ไม่พบประวัติงาน'}
                 pagination={
@@ -308,18 +304,5 @@ function HistoryComponent() {
           )}
       </ContentSection>
     </PageShell>
-  )
-}
-
-function AcceptButton({ item }: { item: BookingHistory }) {
-  if (!item.bookingId) {
-    return <span className="text-muted-foreground">{'\u2014'}</span>
-  }
-
-  return (
-    <Button size="sm" variant="outline" className="border-[color:var(--color-success-border)] text-success hover:bg-[color:var(--color-success-soft)]">
-      <Hand className="h-3 w-3" />
-      รับงาน
-    </Button>
   )
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { autoAcceptHistoryApi } from '../lib/api'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { autoAcceptHistoryApi, biddingApi, teamsApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
@@ -10,10 +10,11 @@ import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } 
 import { PageHeader } from '../components/ui/page-header'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
-import { Search, CheckCircle2, XCircle, Truck } from 'lucide-react'
+import { Search, CheckCircle2, XCircle, Truck, Send, Loader2 } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useAuth } from '../hooks/useAuth'
-import type { AutoAcceptHistoryItem, AutoAcceptHistoryQuery } from '../types'
+import { toast } from 'sonner'
+import type { AcceptAllBookingResponse, AutoAcceptHistoryItem, AutoAcceptHistoryQuery, Team } from '../types'
 
 export const Route = createFileRoute('/auto-accept-history')({
   component: AutoAcceptHistoryComponent,
@@ -25,7 +26,17 @@ const STATUS_OPTIONS = [
   { value: 'failed', label: 'ล้มเหลว' },
 ]
 
-const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryItem>[] = [
+type AutoAcceptHistoryDisplayItem = AutoAcceptHistoryItem & {
+  rowIndex: number
+}
+
+const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryDisplayItem>[] = [
+  {
+    header: 'ลำดับ',
+    id: 'rowIndex',
+    required: true,
+    render: (item) => <span className="font-data text-muted-foreground">{item.rowIndex}</span>,
+  },
   {
     header: 'ID',
     sortKey: 'id',
@@ -91,8 +102,30 @@ function AutoAcceptHistoryComponent() {
   const [pageSize, setPageSize] = useState(25)
   const [sortKey, setSortKey] = useState<NonNullable<AutoAcceptHistoryQuery['sortBy']>>('created_at')
   const [sortDir, setSortDir] = useState<NonNullable<AutoAcceptHistoryQuery['sortDir']>>('desc')
+  const [selectedTeamId, setSelectedTeamId] = useState<number | ''>('')
+  const [acceptAllBookingId, setAcceptAllBookingId] = useState('')
+  const [acceptAllConfirmed, setAcceptAllConfirmed] = useState(false)
+  const [acceptAllResult, setAcceptAllResult] = useState<AcceptAllBookingResponse | null>(null)
   const debouncedSearch = useDebouncedValue(search.trim(), 400)
   const debouncedRuleName = useDebouncedValue(ruleName.trim(), 300)
+
+  const { data: teams = [], isLoading: teamsLoading } = useQuery({
+    queryKey: ['teams'],
+    queryFn: teamsApi.list,
+    enabled: isAdmin,
+    staleTime: 60_000,
+  })
+
+  const acceptAllMutation = useMutation({
+    mutationFn: biddingApi.acceptAll,
+    onSuccess: (data) => {
+      setAcceptAllResult(data)
+      toast.success('ส่ง accept_all แล้ว')
+    },
+    onError: (error: Error) => {
+      toast.error('accept_all ไม่สำเร็จ', { description: error.message })
+    },
+  })
 
   const { data: result, isLoading } = useQuery({
     queryKey: ['autoAcceptHistory', { search: debouncedSearch, status, ruleName: debouncedRuleName, sortKey, sortDir, page, pageSize }],
@@ -110,11 +143,12 @@ function AutoAcceptHistoryComponent() {
     staleTime: 2 * 60 * 1000,
   })
 
-  const columns = useMemo<DataTableColumn<AutoAcceptHistoryItem>[]>(() => {
+  const columns = useMemo<DataTableColumn<AutoAcceptHistoryDisplayItem>[]>(() => {
     if (!isAdmin) return AAH_COLUMNS
     return [
       {
         header: 'ทีม',
+        id: 'team',
         render: (item) => (
           <span className="status-pill border-white/10 bg-white/[0.04] text-foreground">
             {item.teamName || `Team #${item.teamId}`}
@@ -138,12 +172,33 @@ function AutoAcceptHistoryComponent() {
   const items = result?.data || []
   const total = result?.meta?.total_items || 0
   const totalPages = result?.meta?.total_pages || 0
+  const displayItems: AutoAcceptHistoryDisplayItem[] = items.map((item, index) => ({
+    ...item,
+    rowIndex: (page - 1) * pageSize + index + 1,
+  }))
 
   const handleReset = () => {
     setSearch('')
     setStatus('')
     setRuleName('')
     setPage(1)
+  }
+
+  const submitAcceptAll = () => {
+    const bookingId = Number(acceptAllBookingId.trim())
+    if (typeof selectedTeamId !== 'number') {
+      toast.error('กรุณาเลือกทีม')
+      return
+    }
+    if (!Number.isInteger(bookingId) || bookingId <= 0) {
+      toast.error('Booking ID ไม่ถูกต้อง')
+      return
+    }
+    if (!acceptAllConfirmed) {
+      toast.error('กรุณายืนยันก่อนส่ง')
+      return
+    }
+    acceptAllMutation.mutate({ teamId: selectedTeamId, bookingId, confirm: true })
   }
 
   return (
@@ -155,6 +210,22 @@ function AutoAcceptHistoryComponent() {
       />
 
       <ContentSection>
+          {isAdmin ? (
+            <AdminAcceptAllPanel
+              teams={teams}
+              teamsLoading={teamsLoading}
+              selectedTeamId={selectedTeamId}
+              onTeamChange={setSelectedTeamId}
+              bookingId={acceptAllBookingId}
+              onBookingIdChange={setAcceptAllBookingId}
+              confirmed={acceptAllConfirmed}
+              onConfirmedChange={setAcceptAllConfirmed}
+              isPending={acceptAllMutation.isPending}
+              result={acceptAllResult}
+              onSubmit={submitAcceptAll}
+            />
+          ) : null}
+
           {/* Filters */}
           <FilterPanel>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
@@ -200,13 +271,13 @@ function AutoAcceptHistoryComponent() {
           </FilterPanel>
 
           <div className="md:hidden">
-            {items.length === 0 ? (
+            {displayItems.length === 0 ? (
               <EmptyPanel icon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}>
                 ไม่พบประวัติการรับงานอัตโนมัติ
               </EmptyPanel>
             ) : (
               <div className="space-y-3">
-                {items.map((item) => (
+                {displayItems.map((item) => (
                   <AutoAcceptMobileCard key={item.id} item={item} showTeam={isAdmin} />
                 ))}
                 <PaginationControls
@@ -228,14 +299,14 @@ function AutoAcceptHistoryComponent() {
           <div className="hidden md:block">
             <DataTable
               columns={columns}
-              data={items}
+              data={displayItems}
               keyField={(item) => item.id}
               densityKey="auto-accept-history"
-              minWidth={isAdmin ? '860px' : '760px'}
+              minWidth={isAdmin ? '920px' : '820px'}
               emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
               emptyMessage={'ไม่พบประวัติการรับงานอัตโนมัติ'}
               pagination={
-                items.length > 0
+                displayItems.length > 0
                   ? {
                     page,
                     pageSize,
@@ -265,14 +336,107 @@ function AutoAcceptHistoryComponent() {
   )
 }
 
-function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryItem; showTeam: boolean }) {
+function AdminAcceptAllPanel({
+  teams,
+  teamsLoading,
+  selectedTeamId,
+  onTeamChange,
+  bookingId,
+  onBookingIdChange,
+  confirmed,
+  onConfirmedChange,
+  isPending,
+  result,
+  onSubmit,
+}: {
+  teams: Team[]
+  teamsLoading: boolean
+  selectedTeamId: number | ''
+  onTeamChange: (teamId: number | '') => void
+  bookingId: string
+  onBookingIdChange: (bookingId: string) => void
+  confirmed: boolean
+  onConfirmedChange: (confirmed: boolean) => void
+  isPending: boolean
+  result: AcceptAllBookingResponse | null
+  onSubmit: () => void
+}) {
+  const bookingIdNumber = Number(bookingId.trim())
+  const canSubmit =
+    typeof selectedTeamId === 'number'
+    && Number.isInteger(bookingIdNumber)
+    && bookingIdNumber > 0
+    && confirmed
+    && !isPending
+
+  return (
+    <FilterPanel>
+      <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_auto_auto] lg:items-end">
+        <div className="space-y-2">
+          <label htmlFor="accept-all-team" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">ทีม</label>
+          <select
+            id="accept-all-team"
+            value={selectedTeamId}
+            onChange={(event) => onTeamChange(event.target.value ? Number(event.target.value) : '')}
+            disabled={teamsLoading || isPending}
+            className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="" className="bg-popover">เลือกทีม</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id} className="bg-popover">
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="accept-all-booking" className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Booking ID</label>
+          <Input
+            id="accept-all-booking"
+            inputMode="numeric"
+            value={bookingId}
+            onChange={(event) => onBookingIdChange(event.target.value)}
+            disabled={isPending}
+            placeholder="2706815"
+          />
+        </div>
+        <label className="flex min-h-10 items-center gap-2 rounded-[8px] border border-white/10 bg-white/[0.03] px-3 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(event) => onConfirmedChange(event.target.checked)}
+            disabled={isPending}
+            className="h-4 w-4 accent-primary"
+          />
+          ยืนยัน
+        </label>
+        <Button type="button" onClick={onSubmit} disabled={!canSubmit} className="w-full lg:w-auto">
+          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          accept_all
+        </Button>
+      </div>
+      {result ? (
+        <pre className="mt-3 max-h-56 overflow-auto rounded-[8px] border border-white/10 bg-black/10 p-3 text-xs leading-5 text-muted-foreground">
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      ) : null}
+    </FilterPanel>
+  )
+}
+
+function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDisplayItem; showTeam: boolean }) {
   const isSuccess = item.status === 'success'
 
   return (
     <MobileRecordCard>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <span className="font-data text-xs text-muted-foreground">#{item.id}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="status-pill border-white/10 bg-white/[0.04] text-muted-foreground">
+              ลำดับ {item.rowIndex}
+            </span>
+            <span className="font-data text-xs text-muted-foreground">ID #{item.id}</span>
+          </div>
           <div className="mt-1 break-words text-sm font-semibold leading-snug text-primary">
             {item.ruleName}
           </div>

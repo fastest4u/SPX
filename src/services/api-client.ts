@@ -693,12 +693,22 @@ export class ApiClient {
   }
 
   async acceptBookingRequests(bookingId: number, requestIds: number[]): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
-    const body: AcceptBookingRequest = {
+    return this.submitAcceptBookingRequest({
       booking_id: bookingId,
       accept_all: false,
       request_id_list: requestIds,
-    };
+    });
+  }
 
+  async acceptAllBookingRequests(bookingId: number): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
+    return this.submitAcceptBookingRequest({
+      booking_id: bookingId,
+      accept_all: true,
+      request_id_list: [],
+    });
+  }
+
+  private async submitAcceptBookingRequest(body: AcceptBookingRequest): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
     // Bracket only the upstream POST so we measure the decisive accept round-trip
     // in isolation (the rest — parsing/normalization — is local CPU). This is the
     // competitive number that was previously never timed on its own.
@@ -713,7 +723,7 @@ export class ApiClient {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-accept:${bookingId}`, 0, ACCEPT_TIMEOUT_MS, false);
+      }, `booking-accept:${body.booking_id}`, 0, ACCEPT_TIMEOUT_MS, false);
       metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
       acceptRttRecorded = true;
 
@@ -741,8 +751,18 @@ export class ApiClient {
         return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}` };
       }
 
-      if (retcode !== null && retcode !== 0) {
+      if (retcode === null) {
+        return { ok: false, httpStatus: response.status, response: normalized, error: `Accept response is missing retcode: ${rawText.slice(0, 200)}` };
+      }
+
+      if (retcode !== 0) {
         return { ok: false, httpStatus: response.status, response: normalized, error: message || `Accept failed with retcode ${retcode}` };
+      }
+
+      const parsedRecord = isRecord(parsed) ? parsed : null;
+      const dataRecord = parsedRecord && isRecord(parsedRecord.data) ? parsedRecord.data : null;
+      if (dataRecord && dataRecord.success_count === 0) {
+        return { ok: false, httpStatus: response.status, response: normalized, error: message || "No requests were successfully accepted (success_count = 0)" };
       }
 
       return { ok: true, httpStatus: response.status, response: normalized };

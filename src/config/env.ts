@@ -34,6 +34,14 @@ if (existsSync(envFilePath)) {
   }
 }
 
+function isStandaloneTestEntrypoint(): boolean {
+  return process.argv.some((arg) => /(?:^|[\\/])tests[\\/][^\\/]+\.test\.(?:ts|js)$/.test(arg));
+}
+
+if (process.env.NODE_ENV === "test" || isStandaloneTestEntrypoint()) {
+  process.env.DB_MODE = "memory";
+}
+
 function readIntegerEnv(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
   if (rawValue === undefined || rawValue.trim() === "") {

@@ -32,6 +32,8 @@ export interface NotifyRule {
   fulfilled: boolean;
   /** Always true — every enabled rule auto-accepts. Kept on the wire for backward compat. */
   auto_accept: true;
+  /** When true, the auto-accept path submits SPX accept_all for the matched booking. */
+  accept_all: boolean;
   auto_accepted: boolean;
 }
 
@@ -43,6 +45,7 @@ export interface NotifyRuleInput {
   need?: number;
   enabled?: boolean;
   fulfilled?: boolean;
+  accept_all?: boolean;
   auto_accepted?: boolean;
 }
 
@@ -56,6 +59,16 @@ export interface RuleMatch {
 
 export interface RuleTripMatch extends RuleMatch {
   trips: TripLike[];
+  need: number;
+  acceptAll: boolean;
+}
+
+export interface BookingNameRoute {
+  origin: string;
+  destination: string;
+}
+
+export interface AcceptAllBookingNameRuleMatch extends RuleMatch, BookingNameRoute {
   need: number;
 }
 
@@ -170,6 +183,7 @@ function normalizeRules(rawRules: unknown): NotifyRule[] {
       fulfilled: candidate.fulfilled === true,
       // Every rule auto-accepts. Field is kept only for wire compatibility.
       auto_accept: true,
+      accept_all: candidate.accept_all === true,
       auto_accepted: candidate.auto_accepted === true,
     }];
   });
@@ -256,6 +270,11 @@ function compiledTripMatchesRule(compiled: CompiledTrip, filters: CompiledRuleFi
     && matchesCompiledFilter(compiled.vehicleType, filters.vehicleTypes);
 }
 
+function compiledRouteMatchesRule(route: BookingNameRoute, filters: CompiledRuleFilters): boolean {
+  return matchesCompiledFilter(normalize(route.origin), filters.origins)
+    && matchesCompiledFilter(normalize(route.destination), filters.destinations);
+}
+
 function collectRuleMatchedTrips(filters: CompiledRuleFilters, compiledTrips: CompiledTrip[]): TripLike[] {
   const matched: TripLike[] = [];
   for (const compiled of compiledTrips) {
@@ -281,7 +300,9 @@ function dbRowToRule(row: DbRow, teamName?: string | null): NotifyRule {
     try { return JSON.parse(val) as string[]; } catch { return []; }
   };
 
+  const need = Math.max(0, row.need);
   const enabled = row.enabled === 1;
+  const completed = need === 0;
 
   return {
     id: row.id,
@@ -291,12 +312,13 @@ function dbRowToRule(row: DbRow, teamName?: string | null): NotifyRule {
     origins: parseArray(row.origins),
     destinations: parseArray(row.destinations),
     vehicle_types: parseArray(row.vehicleTypes),
-    need: row.need,
+    need,
     enabled,
-    fulfilled: row.fulfilled === 1,
+    fulfilled: completed,
     // Every rule auto-accepts. DB column kept for backward compatibility.
     auto_accept: true,
-    auto_accepted: row.autoAccepted === 1,
+    accept_all: row.acceptAll === 1,
+    auto_accepted: completed && row.autoAccepted === 1,
   };
 }
 
@@ -312,6 +334,7 @@ function ruleToDbRow(teamId: number, rule: NotifyRule) {
     enabled: rule.enabled ? 1 : 0,
     fulfilled: rule.fulfilled ? 1 : 0,
     autoAccept: 1,
+    acceptAll: rule.accept_all ? 1 : 0,
     autoAccepted: rule.auto_accepted ? 1 : 0,
   };
 }
@@ -579,7 +602,7 @@ export async function matchRuleTrips(teamId: number, trips: TripLike[]): Promise
     const matchedTrips = collectRuleMatchedTrips(compileRuleFilters(rule), compiledTrips);
 
     if (matchedTrips.length >= Math.max(1, rule.need)) {
-      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
+      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need, acceptAll: rule.accept_all });
     }
   }
 
@@ -589,7 +612,7 @@ export async function matchRuleTrips(teamId: number, trips: TripLike[]): Promise
 export function previewRuleAgainstTrips(input: NotifyRuleInput, trips: TripLike[], sampleLimit = 10): RulePreviewResult {
   const rule = normalizeRules([{ ...input, id: "preview" }])[0];
   if (!rule) {
-    return { ruleId: "preview", ruleName: "", matchedCount: 0, trips: [], need: 1, sampleSize: trips.length, wouldMatch: false };
+    return { ruleId: "preview", ruleName: "", matchedCount: 0, trips: [], need: 1, acceptAll: false, sampleSize: trips.length, wouldMatch: false };
   }
 
   const matchedTrips = ruleMatchesTrips(rule, trips);
@@ -600,6 +623,7 @@ export function previewRuleAgainstTrips(input: NotifyRuleInput, trips: TripLike[
     matchedCount: matchedTrips.length,
     trips: matchedTrips.slice(0, Math.max(1, sampleLimit)),
     need,
+    acceptAll: rule.accept_all,
     sampleSize: trips.length,
     wouldMatch: matchedTrips.length >= need,
   };
@@ -616,10 +640,46 @@ export function matchAutoAcceptRuleTripsWithRules(trips: TripLike[], rules: Noti
 
     const matchedTrips = collectRuleMatchedTrips(compileRuleFilters(rule), compiledTrips);
     if (matchedTrips.length > 0) {
-      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need });
+      matches.push({ ruleId: rule.id, ruleName: rule.name, matchedCount: matchedTrips.length, trips: matchedTrips, need: rule.need, acceptAll: rule.accept_all });
     }
   }
 
+  return matches;
+}
+
+export function parseBookingNameRoute(bookingName: string): BookingNameRoute | null {
+  const routeText = bookingName
+    .normalize("NFKC")
+    .trim()
+    .replace(/^\s*(?:\[[^\]]+\]\s*)+/, "");
+  const match = routeText.match(/^(.+?)\s*>\s*(.+?)(?:\s+\d{4}-\d{2}-\d{2}\b|$)/);
+  if (!match) return null;
+
+  const origin = match[1]?.trim() ?? "";
+  const destination = match[2]?.trim() ?? "";
+  return origin && destination ? { origin, destination } : null;
+}
+
+export function matchAcceptAllBookingNameRules(
+  bookingName: string,
+  rules: NotifyRule[]
+): AcceptAllBookingNameRuleMatch[] {
+  const route = parseBookingNameRoute(bookingName);
+  if (!route) return [];
+
+  const matches: AcceptAllBookingNameRuleMatch[] = [];
+  for (const rule of rules) {
+    if (!rule.enabled || rule.fulfilled || rule.need <= 0 || !rule.accept_all) continue;
+    if (!compiledRouteMatchesRule(route, compileRuleFilters(rule))) continue;
+    matches.push({
+      ruleId: rule.id,
+      ruleName: rule.name,
+      matchedCount: 1,
+      need: rule.need,
+      origin: route.origin,
+      destination: route.destination,
+    });
+  }
   return matches;
 }
 
@@ -648,11 +708,14 @@ export async function applyAutoAcceptProgress(
     await ensureDashboardTables();
     const db = await getDb();
     const touchedTeamIds = new Set<number>();
-    // Atomic per-rule decrement: compute need/fulfilled inside SQL so concurrent
+    // Atomic per-rule decrement: compute need inside SQL so concurrent
     // auto-accept tasks cannot lose updates via read-modify-write (two tasks both
-    // reading need=5 and the later write clobbering the earlier). CASE WHEN is
-    // used instead of GREATEST so the statement runs on both MySQL and the
-    // in-memory SQLite backend used in tests.
+    // reading need=5 and the later write clobbering the earlier). Completion is
+    // synced in a second statement from the post-decrement need; MySQL evaluates
+    // single-table SET assignments left-to-right, so deriving fulfilled in the
+    // same SET list can mark need=2 accepted=1 as complete after need becomes 1.
+    // CASE WHEN is used instead of GREATEST so the statement runs on both MySQL
+    // and the in-memory SQLite backend used in tests.
     // Per-rule isolation: one rule's failed UPDATE must not block the other
     // rules' decrements (or their budget settlement via onRuleCommitted).
     const affectedRows = (result: unknown): number | null => {
@@ -669,15 +732,23 @@ export async function applyAutoAcceptProgress(
       db.update(notifyRulesTable)
         .set({
           need: sql`CASE WHEN ${notifyRulesTable.need} > ${accepted} THEN ${notifyRulesTable.need} - ${accepted} ELSE 0 END`,
-          fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
-          autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= ${accepted} THEN 1 ELSE 0 END`,
+          updatedAt: currentTimestamp,
+        })
+        .where(whereClause);
+
+    const syncRuleCompletion = (whereClause: ReturnType<typeof and> | ReturnType<typeof eq>) =>
+      db.update(notifyRulesTable)
+        .set({
+          fulfilled: sql`CASE WHEN ${notifyRulesTable.need} <= 0 THEN 1 ELSE 0 END`,
+          autoAccepted: sql`CASE WHEN ${notifyRulesTable.need} <= 0 THEN 1 ELSE 0 END`,
           updatedAt: currentTimestamp,
         })
         .where(whereClause);
 
     for (const [ruleId, accepted] of acceptedByRule) {
       try {
-        const scopedResult = await decrementRuleNeed(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, ruleId)), accepted);
+        const scopedWhere = and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, ruleId));
+        const scopedResult = await decrementRuleNeed(scopedWhere, accepted);
         let committedTeamId: number | null = affectedRows(scopedResult) === 0 ? null : teamId;
 
         if (committedTeamId === null) {
@@ -694,9 +765,15 @@ export async function applyAutoAcceptProgress(
               attemptedTeamId: teamId,
               actualTeamId: owner.teamId,
             });
-            const ownerResult = await decrementRuleNeed(and(eq(notifyRulesTable.teamId, owner.teamId), eq(notifyRulesTable.id, ruleId)), accepted);
+            const ownerWhere = and(eq(notifyRulesTable.teamId, owner.teamId), eq(notifyRulesTable.id, ruleId));
+            const ownerResult = await decrementRuleNeed(ownerWhere, accepted);
             committedTeamId = affectedRows(ownerResult) === 0 ? null : owner.teamId;
+            if (committedTeamId !== null) {
+              await syncRuleCompletion(ownerWhere);
+            }
           }
+        } else {
+          await syncRuleCompletion(scopedWhere);
         }
 
         if (committedTeamId === null) {

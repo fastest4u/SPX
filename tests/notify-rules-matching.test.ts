@@ -16,6 +16,7 @@ function makeRule(partial: Partial<NotifyRule> & { id: string; name: string }): 
     enabled: true,
     fulfilled: false,
     auto_accept: true,
+    accept_all: false,
     auto_accepted: false,
     ...partial,
   };
