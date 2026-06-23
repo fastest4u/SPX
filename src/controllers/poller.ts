@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, sendAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -15,7 +15,7 @@ import {
 } from "../services/notify-rules.js";
 import type { AcceptAllBookingNameRuleMatch, NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
-import { getRecentAutoAcceptRequestKeys, insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
+import { getRecentAutoAcceptRequestKeys, insertAutoAcceptHistory, insertAutoAcceptHistoryAndGetId, updateAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import {
   logger,
   formatHeader,
@@ -47,6 +47,8 @@ import { isTeamPaused } from "../services/poller-control.js";
  * a doomed accept against it.
  */
 const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
+const FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS = 3;
+const FAST_ACCEPT_ALL_RECONCILE_RETRY_MS = 250;
 
 function acceptAllSuccessCount(response: { data?: unknown } | null): number {
   const data = response?.data;
@@ -55,6 +57,20 @@ function acceptAllSuccessCount(response: { data?: unknown } | null): number {
   return typeof successCount === "number" && Number.isFinite(successCount) && successCount > 0
     ? Math.floor(successCount)
     : 1;
+}
+
+function textValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function isVerifiedFastAcceptAllTrip(trip: ExtractedTripInfo): boolean {
+  return Number.isInteger(trip.request_id)
+    && trip.request_id > 0
+    && trip.acceptance_status === 2;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface TeamPollerContext {
@@ -889,7 +905,7 @@ export class Poller {
             error: err instanceof Error ? err.message : String(err),
           });
         }
-        this.recordFastAcceptAllHistory(booking, match, "success", acceptedCount);
+        this.recordFastAcceptAllSuccess(booking, match, acceptedCount);
         logger.info("auto-accept-list-name-success", {
           bookingId: booking.booking_id,
           ruleId: match.ruleId,
@@ -926,6 +942,129 @@ export class Poller {
       this.fastAcceptAllAttemptedKeys.delete(oldest);
     }
     return true;
+  }
+
+  private recordFastAcceptAllSuccess(
+    booking: Booking,
+    match: AcceptAllBookingNameRuleMatch,
+    acceptedCount: number
+  ): void {
+    void this.recordAndReconcileFastAcceptAllSuccess(booking, match, acceptedCount).catch((err) => {
+      logger.warn("auto-accept-list-name-reconcile-task-failed", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  private async recordAndReconcileFastAcceptAllSuccess(
+    booking: Booking,
+    match: AcceptAllBookingNameRuleMatch,
+    acceptedCount: number
+  ): Promise<void> {
+    const historyId = await insertAutoAcceptHistoryAndGetId(this.teamId, {
+      ruleId: match.ruleId,
+      ruleName: match.ruleName,
+      bookingId: booking.booking_id,
+      requestIds: [],
+      acceptedCount,
+      origin: match.origin,
+      destination: match.destination,
+      vehicleType: "",
+      status: "success",
+    });
+
+    try {
+      await this.reconcileFastAcceptAllHistory(booking, match, historyId, acceptedCount);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (historyId !== null) {
+        await updateAutoAcceptHistory(this.teamId, historyId, { errorMessage: `Reconcile failed: ${error}` });
+      }
+      logger.warn("auto-accept-list-name-reconcile-failed", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        historyId,
+        error,
+      });
+    }
+  }
+
+  private async reconcileFastAcceptAllHistory(
+    booking: Booking,
+    match: AcceptAllBookingNameRuleMatch,
+    historyId: number | null,
+    expectedAcceptedCount: number
+  ): Promise<void> {
+    let acceptedTrips: ExtractedTripInfo[] = [];
+    for (let attempt = 1; attempt <= FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS; attempt++) {
+      acceptedTrips = await this.fetchFastAcceptAllAcceptedTrips(booking);
+      if (acceptedTrips.length === expectedAcceptedCount) break;
+      if (attempt < FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS) {
+        await sleep(FAST_ACCEPT_ALL_RECONCILE_RETRY_MS);
+      }
+    }
+
+    if (acceptedTrips.length !== expectedAcceptedCount) {
+      const message = `Reconcile ambiguous: expected ${expectedAcceptedCount} accepted request(s), found ${acceptedTrips.length}`;
+      if (historyId !== null) {
+        await updateAutoAcceptHistory(this.teamId, historyId, { errorMessage: message });
+      }
+      logger.warn("auto-accept-list-name-reconcile-ambiguous", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        expectedAcceptedCount,
+        foundAcceptedCount: acceptedTrips.length,
+        requestIds: acceptedTrips.map((trip) => trip.request_id),
+      });
+      return;
+    }
+
+    const requestIds = acceptedTrips.map((trip) => trip.request_id);
+    if (historyId !== null) {
+      await updateAutoAcceptHistory(this.teamId, historyId, {
+        requestIds,
+        acceptedCount: acceptedTrips.length,
+        origin: textValue(acceptedTrips[0]?.["ต้นทาง"]),
+        destination: textValue(acceptedTrips[0]?.["ปลายทาง"]),
+        vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
+        errorMessage: null,
+      });
+    }
+
+    await sendAutoAcceptSuccessNotification(
+      acceptedTrips.map((trip) => ({ trip, bookingId: booking.booking_id, requestId: trip.request_id })),
+      this.notificationContext
+    );
+
+    logger.info("auto-accept-list-name-reconciled", {
+      bookingId: booking.booking_id,
+      ruleId: match.ruleId,
+      historyId,
+      requestIds,
+    });
+  }
+
+  private async fetchFastAcceptAllAcceptedTrips(booking: Booking): Promise<ExtractedTripInfo[]> {
+    const context = {
+      booking_id: booking.booking_id,
+      booking_name: booking.booking_name,
+      agency_name: booking.agency_name,
+    };
+    const [pendingList, confirmedList] = await Promise.all([
+      this.apiClient.fetchBookingRequestList(booking.booking_id, { tabPendingConfirmation: true }),
+      this.apiClient.fetchBookingRequestList(booking.booking_id, { tabPendingConfirmation: false }),
+    ]);
+    const byRequestId = new Map<number, ExtractedTripInfo>();
+    for (const list of [pendingList, confirmedList]) {
+      if (!list) continue;
+      for (const trip of extractAllRequestListTrips(list.data, context)) {
+        if (!isVerifiedFastAcceptAllTrip(trip)) continue;
+        byRequestId.set(trip.request_id, trip);
+      }
+    }
+    return [...byRequestId.values()].sort((left, right) => left.request_id - right.request_id);
   }
 
   private recordFastAcceptAllHistory(

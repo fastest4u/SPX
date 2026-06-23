@@ -21,16 +21,91 @@ const original = {
 };
 
 function emptyRequestList(): BookingRequestListResponse {
+  return requestList([]);
+}
+
+function requestList(requests: BookingRequestListResponse["data"]["request_list"]): BookingRequestListResponse {
   return {
     retcode: 0,
     message: "",
     data: {
       pageno: 1,
-      count: 0,
-      total: 0,
-      request_list: [],
+      count: requests.length,
+      total: requests.length,
+      request_list: requests,
     },
   };
+}
+
+function requestListItem(
+  requestId: number,
+  status: number,
+  origin: string,
+  destination: string,
+  vehicleTypeName = "6WH-6ล้อ[7.2m]"
+): BookingRequestListResponse["data"]["request_list"][number] {
+  return {
+    onsite_id: requestId,
+    request_id: requestId,
+    booking_id: 2706815,
+    booking_date: 1782144000,
+    report_station_id: 0,
+    report_station_name: "",
+    cost_type: 1,
+    shift_type: 1,
+    trip_type: 2,
+    trip_path: null,
+    route_path: null,
+    route_level: 0,
+    vehicle_type: 13,
+    vehicle_type_name: vehicleTypeName,
+    vehicle_plate_number: "",
+    driver_id: 0,
+    driver_name: "",
+    driver_contact_number: "",
+    standby_time: 480,
+    remark: "",
+    request_acceptance_status: status,
+    request_assignment_status: 3,
+    request_fulfilled_status: 0,
+    request_assign_ddl: 0,
+    assign_able: 0,
+    display_countdown_assign: 0,
+    child_request_edit: false,
+    request_mtime: 0,
+    route_detail_list: [
+      { route_level: 0, node_id: 1, station_type_list: [], station_type_name_list: null, node_info_list: [{ name: origin, address_info: { l1: "", l2: "" } }] },
+      { route_level: 1, node_id: 2, station_type_list: [], station_type_name_list: null, node_info_list: [{ name: destination, address_info: { l1: "", l2: "" } }] },
+    ],
+    trip_limit: 0,
+    partially_canceled: false,
+    origin_driver_id: 0,
+    origin_driver_name: "",
+    right_vehicle_type: 0,
+    right_vehicle_type_name: "",
+    replacement_vehicle_type: 0,
+    replacement_vehicle_type_name: "",
+    replacement_vehicle_plate_number: "",
+  };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+async function waitFor<T>(read: () => Promise<T>, predicate: (value: T) => boolean, label: string): Promise<T> {
+  const deadline = Date.now() + 2_000;
+  let lastValue = await read();
+  while (Date.now() < deadline) {
+    if (predicate(lastValue)) return lastValue;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    lastValue = await read();
+  }
+  assert.fail(`${label}; last value: ${JSON.stringify(lastValue)}`);
 }
 
 function routeRuleInput(acceptAll: boolean): NotifyRuleInput {
@@ -63,6 +138,7 @@ async function main(): Promise<void> {
   const { resetMemoryDb } = await import("../src/db/client-memory.js");
   const { closePool } = await import("../src/db/client.js");
   const { createRule } = await import("../src/services/notify-rules.js");
+  const { getAutoAcceptHistory } = await import("../src/repositories/auto-accept-repository.js");
   resetMemoryDb();
   setLogLevel(LogLevel.ERROR);
   Object.assign(mutableEnv, {
@@ -75,22 +151,34 @@ async function main(): Promise<void> {
   {
     const rule = await createRule(1, routeRuleInput(true));
     const poller = new Poller();
-    let detailFetchCalls = 0;
     let acceptAllCalls = 0;
+    let detailFetchCalls = 0;
+    const events: string[] = [];
+    const reconcileGate = deferred();
     Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
       tickAutoAcceptRules: [rule],
       tickNeedBudget: new NeedBudget(),
     });
     Object.assign(poller as unknown as { apiClient: unknown }, {
       apiClient: {
-        fetchBookingRequestList: async () => {
+        fetchBookingRequestList: async (bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
           detailFetchCalls += 1;
-          return emptyRequestList();
+          events.push(`fetch:${options?.tabPendingConfirmation === false ? "confirmed" : "pending"}`);
+          assert.equal(bookingId, 2706815);
+          assert.ok(events.includes("accept"), "fast accept_all reconcile must not fetch request-list detail before accept_all");
+          await reconcileGate.promise;
+          return options?.tabPendingConfirmation === false
+            ? requestList([
+                requestListItem(38659805, 2, "NORC-B", "SOCs"),
+                requestListItem(38659806, 2, "NORC-B", "SOCs"),
+              ])
+            : emptyRequestList();
         },
         acceptAllBookingRequests: async (bookingId: number) => {
           acceptAllCalls += 1;
+          events.push("accept");
           assert.equal(bookingId, 2706815);
-          return { ok: true, httpStatus: 200, response: { retcode: 0, message: "success" } };
+          return { ok: true, httpStatus: 200, response: { retcode: 0, message: "success", data: { success_count: 2 } } };
         },
       },
     });
@@ -98,7 +186,20 @@ async function main(): Promise<void> {
     const clean = await processOne(poller, booking());
     assert.equal(clean, true);
     assert.equal(acceptAllCalls, 1, "route-matched accept_all rule must call SPX accept_all");
-    assert.equal(detailFetchCalls, 0, "route-matched accept_all rule must not fetch request-list detail first");
+    assert.equal(events[0], "accept", "route-matched accept_all must submit before any request-list detail fetch");
+    reconcileGate.resolve();
+    const historyRows = await waitFor(
+      () => getAutoAcceptHistory(1, { limit: 20 }),
+      (rows) => rows.some((row) => row.bookingId === 2706815 && row.requestIds.length === 2),
+      "fast accept_all should reconcile auto_accept_history request IDs"
+    );
+    const row = historyRows.find((item) => item.bookingId === 2706815);
+    assert.deepEqual(row?.requestIds, [38659805, 38659806]);
+    assert.equal(row?.acceptedCount, 2);
+    assert.equal(row?.origin, "NORC-B");
+    assert.equal(row?.destination, "SOCs");
+    assert.equal(row?.vehicleType, "6WH-6ล้อ[7.2m]");
+    assert.ok(detailFetchCalls >= 2, "fast accept_all reconcile must fetch pending and confirmed tabs after accept_all");
   }
 
   {

@@ -17,6 +17,16 @@ export interface AutoAcceptRecord {
   errorMessage?: string;
 }
 
+export interface AutoAcceptHistoryUpdate {
+  requestIds?: number[];
+  acceptedCount?: number;
+  origin?: string;
+  destination?: string;
+  vehicleType?: string;
+  status?: "success" | "failed";
+  errorMessage?: string | null;
+}
+
 export type AutoAcceptHistoryRow = ReturnType<typeof dbRowToItem>;
 type AutoAcceptHistoryJoinRow = { history: typeof autoAcceptHistory.$inferSelect; teamName: string | null };
 
@@ -51,28 +61,78 @@ function dbRowToItem(row: typeof autoAcceptHistory.$inferSelect, teamName?: stri
   };
 }
 
-export async function insertAutoAcceptHistory(teamId: number, record: AutoAcceptRecord): Promise<void> {
+function toInsertValues(teamId: number, record: AutoAcceptRecord): typeof autoAcceptHistory.$inferInsert {
+  return {
+    teamId,
+    ruleId: record.ruleId,
+    ruleName: record.ruleName,
+    bookingId: record.bookingId,
+    requestIds: JSON.stringify(record.requestIds),
+    acceptedCount: record.acceptedCount,
+    origin: record.origin,
+    destination: record.destination,
+    vehicleType: record.vehicleType,
+    status: record.status,
+    errorMessage: record.errorMessage?.substring(0, 1000),
+  };
+}
+
+function insertResultId(result: unknown): number | null {
+  if (Array.isArray(result) && typeof result[0]?.insertId === "number") return result[0].insertId;
+  if (typeof (result as { lastInsertRowid?: unknown })?.lastInsertRowid === "number") {
+    return (result as { lastInsertRowid: number }).lastInsertRowid;
+  }
+  return null;
+}
+
+export async function insertAutoAcceptHistoryAndGetId(teamId: number, record: AutoAcceptRecord): Promise<number | null> {
   try {
     await ensureDashboardTables();
     const db = await getDb();
-    await db.insert(autoAcceptHistory).values({
-      teamId,
-      ruleId: record.ruleId,
-      ruleName: record.ruleName,
-      bookingId: record.bookingId,
-      requestIds: JSON.stringify(record.requestIds),
-      acceptedCount: record.acceptedCount,
-      origin: record.origin,
-      destination: record.destination,
-      vehicleType: record.vehicleType,
-      status: record.status,
-      errorMessage: record.errorMessage?.substring(0, 1000),
-    });
+    const result = await db.insert(autoAcceptHistory).values(toInsertValues(teamId, record));
+    return insertResultId(result);
   } catch (err) {
     logger.warn("auto-accept-history-insert-failed", {
       ruleId: record.ruleId,
       error: err instanceof Error ? err.message : String(err),
     });
+    return null;
+  }
+}
+
+export async function insertAutoAcceptHistory(teamId: number, record: AutoAcceptRecord): Promise<void> {
+  await insertAutoAcceptHistoryAndGetId(teamId, record);
+}
+
+export async function updateAutoAcceptHistory(teamId: number, historyId: number, patch: AutoAcceptHistoryUpdate): Promise<boolean> {
+  try {
+    await ensureDashboardTables();
+    const db = await getDb();
+    const values: Partial<typeof autoAcceptHistory.$inferInsert> = {};
+    if (patch.requestIds) values.requestIds = JSON.stringify(patch.requestIds);
+    if (typeof patch.acceptedCount === "number") values.acceptedCount = patch.acceptedCount;
+    if (typeof patch.origin === "string") values.origin = patch.origin;
+    if (typeof patch.destination === "string") values.destination = patch.destination;
+    if (typeof patch.vehicleType === "string") values.vehicleType = patch.vehicleType;
+    if (typeof patch.status === "string") values.status = patch.status;
+    if ("errorMessage" in patch) values.errorMessage = patch.errorMessage?.substring(0, 1000) ?? null;
+    if (Object.keys(values).length === 0) return true;
+
+    await db
+      .update(autoAcceptHistory)
+      .set(values)
+      .where(and(
+        eq(autoAcceptHistory.teamId, teamId),
+        eq(autoAcceptHistory.id, historyId)
+      ));
+    return true;
+  } catch (err) {
+    logger.warn("auto-accept-history-update-failed", {
+      historyId,
+      teamId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
   }
 }
 

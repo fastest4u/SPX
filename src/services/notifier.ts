@@ -241,11 +241,13 @@ export async function notifyMatchedRules(trips: TripLike[], options?: { dryRun?:
 
 // ── Auto-accept + Notify flow ──────────────────────────────────────────
 
-interface AcceptedTrip {
+export interface AcceptedTripNotificationItem {
   trip: TripLike;
   bookingId: number;
   requestId: number;
 }
+
+type AcceptedTrip = AcceptedTripNotificationItem;
 
 interface AutoAcceptResult {
   autoAcceptMatches: RuleTripMatch[];
@@ -503,6 +505,16 @@ function buildAcceptNotificationMessage(accepted: AcceptedTrip[]): string {
     ``,
     `SPX Bidding Poller•${thaiDateShort} ${timeStr}`,
   ].filter(Boolean).join("\n");
+}
+
+export async function sendAutoAcceptSuccessNotification(
+  accepted: AcceptedTripNotificationItem[],
+  context?: TeamNotificationContext
+): Promise<boolean> {
+  if (accepted.length === 0) return false;
+  const title = `✅ SPX Auto-Accept สำเร็จ ${accepted.length} รายการ`;
+  const message = buildAcceptNotificationMessage(accepted);
+  return sendAutoAcceptAlert(title, message, context);
 }
 
 interface AutoAcceptRuleRunResult {
@@ -955,13 +967,10 @@ export async function acceptAndNotifyMatchedRules(
   let notified = false;
 
   if (accepted.length > 0) {
-    const title = `✅ SPX Auto-Accept สำเร็จ ${accepted.length} รายการ`;
-    const message = buildAcceptNotificationMessage(accepted);
-
     if (options.deferSideEffects) {
-      runDetached("auto-accept-notification", sendAutoAcceptAlert(title, message, options.notificationContext));
+      runDetached("auto-accept-notification", sendAutoAcceptSuccessNotification(accepted, options.notificationContext));
     } else {
-      notified = await sendAutoAcceptAlert(title, message, options.notificationContext);
+      notified = await sendAutoAcceptSuccessNotification(accepted, options.notificationContext);
       if (notified) {
         logger.info("auto-accept-notified", { acceptedCount: accepted.length });
       }
