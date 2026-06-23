@@ -471,6 +471,9 @@ export interface AcceptAllBookingResponse {
   bookingId: number;
   teamId: number;
   acceptAll: true;
+  acceptedCount?: number;
+  requestIds?: number[];
+  notified?: boolean;
   response?: unknown;
 }
 
