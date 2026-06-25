@@ -137,7 +137,7 @@ function processOne(poller: Poller, item: Booking): Promise<boolean> {
 async function main(): Promise<void> {
   const { resetMemoryDb } = await import("../src/db/client-memory.js");
   const { closePool } = await import("../src/db/client.js");
-  const { createRule } = await import("../src/services/notify-rules.js");
+  const { createRule, readRules } = await import("../src/services/notify-rules.js");
   const { getAutoAcceptHistory } = await import("../src/repositories/auto-accept-repository.js");
   resetMemoryDb();
   setLogLevel(LogLevel.ERROR);
@@ -194,12 +194,57 @@ async function main(): Promise<void> {
       "fast accept_all should reconcile auto_accept_history request IDs"
     );
     const row = historyRows.find((item) => item.bookingId === 2706815);
+    assert.equal(row?.status, "success");
     assert.deepEqual(row?.requestIds, [38659805, 38659806]);
     assert.equal(row?.acceptedCount, 2);
     assert.equal(row?.origin, "NORC-B");
     assert.equal(row?.destination, "SOCs");
     assert.equal(row?.vehicleType, "6WH-6ล้อ[7.2m]");
     assert.ok(detailFetchCalls >= 2, "fast accept_all reconcile must fetch pending and confirmed tabs after accept_all");
+  }
+
+  await closePool();
+  resetMemoryDb();
+  {
+    const rule = await createRule(1, routeRuleInput(true));
+    const poller = new Poller();
+    const reconcileGate = deferred();
+    Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
+      tickAutoAcceptRules: [rule],
+      tickNeedBudget: new NeedBudget(),
+    });
+    Object.assign(poller as unknown as { apiClient: unknown }, {
+      apiClient: {
+        fetchBookingRequestList: async (bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
+          assert.equal(bookingId, 2706815);
+          await reconcileGate.promise;
+          return options?.tabPendingConfirmation === false
+            ? requestList([
+                { ...requestListItem(39795903, 4, "NORC-B", "SOCs"), remark: "Other agency accept first." },
+              ])
+            : emptyRequestList();
+        },
+        acceptAllBookingRequests: async (bookingId: number) => {
+          assert.equal(bookingId, 2706815);
+          return { ok: true, httpStatus: 200, response: { retcode: 0, message: "success", data: { success_count: 1 } } };
+        },
+      },
+    });
+
+    const clean = await processOne(poller, booking());
+    assert.equal(clean, true);
+    reconcileGate.resolve();
+    const historyRows = await waitFor(
+      () => getAutoAcceptHistory(1, { limit: 20 }),
+      (rows) => rows.some((row) => row.bookingId === 2706815 && row.status === "failed" && row.requestIds.length === 1),
+      "unverified fast accept_all should become a failed history row"
+    );
+    const row = historyRows.find((item) => item.bookingId === 2706815);
+    assert.equal(row?.status, "failed");
+    assert.deepEqual(row?.requestIds, [39795903]);
+    assert.equal(row?.acceptedCount, 0);
+    assert.match(row?.errorMessage ?? "", /not confirmed|ambiguous/i);
+    assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 1);
   }
 
   {

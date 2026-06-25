@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, sendAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, sendAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type ClaimToken, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -889,27 +889,12 @@ export class Poller {
           return false;
         }
 
-        const acceptedCount = acceptAllSuccessCount(result.response);
-        for (let i = 0; i < acceptedCount; i++) metrics.recordAutoAccept(true);
-        try {
-          await applyAutoAcceptProgress(this.teamId, [
-            { ruleId: match.ruleId, acceptedCount },
-          ], (ruleId, committedCount) => {
-            this.tickNeedBudget.settle(ruleId, token, committedCount);
-          });
-        } catch (err) {
-          logger.error("auto-accept-list-name-progress-failed", {
-            bookingId: booking.booking_id,
-            ruleId: match.ruleId,
-            acceptedCount,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        this.recordFastAcceptAllSuccess(booking, match, acceptedCount);
-        logger.info("auto-accept-list-name-success", {
+        const expectedAcceptedCount = acceptAllSuccessCount(result.response);
+        this.recordFastAcceptAllSuccess(booking, match, expectedAcceptedCount, token, granted);
+        logger.info("auto-accept-list-name-submitted", {
           bookingId: booking.booking_id,
           ruleId: match.ruleId,
-          acceptedCount,
+          expectedAcceptedCount,
           httpStatus: result.httpStatus,
         });
         return true;
@@ -947,9 +932,11 @@ export class Poller {
   private recordFastAcceptAllSuccess(
     booking: Booking,
     match: AcceptAllBookingNameRuleMatch,
-    acceptedCount: number
+    expectedAcceptedCount: number,
+    claimToken: ClaimToken,
+    claimedCount: number
   ): void {
-    void this.recordAndReconcileFastAcceptAllSuccess(booking, match, acceptedCount).catch((err) => {
+    void this.recordAndReconcileFastAcceptAllSuccess(booking, match, expectedAcceptedCount, claimToken, claimedCount).catch((err) => {
       logger.warn("auto-accept-list-name-reconcile-task-failed", {
         bookingId: booking.booking_id,
         ruleId: match.ruleId,
@@ -961,22 +948,25 @@ export class Poller {
   private async recordAndReconcileFastAcceptAllSuccess(
     booking: Booking,
     match: AcceptAllBookingNameRuleMatch,
-    acceptedCount: number
+    expectedAcceptedCount: number,
+    claimToken: ClaimToken,
+    claimedCount: number
   ): Promise<void> {
     const historyId = await insertAutoAcceptHistoryAndGetId(this.teamId, {
       ruleId: match.ruleId,
       ruleName: match.ruleName,
       bookingId: booking.booking_id,
       requestIds: [],
-      acceptedCount,
+      acceptedCount: 0,
       origin: match.origin,
       destination: match.destination,
       vehicleType: "",
-      status: "success",
+      status: "failed",
+      errorMessage: "Pending fast accept_all verification",
     });
 
     try {
-      await this.reconcileFastAcceptAllHistory(booking, match, historyId, acceptedCount);
+      await this.reconcileFastAcceptAllHistory(booking, match, historyId, expectedAcceptedCount, claimToken, claimedCount);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       if (historyId !== null) {
@@ -995,28 +985,43 @@ export class Poller {
     booking: Booking,
     match: AcceptAllBookingNameRuleMatch,
     historyId: number | null,
-    expectedAcceptedCount: number
+    expectedAcceptedCount: number,
+    claimToken: ClaimToken,
+    claimedCount: number
   ): Promise<void> {
+    let observedTrips: ExtractedTripInfo[] = [];
     let acceptedTrips: ExtractedTripInfo[] = [];
     for (let attempt = 1; attempt <= FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS; attempt++) {
-      acceptedTrips = await this.fetchFastAcceptAllAcceptedTrips(booking);
-      if (acceptedTrips.length === expectedAcceptedCount) break;
+      observedTrips = await this.fetchFastAcceptAllTrips(booking);
+      acceptedTrips = observedTrips.filter(isVerifiedFastAcceptAllTrip);
+      if (acceptedTrips.length > 0 && acceptedTrips.length >= expectedAcceptedCount) break;
       if (attempt < FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS) {
         await sleep(FAST_ACCEPT_ALL_RECONCILE_RETRY_MS);
       }
     }
 
-    if (acceptedTrips.length !== expectedAcceptedCount) {
-      const message = `Reconcile ambiguous: expected ${expectedAcceptedCount} accepted request(s), found ${acceptedTrips.length}`;
+    if (acceptedTrips.length === 0) {
+      const requestIds = observedTrips.map((trip) => trip.request_id);
+      const message = `Accept response was not confirmed by SPX request-list status; expected ${expectedAcceptedCount} accepted request(s), found 0`;
       if (historyId !== null) {
-        await updateAutoAcceptHistory(this.teamId, historyId, { errorMessage: message });
+        await updateAutoAcceptHistory(this.teamId, historyId, {
+          requestIds,
+          acceptedCount: 0,
+          origin: textValue(observedTrips[0]?.["ต้นทาง"]) || match.origin,
+          destination: textValue(observedTrips[0]?.["ปลายทาง"]) || match.destination,
+          vehicleType: textValue(observedTrips[0]?.["ประเภทรถ"]),
+          status: "failed",
+          errorMessage: message,
+        });
       }
+      this.tickNeedBudget.release(match.ruleId, claimToken, claimedCount);
+      metrics.recordAutoAccept(false);
       logger.warn("auto-accept-list-name-reconcile-ambiguous", {
         bookingId: booking.booking_id,
         ruleId: match.ruleId,
         expectedAcceptedCount,
-        foundAcceptedCount: acceptedTrips.length,
-        requestIds: acceptedTrips.map((trip) => trip.request_id),
+        foundAcceptedCount: 0,
+        requestIds,
       });
       return;
     }
@@ -1029,7 +1034,34 @@ export class Poller {
         origin: textValue(acceptedTrips[0]?.["ต้นทาง"]),
         destination: textValue(acceptedTrips[0]?.["ปลายทาง"]),
         vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
+        status: "success",
         errorMessage: null,
+      });
+    }
+
+    for (let i = 0; i < acceptedTrips.length; i++) metrics.recordAutoAccept(true);
+    try {
+      await applyAutoAcceptProgress(this.teamId, [
+        { ruleId: match.ruleId, acceptedCount: acceptedTrips.length },
+      ], (ruleId, committedCount) => {
+        this.tickNeedBudget.settle(ruleId, claimToken, committedCount);
+      });
+    } catch (err) {
+      logger.error("auto-accept-list-name-progress-failed", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        acceptedCount: acceptedTrips.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    if (acceptedTrips.length !== expectedAcceptedCount) {
+      logger.warn("auto-accept-list-name-reconcile-count-mismatch", {
+        bookingId: booking.booking_id,
+        ruleId: match.ruleId,
+        expectedAcceptedCount,
+        foundAcceptedCount: acceptedTrips.length,
+        requestIds,
       });
     }
 
@@ -1046,7 +1078,7 @@ export class Poller {
     });
   }
 
-  private async fetchFastAcceptAllAcceptedTrips(booking: Booking): Promise<ExtractedTripInfo[]> {
+  private async fetchFastAcceptAllTrips(booking: Booking): Promise<ExtractedTripInfo[]> {
     const context = {
       booking_id: booking.booking_id,
       booking_name: booking.booking_name,
@@ -1060,7 +1092,6 @@ export class Poller {
     for (const list of [pendingList, confirmedList]) {
       if (!list) continue;
       for (const trip of extractAllRequestListTrips(list.data, context)) {
-        if (!isVerifiedFastAcceptAllTrip(trip)) continue;
         byRequestId.set(trip.request_id, trip);
       }
     }
