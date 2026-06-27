@@ -3,6 +3,7 @@
 import { getPoolStats, type PoolStats } from "../db/client.js";
 import { isTeamPaused, pollerControl } from "./poller-control.js";
 import { getUpstreamConnectionCount } from "../utils/http-dispatcher.js";
+import { AUTO_ACCEPT_FAILURE_REASONS, type AutoAcceptFailureReason, type VerificationStatus } from "./auto-accept-diagnostics.js";
 
 export interface LatencyBucket {
   count: number;
@@ -20,7 +21,10 @@ export type TimedOperation =
   // Isolated SPX accept POST round-trip — the decisive competitive number.
   | "acceptRtt"
   // Request-list page-1 fetch → first matching trip (the on-critical-path detail hop).
-  | "detailToFirstMatch";
+  | "detailToFirstMatch"
+  | "autoAcceptVerify"
+  | "acceptToVerify"
+  | "listAgeMs";
 
 export interface TimingSummary {
   count: number;
@@ -43,6 +47,15 @@ export interface RuntimeMetrics {
 }
 
 type RuntimeState = Omit<RuntimeMetrics, "detailQueuePressure">;
+
+export interface AutoAcceptVerificationMetrics {
+  queued: number;
+  active: number;
+  completed: number;
+  indeterminate: number;
+  maxQueueDepth: number;
+  failuresByReason: Record<AutoAcceptFailureReason, number>;
+}
 
 export interface MetricsSnapshot {
   teamId: number | null;
@@ -86,6 +99,10 @@ export interface MetricsSnapshot {
     totalAttempts: number;
     successCount: number;
     failureCount: number;
+    verifiedSuccessCount: number;
+    verifiedFailureCount: number;
+    pendingVerificationCount: number;
+    verification: AutoAcceptVerificationMetrics;
   };
   // Booking-detail scheduling outcomes — reveals concurrency saturation (slots
   // clogged) and how much redundant re-processing the cooldown is suppressing.
@@ -106,6 +123,10 @@ export interface MetricsSnapshot {
 }
 
 const MAX_LATENCY_SAMPLES = 1000;
+
+function emptyFailureReasons(): Record<AutoAcceptFailureReason, number> {
+  return Object.fromEntries(AUTO_ACCEPT_FAILURE_REASONS.map((reason) => [reason, 0])) as Record<AutoAcceptFailureReason, number>;
+}
 
 export interface MetricsSnapshotContext {
   teamId?: number | null;
@@ -133,6 +154,14 @@ export class MetricsCollector {
   private autoAcceptAttempts = 0;
   private autoAcceptSuccess = 0;
   private autoAcceptFailures = 0;
+  private autoAcceptVerifiedSuccess = 0;
+  private autoAcceptVerifiedFailures = 0;
+  private autoAcceptVerificationQueued = 0;
+  private autoAcceptVerificationActive = 0;
+  private autoAcceptVerificationCompleted = 0;
+  private autoAcceptVerificationIndeterminate = 0;
+  private autoAcceptVerificationMaxQueueDepth = 0;
+  private autoAcceptVerificationFailuresByReason = emptyFailureReasons();
   private operationLatencies: Record<TimedOperation, number[]> = {
     detailFetch: [],
     dbSave: [],
@@ -140,6 +169,9 @@ export class MetricsCollector {
     autoAccept: [],
     acceptRtt: [],
     detailToFirstMatch: [],
+    autoAcceptVerify: [],
+    acceptToVerify: [],
+    listAgeMs: [],
   };
   private upstreamRequests = 0;
   private schedulingLaunched = 0;
@@ -213,6 +245,45 @@ export class MetricsCollector {
     samples.push(Math.max(0, Math.round(latencyMs)));
     if (samples.length > MAX_LATENCY_SAMPLES) {
       this.operationLatencies[operation] = samples.slice(-MAX_LATENCY_SAMPLES);
+    }
+  }
+
+  recordAutoAcceptVerificationQueued(queueDepth: number): void {
+    this.autoAcceptVerificationQueued = Math.max(0, Math.round(queueDepth));
+    this.autoAcceptVerificationMaxQueueDepth = Math.max(
+      this.autoAcceptVerificationMaxQueueDepth,
+      this.autoAcceptVerificationQueued
+    );
+  }
+
+  recordAutoAcceptVerificationActive(active: number, queueDepth: number): void {
+    this.autoAcceptVerificationActive = Math.max(0, Math.round(active));
+    this.autoAcceptVerificationQueued = Math.max(0, Math.round(queueDepth));
+    this.autoAcceptVerificationMaxQueueDepth = Math.max(
+      this.autoAcceptVerificationMaxQueueDepth,
+      this.autoAcceptVerificationQueued + this.autoAcceptVerificationActive
+    );
+  }
+
+  recordAutoAcceptVerificationCompleted(outcome: {
+    status: VerificationStatus;
+    reason?: AutoAcceptFailureReason;
+    verificationLatencyMs: number;
+    acceptToVerifyMs: number;
+  }): void {
+    this.autoAcceptVerificationCompleted++;
+    this.autoAcceptVerificationActive = Math.max(0, this.autoAcceptVerificationActive - 1);
+    this.recordOperation("autoAcceptVerify", outcome.verificationLatencyMs);
+    this.recordOperation("acceptToVerify", outcome.acceptToVerifyMs);
+    if (outcome.status === "verified_success") {
+      this.autoAcceptVerifiedSuccess++;
+    } else if (outcome.status === "verified_failed") {
+      this.autoAcceptVerifiedFailures++;
+      if (outcome.reason) {
+        this.autoAcceptVerificationFailuresByReason[outcome.reason]++;
+      }
+    } else {
+      this.autoAcceptVerificationIndeterminate++;
     }
   }
 
@@ -300,6 +371,17 @@ export class MetricsCollector {
         totalAttempts: this.autoAcceptAttempts,
         successCount: this.autoAcceptSuccess,
         failureCount: this.autoAcceptFailures,
+        verifiedSuccessCount: this.autoAcceptVerifiedSuccess,
+        verifiedFailureCount: this.autoAcceptVerifiedFailures,
+        pendingVerificationCount: this.autoAcceptVerificationQueued + this.autoAcceptVerificationActive,
+        verification: {
+          queued: this.autoAcceptVerificationQueued,
+          active: this.autoAcceptVerificationActive,
+          completed: this.autoAcceptVerificationCompleted,
+          indeterminate: this.autoAcceptVerificationIndeterminate,
+          maxQueueDepth: this.autoAcceptVerificationMaxQueueDepth,
+          failuresByReason: { ...this.autoAcceptVerificationFailuresByReason },
+        },
       },
       scheduling: {
         launched: this.schedulingLaunched,
@@ -320,6 +402,9 @@ export class MetricsCollector {
         autoAccept: this.summarize(this.operationLatencies.autoAccept),
         acceptRtt: this.summarize(this.operationLatencies.acceptRtt),
         detailToFirstMatch: this.summarize(this.operationLatencies.detailToFirstMatch),
+        autoAcceptVerify: this.summarize(this.operationLatencies.autoAcceptVerify),
+        acceptToVerify: this.summarize(this.operationLatencies.acceptToVerify),
+        listAgeMs: this.summarize(this.operationLatencies.listAgeMs),
       },
       runtime: {
         ...this.runtime,

@@ -24,6 +24,7 @@ const STATUS_OPTIONS = [
   { value: '', label: 'ทั้งหมด' },
   { value: 'success', label: 'สำเร็จ' },
   { value: 'failed', label: 'ล้มเหลว' },
+  { value: 'indeterminate', label: 'รอตรวจสอบ' },
 ]
 
 type AutoAcceptHistoryDisplayItem = AutoAcceptHistoryItem & {
@@ -78,12 +79,41 @@ const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryDisplayItem>[] = [
           <CheckCircle2 className="h-4 w-4" />
           {'สำเร็จ'}
         </span>
+      ) : item.status === 'indeterminate' ? (
+        <span className="flex items-center gap-1 text-warning" title={item.errorMessage}>
+          <XCircle className="h-4 w-4" />
+          {'รอตรวจสอบ'}
+        </span>
       ) : (
         <span className="flex items-center gap-1 text-danger" title={item.errorMessage}>
           <XCircle className="h-4 w-4" />
           {'ล้มเหลว'}
         </span>
       ),
+  },
+  {
+    header: 'Reason',
+    render: (item) => (
+      <span className="text-muted-foreground text-xs">
+        {item.failureReason || '\u2014'}
+      </span>
+    ),
+  },
+  {
+    header: 'Verify',
+    render: (item) => (
+      <span className="text-muted-foreground text-xs">
+        {item.verificationStatus || '\u2014'}
+      </span>
+    ),
+  },
+  {
+    header: 'Trace',
+    render: (item) => (
+      <span className="font-data text-[0.65rem] text-muted-foreground" title={item.traceId ?? undefined}>
+        {item.traceId ? `${item.traceId.slice(0, 18)}...` : '\u2014'}
+      </span>
+    ),
   },
   {
     header: 'เวลา',
@@ -426,6 +456,7 @@ function AdminAcceptAllPanel({
 
 function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDisplayItem; showTeam: boolean }) {
   const isSuccess = item.status === 'success'
+  const isIndeterminate = item.status === 'indeterminate'
 
   return (
     <MobileRecordCard>
@@ -441,9 +472,9 @@ function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDispl
             {item.ruleName}
           </div>
         </div>
-        <span className={isSuccess ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-success' : 'flex shrink-0 items-center gap-1 text-xs font-semibold text-danger'}>
+        <span className={isSuccess ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-success' : isIndeterminate ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-warning' : 'flex shrink-0 items-center gap-1 text-xs font-semibold text-danger'}>
           {isSuccess ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-          {isSuccess ? 'สำเร็จ' : 'ล้มเหลว'}
+          {isSuccess ? 'สำเร็จ' : isIndeterminate ? 'รอตรวจสอบ' : 'ล้มเหลว'}
         </span>
       </div>
 
@@ -459,6 +490,12 @@ function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDispl
           ) : null}
           <span className="status-pill border-white/10 bg-white/[0.04]">{item.vehicleType || '\u2014'}</span>
           <span className="status-pill border-white/10 bg-white/[0.04]">{item.requestIds.length} requests</span>
+          {item.failureReason ? (
+            <span className="status-pill border-white/10 bg-white/[0.04]">{item.failureReason}</span>
+          ) : null}
+          {item.verificationStatus ? (
+            <span className="status-pill border-white/10 bg-white/[0.04]">{item.verificationStatus}</span>
+          ) : null}
         </div>
       </div>
 
@@ -466,6 +503,13 @@ function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDispl
         <span>เวลา</span>
         <span className="text-right">{formatDateTime(item.createdAt)}</span>
       </div>
+
+      {item.traceId ? (
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span>Trace</span>
+          <span className="font-data text-right">{item.traceId}</span>
+        </div>
+      ) : null}
 
       {!isSuccess && item.errorMessage ? (
         <div className="mt-3 break-words rounded-[8px] border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-2 text-xs text-danger">

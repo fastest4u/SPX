@@ -332,19 +332,37 @@ async function createDashboardTables(): Promise<void> {
       vehicle_type VARCHAR(50) NOT NULL DEFAULT '',
       status VARCHAR(20) NOT NULL DEFAULT 'success',
       error_message VARCHAR(1000) NULL,
+      failure_reason VARCHAR(64) NULL,
+      trace_id VARCHAR(160) NULL,
+      accept_rtt_ms INT NULL,
+      list_age_ms INT NULL,
+      verification_latency_ms INT NULL,
+      verification_status VARCHAR(32) NULL,
+      verified_at DATETIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY aah_created_at_idx (created_at),
       KEY aah_rule_id_idx (rule_id),
       KEY aah_status_created_at_idx (status, created_at),
       KEY aah_team_created_at_idx (team_id, created_at),
-      KEY aah_team_status_created_at_idx (team_id, status, created_at)
+      KEY aah_team_status_created_at_idx (team_id, status, created_at),
+      KEY aah_team_reason_created_at_idx (team_id, failure_reason, created_at),
+      KEY aah_trace_id_idx (trace_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await ensureMysqlColumn(pool, "auto_accept_history", "team_id", "ALTER TABLE auto_accept_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
+  await ensureMysqlColumn(pool, "auto_accept_history", "failure_reason", "ALTER TABLE auto_accept_history ADD COLUMN failure_reason VARCHAR(64) NULL AFTER error_message");
+  await ensureMysqlColumn(pool, "auto_accept_history", "trace_id", "ALTER TABLE auto_accept_history ADD COLUMN trace_id VARCHAR(160) NULL AFTER failure_reason");
+  await ensureMysqlColumn(pool, "auto_accept_history", "accept_rtt_ms", "ALTER TABLE auto_accept_history ADD COLUMN accept_rtt_ms INT NULL AFTER trace_id");
+  await ensureMysqlColumn(pool, "auto_accept_history", "list_age_ms", "ALTER TABLE auto_accept_history ADD COLUMN list_age_ms INT NULL AFTER accept_rtt_ms");
+  await ensureMysqlColumn(pool, "auto_accept_history", "verification_latency_ms", "ALTER TABLE auto_accept_history ADD COLUMN verification_latency_ms INT NULL AFTER list_age_ms");
+  await ensureMysqlColumn(pool, "auto_accept_history", "verification_status", "ALTER TABLE auto_accept_history ADD COLUMN verification_status VARCHAR(32) NULL AFTER verification_latency_ms");
+  await ensureMysqlColumn(pool, "auto_accept_history", "verified_at", "ALTER TABLE auto_accept_history ADD COLUMN verified_at DATETIME NULL AFTER verification_status");
 
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_status_created_at_idx (status, created_at)");
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_created_at_idx (team_id, created_at)");
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_status_created_at_idx (team_id, status, created_at)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_reason_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_reason_created_at_idx (team_id, failure_reason, created_at)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_trace_id_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_trace_id_idx (trace_id)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS line_bot_sessions (

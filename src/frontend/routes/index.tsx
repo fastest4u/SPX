@@ -465,11 +465,15 @@ function PipelineTimeline({
     { label: 'Detail fetch', summary: metrics?.operations?.detailFetch, tone: 'var(--color-info)' },
     { label: 'Auto accept', summary: metrics?.operations?.autoAccept, tone: 'var(--color-success)' },
     { label: 'Accept RTT', summary: metrics?.operations?.acceptRtt, tone: 'var(--color-success)' },
+    { label: 'Verify', summary: metrics?.operations?.autoAcceptVerify, tone: 'var(--color-warning)' },
+    { label: 'Accept→verify', summary: metrics?.operations?.acceptToVerify, tone: 'var(--color-warning)' },
+    { label: 'List age', summary: metrics?.operations?.listAgeMs, tone: 'var(--color-info)' },
     { label: 'DB save', summary: metrics?.operations?.dbSave, tone: 'var(--color-info)' },
     { label: 'Notify', summary: metrics?.operations?.notify, tone: 'var(--color-warning)' },
   ]
 
   const queued = metrics?.runtime?.queuedDetailBookings ?? 0
+  const verifyQueued = metrics?.autoAccept?.pendingVerificationCount ?? 0
   const upstream = metrics?.upstream
   const reuseRatio = upstream && upstream.requests > 0 ? upstream.reuseRatio : null
 
@@ -494,11 +498,14 @@ function PipelineTimeline({
           <Badge variant={queued ? 'warning' : 'neutral'}>
             {queued.toLocaleString()} queued
           </Badge>
+          <Badge variant={verifyQueued ? 'warning' : 'neutral'}>
+            {verifyQueued.toLocaleString()} verify
+          </Badge>
         </div>
       </div>
       <CardContent className="p-5 pt-3">
         {/* Mobile: vertical timeline. Desktop: horizontal flow. */}
-        <ol className="relative grid gap-3 lg:grid-cols-6 lg:gap-0">
+        <ol className="relative grid gap-3 lg:grid-cols-3 xl:grid-cols-9 lg:gap-0">
           {stages.map((stage, i) => (
             <PipelineStage
               key={stage.label}

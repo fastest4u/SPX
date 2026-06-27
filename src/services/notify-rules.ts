@@ -17,6 +17,7 @@ export interface TripLike {
   "ประเภทรถ"?: unknown;
   request_id?: unknown;
   booking_id?: unknown;
+  listAgeMs?: unknown;
 }
 
 export interface NotifyRule {

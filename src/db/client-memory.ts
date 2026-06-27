@@ -180,6 +180,13 @@ function initSchema(db: Database.Database): void {
       vehicle_type TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'success',
       error_message TEXT,
+      failure_reason TEXT,
+      trace_id TEXT,
+      accept_rtt_ms INTEGER,
+      list_age_ms INTEGER,
+      verification_latency_ms INTEGER,
+      verification_status TEXT,
+      verified_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -188,6 +195,8 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS aah_status_created_at_idx ON auto_accept_history(status, created_at);
     CREATE INDEX IF NOT EXISTS aah_team_created_at_idx ON auto_accept_history(team_id, created_at);
     CREATE INDEX IF NOT EXISTS aah_team_status_created_at_idx ON auto_accept_history(team_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS aah_team_reason_created_at_idx ON auto_accept_history(team_id, failure_reason, created_at);
+    CREATE INDEX IF NOT EXISTS aah_trace_id_idx ON auto_accept_history(trace_id);
 
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

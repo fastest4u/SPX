@@ -315,6 +315,9 @@ export type TimedOperation =
   | 'autoAccept'
   | 'acceptRtt'
   | 'detailToFirstMatch'
+  | 'autoAcceptVerify'
+  | 'acceptToVerify'
+  | 'listAgeMs'
 
 export interface TimingSummary {
   count: number
@@ -334,6 +337,15 @@ export interface RuntimeMetrics {
   queuedDetailBookings: number
   detailQueuePressure: number
   sseClients: number
+}
+
+export interface AutoAcceptVerificationMetrics {
+  queued: number
+  active: number
+  completed: number
+  indeterminate: number
+  maxQueueDepth: number
+  failuresByReason: Record<string, number>
 }
 
 export interface PoolStats {
@@ -386,6 +398,10 @@ export interface MetricsSnapshot {
     totalAttempts: number;
     successCount: number;
     failureCount: number;
+    verifiedSuccessCount?: number;
+    verifiedFailureCount?: number;
+    pendingVerificationCount?: number;
+    verification?: AutoAcceptVerificationMetrics;
   };
   scheduling?: {
     launched: number;
@@ -530,8 +546,15 @@ export interface AutoAcceptHistoryItem {
   origin: string;
   destination: string;
   vehicleType: string;
-  status: 'success' | 'failed';
+  status: 'success' | 'failed' | 'indeterminate';
   errorMessage?: string;
+  failureReason?: string | null;
+  traceId?: string | null;
+  acceptRttMs?: number | null;
+  listAgeMs?: number | null;
+  verificationLatencyMs?: number | null;
+  verificationStatus?: string | null;
+  verifiedAt?: string | null;
   createdAt: string;
 }
 
