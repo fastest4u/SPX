@@ -1004,6 +1004,7 @@ async function acceptAutoAcceptMatch(
         deferredIds: [],
         verificationRan: false,
         detachedQueued: true,
+        detachedAcceptClean: result.ok,
       };
     }
 
@@ -1139,12 +1140,13 @@ async function acceptAutoAcceptMatch(
       }
     }
 
-    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued: false };
+    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued: false, detachedAcceptClean: true };
   }));
 
-  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued } of acceptResults) {
+  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued, detachedAcceptClean } of acceptResults) {
     if (detachedQueued) {
       pendingVerification += requestIds.length;
+      if (!detachedAcceptClean) deferredRequests += requestIds.length;
       continue;
     }
 

@@ -190,6 +190,51 @@ async function main(): Promise<void> {
   assert.equal(failedRow?.failureReason, "lost_race");
   assert.equal(failedRow?.verificationStatus, "verified_failed");
 
+  const apiFailureRule = await rules.createRule(team.id, {
+    name: "Detached API Failure",
+    origins: ["E"],
+    destinations: ["F"],
+    vehicle_types: ["4W"],
+    need: 1,
+    enabled: true,
+    fulfilled: false,
+    auto_accept: true,
+    accept_all: false,
+    auto_accepted: false,
+  });
+
+  const apiFailureClient = {
+    acceptBookingRequests: async () => ({ ok: false, httpStatus: 503, response: { retcode: 503, message: "upstream unavailable" }, error: "upstream unavailable" }),
+    fetchBookingRequestList: async () => requestListResponse([]),
+  };
+
+  const apiFailureResult = await acceptAndNotifyMatchedRules([{
+    origin: "E",
+    destination: "F",
+    vehicle_type: "4W",
+    booking_id: 2706817,
+    request_id: 38659807,
+  }], apiFailureClient as never, {
+    teamId: team.id,
+    notificationContext: { teamId: team.id, teamName: team.name, lineGroupId: "" },
+    autoAcceptRules: [apiFailureRule],
+    needBudget: new NeedBudget(),
+    deferSideEffects: true,
+    verificationMode: "detached",
+  });
+
+  assert.equal(apiFailureResult.pendingVerification, 1);
+  assert.equal(apiFailureResult.deferredRequests, 1, "unclean detached accepts should keep the booking retry-eligible");
+  await awaitAutoAcceptVerificationIdle();
+
+  const apiFailureRows = await waitFor(
+    () => getAutoAcceptHistory(team.id, { limit: 20 }),
+    (rows) => rows.some((row) => row.bookingId === 2706817 && row.status === "failed"),
+    "detached API-failure history row",
+  );
+  const apiFailureRow = apiFailureRows.find((row) => row.bookingId === 2706817);
+  assert.equal(apiFailureRow?.failureReason, "accept_api_error");
+
   await closePool();
   console.log("auto-accept-detached-verify: all assertions passed");
 }
