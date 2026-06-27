@@ -3,6 +3,7 @@ import { autoAcceptHistory, teams } from "../db/schema.js";
 import { and, asc, desc, eq, like, or, count } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+import type { AutoAcceptFailureReason, AutoAcceptHistoryStatus, VerificationStatus } from "../services/auto-accept-diagnostics.js";
 
 export interface AutoAcceptRecord {
   ruleId: string;
@@ -13,8 +14,15 @@ export interface AutoAcceptRecord {
   origin: string;
   destination: string;
   vehicleType: string;
-  status: "success" | "failed";
+  status: AutoAcceptHistoryStatus;
   errorMessage?: string;
+  failureReason?: AutoAcceptFailureReason | null;
+  traceId?: string | null;
+  acceptRttMs?: number | null;
+  listAgeMs?: number | null;
+  verificationLatencyMs?: number | null;
+  verificationStatus?: VerificationStatus | null;
+  verifiedAt?: Date | string | null;
 }
 
 export interface AutoAcceptHistoryUpdate {
@@ -23,8 +31,15 @@ export interface AutoAcceptHistoryUpdate {
   origin?: string;
   destination?: string;
   vehicleType?: string;
-  status?: "success" | "failed";
+  status?: AutoAcceptHistoryStatus;
   errorMessage?: string | null;
+  failureReason?: AutoAcceptFailureReason | null;
+  traceId?: string | null;
+  acceptRttMs?: number | null;
+  listAgeMs?: number | null;
+  verificationLatencyMs?: number | null;
+  verificationStatus?: VerificationStatus | null;
+  verifiedAt?: Date | string | null;
 }
 
 export type AutoAcceptHistoryRow = ReturnType<typeof dbRowToItem>;
@@ -57,8 +72,27 @@ function dbRowToItem(row: typeof autoAcceptHistory.$inferSelect, teamName?: stri
     vehicleType: row.vehicleType,
     status: row.status,
     errorMessage: row.errorMessage,
+    failureReason: row.failureReason,
+    traceId: row.traceId,
+    acceptRttMs: row.acceptRttMs,
+    listAgeMs: row.listAgeMs,
+    verificationLatencyMs: row.verificationLatencyMs,
+    verificationStatus: row.verificationStatus,
+    verifiedAt: row.verifiedAt,
     createdAt: row.createdAt,
   };
+}
+
+function truncateNullable(value: string | null | undefined, length: number): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return value.substring(0, length);
+}
+
+function toDateValue(value: Date | string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return value instanceof Date ? value : new Date(value);
 }
 
 function toInsertValues(teamId: number, record: AutoAcceptRecord): typeof autoAcceptHistory.$inferInsert {
@@ -74,6 +108,13 @@ function toInsertValues(teamId: number, record: AutoAcceptRecord): typeof autoAc
     vehicleType: record.vehicleType,
     status: record.status,
     errorMessage: record.errorMessage?.substring(0, 1000),
+    failureReason: record.failureReason ?? undefined,
+    traceId: truncateNullable(record.traceId, 160),
+    acceptRttMs: record.acceptRttMs ?? undefined,
+    listAgeMs: record.listAgeMs ?? undefined,
+    verificationLatencyMs: record.verificationLatencyMs ?? undefined,
+    verificationStatus: record.verificationStatus ?? undefined,
+    verifiedAt: toDateValue(record.verifiedAt),
   };
 }
 
@@ -116,6 +157,13 @@ export async function updateAutoAcceptHistory(teamId: number, historyId: number,
     if (typeof patch.vehicleType === "string") values.vehicleType = patch.vehicleType;
     if (typeof patch.status === "string") values.status = patch.status;
     if ("errorMessage" in patch) values.errorMessage = patch.errorMessage?.substring(0, 1000) ?? null;
+    if ("failureReason" in patch) values.failureReason = patch.failureReason ?? null;
+    if ("traceId" in patch) values.traceId = truncateNullable(patch.traceId, 160) ?? null;
+    if ("acceptRttMs" in patch) values.acceptRttMs = patch.acceptRttMs ?? null;
+    if ("listAgeMs" in patch) values.listAgeMs = patch.listAgeMs ?? null;
+    if ("verificationLatencyMs" in patch) values.verificationLatencyMs = patch.verificationLatencyMs ?? null;
+    if ("verificationStatus" in patch) values.verificationStatus = patch.verificationStatus ?? null;
+    if ("verifiedAt" in patch) values.verifiedAt = toDateValue(patch.verifiedAt) ?? null;
     if (Object.keys(values).length === 0) return true;
 
     await db

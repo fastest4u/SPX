@@ -638,10 +638,14 @@ export class Poller {
    */
   private async processOneBooking(booking: Booking): Promise<boolean> {
     const startedAt = Date.now();
+    const listAgeMs = typeof booking.ctime === "number" && booking.ctime > 0
+      ? Math.max(0, startedAt - booking.ctime * 1000)
+      : undefined;
     const context = {
       booking_id: booking.booking_id,
       booking_name: booking.booking_name,
       agency_name: booking.agency_name,
+      ...(listAgeMs !== undefined ? { listAgeMs } : {}),
     };
 
     const autoAcceptEnabled = env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0;
@@ -1224,6 +1228,7 @@ export class Poller {
         autoAcceptRules: this.tickAutoAcceptRules,
         deferSideEffects: true,
         needBudget: this.tickNeedBudget,
+        verificationMode: "detached",
       });
       // Feed terminal outcomes into the non-pending dedupe: a request already
       // contested here (won or verified-lost, alert + history row written)

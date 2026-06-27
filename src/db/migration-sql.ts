@@ -58,12 +58,21 @@ CREATE TABLE IF NOT EXISTS auto_accept_history (
   vehicle_type VARCHAR(50) NOT NULL DEFAULT '',
   status VARCHAR(20) NOT NULL DEFAULT 'success',
   error_message VARCHAR(1000) NULL,
+  failure_reason VARCHAR(64) NULL,
+  trace_id VARCHAR(160) NULL,
+  accept_rtt_ms INT NULL,
+  list_age_ms INT NULL,
+  verification_latency_ms INT NULL,
+  verification_status VARCHAR(32) NULL,
+  verified_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY aah_created_at_idx (created_at),
   KEY aah_rule_id_idx (rule_id),
   KEY aah_status_created_at_idx (status, created_at),
   KEY aah_team_created_at_idx (team_id, created_at),
-  KEY aah_team_status_created_at_idx (team_id, status, created_at)
+  KEY aah_team_status_created_at_idx (team_id, status, created_at),
+  KEY aah_team_reason_created_at_idx (team_id, failure_reason, created_at),
+  KEY aah_trace_id_idx (trace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 

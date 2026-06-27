@@ -132,6 +132,13 @@ const EXPECTED_SCHEMA = {
       vehicle_type: { type: "varchar(50)", nullable: false, defaultIncludes: "" },
       status: { type: "varchar(20)", nullable: false, defaultIncludes: "success" },
       error_message: { type: "varchar(1000)", nullable: true },
+      failure_reason: { type: "varchar(64)", nullable: true },
+      trace_id: { type: "varchar(160)", nullable: true },
+      accept_rtt_ms: { type: "int", nullable: true },
+      list_age_ms: { type: "int", nullable: true },
+      verification_latency_ms: { type: "int", nullable: true },
+      verification_status: { type: "varchar(32)", nullable: true },
+      verified_at: { type: "datetime", nullable: true },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
     },
     indexes: [
@@ -141,6 +148,8 @@ const EXPECTED_SCHEMA = {
       { name: "aah_status_created_at_idx", unique: false, columns: ["status", "created_at"] },
       { name: "aah_team_created_at_idx", unique: false, columns: ["team_id", "created_at"] },
       { name: "aah_team_status_created_at_idx", unique: false, columns: ["team_id", "status", "created_at"] },
+      { name: "aah_team_reason_created_at_idx", unique: false, columns: ["team_id", "failure_reason", "created_at"] },
+      { name: "aah_trace_id_idx", unique: false, columns: ["trace_id"] },
     ],
   },
   metrics_snapshots: {

@@ -52,6 +52,7 @@ export interface ExtractedTripInfo {
   booking_id?: number;
   booking_name?: string;
   agency_name?: string;
+  listAgeMs?: number;
   acceptance_status?: number;
   assignment_status?: number;
 }
@@ -69,6 +70,7 @@ interface TripInfoSource {
   booking_id?: number;
   booking_name?: string;
   agency_name?: string;
+  listAgeMs?: number;
   request_acceptance_status?: number;
   request_assignment_status?: number;
 }
@@ -96,6 +98,7 @@ function extractTripInfoFromSource(source: TripInfoSource): ExtractedTripInfo {
     booking_id: source.booking_id,
     booking_name: source.booking_name,
     agency_name: source.agency_name,
+    listAgeMs: source.listAgeMs,
     acceptance_status: source.request_acceptance_status,
     assignment_status: source.request_assignment_status,
   };
@@ -119,6 +122,7 @@ export interface BookingContext {
   booking_id: number;
   booking_name: string;
   agency_name: string;
+  listAgeMs?: number;
 }
 
 export function extractAllRequestListTrips(
@@ -131,6 +135,7 @@ export function extractAllRequestListTrips(
       booking_id: request.booking_id ?? context?.booking_id,
       booking_name: context?.booking_name,
       agency_name: context?.agency_name,
+      listAgeMs: context?.listAgeMs,
     })
   );
 }

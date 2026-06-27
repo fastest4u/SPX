@@ -101,6 +101,13 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   vehicleType: varchar("vehicle_type", { length: 50 }).notNull().default(""),
   status: varchar("status", { length: 20 }).notNull().default("success"),
   errorMessage: varchar("error_message", { length: 1000 }),
+  failureReason: varchar("failure_reason", { length: 64 }),
+  traceId: varchar("trace_id", { length: 160 }),
+  acceptRttMs: int("accept_rtt_ms"),
+  listAgeMs: int("list_age_ms"),
+  verificationLatencyMs: int("verification_latency_ms"),
+  verificationStatus: varchar("verification_status", { length: 32 }),
+  verifiedAt: datetime("verified_at"),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
   createdAtIdx: index("aah_created_at_idx").on(table.createdAt),
@@ -108,6 +115,8 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   statusCreatedAtIdx: index("aah_status_created_at_idx").on(table.status, table.createdAt),
   teamCreatedAtIdx: index("aah_team_created_at_idx").on(table.teamId, table.createdAt),
   teamStatusCreatedAtIdx: index("aah_team_status_created_at_idx").on(table.teamId, table.status, table.createdAt),
+  teamReasonCreatedAtIdx: index("aah_team_reason_created_at_idx").on(table.teamId, table.failureReason, table.createdAt),
+  traceIdIdx: index("aah_trace_id_idx").on(table.traceId),
 }));
 
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
