@@ -990,7 +990,7 @@ export class Poller {
           metrics.recordAutoAccept(false);
           this.tickNeedBudget.release(match.ruleId, token, granted);
           this.fastAcceptAllAttemptedKeys.delete(key);
-          this.recordFastAcceptAllHistory(booking, match, "failed", 0, result.error);
+          this.recordFastAcceptAllHistory(booking, match, "failed", 0, startedAt, Date.now() - startedAt, result.error);
           logger.error("auto-accept-list-name-failed", {
             bookingId: booking.booking_id,
             ruleId: match.ruleId,
@@ -1014,7 +1014,7 @@ export class Poller {
         this.tickNeedBudget.release(match.ruleId, token, granted);
         this.fastAcceptAllAttemptedKeys.delete(key);
         const error = err instanceof Error ? err.message : String(err);
-        this.recordFastAcceptAllHistory(booking, match, "failed", 0, error);
+        this.recordFastAcceptAllHistory(booking, match, "failed", 0, startedAt, Date.now() - startedAt, error);
         logger.error("auto-accept-list-name-threw", {
           bookingId: booking.booking_id,
           ruleId: match.ruleId,
@@ -1298,8 +1298,16 @@ export class Poller {
     match: AcceptAllBookingNameRuleMatch,
     status: "success" | "failed",
     acceptedCount: number,
+    acceptStartedAt: number,
+    acceptRttMs: number,
     errorMessage?: string
   ): void {
+    const traceId = buildAutoAcceptTraceId({
+      teamId: this.teamId,
+      bookingId: booking.booking_id,
+      requestIds: [],
+      acceptStartedAt,
+    });
     void insertAutoAcceptHistory(this.teamId, {
       ruleId: match.ruleId,
       ruleName: match.ruleName,
@@ -1311,6 +1319,10 @@ export class Poller {
       vehicleType: "",
       status,
       errorMessage,
+      traceId,
+      acceptRttMs,
+      verificationStatus: status === "success" ? "verified_success" : "verified_failed",
+      verifiedAt: new Date(),
     }).catch((err) => {
       logger.warn("auto-accept-list-name-history-write-failed", {
         bookingId: booking.booking_id,

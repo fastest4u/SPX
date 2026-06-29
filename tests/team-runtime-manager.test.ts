@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { TeamRuntimeManager } from "../src/services/team-runtime-manager.js";
+import { clearPausedTeams, isTeamPaused } from "../src/services/poller-control.js";
 
 async function main(): Promise<void> {
   const events: string[] = [];
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
   assert.deepEqual(events, ["start:1:ca-v1", "pause:1", "resume:1", "stop:1", "start:1:ca-v2", "stop:1"]);
 
   let desiredStates: Array<{ teamId: number; desiredState: "restart" | "running" | "paused" | "stopped" }> = [
-    { teamId: 1, desiredState: "restart" },
+    { teamId: 1, desiredState: "running" },
   ];
   const appliedDesiredStates: string[] = [];
   version = "v1";
@@ -80,11 +81,48 @@ async function main(): Promise<void> {
 
   await desiredManager.startAllEnabledTeams();
   version = "v2";
+  desiredStates = [{ teamId: 1, desiredState: "restart" }];
   await desiredManager.reconcileDesiredStates();
 
   assert.deepEqual(events, ["start:1:ca-v1", "stop:1", "start:1:ca-v2"]);
   assert.deepEqual(appliedDesiredStates, ["1:running"]);
   assert.equal(desiredManager.getStatus(1)?.status, "running");
+
+  clearPausedTeams();
+  events.length = 0;
+  const startupDesiredManager = new TeamRuntimeManager({
+    loadEnabledTeams: async () => [
+      { id: 1, name: "Stopped", enabled: true, spxCookie: "ca", spxDeviceId: "da", lineGroupId: "ga" },
+      { id: 2, name: "Paused", enabled: true, spxCookie: "cb", spxDeviceId: "db", lineGroupId: "gb" },
+    ],
+    createRuntime: (team) => {
+      let status: "stopped" | "running" | "paused" = "stopped";
+      return {
+        teamId: team.id,
+        start: async () => {
+          status = isTeamPaused(team.id) ? "paused" : "running";
+          events.push(`start:${team.id}:${status}`);
+        },
+        stop: async () => { status = "stopped"; events.push(`stop:${team.id}`); },
+        pause: () => { status = "paused"; events.push(`pause:${team.id}`); },
+        resume: () => { status = "running"; events.push(`resume:${team.id}`); },
+        status: () => ({ teamId: team.id, teamName: team.name, status, lastPollAt: null, lastError: null }),
+      };
+    },
+    desiredState: {
+      list: async () => [
+        { teamId: 1, desiredState: "stopped" },
+        { teamId: 2, desiredState: "paused" },
+      ],
+      set: async () => undefined,
+    },
+  });
+
+  await startupDesiredManager.startAllEnabledTeams();
+  assert.deepEqual(events, ["start:2:paused", "pause:2"]);
+  assert.equal(startupDesiredManager.getStatus(1)?.status, "stopped");
+  assert.equal(startupDesiredManager.getStatus(2)?.status, "paused");
+  clearPausedTeams();
 
   console.log("team-runtime-manager: all assertions passed");
 }

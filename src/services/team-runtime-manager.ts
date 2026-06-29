@@ -1,6 +1,7 @@
 import { getTeamRuntimeConfig, listEnabledTeamRuntimeConfigs, type TeamRuntimeConfig } from "../repositories/team-repository.js";
 import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState, type SetTeamRuntimeDesiredStateInput, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
 import { logger } from "../utils/logger.js";
+import { pauseTeam as pausePollerTeam, resumeTeam as resumePollerTeam } from "./poller-control.js";
 import { acquireTeamLease, releaseTeamLease, renewTeamLease, type AcquireTeamLeaseInput, type ReleaseTeamLeaseInput, type RenewTeamLeaseInput } from "./runtime-lease.js";
 import { TeamRuntime, type TeamRuntimeHandle, type TeamRuntimeStatus } from "./team-runtime.js";
 
@@ -87,40 +88,38 @@ export class TeamRuntimeManager {
 
   async startAllEnabledTeams(): Promise<void> {
     const teams = await this.loadEnabledTeams();
+    const desiredStates = await this.loadDesiredStateMap();
     this.teamConfigs.clear();
 
     for (const team of teams) {
       if (!this.isAssigned(team.id)) continue;
 
       this.teamConfigs.set(team.id, team);
-      if (!this.hasRequiredCredentials(team)) {
-        this.lastStatuses.set(team.id, this.misconfiguredStatus(team));
-        continue;
-      }
-
       const existing = this.runtimes.get(team.id);
       if (existing) {
         this.lastStatuses.set(team.id, existing.status());
         continue;
       }
 
-      if (!(await this.acquireRuntimeLease(team))) continue;
-
-      const runtime = this.createRuntime(team);
-      this.runtimes.set(team.id, runtime);
-      try {
-        await runtime.start();
-        this.lastStatuses.set(team.id, runtime.status());
-      } catch (error) {
-        await this.releaseRuntimeLease(team.id);
-        this.runtimes.delete(team.id);
+      const desiredState = desiredStates.get(team.id);
+      if (desiredState === "stopped") {
+        resumePollerTeam(team.id);
         this.lastStatuses.set(team.id, {
           teamId: team.id,
           teamName: team.name,
-          status: "error",
+          status: "stopped",
           lastPollAt: null,
-          lastError: error instanceof Error ? error.message : String(error),
+          lastError: "Team is stopped by desired runtime state",
         });
+        continue;
+      }
+
+      await this.startTeamRuntime(team, {
+        startupState: desiredState === "paused" ? "paused" : "running",
+        throwOnStartError: false,
+      });
+      if (desiredState === "restart") {
+        await this.markDesiredStateApplied(team.id, "running", "restart satisfied by worker startup");
       }
     }
   }
@@ -178,25 +177,7 @@ export class TeamRuntimeManager {
       return;
     }
 
-    if (!(await this.acquireRuntimeLease(team))) return;
-
-    const runtime = this.createRuntime(team);
-    this.runtimes.set(team.id, runtime);
-    try {
-      await runtime.start();
-      this.lastStatuses.set(team.id, runtime.status());
-    } catch (error) {
-      await this.releaseRuntimeLease(team.id);
-      this.runtimes.delete(team.id);
-      this.lastStatuses.set(team.id, {
-        teamId: team.id,
-        teamName: team.name,
-        status: "error",
-        lastPollAt: null,
-        lastError: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+    await this.startTeamRuntime(team, { startupState: "running", throwOnStartError: true });
   }
 
   async stopTeam(teamId: number): Promise<void> {
@@ -382,7 +363,13 @@ export class TeamRuntimeManager {
     }
     if (desiredState === "paused") {
       if (status === "paused") return;
-      if (!status || status === "stopped") await this.restartTeam(teamId);
+      if (!status || status === "stopped") {
+        const team = await this.loadTeam(teamId);
+        if (!team) throw new Error(`Team ${teamId} was not found`);
+        this.teamConfigs.set(team.id, team);
+        await this.startTeamRuntime(team, { startupState: "paused", throwOnStartError: true });
+        return;
+      }
       if (this.getStatus(teamId)?.status === "running") await this.pauseTeam(teamId);
       return;
     }
@@ -412,6 +399,57 @@ export class TeamRuntimeManager {
       await this.releaseRuntimeLease(teamId);
     }
     this.runtimes.clear();
+  }
+
+  private async loadDesiredStateMap(): Promise<Map<number, TeamRuntimeDesiredStateValue>> {
+    const states = await this.desiredState?.list();
+    return new Map((states ?? []).map((state) => [state.teamId, state.desiredState]));
+  }
+
+  private async startTeamRuntime(
+    team: TeamRuntimeConfig,
+    options: { startupState: "running" | "paused"; throwOnStartError: boolean },
+  ): Promise<void> {
+    if (!team.enabled) {
+      resumePollerTeam(team.id);
+      this.lastStatuses.set(team.id, {
+        teamId: team.id,
+        teamName: team.name,
+        status: "stopped",
+        lastPollAt: null,
+        lastError: "Team is disabled",
+      });
+      return;
+    }
+
+    if (!this.hasRequiredCredentials(team)) {
+      this.lastStatuses.set(team.id, this.misconfiguredStatus(team));
+      return;
+    }
+
+    if (!(await this.acquireRuntimeLease(team))) return;
+
+    if (options.startupState === "paused") pausePollerTeam(team.id);
+    else resumePollerTeam(team.id);
+
+    const runtime = this.createRuntime(team);
+    this.runtimes.set(team.id, runtime);
+    try {
+      await runtime.start();
+      if (options.startupState === "paused") await runtime.pause();
+      this.lastStatuses.set(team.id, runtime.status());
+    } catch (error) {
+      await this.releaseRuntimeLease(team.id);
+      this.runtimes.delete(team.id);
+      this.lastStatuses.set(team.id, {
+        teamId: team.id,
+        teamName: team.name,
+        status: "error",
+        lastPollAt: null,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+      if (options.throwOnStartError) throw error;
+    }
   }
 
   private misconfiguredStatus(team: TeamRuntimeConfig): TeamRuntimeStatus {

@@ -32,6 +32,14 @@ export interface NotificationSpoolOptions {
   maxAttempts?: number;
 }
 
+interface NotificationSpoolOutcome {
+  replacement?: NotificationSpoolEntry;
+}
+
+function entryKey(entry: NotificationSpoolEntry): string {
+  return JSON.stringify(entry);
+}
+
 export class NotificationSpool {
   private readonly baseDelayMs: number;
   private readonly maxAttempts: number;
@@ -64,11 +72,11 @@ export class NotificationSpool {
         if (Date.parse(entry.nextRetryAt) > nowMs) retainedEntries.push(entry);
         else dueEntries.push(entry);
       }
-      await this.rewriteUnlocked(retainedEntries);
       return { due: dueEntries, retained: retainedEntries.length };
     });
 
-    const failed: NotificationSpoolEntry[] = [];
+    const outcomes = new Map<string, NotificationSpoolOutcome[]>();
+    let failedCount = 0;
     let sentCount = 0;
 
     for (const entry of due) {
@@ -84,22 +92,59 @@ export class NotificationSpool {
       } else {
         const retryCount = entry.retryCount + 1;
         if (retryCount < this.maxAttempts) {
-          failed.push({
-            ...entry,
-            retryCount,
-            nextRetryAt: new Date(nowMs + this.baseDelayMs).toISOString(),
+          failedCount += 1;
+          this.addOutcome(outcomes, entry, {
+            replacement: {
+              ...entry,
+              retryCount,
+              nextRetryAt: new Date(nowMs + this.baseDelayMs).toISOString(),
+            },
           });
+        } else {
+          this.addOutcome(outcomes, entry, {});
         }
+        continue;
       }
+
+      this.addOutcome(outcomes, entry, {});
     }
 
-    if (failed.length > 0) {
+    if (due.length > 0) {
       await this.withFileLock(async () => {
-        for (const entry of failed) await this.appendUnlocked(entry);
+        const currentEntries = await this.readAllUnlocked();
+        const retainedEntries: NotificationSpoolEntry[] = [];
+
+        for (const entry of currentEntries) {
+          const queue = outcomes.get(entryKey(entry));
+          const outcome = queue?.shift();
+          if (!outcome) {
+            retainedEntries.push(entry);
+            continue;
+          }
+          if (outcome.replacement) {
+            retainedEntries.push(outcome.replacement);
+          }
+        }
+
+        await this.rewriteUnlocked(retainedEntries);
       });
     }
 
-    return { sent: sentCount, retained: futureRetained + failed.length };
+    return { sent: sentCount, retained: futureRetained + failedCount };
+  }
+
+  private addOutcome(
+    outcomes: Map<string, NotificationSpoolOutcome[]>,
+    entry: NotificationSpoolEntry,
+    outcome: NotificationSpoolOutcome,
+  ): void {
+    const key = entryKey(entry);
+    const queue = outcomes.get(key);
+    if (queue) {
+      queue.push(outcome);
+    } else {
+      outcomes.set(key, [outcome]);
+    }
   }
 
   private async appendUnlocked(entry: AppendNotificationSpoolEntry): Promise<void> {

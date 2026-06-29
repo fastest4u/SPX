@@ -285,6 +285,27 @@ async function main(): Promise<void> {
   });
 
   await withTempSpool(async (spool) => {
+    await spool.append({
+      eventKey,
+      url,
+      headers: { "content-type": "application/json" },
+      body: expectedBody,
+    });
+
+    let entriesDuringSend: unknown[] = [];
+    const result = await spool.flush(async () => {
+      entriesDuringSend = await spool.readAll();
+      return false;
+    });
+
+    assert.equal(entriesDuringSend.length, 1, "due entries must stay durable while delivery is in flight");
+    assert.deepEqual(result, { sent: 0, retained: 1 });
+    const entries = await spool.readAll();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.retryCount, 1);
+  });
+
+  await withTempSpool(async (spool) => {
     const result = await publishNotificationEvent({
       url,
       sharedSecret,

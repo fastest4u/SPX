@@ -299,6 +299,39 @@ async function main(): Promise<void> {
   {
     const rule = await createRule(1, routeRuleInput(true));
     const poller = new Poller();
+    Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
+      tickAutoAcceptRules: [rule],
+      tickNeedBudget: new NeedBudget(),
+    });
+    Object.assign(poller as unknown as { apiClient: unknown }, {
+      apiClient: {
+        acceptAllBookingRequests: async (bookingId: number) => {
+          assert.equal(bookingId, 2706815);
+          return { ok: false, httpStatus: 401, error: "session expired" };
+        },
+      },
+    });
+
+    const clean = await processOne(poller, booking());
+    assert.equal(clean, false);
+    const rows = await waitFor(
+      () => getAutoAcceptHistory(1, { limit: 20 }),
+      (historyRows) => historyRows.some((row) => row.bookingId === 2706815 && row.status === "failed"),
+      "immediate failed fast accept_all should write traceable history"
+    );
+    const row = rows.find((item) => item.bookingId === 2706815 && item.status === "failed");
+    assert.deepEqual(row?.requestIds, []);
+    assert.match(row?.traceId ?? "", /^aa:1:2706815::/);
+    assert.equal(row?.verificationStatus, "verified_failed");
+    assert.ok(row?.verifiedAt);
+    assert.equal(typeof row?.acceptRttMs, "number");
+  }
+
+  await closePool();
+  resetMemoryDb();
+  {
+    const rule = await createRule(1, routeRuleInput(true));
+    const poller = new Poller();
     const reconcileGate = deferred();
     Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
       tickAutoAcceptRules: [rule],
