@@ -27,7 +27,7 @@ interface RuntimeLeaseState {
   renewTimer: ReturnType<typeof setInterval>;
 }
 
-interface NormalizedTeamRuntimeLeaseOptions extends Required<Pick<TeamRuntimeLeaseOptions, "nodeId" | "role" | "ttlMs" | "renewIntervalMs" | "acquire" | "renew" | "release">> {}
+type NormalizedTeamRuntimeLeaseOptions = Required<Pick<TeamRuntimeLeaseOptions, "nodeId" | "role" | "ttlMs" | "renewIntervalMs" | "acquire" | "renew" | "release">>;
 
 export class TeamRuntimeManager {
   private readonly loadEnabledTeams: () => Promise<TeamRuntimeConfig[]>;
