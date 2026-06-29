@@ -15,6 +15,13 @@ x-spx-common: &spx-common
       max-size: "50m"
       max-file: "5"
 
+x-spx-worker-healthcheck: &spx-worker-healthcheck
+  test: ["CMD-SHELL", "ps | grep -q '[n]ode dist/app.js'"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
 services:
   notifier:
     <<: *spx-common
@@ -47,6 +54,7 @@ services:
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
       NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn.jsonl
     command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
 
   worker-ptwl:
     <<: *spx-common
@@ -61,3 +69,4 @@ services:
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
       NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl.jsonl
     command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
