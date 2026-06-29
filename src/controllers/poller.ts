@@ -40,15 +40,23 @@ import { isTeamPaused } from "../services/poller-control.js";
  * Non-pending-tab statuses eligible for the one-shot accept attempt: 4 = taken
  * by another agency (the lost-race case this exists for), 1 = still biddable
  * (should not appear on this tab; attempting is the winning move if it does).
- * Statuses in OWN_ACCEPTED_STATUSES are ours and must never be re-attempted —
- * after a restart the in-memory accepted keys are empty, and a re-attempt
- * would fire a false failure alert for a job we already won. Anything else
- * (cancelled/expired?) has unverified semantics: warn for triage, never fire
- * a doomed accept against it.
+ * Statuses in OWN_ACCEPTED_STATUSES must never be re-attempted — after a
+ * restart the in-memory accepted keys are empty, and a re-attempt would fire a
+ * false failure alert for a job that may already be ours. Only status 2 is
+ * strong enough evidence to reconcile history as a verified success; status 6
+ * remains skip-only because its ownership scope is not proven.
+ * Anything else (cancelled/expired?) has unverified semantics: warn for triage,
+ * never fire a doomed accept against it.
  */
 const NON_PENDING_ATTEMPT_STATUSES = new Set<number>([1, 4]);
+const VERIFIED_OWN_ACCEPTANCE_STATUS = 2;
 const FAST_ACCEPT_ALL_RECONCILE_ATTEMPTS = 3;
 const FAST_ACCEPT_ALL_RECONCILE_RETRY_MS = 250;
+
+type NonPendingAcceptedRuleGroup = {
+  ruleName: string;
+  trips: ExtractedTripInfo[];
+};
 
 function acceptAllSuccessCount(response: { data?: unknown } | null): number {
   const data = response?.data;
@@ -66,7 +74,8 @@ function textValue(value: unknown): string {
 function isVerifiedFastAcceptAllTrip(trip: ExtractedTripInfo): boolean {
   return Number.isInteger(trip.request_id)
     && trip.request_id > 0
-    && trip.acceptance_status === 2;
+    && typeof trip.acceptance_status === "number"
+    && trip.acceptance_status === VERIFIED_OWN_ACCEPTANCE_STATUS;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -731,12 +740,43 @@ export class Poller {
           historyTrips.set(trip.request_id, trip);
         }
         if (autoAcceptEnabled) {
+          const confirmedAcceptedByRule = new Map<string, NonPendingAcceptedRuleGroup>();
+          const reconciledAcceptedRuleIds = new Set<string>();
           const attemptTrips: ExtractedTripInfo[] = [];
           const attemptKeyByRequestId = new Map<number, string>();
           for (const trip of filtered.trips) {
             const status = trip.acceptance_status;
+            if (status !== VERIFIED_OWN_ACCEPTANCE_STATUS) continue;
+            const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
+            if (matchedRules.length === 0) continue;
+            const match = matchedRules[0];
+            const attemptKey = `${booking.booking_id}:${trip.request_id}`;
+            reconciledAcceptedRuleIds.add(match.ruleId);
+            if (this.nonPendingAttemptedKeys.has(attemptKey)) continue;
+            this.addNonPendingAttemptedKey(attemptKey);
+            const group = confirmedAcceptedByRule.get(match.ruleId) ?? {
+              ruleName: match.ruleName,
+              trips: [],
+            };
+            group.trips.push(trip);
+            confirmedAcceptedByRule.set(match.ruleId, group);
+            logger.info("auto-accept-own-status-reconcile-detected", {
+              bookingId: booking.booking_id,
+              requestId: trip.request_id,
+              ruleId: match.ruleId,
+              ruleName: match.ruleName,
+              matchedRules: matchedRules.map((m) => m.ruleName),
+              route: trip.เส้นทาง,
+              acceptanceStatus: status,
+            });
+          }
+          for (const trip of filtered.trips) {
+            const status = trip.acceptance_status;
             if (status === undefined) continue;
             const attemptKey = `${booking.booking_id}:${trip.request_id}`;
+            if (status === VERIFIED_OWN_ACCEPTANCE_STATUS) {
+              continue;
+            }
             if (OWN_ACCEPTED_STATUSES.has(status)) {
               // Own-status trip with NO record of our attempt (not seeded
               // from history, not contested this session): likely an
@@ -776,6 +816,16 @@ export class Poller {
             if (this.nonPendingAttemptedKeys.has(attemptKey)) continue;
             const matchedRules = matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules);
             if (matchedRules.length === 0) continue;
+            if (matchedRules.some((match) => reconciledAcceptedRuleIds.has(match.ruleId))) {
+              logger.info("auto-accept-rule-match-suppressed-by-own-accepted", {
+                bookingId: booking.booking_id,
+                requestId: trip.request_id,
+                rules: matchedRules.map((m) => m.ruleName),
+                route: trip.เส้นทาง,
+                acceptanceStatus: status,
+              });
+              continue;
+            }
             this.addNonPendingAttemptedKey(attemptKey);
             logger.warn("auto-accept-rule-match-already-taken", {
               bookingId: booking.booking_id,
@@ -792,6 +842,11 @@ export class Poller {
             });
             attemptTrips.push(trip);
             attemptKeyByRequestId.set(trip.request_id, attemptKey);
+          }
+          if (confirmedAcceptedByRule.size > 0) {
+            autoAcceptTasks.push(
+              this.recordNonPendingOwnAcceptedTrips(booking, confirmedAcceptedByRule)
+            );
           }
           if (attemptTrips.length > 0) {
             autoAcceptTasks.push(
@@ -880,6 +935,24 @@ export class Poller {
 
         const result = await this.apiClient.acceptAllBookingRequests(booking.booking_id);
         if (!result.ok) {
+          const errorText = String(result.error || result.response?.message || "").toLowerCase();
+          const sessionExpired = result.httpStatus === 401 || result.httpStatus === 403
+            || errorText.includes("session expired")
+            || errorText.includes("login credentials expired")
+            || errorText.includes("token expired")
+            || errorText.includes("unauthorized");
+          const isPotentialPartialAccept = result.httpStatus === 200 && !sessionExpired;
+
+          if (isPotentialPartialAccept) {
+            logger.info("auto-accept-list-name-partial-attempt", {
+              bookingId: booking.booking_id,
+              ruleId: match.ruleId,
+              error: result.error,
+            });
+            this.recordFastAcceptAllSuccess(booking, match, 1, token, granted);
+            return true;
+          }
+
           metrics.recordAutoAccept(false);
           this.tickNeedBudget.release(match.ruleId, token, granted);
           this.fastAcceptAllAttemptedKeys.delete(key);
@@ -1157,6 +1230,78 @@ export class Poller {
       const oldest = this.nonPendingAttemptedKeys.values().next().value;
       if (oldest === undefined) break;
       this.nonPendingAttemptedKeys.delete(oldest);
+    }
+  }
+
+  private async recordNonPendingOwnAcceptedTrips(
+    booking: Booking,
+    acceptedByRule: Map<string, NonPendingAcceptedRuleGroup>
+  ): Promise<boolean> {
+    const acceptedForNotification = new Map<number, ExtractedTripInfo>();
+    const progress: Array<{ ruleId: string; acceptedCount: number }> = [];
+
+    try {
+      for (const [ruleId, group] of acceptedByRule) {
+        const acceptedTrips = group.trips.filter(isVerifiedFastAcceptAllTrip);
+        const requestIds = acceptedTrips.map((trip) => trip.request_id);
+        if (requestIds.length === 0) continue;
+
+        await insertAutoAcceptHistory(this.teamId, {
+          ruleId,
+          ruleName: group.ruleName,
+          bookingId: booking.booking_id,
+          requestIds,
+          acceptedCount: requestIds.length,
+          origin: textValue(acceptedTrips[0]?.["ต้นทาง"]),
+          destination: textValue(acceptedTrips[0]?.["ปลายทาง"]),
+          vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
+          status: "success",
+          verificationStatus: "verified_success",
+          verifiedAt: new Date(),
+        });
+
+        progress.push({ ruleId, acceptedCount: requestIds.length });
+        for (let i = 0; i < requestIds.length; i++) metrics.recordAutoAccept(true);
+        for (const trip of acceptedTrips) {
+          acceptedForNotification.set(trip.request_id, trip);
+        }
+
+        logger.info("auto-accept-own-status-reconciled", {
+          bookingId: booking.booking_id,
+          ruleId,
+          ruleName: group.ruleName,
+          requestIds,
+        });
+      }
+
+      try {
+        await applyAutoAcceptProgress(this.teamId, progress);
+      } catch (err) {
+        logger.error("auto-accept-own-status-progress-failed", {
+          bookingId: booking.booking_id,
+          rules: progress.map((item) => item.ruleId),
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (acceptedForNotification.size > 0) {
+        await sendAutoAcceptSuccessNotification(
+          [...acceptedForNotification.values()].map((trip) => ({
+            trip,
+            bookingId: booking.booking_id,
+            requestId: trip.request_id,
+          })),
+          this.notificationContext
+        );
+      }
+
+      return true;
+    } catch (err) {
+      logger.error("auto-accept-own-status-reconcile-failed", {
+        bookingId: booking.booking_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
     }
   }
 
