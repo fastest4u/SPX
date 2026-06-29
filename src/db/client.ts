@@ -403,6 +403,195 @@ async function createDashboardTables(): Promise<void> {
   await ensureMysqlIndex(pool, "line_image_extractions", "lie_trip_number_created_at_idx", "ALTER TABLE line_image_extractions ADD INDEX lie_trip_number_created_at_idx (trip_number, created_at)");
 
   await pool!.query(`
+    CREATE TABLE IF NOT EXISTS notification_events (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      event_key VARCHAR(255) NOT NULL,
+      schema_version INT NOT NULL,
+      event_type VARCHAR(64) NOT NULL,
+      severity VARCHAR(32) NOT NULL,
+      team_id INT NOT NULL,
+      worker_node_id VARCHAR(120) NOT NULL,
+      trace_id VARCHAR(160) NULL,
+      subject_type VARCHAR(64) NOT NULL,
+      subject_id VARCHAR(160) NOT NULL,
+      payload_json TEXT NOT NULL,
+      received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY notification_events_event_key_uidx (event_key),
+      KEY notification_events_team_received_idx (team_id, received_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "notification_events", "trace_id", "ALTER TABLE notification_events ADD COLUMN trace_id VARCHAR(160) NULL AFTER worker_node_id");
+  await ensureMysqlIndex(pool, "notification_events", "notification_events_event_key_uidx", "ALTER TABLE notification_events ADD UNIQUE KEY notification_events_event_key_uidx (event_key)");
+  await ensureMysqlIndex(pool, "notification_events", "notification_events_team_received_idx", "ALTER TABLE notification_events ADD INDEX notification_events_team_received_idx (team_id, received_at)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS notification_outbox (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      event_key VARCHAR(255) NOT NULL,
+      team_id INT NOT NULL,
+      target_type VARCHAR(32) NOT NULL,
+      target_id VARCHAR(255) NOT NULL,
+      event_type VARCHAR(64) NOT NULL,
+      severity VARCHAR(32) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      message TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'queued',
+      attempts INT NOT NULL DEFAULT 0,
+      available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_by VARCHAR(120) NULL,
+      locked_until DATETIME NULL,
+      sent_at DATETIME NULL,
+      last_error VARCHAR(1000) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY notification_outbox_event_key_uidx (event_key),
+      KEY notification_outbox_status_available_idx (status, available_at),
+      KEY notification_outbox_team_created_idx (team_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "notification_outbox", "locked_by", "ALTER TABLE notification_outbox ADD COLUMN locked_by VARCHAR(120) NULL AFTER available_at");
+  await ensureMysqlColumn(pool, "notification_outbox", "locked_until", "ALTER TABLE notification_outbox ADD COLUMN locked_until DATETIME NULL AFTER locked_by");
+  await ensureMysqlColumn(pool, "notification_outbox", "sent_at", "ALTER TABLE notification_outbox ADD COLUMN sent_at DATETIME NULL AFTER locked_until");
+  await ensureMysqlColumn(pool, "notification_outbox", "last_error", "ALTER TABLE notification_outbox ADD COLUMN last_error VARCHAR(1000) NULL AFTER sent_at");
+  await ensureMysqlIndex(pool, "notification_outbox", "notification_outbox_event_key_uidx", "ALTER TABLE notification_outbox ADD UNIQUE KEY notification_outbox_event_key_uidx (event_key)");
+  await ensureMysqlIndex(pool, "notification_outbox", "notification_outbox_status_available_idx", "ALTER TABLE notification_outbox ADD INDEX notification_outbox_status_available_idx (status, available_at)");
+  await ensureMysqlIndex(pool, "notification_outbox", "notification_outbox_team_created_idx", "ALTER TABLE notification_outbox ADD INDEX notification_outbox_team_created_idx (team_id, created_at)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      outbox_id BIGINT UNSIGNED NOT NULL,
+      delivery_attempt INT NOT NULL,
+      provider VARCHAR(32) NOT NULL,
+      status VARCHAR(32) NOT NULL,
+      provider_message_id VARCHAR(255) NULL,
+      error_message VARCHAR(1000) NULL,
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      finished_at DATETIME NULL,
+      KEY notification_deliveries_outbox_idx (outbox_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "notification_deliveries", "provider_message_id", "ALTER TABLE notification_deliveries ADD COLUMN provider_message_id VARCHAR(255) NULL AFTER status");
+  await ensureMysqlColumn(pool, "notification_deliveries", "error_message", "ALTER TABLE notification_deliveries ADD COLUMN error_message VARCHAR(1000) NULL AFTER provider_message_id");
+  await ensureMysqlColumn(pool, "notification_deliveries", "finished_at", "ALTER TABLE notification_deliveries ADD COLUMN finished_at DATETIME NULL AFTER started_at");
+  await ensureMysqlIndex(pool, "notification_deliveries", "notification_deliveries_outbox_idx", "ALTER TABLE notification_deliveries ADD INDEX notification_deliveries_outbox_idx (outbox_id)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS runtime_nodes (
+      node_id VARCHAR(120) NOT NULL PRIMARY KEY,
+      role VARCHAR(32) NOT NULL,
+      hostname VARCHAR(255) NULL,
+      pid INT NULL,
+      version VARCHAR(120) NULL,
+      last_heartbeat_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      metadata_json TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY runtime_nodes_role_heartbeat_idx (role, last_heartbeat_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "runtime_nodes", "hostname", "ALTER TABLE runtime_nodes ADD COLUMN hostname VARCHAR(255) NULL AFTER role");
+  await ensureMysqlColumn(pool, "runtime_nodes", "pid", "ALTER TABLE runtime_nodes ADD COLUMN pid INT NULL AFTER hostname");
+  await ensureMysqlColumn(pool, "runtime_nodes", "version", "ALTER TABLE runtime_nodes ADD COLUMN version VARCHAR(120) NULL AFTER pid");
+  await ensureMysqlColumn(pool, "runtime_nodes", "metadata_json", "ALTER TABLE runtime_nodes ADD COLUMN metadata_json TEXT NULL AFTER last_heartbeat_at");
+  await ensureMysqlIndex(pool, "runtime_nodes", "runtime_nodes_role_heartbeat_idx", "ALTER TABLE runtime_nodes ADD INDEX runtime_nodes_role_heartbeat_idx (role, last_heartbeat_at)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS team_runtime_leases (
+      team_id INT NOT NULL PRIMARY KEY,
+      owner_node_id VARCHAR(120) NOT NULL,
+      owner_role VARCHAR(32) NOT NULL,
+      lease_token VARCHAR(80) NOT NULL,
+      lease_expires_at DATETIME NOT NULL,
+      heartbeat_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      status VARCHAR(32) NOT NULL DEFAULT 'running',
+      last_error VARCHAR(1000) NULL,
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY trl_owner_idx (owner_node_id),
+      KEY trl_expires_idx (lease_expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "team_runtime_leases", "last_error", "ALTER TABLE team_runtime_leases ADD COLUMN last_error VARCHAR(1000) NULL AFTER status");
+  await ensureMysqlIndex(pool, "team_runtime_leases", "trl_owner_idx", "ALTER TABLE team_runtime_leases ADD INDEX trl_owner_idx (owner_node_id)");
+  await ensureMysqlIndex(pool, "team_runtime_leases", "trl_expires_idx", "ALTER TABLE team_runtime_leases ADD INDEX trl_expires_idx (lease_expires_at)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS team_runtime_desired_state (
+      team_id INT NOT NULL PRIMARY KEY,
+      desired_state VARCHAR(32) NOT NULL DEFAULT 'running',
+      changed_by_user_id INT NULL,
+      reason VARCHAR(1000) NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "team_runtime_desired_state", "changed_by_user_id", "ALTER TABLE team_runtime_desired_state ADD COLUMN changed_by_user_id INT NULL AFTER desired_state");
+  await ensureMysqlColumn(pool, "team_runtime_desired_state", "reason", "ALTER TABLE team_runtime_desired_state ADD COLUMN reason VARCHAR(1000) NULL AFTER changed_by_user_id");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS auto_accept_attempts (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      trace_id VARCHAR(160) NOT NULL,
+      team_id INT NOT NULL,
+      worker_node_id VARCHAR(120) NOT NULL,
+      booking_id BIGINT UNSIGNED NOT NULL,
+      request_ids_json VARCHAR(2000) NOT NULL,
+      rule_id VARCHAR(255) NULL,
+      rule_name VARCHAR(128) NULL,
+      accept_mode VARCHAR(32) NOT NULL,
+      accept_started_at DATETIME NOT NULL,
+      accept_finished_at DATETIME NULL,
+      accept_rtt_ms INT NULL,
+      spx_http_status INT NULL,
+      spx_retcode INT NULL,
+      spx_message VARCHAR(1000) NULL,
+      raw_error VARCHAR(1000) NULL,
+      ambiguous_accept INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY aaa_trace_uidx (trace_id),
+      KEY aaa_team_booking_idx (team_id, booking_id),
+      KEY aaa_worker_created_idx (worker_node_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "rule_id", "ALTER TABLE auto_accept_attempts ADD COLUMN rule_id VARCHAR(255) NULL AFTER request_ids_json");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "rule_name", "ALTER TABLE auto_accept_attempts ADD COLUMN rule_name VARCHAR(128) NULL AFTER rule_id");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "accept_finished_at", "ALTER TABLE auto_accept_attempts ADD COLUMN accept_finished_at DATETIME NULL AFTER accept_started_at");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "accept_rtt_ms", "ALTER TABLE auto_accept_attempts ADD COLUMN accept_rtt_ms INT NULL AFTER accept_finished_at");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "spx_http_status", "ALTER TABLE auto_accept_attempts ADD COLUMN spx_http_status INT NULL AFTER accept_rtt_ms");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "spx_retcode", "ALTER TABLE auto_accept_attempts ADD COLUMN spx_retcode INT NULL AFTER spx_http_status");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "spx_message", "ALTER TABLE auto_accept_attempts ADD COLUMN spx_message VARCHAR(1000) NULL AFTER spx_retcode");
+  await ensureMysqlColumn(pool, "auto_accept_attempts", "raw_error", "ALTER TABLE auto_accept_attempts ADD COLUMN raw_error VARCHAR(1000) NULL AFTER spx_message");
+  await ensureMysqlIndex(pool, "auto_accept_attempts", "aaa_trace_uidx", "ALTER TABLE auto_accept_attempts ADD UNIQUE KEY aaa_trace_uidx (trace_id)");
+  await ensureMysqlIndex(pool, "auto_accept_attempts", "aaa_team_booking_idx", "ALTER TABLE auto_accept_attempts ADD INDEX aaa_team_booking_idx (team_id, booking_id)");
+  await ensureMysqlIndex(pool, "auto_accept_attempts", "aaa_worker_created_idx", "ALTER TABLE auto_accept_attempts ADD INDEX aaa_worker_created_idx (worker_node_id, created_at)");
+
+  await pool!.query(`
+    CREATE TABLE IF NOT EXISTS auto_accept_results (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      booking_id BIGINT UNSIGNED NOT NULL,
+      request_id BIGINT UNSIGNED NOT NULL,
+      winning_attempt_trace_id VARCHAR(160) NULL,
+      status VARCHAR(32) NOT NULL,
+      reason_code VARCHAR(64) NOT NULL,
+      evidence_json TEXT NULL,
+      first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_at DATETIME NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY aar_team_booking_request_uidx (team_id, booking_id, request_id),
+      KEY aar_team_status_idx (team_id, status),
+      KEY aar_trace_idx (winning_attempt_trace_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "auto_accept_results", "winning_attempt_trace_id", "ALTER TABLE auto_accept_results ADD COLUMN winning_attempt_trace_id VARCHAR(160) NULL AFTER request_id");
+  await ensureMysqlColumn(pool, "auto_accept_results", "evidence_json", "ALTER TABLE auto_accept_results ADD COLUMN evidence_json TEXT NULL AFTER reason_code");
+  await ensureMysqlColumn(pool, "auto_accept_results", "resolved_at", "ALTER TABLE auto_accept_results ADD COLUMN resolved_at DATETIME NULL AFTER first_seen_at");
+  await ensureMysqlIndex(pool, "auto_accept_results", "aar_team_booking_request_uidx", "ALTER TABLE auto_accept_results ADD UNIQUE KEY aar_team_booking_request_uidx (team_id, booking_id, request_id)");
+  await ensureMysqlIndex(pool, "auto_accept_results", "aar_team_status_idx", "ALTER TABLE auto_accept_results ADD INDEX aar_team_status_idx (team_id, status)");
+  await ensureMysqlIndex(pool, "auto_accept_results", "aar_trace_idx", "ALTER TABLE auto_accept_results ADD INDEX aar_trace_idx (winning_attempt_trace_id)");
+
+  await pool!.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
       setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
       setting_value VARCHAR(4000) NOT NULL DEFAULT '',

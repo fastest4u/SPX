@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { PublishEnvelope } from "../src/services/notification-publisher.js";
 
 process.env.DB_MODE = "memory";
 process.env.SECRETS_KEY = "auto-accept-detached-verify-test-key";
@@ -48,7 +49,10 @@ async function main(): Promise<void> {
   const teams = await import("../src/repositories/team-repository.js");
   const rules = await import("../src/services/notify-rules.js");
   const { getAutoAcceptHistory } = await import("../src/repositories/auto-accept-repository.js");
-  const { acceptAndNotifyMatchedRules, awaitAutoAcceptVerificationIdle, NeedBudget } = await import("../src/services/notifier.js");
+  const { getAutoAcceptResult } = await import("../src/repositories/auto-accept-result-repository.js");
+  const { createNotificationPublisher } = await import("../src/services/notification-publisher.js");
+  const { env } = await import("../src/config/env.js");
+  const { acceptAndNotifyMatchedRules, awaitAutoAcceptVerificationIdle, NeedBudget, setWorkerNotificationPublisherForTests } = await import("../src/services/notifier.js");
 
   resetMemoryDb();
   setLogLevel(LogLevel.ERROR);
@@ -234,6 +238,99 @@ async function main(): Promise<void> {
   );
   const apiFailureRow = apiFailureRows.find((row) => row.bookingId === 2706817);
   assert.equal(apiFailureRow?.failureReason, "accept_api_error");
+
+  const inlineFailureRule = await rules.createRule(team.id, {
+    name: "Inline Clear Failure",
+    origins: ["G"],
+    destinations: ["H"],
+    vehicle_types: ["4W"],
+    need: 1,
+    enabled: true,
+    fulfilled: false,
+    auto_accept: true,
+    accept_all: false,
+    auto_accepted: false,
+  });
+
+  let inlineFailureFetches = 0;
+  const inlineFailureClient = {
+    acceptBookingRequests: async () => ({ ok: false, httpStatus: 409, response: { retcode: 409, message: "already accepted" }, error: "already accepted" }),
+    fetchBookingRequestList: async () => {
+      inlineFailureFetches += 1;
+      return requestListResponse([]);
+    },
+  };
+
+  const inlineFailureResult = await acceptAndNotifyMatchedRules([{
+    origin: "G",
+    destination: "H",
+    vehicle_type: "4W",
+    booking_id: 2706818,
+    request_id: 38659808,
+  }], inlineFailureClient as never, {
+    teamId: team.id,
+    notificationContext: { teamId: team.id, teamName: team.name, lineGroupId: "" },
+    autoAcceptRules: [inlineFailureRule],
+    needBudget: new NeedBudget(),
+    deferSideEffects: false,
+  });
+
+  assert.equal(inlineFailureFetches, 0, "single clear failure should keep the existing skip-verify behavior");
+  assert.equal(inlineFailureResult.failed.length, 1);
+  assert.equal(await getAutoAcceptResult(team.id, 2706818, 38659808), null, "raw clear failures must not create canonical result facts");
+
+  const originalRole = env.SPX_ROLE;
+  (env as unknown as { SPX_ROLE: typeof env.SPX_ROLE }).SPX_ROLE = "worker";
+  const published: PublishEnvelope[] = [];
+  setWorkerNotificationPublisherForTests(createNotificationPublisher({
+    publish: async (envelope) => {
+      published.push(envelope);
+      return { ok: true };
+    },
+  }));
+  const inlineSuccessRule = await rules.createRule(team.id, {
+    name: "Inline Worker Trace",
+    origins: ["I"],
+    destinations: ["J"],
+    vehicle_types: ["4W"],
+    need: 1,
+    enabled: true,
+    fulfilled: false,
+    auto_accept: true,
+    accept_all: false,
+    auto_accepted: false,
+  });
+  const inlineSuccessClient = {
+    acceptBookingRequests: async () => ({ ok: true, httpStatus: 200, response: { retcode: 0, message: "success" } }),
+    fetchBookingRequestList: async (_bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
+      return options?.tabPendingConfirmation === false
+        ? requestListResponse([{ request_id: 38659809, booking_id: 2706819, request_acceptance_status: 2 }])
+        : requestListResponse([]);
+    },
+  };
+
+  await acceptAndNotifyMatchedRules([{
+    origin: "I",
+    destination: "J",
+    vehicle_type: "4W",
+    booking_id: 2706819,
+    request_id: 38659809,
+  }], inlineSuccessClient as never, {
+    teamId: team.id,
+    notificationContext: { teamId: team.id, teamName: team.name, lineGroupId: "" },
+    autoAcceptRules: [inlineSuccessRule],
+    needBudget: new NeedBudget(),
+    deferSideEffects: false,
+  });
+  assert.equal(published.length, 1);
+  assert.match(published[0]?.event.traceId ?? "", new RegExp(`^aa:${team.id}:2706819:38659809:`));
+  const inlineSuccessRows = await getAutoAcceptHistory(team.id, { limit: 20 });
+  const inlineSuccessRow = inlineSuccessRows.find((row) => row.bookingId === 2706819);
+  assert.match(inlineSuccessRow?.traceId ?? "", new RegExp(`^aa:${team.id}:2706819:38659809:`));
+  assert.equal(inlineSuccessRow?.verificationStatus, "verified_success");
+  assert.ok(inlineSuccessRow?.verifiedAt);
+  (env as unknown as { SPX_ROLE: typeof env.SPX_ROLE }).SPX_ROLE = originalRole;
+  setWorkerNotificationPublisherForTests(null);
 
   await closePool();
   console.log("auto-accept-detached-verify: all assertions passed");

@@ -3,19 +3,27 @@ import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, applyAutoAcceptProgress, type NotifyRule, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
+import {
+  insertAutoAcceptAttempt,
+  upsertAutoAcceptResult,
+  type AutoAcceptResultStatus,
+} from "../repositories/auto-accept-result-repository.js";
 import type { ApiClient } from "./api-client.js";
 import { isLineBotEnabled, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
 import { buildAutoAcceptFailureAlertText, buildAutoAcceptTraceId, summarizeAutoAcceptEvidence, type AutoAcceptFailureReason } from "./auto-accept-diagnostics.js";
 import { verifyAutoAcceptJob, type AutoAcceptVerificationJob, type AutoAcceptVerificationOutcome } from "./auto-accept-verifier.js";
+import { createWorkerNotificationPublisher, type NotificationPublisher } from "./notification-publisher.js";
+import { buildAutoAcceptEventKey } from "./notification-events.js";
 
 // Re-export for backward compatibility
 export type { LineBotStatus as LineJsQrLoginResult } from "./line-bot.js";
 export { requestQrLogin as requestLineJsQrLogin } from "./line-bot.js";
 
-type NotificationChannel = "line" | "discord" | "linejs_test";
+type NotificationChannel = "line" | "discord" | "linejs_test" | "central_notifier";
 
 const NOTIFY_FETCH_TIMEOUT_MS = 10_000;
 const LINE_QUOTA_FETCH_TIMEOUT_MS = 5_000;
+let workerNotificationPublisher: NotificationPublisher | null = null;
 
 export interface TeamNotificationContext {
   teamId: number;
@@ -186,6 +194,16 @@ async function sendLineJsThenOa(
   return false;
 }
 
+export async function sendLineTargetMessage(targetId: string, text: string): Promise<{ ok: boolean; providerMessageId?: string; error?: string }> {
+  const sent = await sendLineJsThenOa("SPX", text, {
+    lineJsTarget: targetId,
+    lineOaTarget: targetId,
+    logPrefix: "notification-dispatcher",
+    useGlobalFallback: false,
+  });
+  return sent ? { ok: true } : { ok: false, error: "No LINE provider accepted the message" };
+}
+
 /** Send auto-accept success to LINEJS first, then fallback to LINE OA. */
 async function sendAutoAcceptAlert(title: string, message: string, context?: TeamNotificationContext): Promise<boolean> {
   const teamTarget = getTeamLineTarget(context, "auto-accept-alert");
@@ -247,6 +265,7 @@ export interface AcceptedTripNotificationItem {
   trip: TripLike;
   bookingId: number;
   requestId: number;
+  traceId?: string;
 }
 
 type AcceptedTrip = AcceptedTripNotificationItem;
@@ -533,6 +552,280 @@ export async function sendAutoAcceptSuccessNotification(
   return sendAutoAcceptAlert(title, message, context);
 }
 
+function getWorkerNotificationPublisher(): NotificationPublisher {
+  workerNotificationPublisher ??= createWorkerNotificationPublisher();
+  return workerNotificationPublisher;
+}
+
+function getWorkerNodeId(): string {
+  return env.SPX_NODE_ID || "combined";
+}
+
+async function recordAutoAcceptAttemptSafely(input: {
+  teamId: number;
+  traceId: string;
+  workerNodeId: string;
+  bookingId: number;
+  requestIds: number[];
+  ruleId: string;
+  ruleName: string;
+  acceptAll: boolean;
+  acceptStartedAt: number;
+  acceptFinishedAt: number;
+  result: Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>;
+  ambiguousAccept: boolean;
+}): Promise<void> {
+  try {
+    await insertAutoAcceptAttempt({
+      traceId: input.traceId,
+      teamId: input.teamId,
+      workerNodeId: input.workerNodeId,
+      bookingId: input.bookingId,
+      requestIds: input.requestIds,
+      ruleId: input.ruleId,
+      ruleName: input.ruleName,
+      acceptMode: input.acceptAll ? "accept_all" : "request_ids",
+      acceptStartedAt: new Date(input.acceptStartedAt),
+      acceptFinishedAt: new Date(input.acceptFinishedAt),
+      acceptRttMs: input.acceptFinishedAt - input.acceptStartedAt,
+      spxHttpStatus: input.result.httpStatus,
+      spxRetcode: input.result.response?.retcode ?? null,
+      spxMessage: input.result.response?.message ?? null,
+      rawError: input.result.error ?? null,
+      ambiguousAccept: input.ambiguousAccept,
+    });
+  } catch (error) {
+    logger.warn("auto-accept-attempt-write-failed", {
+      traceId: input.traceId,
+      teamId: input.teamId,
+      bookingId: input.bookingId,
+      requestIds: input.requestIds,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function recordAutoAcceptResultSafely(input: {
+  teamId: number;
+  bookingId: number;
+  requestId: number;
+  traceId: string;
+  status: AutoAcceptResultStatus;
+  reasonCode: string;
+  evidence: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await upsertAutoAcceptResult({
+      teamId: input.teamId,
+      bookingId: input.bookingId,
+      requestId: input.requestId,
+      winningAttemptTraceId: input.traceId,
+      status: input.status,
+      reasonCode: input.reasonCode,
+      evidence: input.evidence,
+    });
+  } catch (error) {
+    logger.warn("auto-accept-result-write-failed", {
+      traceId: input.traceId,
+      teamId: input.teamId,
+      bookingId: input.bookingId,
+      requestId: input.requestId,
+      status: input.status,
+      reasonCode: input.reasonCode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function canonicalFailureStatus(reasonCode: string, acceptOk: boolean): AutoAcceptResultStatus {
+  if (reasonCode === "verified_lost_race" || reasonCode === "verified_not_owned") return "lost";
+  return acceptOk ? "lost" : "failed";
+}
+
+function canonicalFailureReasonCode(reason?: AutoAcceptFailureReason, acceptOk = false): string {
+  if (reason === "lost_race") return "verified_lost_race";
+  if (reason === "verify_not_confirmed") return "verified_not_owned";
+  if (reason === "session_expired") return "session_expired";
+  if (reason === "accept_api_error") return "accept_api_error";
+  return acceptOk ? "verified_not_owned" : "accept_api_error";
+}
+
+export function setWorkerNotificationPublisherForTests(publisher: NotificationPublisher | null): void {
+  workerNotificationPublisher = publisher;
+}
+
+async function publishWorkerAutoAcceptSuccessNotification(
+  accepted: AcceptedTripNotificationItem[],
+  options: {
+    teamId?: number;
+    notificationContext?: TeamNotificationContext;
+    source: "notifier" | "detached_verification";
+    traceId?: string;
+    evidence?: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  const context = options.notificationContext;
+  const teamId = context?.teamId ?? options.teamId ?? 1;
+  const teamName = context?.teamName ?? `Team ${teamId}`;
+  const acceptedByBooking = new Map<number, AcceptedTripNotificationItem[]>();
+
+  for (const item of accepted) {
+    const items = acceptedByBooking.get(item.bookingId) ?? [];
+    items.push(item);
+    acceptedByBooking.set(item.bookingId, items);
+  }
+
+  let allPublished = acceptedByBooking.size > 0;
+  for (const [bookingId, items] of acceptedByBooking) {
+    const requestIds = items.map((item) => item.requestId);
+    const traceIds = [...new Set([
+      ...items.map((item) => item.traceId).filter((traceId): traceId is string => Boolean(traceId)),
+      ...(options.traceId ? [options.traceId] : []),
+    ])];
+    const traceId = traceIds.length === 1 ? traceIds[0] : options.traceId;
+    const message = `Auto-Accept accepted ${requestIds.join(", ")} for booking ${bookingId}.`;
+    try {
+      const result = await getWorkerNotificationPublisher().autoAcceptOwned({
+        teamId,
+        teamName,
+        bookingId,
+        requestIds,
+        traceId,
+        message,
+        evidence: {
+          requestCount: requestIds.length,
+          source: options.source,
+          ...(traceIds.length > 1 ? { traceIds } : {}),
+          ...options.evidence,
+        },
+      });
+      if (!result.ok) {
+        allPublished = false;
+        logger.warn("auto-accept-notification-publish-failed", {
+          bookingId,
+          requestIds,
+          teamId,
+          traceId: options.traceId,
+          error: result.error,
+        });
+      }
+    } catch (error) {
+      allPublished = false;
+      logger.warn("auto-accept-notification-publish-error", {
+        bookingId,
+        requestIds,
+        teamId,
+        traceId: options.traceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return allPublished;
+}
+
+async function publishWorkerAutoAcceptFailureNotification(
+  failures: AutoAcceptResult["failed"],
+  message: string,
+  context?: TeamNotificationContext,
+): Promise<boolean> {
+  if (failures.length === 0) return false;
+  const teamId = context?.teamId ?? 1;
+  const teamName = context?.teamName ?? `Team ${teamId}`;
+  let allPublished = true;
+
+  for (const failure of failures) {
+    const requestIds = failure.requestIds.map((requestId) => String(requestId));
+    const firstRequestId = requestIds[0] ?? String(failure.bookingId);
+    const status = failure.reason === "lost_race" || failure.reason === "verify_not_confirmed" ? "lost" : "failed";
+    const result = await getWorkerNotificationPublisher().publish({
+      eventKey: buildAutoAcceptEventKey({
+        status,
+        teamId,
+        bookingId: String(failure.bookingId),
+        requestId: firstRequestId,
+      }),
+      event: {
+        schemaVersion: 1,
+        eventType: "auto_accept_failure",
+        severity: "error",
+        teamId,
+        teamName,
+        bookingId: String(failure.bookingId),
+        requestIds,
+        status,
+        reasonCode: failure.reason ?? "accept_api_error",
+        traceId: failure.traceId,
+        message,
+        occurredAt: new Date().toISOString(),
+        evidence: {
+          error: failure.error,
+          acceptRttMs: failure.acceptRttMs,
+          listAgeMs: failure.listAgeMs,
+          pendingTabRead: failure.pendingTabRead,
+          confirmedTabRead: failure.confirmedTabRead,
+          nextAction: failure.nextAction,
+        },
+      },
+    });
+    if (!result.ok) {
+      allPublished = false;
+      logger.warn("auto-accept-failure-notification-publish-failed", {
+        teamId,
+        bookingId: failure.bookingId,
+        requestIds,
+        traceId: failure.traceId,
+        error: result.error,
+      });
+    }
+  }
+
+  return allPublished;
+}
+
+async function publishWorkerSessionExpiredNotification(
+  errorMessage: string,
+  message: string,
+  context?: TeamNotificationContext,
+): Promise<{ sent: boolean; results: NotificationSendResult[] }> {
+  const teamId = context?.teamId ?? 1;
+  const teamName = context?.teamName ?? `Team ${teamId}`;
+  const result = await getWorkerNotificationPublisher().publish({
+    eventKey: `session_expired:team:${teamId}:${Date.now()}`,
+    event: {
+      schemaVersion: 1,
+      eventType: "session_expired",
+      severity: "error",
+      teamId,
+      teamName,
+      message,
+      occurredAt: new Date().toISOString(),
+      evidence: { errorMessage },
+    },
+  });
+  return {
+    sent: result.ok,
+    results: [{ channel: "central_notifier", ok: result.ok, error: result.error }],
+  };
+}
+
+export async function routeAutoAcceptSuccessNotification(
+  accepted: AcceptedTripNotificationItem[],
+  options: {
+    teamId?: number;
+    notificationContext?: TeamNotificationContext;
+    source: "notifier" | "detached_verification";
+    traceId?: string;
+    evidence?: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  if (accepted.length === 0) return false;
+  if (env.SPX_ROLE === "worker") {
+    return publishWorkerAutoAcceptSuccessNotification(accepted, options);
+  }
+  return sendAutoAcceptSuccessNotification(accepted, options.notificationContext);
+}
+
 interface AutoAcceptRuleRunResult {
   autoAcceptMatches: RuleTripMatch[];
   accepted: AcceptedTrip[];
@@ -671,7 +964,7 @@ function acceptedTripsForOutcome(outcome: AutoAcceptVerificationOutcome): Accept
   for (const trip of outcome.job.trips as TripLike[]) {
     const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
     if (requestId > 0 && acceptedIds.has(requestId)) {
-      accepted.push({ trip, bookingId: outcome.job.bookingId, requestId });
+      accepted.push({ trip, bookingId: outcome.job.bookingId, requestId, traceId: outcome.job.traceId });
     }
   }
   return accepted;
@@ -694,8 +987,6 @@ async function sendDetachedAutoAcceptFailureAlert(
   for (const key of alertKeys) failureAlertLastSentByBooking.set(key, alertNow);
 
   const teamTarget = getTeamLineTarget(context, "auto-accept-failure-alert");
-  if (teamTarget === "") return;
-
   const failGroupMid = teamTarget ?? (env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "");
   const failAlertText = buildAutoAcceptFailureAlertText({
     now: new Date(alertNow),
@@ -712,6 +1003,16 @@ async function sendDetachedAutoAcceptFailureAlert(
       nextAction: failure.nextAction,
     })),
   });
+
+  if (env.SPX_ROLE === "worker") {
+    const published = await publishWorkerAutoAcceptFailureNotification(failedToAlert, failAlertText, context);
+    if (!published) {
+      for (const key of alertKeys) failureAlertLastSentByBooking.delete(key);
+    }
+    return;
+  }
+
+  if (teamTarget === "") return;
 
   try {
     const sent = await sendLineJsThenOa("SPX Auto-Accept ล้มเหลว", failAlertText, {
@@ -759,6 +1060,28 @@ async function finalizeAutoAcceptVerificationOutcome(input: {
 
   if (accepted.length > 0) {
     for (const item of accepted) rememberAcceptedRequest(job.ruleId, item.requestId);
+    for (const requestId of outcome.acceptedRequestIds) {
+      await recordAutoAcceptResultSafely({
+        teamId: input.teamId,
+        bookingId: job.bookingId,
+        requestId,
+        traceId: job.traceId,
+        status: "owned",
+        reasonCode: "verified_owned",
+        evidence: {
+          source: "detached_verification",
+          acceptRttMs: job.acceptRttMs,
+          httpStatus: job.acceptResult.httpStatus,
+          retcode: job.acceptResult.retcode,
+          message: job.acceptResult.message,
+          acceptAll: job.acceptAll,
+          verificationLatencyMs: outcome.evidence.verificationLatencyMs,
+          pendingTabRead: outcome.evidence.pendingTabRead,
+          confirmedTabRead: outcome.evidence.confirmedTabRead,
+          observedStatuses: outcome.evidence.observedStatuses,
+        },
+      });
+    }
     try {
       await applyAutoAcceptProgress(input.teamId, [{ ruleId: job.ruleId, acceptedCount: accepted.length }], (ruleId, acceptedCount) => {
         input.needBudget?.settle(ruleId, job.claimToken, acceptedCount);
@@ -789,13 +1112,52 @@ async function finalizeAutoAcceptVerificationOutcome(input: {
       verificationStatus: "verified_success",
       verifiedAt: new Date(),
     });
-    await sendAutoAcceptSuccessNotification(accepted, input.notificationContext);
+    await routeAutoAcceptSuccessNotification(accepted, {
+      teamId: input.teamId,
+      notificationContext: input.notificationContext,
+      source: "detached_verification",
+      traceId: job.traceId,
+      evidence: {
+        traceId: job.traceId,
+        acceptRttMs: job.acceptRttMs,
+        listAgeMs: job.listAgeMs,
+        verificationLatencyMs: outcome.evidence.verificationLatencyMs,
+        pendingTabRead: outcome.evidence.pendingTabRead,
+        confirmedTabRead: outcome.evidence.confirmedTabRead,
+      },
+    });
   }
 
   if (failedRequests.length > 0) {
     const reason = failedRequests[0]?.reason ?? "accept_api_error";
     const errorMessage = summarizeAutoAcceptEvidence(outcome.evidence);
     const requestIds = failedRequests.map((request) => request.requestId);
+    for (const request of failedRequests) {
+      const reasonCode = canonicalFailureReasonCode(request.reason, job.acceptResult.ok);
+      await recordAutoAcceptResultSafely({
+        teamId: input.teamId,
+        bookingId: job.bookingId,
+        requestId: request.requestId,
+        traceId: job.traceId,
+        status: canonicalFailureStatus(reasonCode, job.acceptResult.ok),
+        reasonCode,
+        evidence: {
+          source: "detached_verification",
+          acceptRttMs: job.acceptRttMs,
+          httpStatus: job.acceptResult.httpStatus,
+          retcode: job.acceptResult.retcode,
+          message: job.acceptResult.message,
+          error: job.acceptResult.error,
+          acceptAll: job.acceptAll,
+          requestReason: request.reason,
+          observedStatus: request.observedStatus,
+          verificationLatencyMs: outcome.evidence.verificationLatencyMs,
+          pendingTabRead: outcome.evidence.pendingTabRead,
+          confirmedTabRead: outcome.evidence.confirmedTabRead,
+          observedStatuses: outcome.evidence.observedStatuses,
+        },
+      });
+    }
     for (let i = 0; i < failedRequests.length; i++) metrics.recordAutoAccept(false);
     await insertAutoAcceptHistory(input.teamId, {
       ruleId: job.ruleId,
@@ -959,9 +1321,25 @@ async function acceptAutoAcceptMatch(
       : await apiClient.acceptBookingRequests(bookingId, requestIds);
     const acceptFinishedAt = Date.now();
     const ambiguousAccept = result.httpStatus === 0;
+    const teamId = options.teamId ?? 1;
+    const traceId = buildAutoAcceptTraceId({ teamId, bookingId, requestIds, acceptStartedAt });
+
+    await recordAutoAcceptAttemptSafely({
+      teamId,
+      traceId,
+      workerNodeId: getWorkerNodeId(),
+      bookingId,
+      requestIds,
+      ruleId: entry.ruleId,
+      ruleName: entry.ruleName,
+      acceptAll: match.acceptAll,
+      acceptStartedAt,
+      acceptFinishedAt,
+      result,
+      ambiguousAccept,
+    });
 
     if (options.verificationMode === "detached") {
-      const teamId = options.teamId ?? 1;
       const listAgeMs = firstTripListAgeMs(entry.trips);
       enqueueAutoAcceptVerification({
         apiClient,
@@ -985,7 +1363,7 @@ async function acceptAutoAcceptMatch(
           acceptRttMs: acceptFinishedAt - acceptStartedAt,
           ambiguousAccept,
           acceptAll: match.acceptAll,
-          traceId: buildAutoAcceptTraceId({ teamId, bookingId, requestIds, acceptStartedAt }),
+          traceId,
           ...(listAgeMs !== undefined ? { listAgeMs } : {}),
         },
         options: {
@@ -1003,8 +1381,11 @@ async function acceptAutoAcceptMatch(
         verifiedFailedIds: [],
         deferredIds: [],
         verificationRan: false,
+        canonicalFailureFactsAllowed: false,
         detachedQueued: true,
         detachedAcceptClean: result.ok,
+        traceId,
+        acceptRttMs: acceptFinishedAt - acceptStartedAt,
       };
     }
 
@@ -1019,6 +1400,7 @@ async function acceptAutoAcceptMatch(
     // only true once at least one tab fetch returns data; a transient double
     // fetch failure leaves it false so we defer instead of asserting failure.
     let verificationRan = false;
+    let canonicalFailureFactsAllowed = false;
 
     // OPTIMIZATION: If there is only 1 request in the batch and we got a clear,
     // non-ambiguous error response from the server (not a network timeout/abort),
@@ -1068,6 +1450,7 @@ async function acceptAutoAcceptMatch(
         if (pendingList || confirmedList) {
           // At least one tab fetch succeeded — verification actually ran.
           verificationRan = true;
+          canonicalFailureFactsAllowed = true;
           // ONLY status 2 proves OUR accept landed. Status 6 is deliberately
           // NOT counted: its ownership scope is unproven (see
           // OWN_ACCEPTED_STATUSES), and a false win here would decrement need
@@ -1140,10 +1523,24 @@ async function acceptAutoAcceptMatch(
       }
     }
 
-    return { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued: false, detachedAcceptClean: true };
+    return {
+      bookingId,
+      entry,
+      requestIds,
+      result,
+      verifiedAcceptedIds,
+      verifiedFailedIds,
+      deferredIds,
+      verificationRan,
+      canonicalFailureFactsAllowed,
+      detachedQueued: false,
+      detachedAcceptClean: true,
+      traceId,
+      acceptRttMs: acceptFinishedAt - acceptStartedAt,
+    };
   }));
 
-  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, detachedQueued, detachedAcceptClean } of acceptResults) {
+  for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, canonicalFailureFactsAllowed, detachedQueued, detachedAcceptClean, traceId, acceptRttMs } of acceptResults) {
     if (detachedQueued) {
       pendingVerification += requestIds.length;
       if (!detachedAcceptClean) deferredRequests += requestIds.length;
@@ -1156,11 +1553,29 @@ async function acceptAutoAcceptMatch(
       for (const trip of entry.trips) {
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
         if (requestId > 0 && verifiedAcceptedIds.includes(requestId)) {
-          accepted.push({ trip, bookingId, requestId });
+          accepted.push({ trip, bookingId, requestId, traceId });
           rememberAcceptedRequest(entry.ruleId, requestId);
         }
       }
       acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: verifiedAcceptedIds.length });
+      for (const requestId of verifiedAcceptedIds) {
+        await recordAutoAcceptResultSafely({
+          teamId: options.teamId ?? 1,
+          bookingId,
+          requestId,
+          traceId,
+          status: "owned",
+          reasonCode: "verified_owned",
+          evidence: {
+            source: "notifier_inline_verify",
+            acceptRttMs,
+            httpStatus: result.httpStatus,
+            retcode: result.response?.retcode,
+            message: result.response?.message,
+            acceptAll: match.acceptAll,
+          },
+        });
+      }
       historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
@@ -1171,6 +1586,10 @@ async function acceptAutoAcceptMatch(
         destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "success",
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_success",
+        verifiedAt: new Date(),
       }));
     }
 
@@ -1182,6 +1601,29 @@ async function acceptAutoAcceptMatch(
       options.needBudget?.release(entry.ruleId, claimToken, verifiedFailedIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds: verifiedFailedIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds: verifiedFailedIds, error: result.error || "Unknown error" });
+      const reasonCode = canonicalFailureReasonCode(undefined, result.ok);
+      const status = canonicalFailureStatus(reasonCode, result.ok);
+      if (canonicalFailureFactsAllowed) {
+        for (const requestId of verifiedFailedIds) {
+          await recordAutoAcceptResultSafely({
+            teamId: options.teamId ?? 1,
+            bookingId,
+            requestId,
+            traceId,
+            status,
+            reasonCode,
+            evidence: {
+              source: "notifier_inline_verify",
+              acceptRttMs,
+              httpStatus: result.httpStatus,
+              retcode: result.response?.retcode,
+              message: result.response?.message,
+              error: result.error,
+              acceptAll: match.acceptAll,
+            },
+          });
+        }
+      }
       historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
@@ -1193,6 +1635,10 @@ async function acceptAutoAcceptMatch(
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "failed",
         errorMessage: result.error,
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_failed",
+        verifiedAt: new Date(),
       }));
     }
 
@@ -1215,6 +1661,29 @@ async function acceptAutoAcceptMatch(
       options.needBudget?.release(entry.ruleId, claimToken, requestIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
+      const reasonCode = canonicalFailureReasonCode(undefined, result.ok);
+      const status = canonicalFailureStatus(reasonCode, result.ok);
+      if (canonicalFailureFactsAllowed) {
+        for (const requestId of requestIds) {
+          await recordAutoAcceptResultSafely({
+            teamId: options.teamId ?? 1,
+            bookingId,
+            requestId,
+            traceId,
+            status,
+            reasonCode,
+            evidence: {
+              source: "notifier_inline_verify_absent",
+              acceptRttMs,
+              httpStatus: result.httpStatus,
+              retcode: result.response?.retcode,
+              message: result.response?.message,
+              error: result.error,
+              acceptAll: match.acceptAll,
+            },
+          });
+        }
+      }
       historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
@@ -1226,6 +1695,10 @@ async function acceptAutoAcceptMatch(
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "failed",
         errorMessage: result.error,
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_failed",
+        verifiedAt: new Date(),
       }));
     } else if (!verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0 && deferredIds.length === 0) {
       // Verification could not run (transient double fetch failure or fetch
@@ -1332,9 +1805,19 @@ export async function acceptAndNotifyMatchedRules(
 
   if (accepted.length > 0) {
     if (options.deferSideEffects) {
-      runDetached("auto-accept-notification", sendAutoAcceptSuccessNotification(accepted, options.notificationContext));
+      runDetached("auto-accept-notification", routeAutoAcceptSuccessNotification(accepted, {
+        teamId,
+        notificationContext: options.notificationContext,
+        source: "notifier",
+        evidence: { acceptedCount: accepted.length },
+      }));
     } else {
-      notified = await sendAutoAcceptSuccessNotification(accepted, options.notificationContext);
+      notified = await routeAutoAcceptSuccessNotification(accepted, {
+        teamId,
+        notificationContext: options.notificationContext,
+        source: "notifier",
+        evidence: { acceptedCount: accepted.length },
+      });
       if (notified) {
         logger.info("auto-accept-notified", { acceptedCount: accepted.length });
       }
@@ -1368,6 +1851,13 @@ export async function acceptAndNotifyMatchedRules(
     ].join("\n");
 
     const sendFailAlert = async () => {
+      if (env.SPX_ROLE === "worker") {
+        const published = await publishWorkerAutoAcceptFailureNotification(failedToAlert, failAlertText, options.notificationContext);
+        if (!published) {
+          for (const key of alertKeys) failureAlertLastSentByBooking.delete(key);
+        }
+        return;
+      }
       if (teamTarget === "") return;
       // Roll the throttle slots back when no channel delivered, so a
       // transient LINE outage cannot permanently silence a one-shot
@@ -1403,13 +1893,6 @@ export async function sendSessionExpiryNotification(
   errorMessage: string,
   context?: TeamNotificationContext
 ): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
-  if (!hasNotificationTarget(context)) {
-    if (context) {
-      logger.warn("session-expiry-notification-line-target-missing", { teamId: context.teamId, teamName: context.teamName });
-    }
-    return { sent: false, skipped: true, results: [] };
-  }
-
   const title = "🔴 SPX Session หมดอายุ";
   const message = [
     "**ระบบตรวจพบว่า Session Cookie ของ SPX หมดอายุแล้ว**",
@@ -1423,6 +1906,17 @@ export async function sendSessionExpiryNotification(
     "2. อัปเดตค่า COOKIE ผ่าน Settings UI หรือแก้ไขไฟล์ .env",
     "3. ระบบจะ restart และเริ่มทำงานใหม่อัตโนมัติ",
   ].join("\n");
+
+  if (env.SPX_ROLE === "worker") {
+    return publishWorkerSessionExpiredNotification(errorMessage, `${title}\n${message}`, context);
+  }
+
+  if (!hasNotificationTarget(context)) {
+    if (context) {
+      logger.warn("session-expiry-notification-line-target-missing", { teamId: context.teamId, teamName: context.teamName });
+    }
+    return { sent: false, skipped: true, results: [] };
+  }
 
   return sendNotificationMessage(title, message, context);
 }

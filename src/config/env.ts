@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseRuntimeRole, parseRunTeamIds, requireNodeIdForDistributedRole, type RuntimeRole } from "../services/runtime-role.js";
 
 const envFilePath = resolve(process.cwd(), ".env");
 
@@ -124,7 +125,38 @@ function isStrongPassword(value: string | undefined): boolean {
   return typeof value === "string" && value.trim().length >= 12;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function safeParseRuntimeRole(value: string | undefined): RuntimeRole {
+  try {
+    return parseRuntimeRole(value);
+  } catch {
+    return "combined";
+  }
+}
+
+function safeParseRunTeamIds(value: string | undefined): number[] {
+  try {
+    return parseRunTeamIds(value);
+  } catch {
+    return [];
+  }
+}
+
 export const env = {
+  SPX_ROLE: safeParseRuntimeRole(process.env.SPX_ROLE),
+  SPX_NODE_ID: (process.env.SPX_NODE_ID || "").trim(),
+  SPX_NODE_NAME: process.env.SPX_NODE_NAME || "",
+  RUN_TEAM_IDS: safeParseRunTeamIds(process.env.RUN_TEAM_IDS),
+  NOTIFIER_API_URL: process.env.NOTIFIER_API_URL || "",
+  NOTIFIER_SHARED_SECRET: process.env.NOTIFIER_SHARED_SECRET || "",
+  NOTIFIER_AUTH_MODE: (process.env.NOTIFIER_AUTH_MODE || "hmac") as "hmac" | "bearer",
+  NOTIFIER_REQUEST_TIMEOUT_MS: readIntegerEnv("NOTIFIER_REQUEST_TIMEOUT_MS", 1500),
+  NOTIFIER_RETRY_MAX_ATTEMPTS: readIntegerEnv("NOTIFIER_RETRY_MAX_ATTEMPTS", 12),
+  NOTIFIER_RETRY_BASE_DELAY_MS: readIntegerEnv("NOTIFIER_RETRY_BASE_DELAY_MS", 1000),
+  NOTIFIER_LOCAL_SPOOL_PATH: process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl",
   API_URL: process.env.API_URL || "",
   POLL_INTERVAL_MS: readIntegerEnv("POLL_INTERVAL_MS", 30000),
   COOKIE: process.env.COOKIE || "",
@@ -189,6 +221,38 @@ export function validateRuntimeConfig(): void {
   const missing: string[] = [];
   const invalid: string[] = [];
   const usesDatabase = env.SAVE_TO_DB || env.HTTP_ENABLED || env.AUTO_ACCEPT_ENABLED;
+
+  let runtimeRole = env.SPX_ROLE;
+  let runTeamIds = env.RUN_TEAM_IDS;
+  let runTeamIdsValid = true;
+
+  try {
+    runtimeRole = parseRuntimeRole(process.env.SPX_ROLE);
+  } catch (error) {
+    invalid.push(getErrorMessage(error));
+  }
+
+  try {
+    runTeamIds = parseRunTeamIds(process.env.RUN_TEAM_IDS);
+  } catch (error) {
+    runTeamIdsValid = false;
+    invalid.push(getErrorMessage(error));
+  }
+
+  try {
+    requireNodeIdForDistributedRole(runtimeRole, env.SPX_NODE_ID);
+  } catch {
+    missing.push("SPX_NODE_ID");
+  }
+
+  if (runtimeRole === "worker" && runTeamIdsValid && runTeamIds.length === 0) invalid.push("RUN_TEAM_IDS must be set when SPX_ROLE=worker");
+  if (runtimeRole === "worker" && !env.NOTIFIER_API_URL) missing.push("NOTIFIER_API_URL");
+  if ((runtimeRole === "worker" || runtimeRole === "notifier") && !env.NOTIFIER_SHARED_SECRET.trim()) missing.push("NOTIFIER_SHARED_SECRET");
+  if (env.NOTIFIER_AUTH_MODE !== "hmac" && env.NOTIFIER_AUTH_MODE !== "bearer") invalid.push("NOTIFIER_AUTH_MODE must be hmac or bearer");
+  if (env.NOTIFIER_API_URL && !isValidUrl(env.NOTIFIER_API_URL)) invalid.push("NOTIFIER_API_URL must be a valid URL");
+  if (!isPositiveInteger(env.NOTIFIER_REQUEST_TIMEOUT_MS)) invalid.push("NOTIFIER_REQUEST_TIMEOUT_MS must be a positive integer");
+  if (!isPositiveInteger(env.NOTIFIER_RETRY_MAX_ATTEMPTS)) invalid.push("NOTIFIER_RETRY_MAX_ATTEMPTS must be a positive integer");
+  if (!isPositiveInteger(env.NOTIFIER_RETRY_BASE_DELAY_MS)) invalid.push("NOTIFIER_RETRY_BASE_DELAY_MS must be a positive integer");
 
   if (!env.API_URL) missing.push("API_URL");
   if (!env.APP_NAME) missing.push("APP_NAME");

@@ -7,6 +7,14 @@ import {
   metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
   lineImageExtractionsMigrationSql,
+  notificationEventsMigrationSql,
+  notificationOutboxMigrationSql,
+  notificationDeliveriesMigrationSql,
+  runtimeNodesMigrationSql,
+  teamRuntimeLeasesMigrationSql,
+  teamRuntimeDesiredStateMigrationSql,
+  autoAcceptAttemptsMigrationSql,
+  autoAcceptResultsMigrationSql,
   appSettingsMigrationSql,
 } from "../db/migration-sql.js";
 
@@ -21,6 +29,14 @@ const allMigrations = [
   metricsSnapshotsMigrationSql,
   lineBotSessionsMigrationSql,
   lineImageExtractionsMigrationSql,
+  notificationEventsMigrationSql,
+  notificationOutboxMigrationSql,
+  notificationDeliveriesMigrationSql,
+  runtimeNodesMigrationSql,
+  teamRuntimeLeasesMigrationSql,
+  teamRuntimeDesiredStateMigrationSql,
+  autoAcceptAttemptsMigrationSql,
+  autoAcceptResultsMigrationSql,
   appSettingsMigrationSql,
 ].join("\n\n");
 

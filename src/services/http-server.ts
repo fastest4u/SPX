@@ -30,6 +30,8 @@ import { notifyController } from "./notify-controller.js";
 import { lineBotController } from "../controllers/line-bot-controller.js";
 import { aiController } from "../controllers/ai-controller.js";
 import { lineImageExtractionController } from "../controllers/line-image-extraction-controller.js";
+import { internalNotificationController } from "../controllers/internal-notification-controller.js";
+import { runtimeStatusController } from "../controllers/runtime-status-controller.js";
 
 let app: FastifyInstance | null = null;
 
@@ -313,6 +315,13 @@ export async function startHttpServer(port: number): Promise<void> {
     sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, errorCode);
   });
 
+  if (env.SPX_ROLE === "notifier" || env.SPX_ROLE === "combined") {
+    await app.register(internalNotificationController, {
+      prefix: "/internal",
+      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+    });
+  }
+
   await app.register(authController, { prefix: "/api" });
 
   // Operational endpoints — `/health` and `/ready` stay public for load
@@ -359,6 +368,7 @@ export async function startHttpServer(port: number): Promise<void> {
       await adminScope.register(settingsController, { prefix: "/settings" });
       await adminScope.register(auditController, { prefix: "/audit-logs" });
       await adminScope.register(auditReportController, { prefix: "/reports" });
+      await adminScope.register(runtimeStatusController, { prefix: "/runtime" });
     });
   }, { prefix: "/api" });
 

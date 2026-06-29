@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, datetime, index, int, mysqlTable, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, datetime, index, int, mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const teams = mysqlTable("teams", {
   id: int("id").autoincrement().primaryKey(),
@@ -119,6 +119,49 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   traceIdIdx: index("aah_trace_id_idx").on(table.traceId),
 }));
 
+export const autoAcceptAttempts = mysqlTable("auto_accept_attempts", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  traceId: varchar("trace_id", { length: 160 }).notNull(),
+  teamId: int("team_id").notNull(),
+  workerNodeId: varchar("worker_node_id", { length: 120 }).notNull(),
+  bookingId: bigint("booking_id", { mode: "number", unsigned: true }).notNull(),
+  requestIdsJson: varchar("request_ids_json", { length: 2000 }).notNull(),
+  ruleId: varchar("rule_id", { length: 255 }),
+  ruleName: varchar("rule_name", { length: 128 }),
+  acceptMode: varchar("accept_mode", { length: 32 }).notNull(),
+  acceptStartedAt: datetime("accept_started_at").notNull(),
+  acceptFinishedAt: datetime("accept_finished_at"),
+  acceptRttMs: int("accept_rtt_ms"),
+  spxHttpStatus: int("spx_http_status"),
+  spxRetcode: int("spx_retcode"),
+  spxMessage: varchar("spx_message", { length: 1000 }),
+  rawError: varchar("raw_error", { length: 1000 }),
+  ambiguousAccept: int("ambiguous_accept").notNull().default(0),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  traceIdIdx: uniqueIndex("aaa_trace_uidx").on(table.traceId),
+  teamBookingIdx: index("aaa_team_booking_idx").on(table.teamId, table.bookingId),
+  workerCreatedIdx: index("aaa_worker_created_idx").on(table.workerNodeId, table.createdAt),
+}));
+
+export const autoAcceptResults = mysqlTable("auto_accept_results", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  teamId: int("team_id").notNull(),
+  bookingId: bigint("booking_id", { mode: "number", unsigned: true }).notNull(),
+  requestId: bigint("request_id", { mode: "number", unsigned: true }).notNull(),
+  winningAttemptTraceId: varchar("winning_attempt_trace_id", { length: 160 }),
+  status: varchar("status", { length: 32 }).notNull(),
+  reasonCode: varchar("reason_code", { length: 64 }).notNull(),
+  evidenceJson: text("evidence_json"),
+  firstSeenAt: datetime("first_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  resolvedAt: datetime("resolved_at"),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  teamBookingRequestIdx: uniqueIndex("aar_team_booking_request_uidx").on(table.teamId, table.bookingId, table.requestId),
+  teamStatusIdx: index("aar_team_status_idx").on(table.teamId, table.status),
+  traceIdx: index("aar_trace_idx").on(table.winningAttemptTraceId),
+}));
+
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   teamId: int("team_id").notNull().default(1),
@@ -169,6 +212,102 @@ export const lineImageExtractions = mysqlTable("line_image_extractions", {
   agencyCreatedAtIdx: index("lie_agency_created_at_idx").on(table.agencyName, table.createdAt),
   tripNumberCreatedAtIdx: index("lie_trip_number_created_at_idx").on(table.tripNumber, table.createdAt),
 }));
+
+export const notificationEvents = mysqlTable("notification_events", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  eventKey: varchar("event_key", { length: 255 }).notNull(),
+  schemaVersion: int("schema_version").notNull(),
+  eventType: varchar("event_type", { length: 64 }).notNull(),
+  severity: varchar("severity", { length: 32 }).notNull(),
+  teamId: int("team_id").notNull(),
+  workerNodeId: varchar("worker_node_id", { length: 120 }).notNull(),
+  traceId: varchar("trace_id", { length: 160 }),
+  subjectType: varchar("subject_type", { length: 64 }).notNull(),
+  subjectId: varchar("subject_id", { length: 160 }).notNull(),
+  payloadJson: text("payload_json").notNull(),
+  receivedAt: datetime("received_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  eventKeyIdx: uniqueIndex("notification_events_event_key_uidx").on(table.eventKey),
+  teamReceivedIdx: index("notification_events_team_received_idx").on(table.teamId, table.receivedAt),
+}));
+
+export const notificationOutbox = mysqlTable("notification_outbox", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  eventKey: varchar("event_key", { length: 255 }).notNull(),
+  teamId: int("team_id").notNull(),
+  targetType: varchar("target_type", { length: 32 }).notNull(),
+  targetId: varchar("target_id", { length: 255 }).notNull(),
+  eventType: varchar("event_type", { length: 64 }).notNull(),
+  severity: varchar("severity", { length: 32 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  payloadJson: text("payload_json").notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("queued"),
+  attempts: int("attempts").notNull().default(0),
+  availableAt: datetime("available_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lockedBy: varchar("locked_by", { length: 120 }),
+  lockedUntil: datetime("locked_until"),
+  sentAt: datetime("sent_at"),
+  lastError: varchar("last_error", { length: 1000 }),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  eventKeyIdx: uniqueIndex("notification_outbox_event_key_uidx").on(table.eventKey),
+  statusAvailableIdx: index("notification_outbox_status_available_idx").on(table.status, table.availableAt),
+  teamCreatedIdx: index("notification_outbox_team_created_idx").on(table.teamId, table.createdAt),
+}));
+
+export const notificationDeliveries = mysqlTable("notification_deliveries", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  outboxId: bigint("outbox_id", { mode: "number", unsigned: true }).notNull(),
+  deliveryAttempt: int("delivery_attempt").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull(),
+  providerMessageId: varchar("provider_message_id", { length: 255 }),
+  errorMessage: varchar("error_message", { length: 1000 }),
+  startedAt: datetime("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  finishedAt: datetime("finished_at"),
+}, (table) => ({
+  outboxIdx: index("notification_deliveries_outbox_idx").on(table.outboxId),
+}));
+
+export const runtimeNodes = mysqlTable("runtime_nodes", {
+  nodeId: varchar("node_id", { length: 120 }).primaryKey(),
+  role: varchar("role", { length: 32 }).notNull(),
+  hostname: varchar("hostname", { length: 255 }),
+  pid: int("pid"),
+  version: varchar("version", { length: 120 }),
+  lastHeartbeatAt: datetime("last_heartbeat_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  metadataJson: text("metadata_json"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  roleHeartbeatIdx: index("runtime_nodes_role_heartbeat_idx").on(table.role, table.lastHeartbeatAt),
+}));
+
+export const teamRuntimeLeases = mysqlTable("team_runtime_leases", {
+  teamId: int("team_id").primaryKey(),
+  ownerNodeId: varchar("owner_node_id", { length: 120 }).notNull(),
+  ownerRole: varchar("owner_role", { length: 32 }).notNull(),
+  leaseToken: varchar("lease_token", { length: 80 }).notNull(),
+  leaseExpiresAt: datetime("lease_expires_at").notNull(),
+  heartbeatAt: datetime("heartbeat_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  status: varchar("status", { length: 32 }).notNull().default("running"),
+  lastError: varchar("last_error", { length: 1000 }),
+  startedAt: datetime("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  ownerIdx: index("trl_owner_idx").on(table.ownerNodeId),
+  expiresIdx: index("trl_expires_idx").on(table.leaseExpiresAt),
+}));
+
+export const teamRuntimeDesiredState = mysqlTable("team_runtime_desired_state", {
+  teamId: int("team_id").primaryKey(),
+  desiredState: varchar("desired_state", { length: 32 }).notNull().default("running"),
+  changedByUserId: int("changed_by_user_id"),
+  reason: varchar("reason", { length: 1000 }),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
 
 export const appSettings = mysqlTable("app_settings", {
   key: varchar("setting_key", { length: 100 }).primaryKey(),
