@@ -63,7 +63,7 @@ docker compose up --build
 ### Docker Image Details
 - ==Multi-stage build== — runtime image มีแค่ built output
 - Healthcheck ยิง `GET /ready` อัตโนมัติ
-- Base image: `node:18-slim`
+- Base image: `node:24-alpine`
 
 ## Production Checklist
 

@@ -13,6 +13,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Power,
   PowerOff,
   RefreshCw,
   RotateCcw,
@@ -401,18 +402,37 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
   )
 }
 
+type TeamActionCommand = 'restart' | 'pause' | 'resume' | 'disable' | 'enable'
+
+export function getTeamEnableToggleAction(team: Pick<Team, 'enabled' | 'name'>) {
+  const isEnabled = team.enabled
+
+  return {
+    command: isEnabled ? 'disable' : 'enable',
+    label: isEnabled ? 'Disable' : 'Enable',
+    title: `${isEnabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}ทีม ${team.name}`,
+    danger: isEnabled,
+  } as const
+}
+
 function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: () => void; compact?: boolean }) {
   const queryClient = useQueryClient()
 
   const actionMutation = useMutation({
-    mutationFn: async (action: 'restart' | 'pause' | 'resume' | 'disable') => {
+    mutationFn: async (action: TeamActionCommand) => {
       if (action === 'restart') return teamsApi.restart(team.id)
       if (action === 'pause') return teamsApi.pause(team.id)
       if (action === 'resume') return teamsApi.resume(team.id)
-      return teamsApi.disable(team.id)
+      return teamsApi.update(team.id, { enabled: action === 'enable' })
     },
     onSuccess: (_result, action) => {
-      const labels = { restart: 'restart', pause: 'pause', resume: 'resume', disable: 'disable' }
+      const labels: Record<TeamActionCommand, string> = {
+        restart: 'restart',
+        pause: 'pause',
+        resume: 'resume',
+        disable: 'ปิดใช้งาน',
+        enable: 'เปิดใช้งาน',
+      }
       toast.success(`${labels[action]} ${team.name} แล้ว`)
       queryClient.invalidateQueries({ queryKey: ['teams'] })
     },
@@ -420,6 +440,7 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
   })
 
   const isPaused = team.runtimeStatus === 'paused'
+  const enableToggleAction = getTeamEnableToggleAction(team)
   const actionItems = [
     {
       key: 'edit',
@@ -449,13 +470,14 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
       danger: false,
     },
     {
-      key: 'disable',
-      label: 'Disable',
-      title: `Disable ทีม ${team.name}`,
-      icon: <PowerOff className="h-3.5 w-3.5" />,
-      onClick: () => actionMutation.mutate('disable'),
-      disabled: actionMutation.isPending || !team.enabled,
-      danger: true,
+      key: enableToggleAction.command,
+      label: enableToggleAction.label,
+      title: enableToggleAction.title,
+      icon: enableToggleAction.command === 'enable' ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />,
+      onClick: () => actionMutation.mutate(enableToggleAction.command),
+      disabled: actionMutation.isPending,
+      danger: enableToggleAction.danger,
+      success: !enableToggleAction.danger,
     },
   ]
 
@@ -472,7 +494,12 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
           type="button"
           variant="ghost"
           size="icon"
-          className={`h-9 w-9 rounded-none border-r border-white/[0.06] px-0 last:border-r-0 ${compact ? 'w-full' : ''} ${item.danger ? 'text-danger hover:text-danger hover:bg-[color:var(--color-danger-soft)]' : 'text-muted-foreground hover:text-foreground hover:bg-white/[0.06]'}`}
+          className={`h-9 w-9 rounded-none border-r border-white/[0.06] px-0 last:border-r-0 ${compact ? 'w-full' : ''} ${item.danger
+            ? 'text-danger hover:text-danger hover:bg-[color:var(--color-danger-soft)]'
+            : item.success
+              ? 'text-success hover:text-success hover:bg-[color:var(--color-success-soft)]'
+              : 'text-muted-foreground hover:text-foreground hover:bg-white/[0.06]'
+            }`}
           onClick={item.onClick}
           disabled={item.disabled}
           title={item.title}

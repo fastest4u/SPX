@@ -47,9 +47,13 @@ function runConfigValidation(overrides: Record<string, string>) {
 
   const script = `
     const mod = await import(${JSON.stringify(envModuleUrl)});
+    const validateRuntimeConfig = mod.validateRuntimeConfig ?? mod.default?.validateRuntimeConfig;
     console.log("IMPORTED");
     try {
-      mod.validateRuntimeConfig();
+      if (typeof validateRuntimeConfig !== "function") {
+        throw new Error("validateRuntimeConfig export is unavailable");
+      }
+      validateRuntimeConfig();
       console.log("VALID");
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
