@@ -10,6 +10,7 @@ export interface PublishNotificationEventInput {
   event: NotificationEventInput;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
   spool?: NotificationSpool;
+  requestTimeoutMs?: number;
 }
 
 export type PublishNotificationEventResult =
@@ -21,6 +22,7 @@ export interface SendSpooledNotificationEventInput {
   sharedSecret: string;
   nodeId?: string;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  requestTimeoutMs?: number;
 }
 
 function errorMessage(error: unknown): string {
@@ -58,6 +60,20 @@ function getHeader(headers: Record<string, string>, name: string): string | unde
   return match?.[1];
 }
 
+function timeoutSignal(timeoutMs: number | undefined): AbortSignal | undefined {
+  if (!timeoutMs || timeoutMs <= 0) return undefined;
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(timeoutMs);
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs).unref?.();
+  return controller.signal;
+}
+
+function shouldSpoolFailure(status: number | undefined): boolean {
+  if (status === undefined) return true;
+  if (status === 408 || status === 429) return true;
+  return status < 400 || status >= 500;
+}
+
 async function sendSignedNotificationEvent(input: {
   url: string;
   sharedSecret: string;
@@ -66,6 +82,7 @@ async function sendSignedNotificationEvent(input: {
   body: string;
   contentType?: string;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  requestTimeoutMs?: number;
 }): Promise<{ headers: Record<string, string>; result: PublishNotificationEventResult }> {
   const path = new URL(input.url).pathname;
   const timestamp = new Date().toISOString();
@@ -92,6 +109,7 @@ async function sendSignedNotificationEvent(input: {
       method: "POST",
       headers,
       body: input.body,
+      signal: timeoutSignal(input.requestTimeoutMs),
     });
   } catch (error) {
     return { headers, result: { ok: false, error: errorMessage(error) } };
@@ -120,9 +138,10 @@ export async function publishNotificationEvent(
     nodeId: input.nodeId,
     eventKey: input.eventKey,
     fetchImpl: input.fetchImpl,
+    requestTimeoutMs: input.requestTimeoutMs,
   });
 
-  if (!sent.result.ok) {
+  if (!sent.result.ok && shouldSpoolFailure(sent.result.status)) {
     await appendToSpool(input, stableSpoolHeaders(sent.headers), body);
   }
 
@@ -145,6 +164,7 @@ export async function sendSpooledNotificationEvent(
     eventKey: input.entry.eventKey,
     contentType: getHeader(input.entry.headers, "content-type"),
     fetchImpl: input.fetchImpl,
+    requestTimeoutMs: input.requestTimeoutMs,
   });
   return sent.result;
 }

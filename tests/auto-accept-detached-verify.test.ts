@@ -324,6 +324,11 @@ async function main(): Promise<void> {
   });
   assert.equal(published.length, 1);
   assert.match(published[0]?.event.traceId ?? "", new RegExp(`^aa:${team.id}:2706819:38659809:`));
+  const inlineSuccessRows = await getAutoAcceptHistory(team.id, { limit: 20 });
+  const inlineSuccessRow = inlineSuccessRows.find((row) => row.bookingId === 2706819);
+  assert.match(inlineSuccessRow?.traceId ?? "", new RegExp(`^aa:${team.id}:2706819:38659809:`));
+  assert.equal(inlineSuccessRow?.verificationStatus, "verified_success");
+  assert.ok(inlineSuccessRow?.verifiedAt);
   (env as unknown as { SPX_ROLE: typeof env.SPX_ROLE }).SPX_ROLE = originalRole;
   setWorkerNotificationPublisherForTests(null);
 

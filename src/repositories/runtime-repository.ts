@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gt, lte, or, sql } from "drizzle-orm";
 import { ensureDashboardTables, getDb } from "../db/client.js";
-import { runtimeNodes, teamRuntimeLeases } from "../db/schema.js";
+import { runtimeNodes, teamRuntimeDesiredState, teamRuntimeLeases } from "../db/schema.js";
 
 export interface UpsertRuntimeNodeInput {
   nodeId: string;
@@ -32,6 +32,19 @@ export interface ReleaseLeaseInput {
   teamId: number;
   nodeId: string;
   leaseToken: string;
+}
+
+export type TeamRuntimeDesiredStateValue = "running" | "paused" | "stopped" | "restart";
+export type TeamRuntimeDesiredStateRow = Omit<typeof teamRuntimeDesiredState.$inferSelect, "desiredState"> & {
+  desiredState: TeamRuntimeDesiredStateValue;
+};
+
+export interface SetTeamRuntimeDesiredStateInput {
+  teamId: number;
+  desiredState: TeamRuntimeDesiredStateValue;
+  changedByUserId?: number | null;
+  reason?: string | null;
+  now?: Date;
 }
 
 export interface LeaseAcquireResult {
@@ -84,6 +97,10 @@ function requireNonEmpty(name: string, value: string): void {
   if (value.trim().length === 0) {
     throw new Error(`${name} must be non-empty`);
   }
+}
+
+function isTeamRuntimeDesiredStateValue(value: string): value is TeamRuntimeDesiredStateValue {
+  return value === "running" || value === "paused" || value === "stopped" || value === "restart";
 }
 
 function leaseExpiry(now: Date, ttlMs: number): Date {
@@ -235,4 +252,42 @@ export async function listTeamRuntimeLeases(): Promise<Array<typeof teamRuntimeL
   await ensureDashboardTables();
   const db = await getDb();
   return await db.select().from(teamRuntimeLeases);
+}
+
+export async function setTeamRuntimeDesiredState(input: SetTeamRuntimeDesiredStateInput): Promise<void> {
+  requirePositiveInteger("teamId", input.teamId);
+  requireNonEmpty("desiredState", input.desiredState);
+
+  await ensureDashboardTables();
+  const db = await getDb();
+  const now = input.now ?? new Date();
+  const values = {
+    teamId: input.teamId,
+    desiredState: input.desiredState,
+    changedByUserId: input.changedByUserId ?? null,
+    reason: input.reason?.substring(0, 1000) ?? null,
+    updatedAt: dbTimestamp(now),
+  };
+
+  try {
+    await db.insert(teamRuntimeDesiredState).values(values);
+  } catch (error) {
+    if (!isDuplicateError(error)) throw error;
+    await db
+      .update(teamRuntimeDesiredState)
+      .set(values)
+      .where(eq(teamRuntimeDesiredState.teamId, input.teamId));
+  }
+}
+
+export async function listTeamRuntimeDesiredStates(): Promise<TeamRuntimeDesiredStateRow[]> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const rows = await db.select().from(teamRuntimeDesiredState) as Array<typeof teamRuntimeDesiredState.$inferSelect>;
+  return rows.map((row) => {
+    if (!isTeamRuntimeDesiredStateValue(row.desiredState)) {
+      throw new Error(`Invalid team runtime desired state: ${row.desiredState}`);
+    }
+    return { ...row, desiredState: row.desiredState };
+  });
 }

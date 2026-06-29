@@ -85,6 +85,7 @@ function startWorkerSpoolDrainLoop(spool: NotificationSpool): void {
         entry,
         sharedSecret: env.NOTIFIER_SHARED_SECRET,
         nodeId: env.SPX_NODE_ID,
+        requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
       });
       return result.ok;
     });
@@ -99,7 +100,10 @@ function startWorkerSpoolDrainLoop(spool: NotificationSpool): void {
 }
 
 export function createWorkerNotificationPublisher(): NotificationPublisher {
-  const spool = new NotificationSpool(env.NOTIFIER_LOCAL_SPOOL_PATH);
+  const spool = new NotificationSpool(env.NOTIFIER_LOCAL_SPOOL_PATH, {
+    baseDelayMs: env.NOTIFIER_RETRY_BASE_DELAY_MS,
+    maxAttempts: env.NOTIFIER_RETRY_MAX_ATTEMPTS,
+  });
   startWorkerSpoolDrainLoop(spool);
   return createNotificationPublisher({
     publish: async (envelope) => {
@@ -110,6 +114,7 @@ export function createWorkerNotificationPublisher(): NotificationPublisher {
         eventKey: envelope.eventKey,
         event: envelope.event,
         spool,
+        requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
       });
       return result.ok ? { ok: true } : { ok: false, error: result.error };
     },

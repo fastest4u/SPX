@@ -1,4 +1,5 @@
 import { getTeamRuntimeConfig, listEnabledTeamRuntimeConfigs, type TeamRuntimeConfig } from "../repositories/team-repository.js";
+import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState, type SetTeamRuntimeDesiredStateInput, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
 import { logger } from "../utils/logger.js";
 import { acquireTeamLease, releaseTeamLease, renewTeamLease, type AcquireTeamLeaseInput, type ReleaseTeamLeaseInput, type RenewTeamLeaseInput } from "./runtime-lease.js";
 import { TeamRuntime, type TeamRuntimeHandle, type TeamRuntimeStatus } from "./team-runtime.js";
@@ -20,14 +21,33 @@ export interface TeamRuntimeManagerOptions {
   intervalSec?: number;
   assignedTeamIds?: number[];
   lease?: TeamRuntimeLeaseOptions;
+  desiredState?: TeamRuntimeDesiredStateOptions;
 }
 
 interface RuntimeLeaseState {
   leaseToken: string;
   renewTimer: ReturnType<typeof setInterval>;
+  expiresAtMs: number;
 }
 
 type NormalizedTeamRuntimeLeaseOptions = Required<Pick<TeamRuntimeLeaseOptions, "nodeId" | "role" | "ttlMs" | "renewIntervalMs" | "acquire" | "renew" | "release">>;
+
+export interface TeamRuntimeDesiredStateRecord {
+  teamId: number;
+  desiredState: TeamRuntimeDesiredStateValue;
+}
+
+export interface TeamRuntimeDesiredStateOptions {
+  intervalMs?: number;
+  list?: () => Promise<TeamRuntimeDesiredStateRecord[]>;
+  set?: (input: SetTeamRuntimeDesiredStateInput) => Promise<void>;
+}
+
+type NormalizedTeamRuntimeDesiredStateOptions = Required<Pick<TeamRuntimeDesiredStateOptions, "intervalMs" | "list" | "set">>;
+
+export interface TeamRuntimeDesiredStateLoop {
+  stop(): void;
+}
 
 export class TeamRuntimeManager {
   private readonly loadEnabledTeams: () => Promise<TeamRuntimeConfig[]>;
@@ -35,10 +55,12 @@ export class TeamRuntimeManager {
   private readonly createRuntime: (team: TeamRuntimeConfig) => TeamRuntimeHandle;
   private readonly assignedTeamIds: Set<number> | null;
   private readonly lease: NormalizedTeamRuntimeLeaseOptions | null;
+  private readonly desiredState: NormalizedTeamRuntimeDesiredStateOptions | null;
   private readonly runtimes = new Map<number, TeamRuntimeHandle>();
   private readonly lastStatuses = new Map<number, TeamRuntimeStatus>();
   private readonly teamConfigs = new Map<number, TeamRuntimeConfig>();
   private readonly leases = new Map<number, RuntimeLeaseState>();
+  private desiredStateLoop: TeamRuntimeDesiredStateLoop | null = null;
 
   constructor(options: TeamRuntimeManagerOptions = {}) {
     this.loadEnabledTeams = options.loadEnabledTeams ?? listEnabledTeamRuntimeConfigs;
@@ -55,6 +77,11 @@ export class TeamRuntimeManager {
       acquire: options.lease.acquire ?? acquireTeamLease,
       renew: options.lease.renew ?? renewTeamLease,
       release: options.lease.release ?? releaseTeamLease,
+    } : null;
+    this.desiredState = options.desiredState ? {
+      intervalMs: options.desiredState.intervalMs ?? 1_000,
+      list: options.desiredState.list ?? listTeamRuntimeDesiredStates,
+      set: options.desiredState.set ?? setTeamRuntimeDesiredState,
     } : null;
   }
 
@@ -190,17 +217,49 @@ export class TeamRuntimeManager {
   }
 
   async restartAll(): Promise<void> {
-    await this.stopAll();
+    await this.stopAllRuntimes();
     await this.startAllEnabledTeams();
   }
 
   async stopAll(): Promise<void> {
-    for (const [teamId, runtime] of [...this.runtimes]) {
-      await runtime.stop();
-      this.lastStatuses.set(teamId, runtime.status());
-      await this.releaseRuntimeLease(teamId);
+    this.stopDesiredStateLoop();
+    await this.stopAllRuntimes();
+  }
+
+  async reconcileDesiredStates(): Promise<void> {
+    if (!this.desiredState) return;
+    const states = await this.desiredState.list();
+    for (const state of states.sort((a, b) => a.teamId - b.teamId)) {
+      if (!this.isAssigned(state.teamId)) continue;
+      await this.applyDesiredState(state.teamId, state.desiredState);
     }
-    this.runtimes.clear();
+  }
+
+  startDesiredStateLoop(): TeamRuntimeDesiredStateLoop {
+    if (this.desiredStateLoop) return this.desiredStateLoop;
+    const timer = setInterval(() => {
+      void this.reconcileDesiredStates().catch((error) => {
+        logger.warn("team-runtime-desired-state-reconcile-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, this.desiredState?.intervalMs ?? 1_000);
+    timer.unref?.();
+    const loop: TeamRuntimeDesiredStateLoop = {
+      stop: () => {
+        clearInterval(timer);
+        if (this.desiredStateLoop === loop) this.desiredStateLoop = null;
+      },
+    };
+    this.desiredStateLoop = loop;
+    void this.reconcileDesiredStates().catch(() => undefined);
+    return this.desiredStateLoop;
+  }
+
+  stopDesiredStateLoop(): void {
+    const loop = this.desiredStateLoop;
+    this.desiredStateLoop = null;
+    loop?.stop();
   }
 
   private async acquireRuntimeLease(team: TeamRuntimeConfig): Promise<boolean> {
@@ -227,7 +286,11 @@ export class TeamRuntimeManager {
       void this.renewRuntimeLease(team.id, result.leaseToken!);
     }, this.lease.renewIntervalMs);
     renewTimer.unref?.();
-    this.leases.set(team.id, { leaseToken: result.leaseToken, renewTimer });
+    this.leases.set(team.id, {
+      leaseToken: result.leaseToken,
+      renewTimer,
+      expiresAtMs: Date.now() + this.lease.ttlMs,
+    });
     return true;
   }
 
@@ -243,13 +306,28 @@ export class TeamRuntimeManager {
       if (!renewed) {
         logger.warn("team-runtime-lease-renew-lost", { teamId, nodeId: this.lease.nodeId });
         await this.stopTeam(teamId);
+      } else {
+        const leaseState = this.leases.get(teamId);
+        if (leaseState) leaseState.expiresAtMs = Date.now() + this.lease.ttlMs;
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn("team-runtime-lease-renew-failed", {
         teamId,
         nodeId: this.lease.nodeId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
+      const leaseState = this.leases.get(teamId);
+      if (leaseState && Date.now() >= leaseState.expiresAtMs) {
+        await this.stopTeam(teamId);
+        const known = this.lastStatuses.get(teamId);
+        if (known) {
+          this.lastStatuses.set(teamId, {
+            ...known,
+            lastError: `Lease renew failed before expiry: ${errorMessage}`,
+          });
+        }
+      }
     }
   }
 
@@ -289,6 +367,51 @@ export class TeamRuntimeManager {
 
   private isAssigned(teamId: number): boolean {
     return this.assignedTeamIds === null || this.assignedTeamIds.has(teamId);
+  }
+
+  private async applyDesiredState(teamId: number, desiredState: TeamRuntimeDesiredStateValue): Promise<void> {
+    const status = this.getStatus(teamId)?.status;
+    if (desiredState === "restart") {
+      await this.restartTeam(teamId);
+      await this.markDesiredStateApplied(teamId, "running", "restart applied by worker");
+      return;
+    }
+    if (desiredState === "stopped") {
+      if (status !== "stopped") await this.stopTeam(teamId);
+      return;
+    }
+    if (desiredState === "paused") {
+      if (status === "paused") return;
+      if (!status || status === "stopped") await this.restartTeam(teamId);
+      if (this.getStatus(teamId)?.status === "running") await this.pauseTeam(teamId);
+      return;
+    }
+    if (desiredState === "running") {
+      if (status === "running") return;
+      if (status === "paused") {
+        await this.resumeTeam(teamId);
+        return;
+      }
+      await this.restartTeam(teamId);
+    }
+  }
+
+  private async markDesiredStateApplied(
+    teamId: number,
+    desiredState: TeamRuntimeDesiredStateValue,
+    reason: string,
+  ): Promise<void> {
+    if (!this.desiredState) return;
+    await this.desiredState.set({ teamId, desiredState, reason });
+  }
+
+  private async stopAllRuntimes(): Promise<void> {
+    for (const [teamId, runtime] of [...this.runtimes]) {
+      await runtime.stop();
+      this.lastStatuses.set(teamId, runtime.status());
+      await this.releaseRuntimeLease(teamId);
+    }
+    this.runtimes.clear();
   }
 
   private misconfiguredStatus(team: TeamRuntimeConfig): TeamRuntimeStatus {

@@ -41,6 +41,51 @@ async function main(): Promise<void> {
   await manager.stopTeam(2);
   assert.equal(manager.getStatus(2)?.status, "stopped");
   assert.deepEqual(events, ["start:1:ca-v1", "pause:1", "resume:1", "stop:1", "start:1:ca-v2", "stop:1"]);
+
+  let desiredStates: Array<{ teamId: number; desiredState: "restart" | "running" | "paused" | "stopped" }> = [
+    { teamId: 1, desiredState: "restart" },
+  ];
+  const appliedDesiredStates: string[] = [];
+  version = "v1";
+  events.length = 0;
+  const desiredManager = new TeamRuntimeManager({
+    loadEnabledTeams: async () => [
+      { id: 1, name: `A-${version}`, enabled: true, spxCookie: `ca-${version}`, spxDeviceId: "da", lineGroupId: "ga" },
+    ],
+    loadTeam: async (teamId) => {
+      if (teamId !== 1) return null;
+      return { id: 1, name: `A-${version}`, enabled: true, spxCookie: `ca-${version}`, spxDeviceId: "da", lineGroupId: "ga" };
+    },
+    createRuntime: (team) => {
+      let status: "stopped" | "running" | "paused" = "stopped";
+      return {
+        teamId: team.id,
+        start: async () => { status = "running"; events.push(`start:${team.id}:${team.spxCookie}`); },
+        stop: async () => { status = "stopped"; events.push(`stop:${team.id}`); },
+        pause: () => { status = "paused"; events.push(`pause:${team.id}`); },
+        resume: () => { status = "running"; events.push(`resume:${team.id}`); },
+        status: () => ({ teamId: team.id, teamName: team.name, status, lastPollAt: null, lastError: null }),
+      };
+    },
+    desiredState: {
+      list: async () => desiredStates,
+      set: async ({ teamId, desiredState }) => {
+        appliedDesiredStates.push(`${teamId}:${desiredState}`);
+        desiredStates = desiredStates.map((state) =>
+          state.teamId === teamId ? { ...state, desiredState } : state
+        );
+      },
+    },
+  });
+
+  await desiredManager.startAllEnabledTeams();
+  version = "v2";
+  await desiredManager.reconcileDesiredStates();
+
+  assert.deepEqual(events, ["start:1:ca-v1", "stop:1", "start:1:ca-v2"]);
+  assert.deepEqual(appliedDesiredStates, ["1:running"]);
+  assert.equal(desiredManager.getStatus(1)?.status, "running");
+
   console.log("team-runtime-manager: all assertions passed");
 }
 

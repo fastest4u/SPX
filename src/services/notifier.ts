@@ -1586,6 +1586,10 @@ async function acceptAutoAcceptMatch(
         destination: textValue(entry.trips[0]?.destination ?? entry.trips[0]?.["ปลายทาง"]),
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "success",
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_success",
+        verifiedAt: new Date(),
       }));
     }
 
@@ -1631,6 +1635,10 @@ async function acceptAutoAcceptMatch(
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "failed",
         errorMessage: result.error,
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_failed",
+        verifiedAt: new Date(),
       }));
     }
 
@@ -1687,6 +1695,10 @@ async function acceptAutoAcceptMatch(
         vehicleType: textValue(entry.trips[0]?.vehicle_type ?? entry.trips[0]?.["ประเภทรถ"]),
         status: "failed",
         errorMessage: result.error,
+        traceId,
+        acceptRttMs,
+        verificationStatus: "verified_failed",
+        verifiedAt: new Date(),
       }));
     } else if (!verificationRan && verifiedAcceptedIds.length === 0 && verifiedFailedIds.length === 0 && deferredIds.length === 0) {
       // Verification could not run (transient double fetch failure or fetch

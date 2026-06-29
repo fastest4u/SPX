@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { eq } from "drizzle-orm";
+import { closePool, getDb } from "../src/db/client.js";
+import { resetMemoryDb } from "../src/db/client-memory.js";
+import { teamRuntimeDesiredState } from "../src/db/schema.js";
 import { createRoleAwareTeamRuntimeActions } from "../src/services/team-runtime-actions.js";
 import { TeamRuntimeManager, type TeamRuntimeLeaseOptions } from "../src/services/team-runtime-manager.js";
 import type { TeamRuntimeConfig } from "../src/repositories/team-repository.js";
@@ -78,15 +82,31 @@ async function main(): Promise<void> {
   }
 
   {
+    await closePool();
+    resetMemoryDb();
     const { manager, events } = createManager();
     const actions = createRoleAwareTeamRuntimeActions(manager, false);
 
-    assert.equal(actions.restartTeam, undefined);
-    assert.equal(actions.pauseTeam, undefined);
-    assert.equal(actions.resumeTeam, undefined);
-    assert.equal(actions.stopTeam, undefined);
-    assert.equal(actions.restartAll, undefined);
+    assert.equal(typeof actions.restartTeam, "function");
+    assert.equal(typeof actions.pauseTeam, "function");
+    assert.equal(typeof actions.resumeTeam, "function");
+    assert.equal(typeof actions.stopTeam, "function");
     assert.equal(actions.getStatus?.(1), null);
+
+    await actions.restartTeam?.(2);
+    await actions.pauseTeam?.(2);
+    await actions.resumeTeam?.(2);
+    await actions.stopTeam?.(2);
+
+    const db = await getDb();
+    const [row] = await db
+      .select()
+      .from(teamRuntimeDesiredState)
+      .where(eq(teamRuntimeDesiredState.teamId, 2))
+      .limit(1);
+
+    assert.equal(row?.desiredState, "stopped");
+    assert.match(row?.reason ?? "", /stop/i);
     assert.deepEqual(events, []);
   }
 
@@ -141,6 +161,31 @@ async function main(): Promise<void> {
     await second.manager.stopAll();
   }
 
+  {
+    const { manager, events } = createManager({
+      assignedTeamIds: [2],
+      lease: {
+        nodeId: "throwing-renew-worker",
+        role: "worker",
+        ttlMs: 20,
+        renewIntervalMs: 5,
+        acquire: async ({ teamId }) => ({ acquired: true, leaseToken: `lease:${teamId}` }),
+        renew: async () => {
+          throw new Error("database unavailable");
+        },
+        release: async () => true,
+      },
+    });
+
+    await manager.startAllEnabledTeams();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.deepEqual(events, ["create:2", "start:2", "stop:2"]);
+    assert.equal(manager.getStatus(2)?.status, "stopped");
+    assert.match(manager.getStatus(2)?.lastError ?? "", /lease renew failed/i);
+  }
+
+  await closePool();
   console.log("team-runtime-manager-assignment: all assertions passed");
 }
 

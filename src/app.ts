@@ -1,6 +1,7 @@
 import { validateRuntimeConfig, env } from "./config/env.js";
 import { closePool } from "./db/client.js";
 import { setTeamRuntimeActions } from "./controllers/teams-controller.js";
+import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState } from "./repositories/runtime-repository.js";
 import { ensureDefaultTeamFromLegacySettings } from "./repositories/team-repository.js";
 import { createAdminUserIfNotExists } from "./repositories/user-repository.js";
 import { startHttpServer, stopHttpServer } from "./services/http-server.js";
@@ -34,14 +35,14 @@ function canUseSettingsDatabase(): boolean {
 function installShutdownHandlers(
   manager: TeamRuntimeManager,
   shouldStopHttp: () => boolean,
-  stopNotificationLoop: () => void,
+  stopBackgroundLoops: () => void,
 ): void {
   let shuttingDown = false;
   const shutdown = async (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
     try {
-      stopNotificationLoop();
+      stopBackgroundLoops();
       await manager.stopAll();
       if (shouldStopHttp()) await stopHttpServer();
       await getSpxDispatcher().close();
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   const intervalSec = parseIntervalArg(process.argv[2]);
   let httpStarted = false;
   let notificationLoop: NotificationDispatchLoop | null = null;
+  let stopDesiredStateLoop: (() => void) | null = null;
 
   if (canUseSettingsDatabase()) {
     await migrateEnvSettingsToDb();
@@ -98,12 +100,19 @@ async function main(): Promise<void> {
       ttlMs: 30_000,
       renewIntervalMs: 10_000,
     } : undefined,
+    desiredState: roleRunsWorkers(env.SPX_ROLE) ? {
+      intervalMs: 1_000,
+      list: listTeamRuntimeDesiredStates,
+      set: setTeamRuntimeDesiredState,
+    } : undefined,
   });
   const workerActionsEnabled = roleRunsWorkers(env.SPX_ROLE);
   setTeamRuntimeActions(createRoleAwareTeamRuntimeActions(runtimeManager, workerActionsEnabled));
   installShutdownHandlers(runtimeManager, () => httpStarted, () => {
     notificationLoop?.stop();
     notificationLoop = null;
+    stopDesiredStateLoop?.();
+    stopDesiredStateLoop = null;
   });
 
   if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
@@ -123,6 +132,8 @@ async function main(): Promise<void> {
 
   if (roleRunsWorkers(env.SPX_ROLE)) {
     await runtimeManager.startAllEnabledTeams();
+    const loop = runtimeManager.startDesiredStateLoop();
+    stopDesiredStateLoop = () => loop.stop();
   }
 }
 

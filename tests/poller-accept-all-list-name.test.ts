@@ -213,6 +213,9 @@ async function main(): Promise<void> {
     assert.equal(row?.origin, "NORC-B");
     assert.equal(row?.destination, "SOCs");
     assert.equal(row?.vehicleType, "6WH-6ล้อ[7.2m]");
+    assert.match(row?.traceId ?? "", /^aa:1:2706815:38659805-38659806:/);
+    assert.equal(row?.verificationStatus, "verified_success");
+    assert.ok(row?.verifiedAt);
     assert.ok(detailFetchCalls >= 2, "fast accept_all reconcile must fetch pending and confirmed tabs after accept_all");
     assert.equal(published.length, 1, "worker fast accept_all reconcile must publish success centrally");
     assert.equal(published[0]?.eventKey, "auto_accept_owned:team:1:booking:2706815:req:38659805");
@@ -420,6 +423,9 @@ async function main(): Promise<void> {
     assert.equal(successRow?.acceptedCount, 1);
     assert.equal(successRow?.origin, "NORC-B");
     assert.equal(successRow?.destination, "SOCs");
+    assert.match(successRow?.traceId ?? "", /^aa:1:2791810:40288114:/);
+    assert.equal(successRow?.verificationStatus, "verified_success");
+    assert.ok(successRow?.verifiedAt);
     assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 0);
     assert.equal(
       historyRows.some((item) => item.bookingId === 2791810 && item.status === "failed" && item.requestIds.includes(40288194)),

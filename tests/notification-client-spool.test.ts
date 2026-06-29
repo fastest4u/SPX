@@ -263,6 +263,85 @@ async function main(): Promise<void> {
     await spool.append({
       eventKey,
       url,
+      headers: { "content-type": "application/json" },
+      body: expectedBody,
+    });
+
+    const appendedDuringFlush = {
+      eventKey: `${eventKey}:during-flush`,
+      url,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...event, requestIds: ["40288115"] }),
+    };
+    const result = await spool.flush(async () => {
+      await spool.append(appendedDuringFlush);
+      return true;
+    });
+
+    assert.deepEqual(result, { sent: 1, retained: 0 });
+    const entries = await spool.readAll();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.eventKey, appendedDuringFlush.eventKey);
+  });
+
+  await withTempSpool(async (spool) => {
+    const result = await publishNotificationEvent({
+      url,
+      sharedSecret,
+      nodeId,
+      eventKey,
+      event,
+      spool,
+      fetchImpl: async () => textResponse("bad signature", 401),
+    });
+
+    assert.deepEqual(result, { ok: false, status: 401, error: "bad signature" });
+    assert.deepEqual(await spool.readAll(), [], "permanent auth/validation failures must not spool forever");
+  });
+
+  await withTempSpool(async (spool) => {
+    let signalSeen = false;
+    const result = await publishNotificationEvent({
+      url,
+      sharedSecret,
+      nodeId,
+      eventKey,
+      event,
+      spool,
+      requestTimeoutMs: 25,
+      fetchImpl: async (_url, init) => {
+        signalSeen = init?.signal instanceof AbortSignal;
+        return okResponse({ data: { duplicate: false } }, 200);
+      },
+    });
+
+    assert.deepEqual(result, { ok: true, duplicate: false, status: 200 });
+    assert.equal(signalSeen, true);
+  });
+
+  await withTempSpool(async (spool) => {
+    const limited = new NotificationSpool((spool as unknown as { filePath: string }).filePath, {
+      maxAttempts: 2,
+      baseDelayMs: 1_000,
+    });
+    await limited.append({
+      eventKey,
+      url,
+      headers: { "content-type": "application/json" },
+      body: expectedBody,
+      retryCount: 1,
+      nextRetryAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+
+    const result = await limited.flush(async () => false);
+    assert.deepEqual(result, { sent: 0, retained: 0 });
+    assert.deepEqual(await limited.readAll(), [], "entries at max attempts should be dropped");
+  });
+
+  await withTempSpool(async (spool) => {
+    await spool.append({
+      eventKey,
+      url,
       headers: {
         "content-type": "application/json",
         "x-spx-node-id": nodeId,

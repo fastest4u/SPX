@@ -1146,6 +1146,9 @@ export class Poller {
           vehicleType: textValue(observedTrips[0]?.["ประเภทรถ"]),
           status: "failed",
           errorMessage: message,
+          traceId,
+          verificationStatus: "verified_failed",
+          verifiedAt: new Date(),
         });
       }
       this.tickNeedBudget.release(match.ruleId, claimToken, claimedCount);
@@ -1216,6 +1219,9 @@ export class Poller {
         vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
         status: "success",
         errorMessage: null,
+        traceId,
+        verificationStatus: "verified_success",
+        verifiedAt: new Date(),
       });
     }
 
@@ -1357,6 +1363,12 @@ export class Poller {
         const acceptedTrips = group.trips.filter(isVerifiedFastAcceptAllTrip);
         const requestIds = acceptedTrips.map((trip) => trip.request_id);
         if (requestIds.length === 0) continue;
+        const traceId = buildAutoAcceptTraceId({
+          teamId: this.teamId,
+          bookingId: booking.booking_id,
+          requestIds,
+          acceptStartedAt: Date.now(),
+        });
 
         await insertAutoAcceptHistory(this.teamId, {
           ruleId,
@@ -1368,6 +1380,7 @@ export class Poller {
           destination: textValue(acceptedTrips[0]?.["ปลายทาง"]),
           vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
           status: "success",
+          traceId,
           verificationStatus: "verified_success",
           verifiedAt: new Date(),
         });
