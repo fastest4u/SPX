@@ -12,7 +12,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "build": "npm run typecheck --silent && rimraf dist && esbuild src/app.ts src/scripts/generate-migration.ts src/scripts/db-migrate.ts src/scripts/db-reset.ts src/scripts/db-test.ts src/scripts/smoke-test.ts src/scripts/test-memory-db.ts --bundle --platform=node --target=node22 --minify --outdir=dist --packages=external && npx vite build --emptyOutDir",
+    "build": "npm run typecheck --silent && rimraf dist && esbuild src/app.ts src/scripts/generate-migration.ts src/scripts/db-migrate.ts src/scripts/db-reset.ts src/scripts/db-test.ts src/scripts/smoke-test.ts src/scripts/test-memory-db.ts --bundle --platform=node --target=node24 --minify --outdir=dist --packages=external && npx vite build --emptyOutDir",
     "start": "node dist/app.js",
     "dev": "concurrently --kill-others --names backend,frontend --prefix-colors blue,green \"node scripts/dev-backend.mjs\" \"node scripts/dev-frontend.mjs\"",
     "watch": "tsc --watch",
@@ -40,7 +40,7 @@
     "logistics"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.16.0"
   },
   "author": "",
   "license": "MIT",
@@ -85,7 +85,7 @@
     "@tailwindcss/vite": "^4.1.4",
     "@tanstack/router-plugin": "^1.117.1",
     "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^22.19.21",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^6.0.2",
