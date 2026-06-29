@@ -1,30 +1,63 @@
+x-spx-common: &spx-common
+  build: .
+  image: spx-app:latest
+  env_file:
+    - .env
+  volumes:
+    - ./.env:/app/.env
+    - ./notify-rules.json:/app/notify-rules.json
+    - ./data:/app/data
+  restart: unless-stopped
+  stop_grace_period: 120s
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
+
 services:
-  app:
-    build: .
+  notifier:
+    <<: *spx-common
     ports:
       - "127.0.0.1:3000:3000"
-    env_file:
-      - .env
-    volumes:
-      - ./.env:/app/.env
-      - ./notify-rules.json:/app/notify-rules.json
-      - ./data:/app/data
-    restart: unless-stopped
-    # `exec` makes node replace sh as PID 1 so SIGTERM reaches the app and the
-    # graceful shutdown path (detail-job drain, save-queue flush, final
-    # metrics) actually runs on deploys. Worst-case budget: <=30s bounded
-    # active-tick wait + <=30s detail drain + ~33s save-queue flush retries
-    # against a failing DB + final metrics insert, with headroom.
+    environment:
+      SPX_ROLE: notifier
+      SPX_NODE_ID: prod-notifier-1
+      NOTIFIER_AUTH_MODE: hmac
+    # The notifier owns HTTP, central LINE delivery, and the one production
+    # migration run. Workers only start after this service is healthy.
     command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
-    stop_grace_period: 120s
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "5"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  worker-ifn:
+    <<: *spx-common
+    depends_on:
+      notifier:
+        condition: service_healthy
+    environment:
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-ifn-1
+      RUN_TEAM_IDS: "2"
+      NOTIFIER_AUTH_MODE: hmac
+      NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]
+
+  worker-ptwl:
+    <<: *spx-common
+    depends_on:
+      notifier:
+        condition: service_healthy
+    environment:
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-ptwl-1
+      RUN_TEAM_IDS: "1"
+      NOTIFIER_AUTH_MODE: hmac
+      NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]

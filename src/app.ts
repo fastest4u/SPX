@@ -4,8 +4,12 @@ import { setTeamRuntimeActions } from "./controllers/teams-controller.js";
 import { ensureDefaultTeamFromLegacySettings } from "./repositories/team-repository.js";
 import { createAdminUserIfNotExists } from "./repositories/user-repository.js";
 import { startHttpServer, stopHttpServer } from "./services/http-server.js";
+import { startNotificationDispatchLoop, type NotificationDispatchLoop } from "./services/notification-dispatcher.js";
+import { sendLineTargetMessage } from "./services/notifier.js";
 import { migrateJsonToDb } from "./services/notify-rules.js";
+import { roleRunsHttp, roleRunsNotifier, roleRunsWorkers } from "./services/runtime-role.js";
 import { loadDbSettingsIntoEnv, migrateEnvSettingsToDb } from "./services/settings.js";
+import { createRoleAwareTeamRuntimeActions } from "./services/team-runtime-actions.js";
 import { TeamRuntimeManager } from "./services/team-runtime-manager.js";
 import { getSpxDispatcher } from "./utils/http-dispatcher.js";
 
@@ -27,14 +31,19 @@ function canUseSettingsDatabase(): boolean {
   return usesDatabase && (env.DB_MODE === "memory" || Boolean(env.DB_HOST && env.DB_USERNAME && env.DB_PASSWORD && env.DB_NAME));
 }
 
-function installShutdownHandlers(manager: TeamRuntimeManager): void {
+function installShutdownHandlers(
+  manager: TeamRuntimeManager,
+  shouldStopHttp: () => boolean,
+  stopNotificationLoop: () => void,
+): void {
   let shuttingDown = false;
   const shutdown = async (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
     try {
+      stopNotificationLoop();
       await manager.stopAll();
-      if (env.HTTP_ENABLED) await stopHttpServer();
+      if (shouldStopHttp()) await stopHttpServer();
       await getSpxDispatcher().close();
       await closePool();
     } catch (error) {
@@ -58,6 +67,8 @@ function installShutdownHandlers(manager: TeamRuntimeManager): void {
 
 async function main(): Promise<void> {
   const intervalSec = parseIntervalArg(process.argv[2]);
+  let httpStarted = false;
+  let notificationLoop: NotificationDispatchLoop | null = null;
 
   if (canUseSettingsDatabase()) {
     await migrateEnvSettingsToDb();
@@ -74,26 +85,45 @@ async function main(): Promise<void> {
     await ensureDefaultTeamFromLegacySettings();
   }
 
-  if (env.HTTP_ENABLED) {
+  if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
     await createAdminUserIfNotExists(env.ADMIN_USERNAME, env.ADMIN_PASSWORD, env.ADMIN_ROLE);
   }
 
-  const runtimeManager = new TeamRuntimeManager({ intervalSec });
-  setTeamRuntimeActions({
-    restartTeam: (teamId) => runtimeManager.restartTeam(teamId),
-    pauseTeam: (teamId) => runtimeManager.pauseTeam(teamId),
-    resumeTeam: (teamId) => runtimeManager.resumeTeam(teamId),
-    stopTeam: (teamId) => runtimeManager.stopTeam(teamId),
-    restartAll: () => runtimeManager.restartAll(),
-    getStatus: (teamId) => runtimeManager.getStatus(teamId),
+  const runtimeManager = new TeamRuntimeManager({
+    intervalSec,
+    assignedTeamIds: env.SPX_ROLE === "worker" ? env.RUN_TEAM_IDS : undefined,
+    lease: roleRunsWorkers(env.SPX_ROLE) ? {
+      nodeId: env.SPX_NODE_ID || "combined-worker",
+      role: env.SPX_ROLE,
+      ttlMs: 30_000,
+      renewIntervalMs: 10_000,
+    } : undefined,
   });
-  installShutdownHandlers(runtimeManager);
+  const workerActionsEnabled = roleRunsWorkers(env.SPX_ROLE);
+  setTeamRuntimeActions(createRoleAwareTeamRuntimeActions(runtimeManager, workerActionsEnabled));
+  installShutdownHandlers(runtimeManager, () => httpStarted, () => {
+    notificationLoop?.stop();
+    notificationLoop = null;
+  });
 
-  if (env.HTTP_ENABLED) {
+  if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
     await startHttpServer(env.HTTP_PORT);
+    httpStarted = true;
   }
 
-  await runtimeManager.startAllEnabledTeams();
+  if (roleRunsNotifier(env.SPX_ROLE)) {
+    notificationLoop = startNotificationDispatchLoop({
+      nodeId: env.SPX_NODE_ID || "combined-notifier",
+      batchSize: 10,
+      lockMs: 30_000,
+      intervalMs: 1_000,
+      sendLineMessage: sendLineTargetMessage,
+    });
+  }
+
+  if (roleRunsWorkers(env.SPX_ROLE)) {
+    await runtimeManager.startAllEnabledTeams();
+  }
 }
 
 main().catch((error) => {

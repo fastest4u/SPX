@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, sendAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type ClaimToken, type TeamNotificationContext } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type ClaimToken, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -16,6 +16,7 @@ import {
 import type { AcceptAllBookingNameRuleMatch, NotifyRule } from "../services/notify-rules.js";
 import { ensureMetricsTable, insertMetricsSnapshot } from "../repositories/metrics-repository.js";
 import { getRecentAutoAcceptRequestKeys, insertAutoAcceptHistory, insertAutoAcceptHistoryAndGetId, updateAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
+import { upsertAutoAcceptResult, type AutoAcceptResultStatus } from "../repositories/auto-accept-result-repository.js";
 import {
   logger,
   formatHeader,
@@ -33,6 +34,7 @@ import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTrip
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
+import { buildAutoAcceptTraceId } from "../services/auto-accept-diagnostics.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { isTeamPaused } from "../services/poller-control.js";
 
@@ -80,6 +82,38 @@ function isVerifiedFastAcceptAllTrip(trip: ExtractedTripInfo): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function recordFastAcceptAllResultSafely(input: {
+  teamId: number;
+  bookingId: number;
+  requestId: number;
+  traceId: string;
+  status: AutoAcceptResultStatus;
+  reasonCode: string;
+  evidence: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await upsertAutoAcceptResult({
+      teamId: input.teamId,
+      bookingId: input.bookingId,
+      requestId: input.requestId,
+      winningAttemptTraceId: input.traceId,
+      status: input.status,
+      reasonCode: input.reasonCode,
+      evidence: input.evidence,
+    });
+  } catch (error) {
+    logger.warn("auto-accept-list-name-result-write-failed", {
+      teamId: input.teamId,
+      bookingId: input.bookingId,
+      requestId: input.requestId,
+      traceId: input.traceId,
+      status: input.status,
+      reasonCode: input.reasonCode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export interface TeamPollerContext {
@@ -1080,6 +1114,29 @@ export class Poller {
     if (acceptedTrips.length === 0) {
       const requestIds = observedTrips.map((trip) => trip.request_id);
       const message = `Accept response was not confirmed by SPX request-list status; expected ${expectedAcceptedCount} accepted request(s), found 0`;
+      const traceId = buildAutoAcceptTraceId({
+        teamId: this.teamId,
+        bookingId: booking.booking_id,
+        requestIds: requestIds.length > 0 ? requestIds : [booking.booking_id],
+        acceptStartedAt: Date.now(),
+      });
+      for (const requestId of requestIds) {
+        await recordFastAcceptAllResultSafely({
+          teamId: this.teamId,
+          bookingId: booking.booking_id,
+          requestId,
+          traceId,
+          status: "lost",
+          reasonCode: "verified_not_owned",
+          evidence: {
+            source: "fast_accept_all_reconcile",
+            expectedAcceptedCount,
+            foundAcceptedCount: 0,
+            acceptanceStatus: observedTrips.find((trip) => trip.request_id === requestId)?.acceptance_status,
+            message,
+          },
+        });
+      }
       if (historyId !== null) {
         await updateAutoAcceptHistory(this.teamId, historyId, {
           requestIds,
@@ -1104,6 +1161,52 @@ export class Poller {
     }
 
     const requestIds = acceptedTrips.map((trip) => trip.request_id);
+    const traceId = buildAutoAcceptTraceId({
+      teamId: this.teamId,
+      bookingId: booking.booking_id,
+      requestIds,
+      acceptStartedAt: Date.now(),
+    });
+    const acceptedRequestIds = new Set(requestIds);
+    const nonOwnedTrips = observedTrips.filter((trip) =>
+      Number.isInteger(trip.request_id)
+      && trip.request_id > 0
+      && !acceptedRequestIds.has(trip.request_id)
+    );
+    for (const requestId of requestIds) {
+      await recordFastAcceptAllResultSafely({
+        teamId: this.teamId,
+        bookingId: booking.booking_id,
+        requestId,
+        traceId,
+        status: "owned",
+        reasonCode: "verified_owned",
+        evidence: {
+          source: "fast_accept_all_reconcile",
+          expectedAcceptedCount,
+          foundAcceptedCount: acceptedTrips.length,
+          acceptAll: true,
+        },
+      });
+    }
+    for (const trip of nonOwnedTrips) {
+      await recordFastAcceptAllResultSafely({
+        teamId: this.teamId,
+        bookingId: booking.booking_id,
+        requestId: trip.request_id,
+        traceId,
+        status: "lost",
+        reasonCode: "verified_not_owned",
+        evidence: {
+          source: "fast_accept_all_reconcile",
+          expectedAcceptedCount,
+          observedCount: observedTrips.length,
+          acceptedCount: acceptedTrips.length,
+          observedStatus: trip.acceptance_status,
+          acceptAll: true,
+        },
+      });
+    }
     if (historyId !== null) {
       await updateAutoAcceptHistory(this.teamId, historyId, {
         requestIds,
@@ -1142,9 +1245,18 @@ export class Poller {
       });
     }
 
-    await sendAutoAcceptSuccessNotification(
+    await routeAutoAcceptSuccessNotification(
       acceptedTrips.map((trip) => ({ trip, bookingId: booking.booking_id, requestId: trip.request_id })),
-      this.notificationContext
+      {
+        teamId: this.teamId,
+        notificationContext: this.notificationContext,
+        source: "notifier",
+        traceId,
+        evidence: {
+          acceptedCount: acceptedTrips.length,
+          sourcePath: "fast_accept_all_reconcile",
+        },
+      },
     );
 
     logger.info("auto-accept-list-name-reconciled", {
@@ -1285,13 +1397,31 @@ export class Poller {
       }
 
       if (acceptedForNotification.size > 0) {
-        await sendAutoAcceptSuccessNotification(
+        const notificationRequestIds = [...acceptedForNotification.keys()].sort((left, right) => left - right);
+        const traceId = buildAutoAcceptTraceId({
+          teamId: this.teamId,
+          bookingId: booking.booking_id,
+          requestIds: notificationRequestIds,
+          acceptStartedAt: Date.now(),
+        });
+        await routeAutoAcceptSuccessNotification(
           [...acceptedForNotification.values()].map((trip) => ({
             trip,
             bookingId: booking.booking_id,
             requestId: trip.request_id,
+            traceId,
           })),
-          this.notificationContext
+          {
+            teamId: this.teamId,
+            notificationContext: this.notificationContext,
+            source: "notifier",
+            traceId,
+            evidence: {
+              acceptedCount: acceptedForNotification.size,
+              sourcePath: "own_status_reconcile",
+              traceId,
+            },
+          },
         );
       }
 
