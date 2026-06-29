@@ -42,12 +42,13 @@ function requestListItem(
   status: number,
   origin: string,
   destination: string,
-  vehicleTypeName = "6WH-6ล้อ[7.2m]"
+  vehicleTypeName = "6WH-6ล้อ[7.2m]",
+  bookingId = 2706815
 ): BookingRequestListResponse["data"]["request_list"][number] {
   return {
     onsite_id: requestId,
     request_id: requestId,
-    booking_id: 2706815,
+    booking_id: bookingId,
     booking_date: 1782144000,
     report_station_id: 0,
     report_station_name: "",
@@ -245,6 +246,99 @@ async function main(): Promise<void> {
     assert.equal(row?.acceptedCount, 0);
     assert.match(row?.errorMessage ?? "", /not confirmed|ambiguous/i);
     assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 1);
+  }
+
+  await closePool();
+  resetMemoryDb();
+  {
+    const rule = await createRule(1, routeRuleInput(true));
+    const poller = new Poller();
+    const reconcileGate = deferred();
+    Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
+      tickAutoAcceptRules: [rule],
+      tickNeedBudget: new NeedBudget(),
+    });
+    Object.assign(poller as unknown as { apiClient: unknown }, {
+      apiClient: {
+        fetchBookingRequestList: async (bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
+          assert.equal(bookingId, 2706815);
+          await reconcileGate.promise;
+          return options?.tabPendingConfirmation === false
+            ? requestList([
+                requestListItem(39795906, 6, "NORC-B", "SOCs"),
+              ])
+            : emptyRequestList();
+        },
+        acceptAllBookingRequests: async (bookingId: number) => {
+          assert.equal(bookingId, 2706815);
+          return { ok: true, httpStatus: 200, response: { retcode: 0, message: "success", data: { success_count: 1 } } };
+        },
+      },
+    });
+
+    const clean = await processOne(poller, booking());
+    assert.equal(clean, true);
+    reconcileGate.resolve();
+    const historyRows = await waitFor(
+      () => getAutoAcceptHistory(1, { limit: 20 }),
+      (rows) => rows.some((row) => row.bookingId === 2706815 && row.requestIds.includes(39795906)),
+      "status 6 must not be treated as verified fast accept_all success"
+    );
+    const row = historyRows.find((item) => item.bookingId === 2706815);
+    assert.equal(row?.status, "failed");
+    assert.deepEqual(row?.requestIds, [39795906]);
+    assert.equal(row?.acceptedCount, 0);
+    assert.match(row?.errorMessage ?? "", /not confirmed|ambiguous/i);
+    assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 1);
+  }
+
+  await closePool();
+  resetMemoryDb();
+  {
+    const rule = await createRule(1, routeRuleInput(true));
+    const poller = new Poller();
+    let acceptAllCalls = 0;
+    Object.assign(poller as unknown as { tickAutoAcceptRules: NotifyRule[]; tickNeedBudget: NeedBudget }, {
+      tickAutoAcceptRules: [rule],
+      tickNeedBudget: new NeedBudget(),
+    });
+    Object.assign(poller as unknown as { apiClient: unknown }, {
+      apiClient: {
+        fetchBookingRequestList: async (bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
+          assert.equal(bookingId, 2791810);
+          return options?.tabPendingConfirmation === false
+            ? requestList([
+                { ...requestListItem(40288194, 4, "NORC-B", "SOCs", "6WH-6ล้อ[7.2m]", 2791810), remark: "Other agency accept first." },
+                requestListItem(40288114, 2, "NORC-B", "SOCs", "6WH-6ล้อ[7.2m]", 2791810),
+              ])
+            : emptyRequestList();
+        },
+        acceptAllBookingRequests: async () => {
+          acceptAllCalls += 1;
+          return { ok: false, httpStatus: 200, error: "You can not accept this request due to Time-out or accept by other agency" };
+        },
+      },
+    });
+
+    const clean = await processOne(poller, {
+      booking_id: 2791810,
+      booking_name: "[ADHOC]UNMATCHED > LANE 2026-06-29",
+      agency_name: "SPX",
+    } as Booking);
+    assert.equal(clean, true);
+    assert.equal(acceptAllCalls, 0, "own confirmed accept_all result must suppress status-4 retry in same booking/rule");
+    const historyRows = await getAutoAcceptHistory(1, { limit: 20 });
+    const successRow = historyRows.find((item) => item.bookingId === 2791810 && item.status === "success");
+    assert.deepEqual(successRow?.requestIds, [40288114]);
+    assert.equal(successRow?.acceptedCount, 1);
+    assert.equal(successRow?.origin, "NORC-B");
+    assert.equal(successRow?.destination, "SOCs");
+    assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 0);
+    assert.equal(
+      historyRows.some((item) => item.bookingId === 2791810 && item.status === "failed" && item.requestIds.includes(40288194)),
+      false,
+      "status-4 sibling must not create a failure row when the booking/rule already has a verified accepted request"
+    );
   }
 
   {
