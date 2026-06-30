@@ -99,6 +99,16 @@ async function getOutboxTargetId(outboxId: number): Promise<string | undefined> 
   return outboxRow?.targetId;
 }
 
+async function getOutboxRow(outboxId: number): Promise<typeof notificationOutbox.$inferSelect | undefined> {
+  const db = await getDb();
+  const [outboxRow] = await db
+    .select()
+    .from(notificationOutbox)
+    .where(eq(notificationOutbox.id, outboxId))
+    .limit(1);
+  return outboxRow;
+}
+
 async function main(): Promise<void> {
   await resetDb();
   await createTeam({
@@ -133,7 +143,10 @@ async function main(): Promise<void> {
     assert.equal(firstBody.status, "success");
     assert.equal(firstBody.data?.duplicate, false);
     assert.equal(firstBody.data?.outboxStatus, "queued");
-    assert.equal(await getOutboxTargetId(firstBody.data!.outboxId), "C-ptwl-success-line-group");
+    const firstOutboxRow = await getOutboxRow(firstBody.data!.outboxId);
+    assert.equal(firstOutboxRow?.targetId, "C-ptwl-success-line-group");
+    assert.equal(firstOutboxRow?.title, "✅ SPX Auto-Accept สำเร็จ 1 รายการ");
+    assert.equal(firstOutboxRow?.message, "accepted booking 2791810");
 
     const partialEventKey = "auto_accept_partial:team:2:booking:2791810:req:40288116";
     const partialBody = JSON.stringify(buildPayload({

@@ -43,6 +43,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function notificationOutboxTitle(event: NormalizedNotificationEvent): string {
+  if (event.eventType === "auto_accept_result" && event.payload.status === "owned") {
+    return `✅ SPX Auto-Accept สำเร็จ ${event.payload.requestIds?.length ?? 0} รายการ`;
+  }
+  return event.eventType;
+}
+
 function parseMetricsSnapshot(rawBody: string): MetricsSnapshot {
   const parsed = JSON.parse(rawBody) as unknown;
   if (!isObject(parsed)) throw new Error("Runtime metrics snapshot must be an object");
@@ -116,7 +123,7 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
     const result = await createNotificationEventAndOutbox(event, {
       targetType: "line_group",
       targetId: lineGroupId,
-      title: event.eventType,
+      title: notificationOutboxTitle(event),
       message: event.payload.message,
     });
     return sendSuccess(reply, result);

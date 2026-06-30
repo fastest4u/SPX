@@ -89,7 +89,7 @@ async function sendLineOaMessage(title: string, message: string, targetId: strin
     to: targetId,
     messages: [{
       type: "text",
-      text: `${title}\n${truncate(message, 4500)}`,
+      text: title ? `${title}\n${truncate(message, 4500)}` : truncate(message, 4500),
     }],
   });
 
@@ -137,7 +137,7 @@ async function sendLineJsThenOa(
     useGlobalFallback?: boolean;
   }
 ): Promise<boolean> {
-  const text = `${title}\n${message}`;
+  const text = title ? `${title}\n${message}` : message;
   const useGlobalFallback = options.useGlobalFallback !== false;
   const lineJsTarget = options.lineJsTarget || (useGlobalFallback ? env.LINEJS_TEST_TARGET_ID || env.LINE_USER_ID || "" : "");
   const lineOaTarget = options.lineOaTarget || (useGlobalFallback ? env.LINE_USER_ID : "");
@@ -195,7 +195,7 @@ async function sendLineJsThenOa(
 }
 
 export async function sendLineTargetMessage(targetId: string, text: string): Promise<{ ok: boolean; providerMessageId?: string; error?: string }> {
-  const sent = await sendLineJsThenOa("SPX", text, {
+  const sent = await sendLineJsThenOa("", text, {
     lineJsTarget: targetId,
     lineOaTarget: targetId,
     logPrefix: "notification-dispatcher",
@@ -683,7 +683,7 @@ async function publishWorkerAutoAcceptSuccessNotification(
       ...(options.traceId ? [options.traceId] : []),
     ])];
     const traceId = traceIds.length === 1 ? traceIds[0] : options.traceId;
-    const message = `Auto-Accept accepted ${requestIds.join(", ")} for booking ${bookingId}.`;
+    const message = buildAcceptNotificationMessage(items);
     try {
       const result = await getWorkerNotificationPublisher().autoAcceptOwned({
         teamId,
