@@ -5,6 +5,7 @@ import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js
 import { sseBroadcaster } from "../services/sse.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { fetchLineQuota } from "../services/notifier.js";
+import { runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "../services/authz.js";
@@ -72,7 +73,7 @@ function parseOptionalTeamId(value: unknown): number | undefined {
 
 function snapshotForUser(user: AuthUser, explicitTeamId?: number): MetricsSnapshot {
   const teamId = user.role === "admin" ? explicitTeamId ?? null : user.teamId;
-  return metrics.snapshot({ teamId });
+  return runtimeMetricsSnapshotFor(metrics.snapshot({ teamId }), teamId);
 }
 
 function resolveOperationalTeamId(user: AuthUser, explicitTeamId?: number): number | null {

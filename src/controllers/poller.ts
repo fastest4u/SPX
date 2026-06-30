@@ -35,6 +35,11 @@ import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
 import { buildAutoAcceptTraceId } from "../services/auto-accept-diagnostics.js";
+import {
+  publishRuntimeMetricsSnapshot,
+  runtimeMetricsUrlFromNotificationUrl,
+} from "../services/runtime-metrics-client.js";
+import type { MetricsSnapshot } from "../services/metrics.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { isTeamPaused } from "../services/poller-control.js";
 
@@ -154,6 +159,8 @@ export class Poller {
   private requestCount = 0;
   private stopped = false;
   private metricsTimer: ReturnType<typeof setInterval> | null = null;
+  private runtimeMetricsPublishInFlight = false;
+  private lastRuntimeMetricsPublishAt = 0;
   private lastSessionAlertTime = 0;
   private activeDetailBookingIds = new Set<number>();
   /**
@@ -339,6 +346,42 @@ export class Poller {
     return metrics.snapshot({ teamId: this.teamId, teamName: this.teamName });
   }
 
+  private publishRuntimeMetrics(snapshot: MetricsSnapshot): void {
+    if (env.SPX_ROLE !== "worker") return;
+    if (!env.NOTIFIER_API_URL || !env.NOTIFIER_SHARED_SECRET || !env.SPX_NODE_ID) return;
+
+    const now = Date.now();
+    if (this.runtimeMetricsPublishInFlight || now - this.lastRuntimeMetricsPublishAt < 1_000) return;
+    this.runtimeMetricsPublishInFlight = true;
+    this.lastRuntimeMetricsPublishAt = now;
+
+    let url: string;
+    try {
+      url = runtimeMetricsUrlFromNotificationUrl(env.NOTIFIER_API_URL);
+    } catch (error) {
+      this.runtimeMetricsPublishInFlight = false;
+      logger.warn("runtime-metrics-url-invalid", { error: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+
+    void publishRuntimeMetricsSnapshot({
+      url,
+      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      nodeId: env.SPX_NODE_ID,
+      snapshot,
+      requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
+    }).then((result) => {
+      if (!result.ok) {
+        logger.warn("runtime-metrics-publish-failed", {
+          status: result.status,
+          error: result.error,
+        });
+      }
+    }).finally(() => {
+      this.runtimeMetricsPublishInFlight = false;
+    });
+  }
+
   private async run(): Promise<void> {
     if (this.stopped) {
       return;
@@ -385,7 +428,9 @@ export class Poller {
       this.stats.errorCount++;
       const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
-      sseBroadcaster.broadcast({ event: "metrics", teamId: this.teamId, data: this.metricsSnapshot() });
+      const snapshot = this.metricsSnapshot();
+      sseBroadcaster.broadcast({ event: "metrics", teamId: this.teamId, data: snapshot });
+      this.publishRuntimeMetrics(snapshot);
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
 
       // Alert on session expiry — send notification once
@@ -408,11 +453,13 @@ export class Poller {
     if (!env.HTTP_ENABLED) process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
 
     // Broadcast live metrics to SSE clients
+    const snapshot = this.metricsSnapshot();
     sseBroadcaster.broadcast({
       event: "metrics",
       teamId: this.teamId,
-      data: this.metricsSnapshot(),
+      data: snapshot,
     });
+    this.publishRuntimeMetrics(snapshot);
 
     const summary = this.dataProcessor.extractSummary(result.data);
     if (summary && !env.HTTP_ENABLED) {
