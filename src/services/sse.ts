@@ -94,6 +94,31 @@ class SseBroadcaster {
     }
   }
 
+  /** Broadcast only to admin/all-team clients. */
+  broadcastAdmin(event: Omit<SseEvent, "teamId">): void {
+    if (this.clients.size === 0) return;
+
+    const payload = `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
+    const dead: ServerResponse[] = [];
+
+    for (const [client, scope] of this.clients) {
+      if (scope.teamId !== null) continue;
+      try {
+        if (client.writableEnded || client.destroyed) {
+          dead.push(client);
+          continue;
+        }
+        client.write(payload);
+      } catch {
+        dead.push(client);
+      }
+    }
+
+    for (const client of dead) {
+      this.removeClient(client);
+    }
+  }
+
   /** Send heartbeat comment to keep connections alive */
   private sendHeartbeat(): void {
     const dead: ServerResponse[] = [];
