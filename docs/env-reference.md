@@ -13,72 +13,46 @@ aliases:
 # Env Reference
 
 > [!important] ไฟล์ `.env` ที่ root ของ project
-> - โหลดอัตโนมัติผ่าน `src/config/env.ts`
-> - ไม่ override ค่า `process.env` ที่มีอยู่แล้ว
-> - สามารถแก้ไขผ่าน Settings UI (admin only) → **มีผลทันทีโดยไม่ต้อง restart** (Live Reload)
+> - โหลดอัตโนมัติผ่าน `src/config/env.ts` สำหรับ bootstrap/process identity เท่านั้น
+> - Runtime/operator settings โหลดจาก `app_settings` หลังเชื่อมต่อ DB
+> - แก้ไขค่า runtime ผ่าน Settings UI และ Teams UI แทนการแก้ `.env`
 
-## Required Base Values
+## Bootstrap Env
 
-| Variable | Description | ตัวอย่าง |
-|----------|-------------|---------|
-| `API_URL` | SPX bidding list API endpoint | `https://...` |
-| `COOKIE` | Session cookie จาก browser | `SPC_...` |
-| `DEVICE_ID` | Device identifier | `device_xxx` |
-| `APP_NAME` | Application name header | `SPX App` |
-| `REFERER` | Referer header | `https://...` |
-
-> [!danger] Secrets
-> `COOKIE` เป็น session token จริง — ==ห้ามเปิดเผยหรือ commit ลง git==
-
-## Worker Controls
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `POLL_INTERVAL_MS` | int | — | Milliseconds ระหว่าง poll (CLI override เป็นวินาที) |
-| `BOOKING_DETAIL_CONCURRENCY` | int | `8` | จำนวน booking ที่ดึง `request/list` พร้อมกันต่อรอบ poll |
-| `FETCH_DETAILS` | bool | `false` | แสดงรายละเอียด trip ใน console |
-| `SAVE_TO_DB` | bool | `false` | บันทึก trip ลง MySQL |
-| `NOTIFY_ENABLED` | bool | `false` | ส่ง notification |
-| `NOTIFY_MODE` | string | `batch` | `batch` \| `each` — รวมหรือแยกข้อความ |
-| `NOTIFY_MIN_TRIPS` | int | — | จำนวน trip ขั้นต่ำก่อนส่ง notification |
-| `NOTIFY_ORIGINS` | string | — | Filter ต้นทาง (comma-separated) |
-| `NOTIFY_DESTINATIONS` | string | — | Filter ปลายทาง |
-| `NOTIFY_VEHICLE_TYPES` | string | — | Filter ประเภทรถ |
-| `AUTO_ACCEPT_ENABLED` | bool | `false` | เปิดระบบรับงานอัตโนมัติ |
+These values remain in `.env`: `NODE_ENV`, `DB_MODE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME`, `SECRETS_KEY`.
 
 ## Database
 
 | Variable | Type | Default | Required When |
 |----------|------|---------|---------------|
-| `DB_HOST` | string | — | `SAVE_TO_DB` \| `HTTP_ENABLED` |
+| `DB_HOST` | string | — | DB-backed runtime config, dashboard, workers |
 | `DB_PORT` | int | `3306` | — |
-| `DB_USERNAME` | string | — | `SAVE_TO_DB` \| `HTTP_ENABLED` |
-| `DB_PASSWORD` | string | — | `SAVE_TO_DB` \| `HTTP_ENABLED` |
-| `DB_NAME` | string | — | `SAVE_TO_DB` \| `HTTP_ENABLED` |
+| `DB_USERNAME` | string | — | DB-backed runtime config, dashboard, workers |
+| `DB_PASSWORD` | string | — | DB-backed runtime config, dashboard, workers |
+| `DB_NAME` | string | — | DB-backed runtime config, dashboard, workers |
+| `SECRETS_KEY` | string | — | Encrypt/decrypt DB-backed secrets |
 
-## Dashboard Auth
+## Process Identity Env
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `HTTP_ENABLED` | bool | `false` | เปิด Web Dashboard |
-| `HTTP_PORT` | int | `3000` | Port สำหรับ Fastify server |
-| `HTTP_ALLOWED_ORIGINS` | string | — | Comma-separated CORS origins |
-| `JWT_SECRET` | string | — | ≥ 32 chars, สำหรับ sign JWT |
-| `COOKIE_SECRET` | string | — | ≥ 32 chars, สำหรับ sign cookie |
-| `ADMIN_USERNAME` | string | `admin` | Default admin username |
-| `ADMIN_PASSWORD` | string | — | Strong password required |
-| `ADMIN_ROLE` | string | `admin` | `admin` \| `editor` \| `viewer` |
-| `NODE_ENV` | string | — | `production` → secure cookies |
+These values remain in Docker/service environment: `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_PORT`.
 
-## Notification Channels
+| Variable | Description |
+|----------|-------------|
+| `SPX_ROLE` | Process role: notifier, worker, or combined |
+| `SPX_NODE_ID` | Stable runtime node id for health/status tracking |
+| `SPX_NODE_NAME` | Optional display name for the runtime node |
+| `RUN_TEAM_IDS` | Comma-separated team ids assigned to a worker process |
+| `NOTIFIER_API_URL` | Worker-to-notifier internal notification endpoint |
+| `NOTIFIER_LOCAL_SPOOL_PATH` | Local retry spool path for worker notification events |
+| `HTTP_PORT` | Fastify HTTP port for the notifier/dashboard process |
 
-| Variable | Type | Required When | Description |
-|----------|------|---------------|-------------|
-| `LINE_NOTIFY_TOKEN` | string | `NOTIFY_ENABLED` | LINE Notify API token |
-| `DISCORD_WEBHOOK_URL` | string | `NOTIFY_ENABLED` | Discord webhook URL |
+## DB-First Settings
 
-> [!note] อย่างน้อย 1 channel
-> ต้องตั้งค่าอย่างน้อย `LINE_NOTIFY_TOKEN` หรือ `DISCORD_WEBHOOK_URL` เมื่อ `NOTIFY_ENABLED=true`
+Operator settings such as `POLL_INTERVAL_MS`, `API_URL`, `AUTO_ACCEPT_ENABLED`, notification settings, auth signing secrets, and provider settings are stored in `app_settings`.
+
+Team-scoped SPX credentials and LINE targets are stored encrypted on each `teams` row. Do not keep `COOKIE`, `DEVICE_ID`, `LINE_USER_ID`, or auto-accept success/failure LINE targets as global runtime env after migration.
+
+Before removing legacy runtime values from production `.env`, deploy the DB-first build once with the old `.env` still present. Startup seeds missing `app_settings` rows from env, then later boots can run with only bootstrap/process env.
 
 ## Validation Rules
 
@@ -87,18 +61,7 @@ aliases:
 - Dashboard secrets (`JWT_SECRET`, `COOKIE_SECRET`) ต้อง ≥ 32 characters
 - Admin password ต้องแข็งแรงเพียงพอ
 - CORS origins ต้องเป็น valid URLs
-- `ADMIN_ROLE` ต้องเป็น `admin`, `editor`, หรือ `viewer`
-- CLI interval (วินาที) จะ override `POLL_INTERVAL_MS` (มิลลิวินาที)
-
-## Common Production Defaults
-
-```env
-HTTP_PORT=3000
-NOTIFY_MODE=batch
-ADMIN_ROLE=admin
-HTTP_ALLOWED_ORIGINS=https://your-dashboard-domain.example
-NODE_ENV=production
-```
+- `ADMIN_ROLE` ต้องเป็น `admin` หรือ `user`
 
 ## ดูเพิ่มเติม
 - [[architecture]] — Feature flag system

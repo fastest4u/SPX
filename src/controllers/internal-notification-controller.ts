@@ -84,7 +84,11 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
     }
 
     const team = await getTeamRuntimeConfig(event.teamId);
-    const lineGroupId = team?.lineGroupId.trim() ?? "";
+    const lineGroupId = event.eventType === "auto_accept_failure"
+      ? (team?.autoAcceptFailureLineGroupId || team?.lineGroupId || "").trim()
+      : event.eventType === "auto_accept_result" || event.eventType === "auto_accept_partial_result"
+        ? (team?.autoAcceptSuccessLineGroupId || team?.lineGroupId || "").trim()
+        : (team?.lineGroupId || "").trim();
     if (!lineGroupId) {
       return sendError(reply, 422, "INTERNAL_NOTIFICATION_TARGET_MISSING", "Team LINE target is not configured");
     }

@@ -65,16 +65,22 @@ docker compose up --build
 - Healthcheck ยิง `GET /ready` อัตโนมัติ
 - Base image: `node:24-alpine`
 
+## DB-first config
+
+Production loads config from MySQL `app_settings` after reading bootstrap env. `.env` should contain only bootstrap values such as `NODE_ENV`, `DB_MODE`, database connection fields, and `SECRETS_KEY`. Docker/service environment should keep process identity values such as `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, and `HTTP_PORT`.
+
+Use the dashboard Settings and Teams pages to change SPX API, polling, auto-accept, notification, auth signing secrets, provider settings, and team credentials. Before reducing `.env`, deploy the DB-first build once with the existing `.env` so startup can seed missing `app_settings` rows. Verify `/ready`, worker healthchecks, and Settings page values. After that verification, remove runtime/operator values from `.env`.
+
 ## Production Checklist
 
 > [!warning] สิ่งที่ต้องทำก่อน deploy production
 
-- [ ] ตั้งค่า `.env` ครบทุกตัวแปร (ดู [[env-reference]])
+- [ ] ตั้งค่า `.env` เฉพาะ bootstrap values และตั้ง process identity values ใน Docker/service environment (ดู [[env-reference]])
 - [ ] ใช้ process manager (PM2, systemd, Docker restart policy)
 - [ ] Run `npm run db:migrate` ก่อน startup
-- [ ] ตั้ง `HTTP_ALLOWED_ORIGINS` สำหรับ non-localhost domain
+- [ ] ตั้ง `HTTP_ALLOWED_ORIGINS` ผ่าน Settings สำหรับ non-localhost domain
 - [ ] ตั้ง `NODE_ENV=production` สำหรับ secure cookies
-- [ ] Secrets ต้องอยู่ใน `.env` หรือ secret manager เท่านั้น
+- [ ] Runtime/operator secrets ต้องอยู่ใน `app_settings` หรือ team encrypted fields หลัง seed สำเร็จ
 - [ ] Monitor `/health`, `/ready`, `/metrics` ผ่าน Uptime Kuma หรือ Datadog
 - [ ] `notify-rules.json` ต้องมี controlled write access
 - [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck + frontend build)
@@ -82,9 +88,9 @@ docker compose up --build
 
 ## Process Manager
 
-> [!tip] Settings Live Reload
-> Settings API เขียน DB แล้ว sync กลับเข้า process.env ทันที — **ไม่ต้อง restart server แล้ว**
-> การใช้ process manager (Docker, PM2, systemd) ยังแนะนำสำหรับ crash recovery และ availability ทั่วไป
+> [!tip] Settings reload behavior
+> Settings API เขียน DB แล้ว sync กลับเข้า process env ตาม metadata ของแต่ละ key: บางค่าเป็น live reload, บางค่าต้อง restart worker, และ security/auth/runtime binding เช่น `JWT_SECRET`, `COOKIE_SECRET`, `NOTIFIER_SHARED_SECRET`, `NOTIFIER_AUTH_MODE`, `HTTP_ENABLED`, และ `HTTP_ALLOWED_ORIGINS` ต้อง restart process.
+> การใช้ process manager (Docker, PM2, systemd) ยังแนะนำสำหรับ crash recovery, restart orchestration, และ availability ทั่วไป
 
 ## Frontend Build Output
 

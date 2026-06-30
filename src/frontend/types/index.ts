@@ -238,9 +238,13 @@ export interface Team {
   hasSpxCookie: boolean;
   hasSpxDeviceId: boolean;
   hasLineGroupId: boolean;
+  hasAutoAcceptSuccessLineGroupId: boolean;
+  hasAutoAcceptFailureLineGroupId: boolean;
   spxCookiePreview: string;
   spxDeviceIdPreview: string;
   lineGroupIdPreview: string;
+  autoAcceptSuccessLineGroupIdPreview: string;
+  autoAcceptFailureLineGroupIdPreview: string;
   runtimeStatus?: 'stopped' | 'running' | 'paused' | 'misconfigured' | 'session_expired' | 'error';
   usersCount?: number;
   createdAt: string;
@@ -253,6 +257,8 @@ export interface TeamInput {
   spxCookie?: string;
   spxDeviceId?: string;
   lineGroupId?: string;
+  autoAcceptSuccessLineGroupId?: string;
+  autoAcceptFailureLineGroupId?: string;
 }
 
 // Settings Types
@@ -269,6 +275,13 @@ export interface EnvSettings {
   BOOKING_REPROCESS_COOLDOWN_MS?: string;
   BIDDING_VEHICLE_TYPE?: string;
   CODEX_IMAGE_PROVIDER?: string;
+}
+
+export type SettingReloadBehavior = "live" | "restart-worker" | "restart-process";
+
+export interface SettingsResponse {
+  values: Record<string, string>;
+  reloadBehavior: Record<string, SettingReloadBehavior>;
 }
 
 export interface CodexDeviceAuthStatus {

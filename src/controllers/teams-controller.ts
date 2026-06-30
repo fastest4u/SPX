@@ -61,6 +61,10 @@ export function toTeamPatch(body: Record<string, unknown>): TeamPatch {
   if (spxDeviceId !== undefined) patch.spxDeviceId = spxDeviceId;
   const lineGroupId = optionalString(body.lineGroupId, "lineGroupId");
   if (lineGroupId !== undefined) patch.lineGroupId = lineGroupId;
+  const autoAcceptSuccessLineGroupId = optionalString(body.autoAcceptSuccessLineGroupId, "autoAcceptSuccessLineGroupId");
+  if (autoAcceptSuccessLineGroupId !== undefined) patch.autoAcceptSuccessLineGroupId = autoAcceptSuccessLineGroupId;
+  const autoAcceptFailureLineGroupId = optionalString(body.autoAcceptFailureLineGroupId, "autoAcceptFailureLineGroupId");
+  if (autoAcceptFailureLineGroupId !== undefined) patch.autoAcceptFailureLineGroupId = autoAcceptFailureLineGroupId;
 
   return patch;
 }
@@ -74,6 +78,8 @@ function toTeamInput(body: Record<string, unknown>): TeamInput {
     spxCookie: patch.spxCookie,
     spxDeviceId: patch.spxDeviceId,
     lineGroupId: patch.lineGroupId,
+    autoAcceptSuccessLineGroupId: patch.autoAcceptSuccessLineGroupId,
+    autoAcceptFailureLineGroupId: patch.autoAcceptFailureLineGroupId,
   };
 }
 
@@ -92,7 +98,9 @@ export function patchTouchesRuntime(patch: TeamPatch): boolean {
   return patch.enabled === true
     || patch.spxCookie !== undefined
     || patch.spxDeviceId !== undefined
-    || patch.lineGroupId !== undefined;
+    || patch.lineGroupId !== undefined
+    || patch.autoAcceptSuccessLineGroupId !== undefined
+    || patch.autoAcceptFailureLineGroupId !== undefined;
 }
 
 async function listTeamsWithRuntimeStatus() {

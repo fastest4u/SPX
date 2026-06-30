@@ -61,6 +61,8 @@ function initSchema(db: Database.Database): void {
       spx_cookie TEXT NOT NULL DEFAULT '',
       spx_device_id TEXT NOT NULL DEFAULT '',
       line_group_id TEXT NOT NULL DEFAULT '',
+      auto_accept_success_line_group_id TEXT NOT NULL DEFAULT '',
+      auto_accept_failure_line_group_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  teamsMigrationSql,
   spxBookingHistoryMigrationSql,
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,
@@ -23,6 +24,7 @@ const fileName = "001_create_booking_requests.sql";
 const filePath = join(migrationsDir, fileName);
 
 const allMigrations = [
+  teamsMigrationSql,
   spxBookingHistoryMigrationSql,
   notifyRulesMigrationSql,
   autoAcceptHistoryMigrationSql,

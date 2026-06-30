@@ -16,7 +16,6 @@ import type {
   CodexDeviceAuthStart,
   CodexDeviceAuthStatus,
   CreateUserInput,
-  EnvSettings,
   HealthResponse,
   HistoryFilterQuery,
   LineBotGroupList,
@@ -38,6 +37,7 @@ import type {
   RuleInput,
   RulePatch,
   RulePreviewResult,
+  SettingsResponse,
   Team,
   TeamInput,
   User,
@@ -519,11 +519,45 @@ export const teamsApi = {
 }
 
 // Settings API
-export const settingsApi = {
-  get: (): Promise<EnvSettings> =>
-    fetchJson<EnvSettings>(`${API_BASE}/settings`),
+function isSettingsResponse(
+  response: Record<string, string> | SettingsResponse,
+): response is SettingsResponse {
+  return Boolean(
+    response &&
+    typeof response === 'object' &&
+    'values' in response &&
+    typeof (response as SettingsResponse).values === 'object' &&
+    (response as SettingsResponse).values !== null,
+  )
+}
 
-  update: (settings: EnvSettings): Promise<null> =>
+function normalizeSettingsResponse(
+  response: Record<string, string> | SettingsResponse,
+): SettingsResponse {
+  if (isSettingsResponse(response)) {
+    return {
+      values: response.values,
+      reloadBehavior: response.reloadBehavior ?? {},
+    }
+  }
+  return {
+    values: response,
+    reloadBehavior: {},
+  }
+}
+
+export const settingsApi = {
+  getDetailed: async (): Promise<SettingsResponse> => {
+    const response = await fetchJson<Record<string, string> | SettingsResponse>(`${API_BASE}/settings`)
+    return normalizeSettingsResponse(response)
+  },
+
+  get: async (): Promise<Record<string, string>> => {
+    const response = await settingsApi.getDetailed()
+    return response.values
+  },
+
+  update: (settings: Record<string, string>): Promise<null> =>
     fetchJson<null>(`${API_BASE}/settings`, {
       method: 'POST',
       body: JSON.stringify(settings),

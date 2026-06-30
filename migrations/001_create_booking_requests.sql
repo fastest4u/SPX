@@ -1,4 +1,21 @@
 
+CREATE TABLE IF NOT EXISTS teams (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  enabled INT NOT NULL DEFAULT 1,
+  spx_cookie VARCHAR(4000) NOT NULL DEFAULT '',
+  spx_device_id VARCHAR(1000) NOT NULL DEFAULT '',
+  line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+  auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+  auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY teams_enabled_idx (enabled),
+  KEY teams_name_idx (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+
 CREATE TABLE IF NOT EXISTS spx_booking_history (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   team_id INT NOT NULL DEFAULT 1,

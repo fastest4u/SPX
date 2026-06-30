@@ -38,9 +38,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog'
-import { formatLineChatOptionLabel, getSelectableLineGroupChats, isSelectableLineGroupId } from '../lib/line-groups'
+import { formatLineChatOptionLabel, getSelectableLineGroupChats, isRedactedSecretPreview, isSelectableLineGroupId } from '../lib/line-groups'
 import { formatDateTime } from '../lib/utils'
-import type { Team, TeamInput } from '../types'
+import type { LineBotChat, Team, TeamInput } from '../types'
 
 export const Route = createFileRoute('/teams')({
   component: TeamsComponent,
@@ -66,6 +66,125 @@ const teamFilters: Array<{ key: TeamFilter; label: string }> = [
 ]
 
 const formSelectClassName = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+
+export function getLineGroupSelectValue(value: string, lineGroups: LineBotChat[]): string {
+  if (isRedactedSecretPreview(value)) return value
+  return lineGroups.some((chat) => chat.chatMid === value) ? value : ''
+}
+
+export function getNextLinkedLineTarget({
+  currentTarget,
+  previousDefaultTarget,
+  nextDefaultTarget,
+}: {
+  currentTarget: string
+  previousDefaultTarget: string
+  nextDefaultTarget: string
+}): string {
+  if (!currentTarget.trim() || currentTarget === previousDefaultTarget) {
+    return nextDefaultTarget
+  }
+  return currentTarget
+}
+
+function lineGroupPlaceholder({
+  lineStatusLoading,
+  lineEnabled,
+  lineAuthenticated,
+  lineGroupsLoading,
+  hasSelectableLineGroups,
+}: {
+  lineStatusLoading: boolean
+  lineEnabled: boolean
+  lineAuthenticated: boolean
+  lineGroupsLoading: boolean
+  hasSelectableLineGroups: boolean
+}) {
+  if (lineStatusLoading) return 'Checking LINE JS...'
+  if (!lineEnabled) return 'LINE JS is not enabled'
+  if (!lineAuthenticated) return 'LINE JS is not logged in'
+  if (lineGroupsLoading) return 'Loading LINE groups...'
+  return hasSelectableLineGroups ? 'Select LINE group' : 'No LINE groups found for this account'
+}
+
+function LineGroupField({
+  id,
+  label,
+  value,
+  onChange,
+  lineStatusLoading,
+  lineEnabled,
+  lineAuthenticated,
+  lineGroupsLoading,
+  lineGroupsFetching,
+  canLoadLineGroups,
+  hasSelectableLineGroups,
+  lineGroups,
+  onRefresh,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  lineStatusLoading: boolean
+  lineEnabled: boolean
+  lineAuthenticated: boolean
+  lineGroupsLoading: boolean
+  lineGroupsFetching: boolean
+  canLoadLineGroups: boolean
+  hasSelectableLineGroups: boolean
+  lineGroups: LineBotChat[]
+  onRefresh: () => void
+}) {
+  const isMaskedCurrent = isRedactedSecretPreview(value)
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex gap-2">
+        <select
+          id={id}
+          value={getLineGroupSelectValue(value, lineGroups)}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={!canLoadLineGroups || lineGroupsLoading || !hasSelectableLineGroups}
+          className={formSelectClassName}
+        >
+          {isMaskedCurrent ? (
+            <option value={value} disabled>
+              Current saved target ({value})
+            </option>
+          ) : null}
+          <option value="">
+            {lineGroupPlaceholder({
+              lineStatusLoading,
+              lineEnabled,
+              lineAuthenticated,
+              lineGroupsLoading,
+              hasSelectableLineGroups,
+            })}
+          </option>
+          {lineGroups.map((chat) => (
+            <option key={chat.chatMid} value={chat.chatMid}>
+              {formatLineChatOptionLabel(chat)}
+            </option>
+          ))}
+        </select>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          onClick={onRefresh}
+          disabled={!canLoadLineGroups || lineGroupsFetching}
+          title="Refresh LINE groups"
+          aria-label="Refresh LINE groups"
+        >
+          <RefreshCw className={`h-4 w-4 ${lineGroupsFetching ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function TeamsComponent() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
@@ -120,6 +239,8 @@ function TeamsComponent() {
       team.spxCookiePreview,
       team.spxDeviceIdPreview,
       team.lineGroupIdPreview,
+      team.autoAcceptSuccessLineGroupIdPreview,
+      team.autoAcceptFailureLineGroupIdPreview,
     ].some((value) => value?.toLowerCase().includes(normalizedSearch))
   })
 
@@ -240,7 +361,11 @@ function TeamsComponent() {
                           </div>
                         </td>
                         <td>
-                          <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
+                          <div className="grid gap-2 text-xs">
+                            <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
+                            <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
+                            <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
+                          </div>
                         </td>
                         <td className="text-muted-foreground">{formatDateTime(team.updatedAt)}</td>
                         <td>
@@ -388,6 +513,8 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
         <SecretState icon={Cookie} label="Cookie" ok={team.hasSpxCookie} preview={team.spxCookiePreview} />
         <SecretState icon={Smartphone} label="Device" ok={team.hasSpxDeviceId} preview={team.spxDeviceIdPreview} />
         <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
+        <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
+        <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -529,6 +656,8 @@ function TeamFormDialog({
   const [spxCookie, setSpxCookie] = useState('')
   const [spxDeviceId, setSpxDeviceId] = useState('')
   const [lineGroupId, setLineGroupId] = useState('')
+  const [autoAcceptSuccessLineGroupId, setAutoAcceptSuccessLineGroupId] = useState('')
+  const [autoAcceptFailureLineGroupId, setAutoAcceptFailureLineGroupId] = useState('')
 
   const lineStatusQuery = useQuery({
     queryKey: ['line-bot-status'],
@@ -547,8 +676,28 @@ function TeamFormDialog({
     retry: false,
   })
   const lineGroups = getSelectableLineGroupChats(lineGroupsQuery.data?.chats ?? [])
-  const selectedLineGroupValue = lineGroups.some((chat) => chat.chatMid === lineGroupId) ? lineGroupId : ''
   const hasSelectableLineGroups = canLoadLineGroups && lineGroups.length > 0
+  const isLineGroupValueValid = useCallback((value: string) => (
+    isRedactedSecretPreview(value) || isSelectableLineGroupId(value, lineGroups)
+  ), [lineGroups])
+  const areLineTargetsValid =
+    isLineGroupValueValid(lineGroupId)
+    && isLineGroupValueValid(autoAcceptSuccessLineGroupId)
+    && isLineGroupValueValid(autoAcceptFailureLineGroupId)
+
+  const handleDefaultLineGroupChange = useCallback((value: string) => {
+    setAutoAcceptSuccessLineGroupId((currentTarget) => getNextLinkedLineTarget({
+      currentTarget,
+      previousDefaultTarget: lineGroupId,
+      nextDefaultTarget: value,
+    }))
+    setAutoAcceptFailureLineGroupId((currentTarget) => getNextLinkedLineTarget({
+      currentTarget,
+      previousDefaultTarget: lineGroupId,
+      nextDefaultTarget: value,
+    }))
+    setLineGroupId(value)
+  }, [lineGroupId])
 
   const reset = useCallback(() => {
     setName(team?.name ?? '')
@@ -556,7 +705,17 @@ function TeamFormDialog({
     setSpxCookie(team?.spxCookiePreview ?? '')
     setSpxDeviceId(team?.spxDeviceIdPreview ?? '')
     setLineGroupId(team?.lineGroupIdPreview ?? '')
-  }, [team?.enabled, team?.lineGroupIdPreview, team?.name, team?.spxCookiePreview, team?.spxDeviceIdPreview])
+    setAutoAcceptSuccessLineGroupId(team?.autoAcceptSuccessLineGroupIdPreview ?? '')
+    setAutoAcceptFailureLineGroupId(team?.autoAcceptFailureLineGroupIdPreview ?? '')
+  }, [
+    team?.autoAcceptFailureLineGroupIdPreview,
+    team?.autoAcceptSuccessLineGroupIdPreview,
+    team?.enabled,
+    team?.lineGroupIdPreview,
+    team?.name,
+    team?.spxCookiePreview,
+    team?.spxDeviceIdPreview,
+  ])
 
   useEffect(() => {
     if (open) reset()
@@ -570,6 +729,8 @@ function TeamFormDialog({
         spxCookie,
         spxDeviceId,
         lineGroupId,
+        autoAcceptSuccessLineGroupId,
+        autoAcceptFailureLineGroupId,
       }
       return team ? teamsApi.update(team.id, input) : teamsApi.create(input)
     },
@@ -596,8 +757,12 @@ function TeamFormDialog({
       toast.error('ทีมใหม่ต้องมี Cookie และ Device ID')
       return
     }
-    if (!isSelectableLineGroupId(lineGroupId, lineGroups)) {
+    if (!isLineGroupValueValid(lineGroupId)) {
       toast.error('กรุณาเลือก LINE group จาก dropdown')
+      return
+    }
+    if (!isLineGroupValueValid(autoAcceptSuccessLineGroupId) || !isLineGroupValueValid(autoAcceptFailureLineGroupId)) {
+      toast.error('Please select LINE groups for auto-accept notifications')
       return
     }
     mutation.mutate()
@@ -645,49 +810,51 @@ function TeamFormDialog({
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="team-line">LINE Group ID</Label>
-              <div className="flex gap-2">
-                <select
-                  id="team-line"
-                  value={selectedLineGroupValue}
-                  onChange={(event) => {
-                    setLineGroupId(event.target.value)
-                  }}
-                  disabled={!canLoadLineGroups || lineGroupsQuery.isLoading || !hasSelectableLineGroups}
-                  className={formSelectClassName}
-                >
-                  <option value="">
-                    {lineStatusQuery.isLoading
-                      ? 'กำลังตรวจสอบ LINE JS...'
-                      : !lineStatus?.enabled
-                        ? 'LINE JS ยังไม่ได้เปิดใช้งาน'
-                        : !lineStatus.authenticated
-                          ? 'LINE JS ยังไม่ได้ login'
-                          : lineGroupsQuery.isLoading
-                            ? 'กำลังโหลดรายชื่อ LINE...'
-                            : hasSelectableLineGroups
-                              ? 'เลือก LINE group'
-                              : 'ไม่พบ LINE group จากบัญชีนี้'}
-                  </option>
-                  {lineGroups.map((chat) => (
-                    <option key={chat.chatMid} value={chat.chatMid}>
-                      {formatLineChatOptionLabel(chat)}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => lineGroupsQuery.refetch()}
-                  disabled={!canLoadLineGroups || lineGroupsQuery.isFetching}
-                  title="Refresh LINE groups"
-                  aria-label="Refresh LINE groups"
-                >
-                  <RefreshCw className={`h-4 w-4 ${lineGroupsQuery.isFetching ? 'animate-spin' : ''}`} />
-                </Button>
-              </div>
+              <LineGroupField
+                id="team-line"
+                label="LINE Group ID"
+                value={lineGroupId}
+                onChange={handleDefaultLineGroupChange}
+                lineStatusLoading={lineStatusQuery.isLoading}
+                lineEnabled={lineStatus?.enabled === true}
+                lineAuthenticated={lineStatus?.authenticated === true}
+                lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsFetching={lineGroupsQuery.isFetching}
+                canLoadLineGroups={canLoadLineGroups}
+                hasSelectableLineGroups={hasSelectableLineGroups}
+                lineGroups={lineGroups}
+                onRefresh={() => lineGroupsQuery.refetch()}
+              />
+              <LineGroupField
+                id="team-auto-accept-success-line"
+                label="Auto-accept success LINE Group ID"
+                value={autoAcceptSuccessLineGroupId}
+                onChange={setAutoAcceptSuccessLineGroupId}
+                lineStatusLoading={lineStatusQuery.isLoading}
+                lineEnabled={lineStatus?.enabled === true}
+                lineAuthenticated={lineStatus?.authenticated === true}
+                lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsFetching={lineGroupsQuery.isFetching}
+                canLoadLineGroups={canLoadLineGroups}
+                hasSelectableLineGroups={hasSelectableLineGroups}
+                lineGroups={lineGroups}
+                onRefresh={() => lineGroupsQuery.refetch()}
+              />
+              <LineGroupField
+                id="team-auto-accept-failure-line"
+                label="Auto-accept failure LINE Group ID"
+                value={autoAcceptFailureLineGroupId}
+                onChange={setAutoAcceptFailureLineGroupId}
+                lineStatusLoading={lineStatusQuery.isLoading}
+                lineEnabled={lineStatus?.enabled === true}
+                lineAuthenticated={lineStatus?.authenticated === true}
+                lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsFetching={lineGroupsQuery.isFetching}
+                canLoadLineGroups={canLoadLineGroups}
+                hasSelectableLineGroups={hasSelectableLineGroups}
+                lineGroups={lineGroups}
+                onRefresh={() => lineGroupsQuery.refetch()}
+              />
               {lineGroupsQuery.isError ? (
                 <div className="flex items-center gap-2 text-xs text-warning">
                   <AlertTriangle className="h-3.5 w-3.5" />
@@ -713,7 +880,7 @@ function TeamFormDialog({
             <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => handleOpenChange(false)} disabled={mutation.isPending}>
               ยกเลิก
             </Button>
-            <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending || !isSelectableLineGroupId(lineGroupId, lineGroups)}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending || !areLineTargetsValid}>
               {mutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />

@@ -1,35 +1,33 @@
 import { eq, inArray, sql } from "drizzle-orm";
+import { SECRET_APP_SETTING_KEYS } from "../config/config-catalog.js";
 import { env } from "../config/env.js";
 import { ensureDashboardTables, getDb, getPool } from "../db/client.js";
 import { appSettings } from "../db/schema.js";
 import { decryptString, encryptString, isEncrypted } from "../utils/crypto.js";
 
-/**
- * Settings keys that hold credentials or external tokens. Values are encrypted
- * before insert/update and decrypted on read so DB dumps cannot leak them.
- */
-const SECRET_SETTING_KEYS = new Set<string>([
-  // Legacy team-scoped secrets remain decryptable so Default Team bootstrap can
-  // migrate existing single-team installs without exposing them through Settings.
+const LEGACY_SECRET_SETTING_KEYS: ReadonlySet<string> = new Set([
   "COOKIE",
   "DEVICE_ID",
-  "LINE_CHANNEL_ACCESS_TOKEN",
   "LINE_USER_ID",
   "LINEJS_TEST_TARGET_ID",
   "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS",
   "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE",
-  "DISCORD_WEBHOOK_URL",
 ]);
 
+function isSecretSettingKey(key: string): boolean {
+  return (SECRET_APP_SETTING_KEYS as ReadonlySet<string>).has(key)
+    || LEGACY_SECRET_SETTING_KEYS.has(key);
+}
+
 function encodeForStorage(key: string, value: string): string {
-  if (!SECRET_SETTING_KEYS.has(key)) return value;
+  if (!isSecretSettingKey(key)) return value;
   if (!value) return "";
   if (isEncrypted(value)) return value;
   return encryptString(value);
 }
 
 function decodeFromStorage(key: string, value: string): string {
-  if (!SECRET_SETTING_KEYS.has(key)) return value;
+  if (!isSecretSettingKey(key)) return value;
   if (!value) return "";
   return isEncrypted(value) ? decryptString(value) : value;
 }

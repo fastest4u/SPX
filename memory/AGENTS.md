@@ -4,7 +4,7 @@ type: rules
 version: 1.0.0
 status: active
 created: 2026-05-13
-updated: 2026-05-23
+updated: 2026-06-30
 tags:
   - meta
   - agent-rules
@@ -117,21 +117,21 @@ After writing the log, report to user: `✅ Session saved → <path> · outcomes
 
 ### When AI MUST self-check
 
-Run [[.windsurf/workflows/self-check.md|self-check]] before:
+Run `/self-check` before:
 - Any architectural change (multi-file)
 - Any claim that becomes a decision
 - Any task where you're tempted to feel confident without evidence
 
-Run [[.windsurf/workflows/multi-perspective.md|multi-perspective]] when:
+Run `/multi-perspective` when:
 - Choosing between 2+ technical options
 - Writing an ADR
 - Decision feels "too easy"
 
-Run [[.windsurf/workflows/dream.md|dream]]:
+Run `/dream`:
 - Monthly (compactor pass)
 - When session-log folder grows beyond ~30 files
 
-Run [[.windsurf/workflows/strict-pr-review-8-category.md|strict-pr-review-8-category]] before:
+Run `/strict-pr-review-8-category` before:
 - Any user-requested PR, review, or merge workflow
 - Production-impacting commit/push work that changes `src/`, DB schema/migrations, auth/security, auto-accept, notifications, deploy/Docker, or runtime settings/secrets handling
 
@@ -212,7 +212,7 @@ If you can't answer any of these, **run `/session-start` first**.
 | **Whole-system survey / onboarding** | [[Awakened-AI-System]], [[SPX-System-Map]] | [[API-Internal-HTTP]], [[API-SSE-Events]], [[Component-Poller-Orchestration]] | recent `session-log` with `topic/system-map` or `topic/memory-vault` |
 | **Notify (Discord/LINE)** | `notify-rules` section in [[SPX-Project-Rules]] | Runbook [[Runbook-Notify-Failure]] | `area/notify` in mistakes |
 | **Deploy / Docker / production** | Deploy section in root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]] | Runbook [[Runbook-Production-Deploy]] | recent `session-log` with `topic/deploy` |
-| **PR / strict review / production-impacting push** | root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]], [[.windsurf/workflows/strict-pr-review-8-category.md]] | Runbook [[Runbook-Production-Deploy]], [[Memory-Quality-Score]] | `npm run verify`, `git status --short`, matching `08_Mistakes/` entries |
+| **PR / strict review / production-impacting push** | root `AGENTS.md`, [[Runbook-Deploy-Safety-Checklist]], `/strict-pr-review-8-category` workflow | Runbook [[Runbook-Production-Deploy]], [[Memory-Quality-Score]] | `npm run verify`, `git status --short`, matching `08_Mistakes/` entries |
 | **MCP / tooling setup** | [[Plugin-Setup]] | [[2026-05-13-Setup-MCP-Servers]] | `tooling/mcp` in mistakes |
 | **Vault hygiene / memory** | [[AGENTS]] (this file), [[Memory-Vault-Principles]] | [[Vault-Dashboard]] | recent mistakes with `topic/memory-vault` |
 | **Docs / instruction drift** | [[Runbook-Docs-Drift-Cleanup]], [[Source-Grounded-Documentation]] | [[Mistake-002-Stale-Memory-Docs-Overrode-Source]] | stale notification env names, old command summaries, or settings restart claims |

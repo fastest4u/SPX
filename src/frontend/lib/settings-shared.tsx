@@ -5,6 +5,7 @@ import { safeBrowserUrl } from '../lib/utils'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Switch } from '../components/ui/switch'
 import { toast } from 'sonner'
 import {
     Bell,
@@ -25,20 +26,54 @@ import {
     DialogTitle,
     DialogDescription,
 } from '../components/ui/dialog'
+import type { SettingsResponse, SettingReloadBehavior } from '../types'
 
 export const INITIAL_SETTINGS_FORM = {
     API_URL: '',
+    APP_NAME: '',
+    REFERER: '',
+    DEBUG: 'false',
+    FETCH_DETAILS: 'false',
+    SAVE_TO_DB: 'true',
     POLL_INTERVAL_MS: '30000',
+    BOOKING_DETAIL_CONCURRENCY: '8',
+    BOOKING_REPROCESS_COOLDOWN_MS: '10000',
+    BIDDING_PAGE_NO: '1',
+    BIDDING_PAGE_COUNT: '100',
+    REQUEST_TAB_PENDING_CONFIRMATION: 'true',
+    REQUEST_CTIME_START: '1776358800',
+    BIDDING_VEHICLE_TYPE: '13',
+    NOTIFY_ENABLED: 'true',
+    NOTIFY_MODE: 'batch',
+    NOTIFY_ORIGINS: '',
+    NOTIFY_DESTINATIONS: '',
+    NOTIFY_VEHICLE_TYPES: '',
+    NOTIFY_MIN_TRIPS: '1',
+    AUTO_ACCEPT_ENABLED: 'false',
+    HTTP_ENABLED: 'true',
+    HTTP_ALLOWED_ORIGINS: '',
+    HTTP_TRUST_PROXY: 'false',
+    JWT_SECRET: '',
+    COOKIE_SECRET: '',
+    ADMIN_USERNAME: 'admin',
+    ADMIN_PASSWORD: '',
+    ADMIN_ROLE: 'admin',
     LINE_CHANNEL_ACCESS_TOKEN: '',
     LINEJS_TEST_ENABLED: 'false',
     LINEJS_TEST_TARGET_ID: '',
     LINEJS_TEST_DEVICE: 'IOSIPAD',
     LINEJS_TEST_STORAGE_PATH: 'data/linejs-storage.json',
     DISCORD_WEBHOOK_URL: '',
-    BOOKING_DETAIL_CONCURRENCY: '8',
-    BOOKING_REPROCESS_COOLDOWN_MS: '0',
-    BIDDING_VEHICLE_TYPE: '13',
+    LINE_IMAGE_LISTENER_CHAT_ID: '',
+    NOTIFIER_SHARED_SECRET: '',
+    NOTIFIER_AUTH_MODE: 'hmac',
+    NOTIFIER_REQUEST_TIMEOUT_MS: '1500',
+    NOTIFIER_RETRY_MAX_ATTEMPTS: '12',
+    NOTIFIER_RETRY_BASE_DELAY_MS: '1000',
+    CODEX_IMAGE_MODEL: '',
     CODEX_IMAGE_PROVIDER: 'auto',
+    CODEX_IMAGE_TIMEOUT_MS: '300000',
+    CODEX_IMAGE_MAX_BYTES: '10485760',
 }
 
 export type SettingsForm = typeof INITIAL_SETTINGS_FORM
@@ -48,12 +83,30 @@ export type SettingsFieldErrors = Partial<Record<keyof SettingsForm, string>>
 
 export interface SettingsFormContextValue {
     formData: SettingsForm
+    reloadBehavior: SettingsResponse['reloadBehavior']
     setField: (key: keyof SettingsForm, value: string) => void
     save: () => void
     reset: () => void
     isSaving: boolean
     isDirty: boolean
     fieldErrors: SettingsFieldErrors
+}
+
+type SettingFieldKind = 'text' | 'secret' | 'number' | 'switch' | 'select'
+
+interface SettingFieldOption {
+    value: string
+    label: string
+}
+
+interface SettingFieldDescriptor {
+    key: keyof SettingsForm
+    label: string
+    helper?: string
+    placeholder?: string
+    kind?: SettingFieldKind
+    inputMode?: React.InputHTMLAttributes<HTMLInputElement>['inputMode']
+    options?: readonly SettingFieldOption[]
 }
 
 /**
@@ -66,10 +119,339 @@ const NUMERIC_FIELD_RULES = {
     POLL_INTERVAL_MS: { optional: false },
     BOOKING_DETAIL_CONCURRENCY: { optional: false, min: 1, max: 50 },
     BOOKING_REPROCESS_COOLDOWN_MS: { optional: false, min: 0 },
+    BIDDING_PAGE_NO: { optional: false, min: 1 },
+    BIDDING_PAGE_COUNT: { optional: false, min: 1 },
+    REQUEST_CTIME_START: { optional: false, min: 0 },
     BIDDING_VEHICLE_TYPE: { optional: true, min: 1 },
+    NOTIFY_MIN_TRIPS: { optional: false, min: 1 },
+    NOTIFIER_REQUEST_TIMEOUT_MS: { optional: false, min: 1 },
+    NOTIFIER_RETRY_MAX_ATTEMPTS: { optional: false, min: 1 },
+    NOTIFIER_RETRY_BASE_DELAY_MS: { optional: false, min: 1 },
+    CODEX_IMAGE_TIMEOUT_MS: { optional: false, min: 1 },
+    CODEX_IMAGE_MAX_BYTES: { optional: false, min: 1 },
 } as const satisfies Partial<
     Record<keyof SettingsForm, { optional: boolean; min?: number; max?: number }>
 >
+
+const API_IDENTITY_FIELDS = [
+    {
+        key: 'API_URL',
+        label: 'SPX API URL',
+        helper: 'URL สำหรับเรียก booking/bidding/list',
+        placeholder: 'https://logistics.example.com/api/...',
+    },
+    {
+        key: 'APP_NAME',
+        label: 'App name',
+        helper: 'ชื่อระบบที่ใช้ใน worker และหน้าจัดการ',
+        placeholder: 'SPX',
+    },
+    {
+        key: 'REFERER',
+        label: 'Referer',
+        helper: 'ค่า Referer ที่แนบไปกับ request เข้า SPX',
+        placeholder: 'https://logistics.example.com/',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const RUNTIME_FLAG_FIELDS = [
+    {
+        key: 'DEBUG',
+        label: 'Debug logging',
+        helper: 'เปิด log รายละเอียดเพิ่มสำหรับตรวจปัญหา',
+        kind: 'switch',
+    },
+    {
+        key: 'FETCH_DETAILS',
+        label: 'Fetch details',
+        helper: 'ดึงรายละเอียด booking หลังเจองานใน list',
+        kind: 'switch',
+    },
+    {
+        key: 'SAVE_TO_DB',
+        label: 'Save to DB',
+        helper: 'บันทึก booking และประวัติลงฐานข้อมูล',
+        kind: 'switch',
+    },
+    {
+        key: 'AUTO_ACCEPT_ENABLED',
+        label: 'Auto accept',
+        helper: 'เปิดระบบรับงานอัตโนมัติตาม rule',
+        kind: 'switch',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const REQUEST_WINDOW_FIELDS = [
+    {
+        key: 'POLL_INTERVAL_MS',
+        label: 'Poll interval',
+        helper: 'ช่วงเวลาระหว่างการเช็คงานใหม่ (มิลลิวินาที)',
+        placeholder: '30000',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'BOOKING_DETAIL_CONCURRENCY',
+        label: 'Detail concurrency',
+        helper: 'จำนวน request ดึงรายละเอียดงานพร้อมกัน (1-50)',
+        placeholder: '8',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'BOOKING_REPROCESS_COOLDOWN_MS',
+        label: 'Re-process cooldown',
+        helper: 'ข้ามการดึงรายละเอียดงานเดิมซ้ำภายใน N ms (0 = ปิด)',
+        placeholder: '0',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'BIDDING_PAGE_NO',
+        label: 'Bidding page no',
+        helper: 'หน้าแรกที่ worker ใช้ดึง booking/bidding/list',
+        placeholder: '1',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'BIDDING_PAGE_COUNT',
+        label: 'Bidding page count',
+        helper: 'จำนวนรายการต่อหน้าที่ขอจาก SPX',
+        placeholder: '100',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'REQUEST_TAB_PENDING_CONFIRMATION',
+        label: 'Pending confirmation tab',
+        helper: 'ดึงแท็บงานที่รอการยืนยัน',
+        kind: 'switch',
+    },
+    {
+        key: 'REQUEST_CTIME_START',
+        label: 'Request ctime start',
+        helper: 'Unix timestamp เริ่มต้นสำหรับกรอง request',
+        placeholder: '1776358800',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'BIDDING_VEHICLE_TYPE',
+        label: 'Bidding vehicle type',
+        helper: 'vehicle_type สำหรับ booking/bidding/list; เว้นว่างเพื่อดึงทุกประเภทรถ',
+        placeholder: '13',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const HTTP_AUTH_FIELDS = [
+    {
+        key: 'HTTP_ENABLED',
+        label: 'HTTP enabled',
+        helper: 'เปิด HTTP dashboard/API process',
+        kind: 'switch',
+    },
+    {
+        key: 'HTTP_ALLOWED_ORIGINS',
+        label: 'HTTP allowed origins',
+        helper: 'origin ที่อนุญาตสำหรับ CORS คั่นด้วย comma',
+        placeholder: 'https://example.com,https://admin.example.com',
+    },
+    {
+        key: 'HTTP_TRUST_PROXY',
+        label: 'HTTP trust proxy',
+        helper: 'เชื่อ proxy header เมื่ออยู่หลัง reverse proxy',
+        kind: 'switch',
+    },
+    {
+        key: 'JWT_SECRET',
+        label: 'JWT secret',
+        helper: 'เว้นค่า masked ไว้เพื่อใช้ secret เดิม',
+        placeholder: '********',
+        kind: 'secret',
+    },
+    {
+        key: 'COOKIE_SECRET',
+        label: 'Cookie secret',
+        helper: 'เว้นค่า masked ไว้เพื่อใช้ secret เดิม',
+        placeholder: '********',
+        kind: 'secret',
+    },
+    {
+        key: 'ADMIN_USERNAME',
+        label: 'Admin username',
+        helper: 'บัญชี admin เริ่มต้นของระบบ',
+        placeholder: 'admin',
+    },
+    {
+        key: 'ADMIN_PASSWORD',
+        label: 'Admin password',
+        helper: 'เว้นค่า masked ไว้เพื่อใช้ password เดิม',
+        placeholder: '********',
+        kind: 'secret',
+    },
+    {
+        key: 'ADMIN_ROLE',
+        label: 'Admin role',
+        helper: 'สิทธิ์เริ่มต้นของบัญชี admin',
+        kind: 'select',
+        options: [
+            { value: 'admin', label: 'admin' },
+            { value: 'user', label: 'user' },
+        ],
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const AI_IMAGE_FIELDS = [
+    {
+        key: 'CODEX_IMAGE_PROVIDER',
+        label: 'AI image provider',
+        helper: 'เลือก codex-device เพื่ออ่านรูป LINE ผ่าน OAuth ของ OpenAI',
+        kind: 'select',
+        options: [
+            { value: 'auto', label: 'auto (ใช้ตัวที่พร้อมใช้)' },
+            { value: 'codex-device', label: 'codex-device (OAuth)' },
+            { value: 'codex-cli', label: 'codex-cli (local)' },
+        ],
+    },
+    {
+        key: 'CODEX_IMAGE_MODEL',
+        label: 'Codex image model',
+        helper: 'model ที่ใช้แยกข้อมูลจากรูป runsheet',
+        placeholder: 'gpt-5-mini',
+    },
+    {
+        key: 'CODEX_IMAGE_TIMEOUT_MS',
+        label: 'Codex image timeout',
+        helper: 'timeout สำหรับอ่านรูป LINE (มิลลิวินาที)',
+        placeholder: '300000',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'CODEX_IMAGE_MAX_BYTES',
+        label: 'Codex image max bytes',
+        helper: 'ขนาดรูปสูงสุดที่ส่งให้ AI',
+        placeholder: '10485760',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const NOTIFY_FILTER_FIELDS = [
+    {
+        key: 'NOTIFY_ENABLED',
+        label: 'Notify enabled',
+        helper: 'เปิดส่งแจ้งเตือนกลาง',
+        kind: 'switch',
+    },
+    {
+        key: 'NOTIFY_MODE',
+        label: 'Notify mode',
+        helper: 'รูปแบบการรวมข้อความแจ้งเตือน',
+        kind: 'select',
+        options: [
+            { value: 'each', label: 'each' },
+            { value: 'batch', label: 'batch' },
+        ],
+    },
+    {
+        key: 'NOTIFY_ORIGINS',
+        label: 'Notify origins',
+        helper: 'ต้นทางที่ต้องการแจ้งเตือน คั่นด้วย comma',
+        placeholder: 'Bangkok,Rayong',
+    },
+    {
+        key: 'NOTIFY_DESTINATIONS',
+        label: 'Notify destinations',
+        helper: 'ปลายทางที่ต้องการแจ้งเตือน คั่นด้วย comma',
+        placeholder: 'Laem Chabang',
+    },
+    {
+        key: 'NOTIFY_VEHICLE_TYPES',
+        label: 'Notify vehicle types',
+        helper: 'ประเภทรถที่ต้องการแจ้งเตือน คั่นด้วย comma',
+        placeholder: '13,14',
+    },
+    {
+        key: 'NOTIFY_MIN_TRIPS',
+        label: 'Notify min trips',
+        helper: 'จำนวนเที่ยวขั้นต่ำก่อนแจ้งเตือน',
+        placeholder: '1',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const NOTIFY_CHANNEL_FIELDS = [
+    {
+        key: 'LINE_CHANNEL_ACCESS_TOKEN',
+        label: 'Channel access token',
+        helper: 'Token สำหรับส่ง push message ผ่าน LINE Messaging API',
+        placeholder: '********',
+        kind: 'secret',
+    },
+    {
+        key: 'DISCORD_WEBHOOK_URL',
+        label: 'Discord webhook URL',
+        helper: 'webhook ของ channel Discord ที่ต้องการรับแจ้งเตือน',
+        placeholder: 'https://discord.com/api/webhooks/...',
+        kind: 'secret',
+    },
+    {
+        key: 'LINE_IMAGE_LISTENER_CHAT_ID',
+        label: 'Line image listener chat ID',
+        helper: 'chat ID สำหรับรับรูป runsheet จาก LINE',
+        placeholder: '********',
+        kind: 'secret',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
+
+const NOTIFIER_RUNTIME_FIELDS = [
+    {
+        key: 'NOTIFIER_SHARED_SECRET',
+        label: 'Notifier shared secret',
+        helper: 'secret กลางสำหรับ signer/verifier ของ notifier',
+        placeholder: '********',
+        kind: 'secret',
+    },
+    {
+        key: 'NOTIFIER_AUTH_MODE',
+        label: 'Notifier auth mode',
+        helper: 'โหมดตรวจ auth ระหว่าง worker กับ notifier',
+        kind: 'select',
+        options: [
+            { value: 'hmac', label: 'hmac' },
+            { value: 'bearer', label: 'bearer' },
+        ],
+    },
+    {
+        key: 'NOTIFIER_REQUEST_TIMEOUT_MS',
+        label: 'Notifier request timeout',
+        helper: 'timeout ต่อ request ไป notifier (มิลลิวินาที)',
+        placeholder: '1500',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'NOTIFIER_RETRY_MAX_ATTEMPTS',
+        label: 'Notifier retry max attempts',
+        helper: 'จำนวนครั้ง retry สูงสุดเมื่อส่งแจ้งเตือนล้มเหลว',
+        placeholder: '12',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+    {
+        key: 'NOTIFIER_RETRY_BASE_DELAY_MS',
+        label: 'Notifier retry base delay',
+        helper: 'delay เริ่มต้นของ retry backoff (มิลลิวินาที)',
+        placeholder: '1000',
+        kind: 'number',
+        inputMode: 'numeric',
+    },
+] as const satisfies readonly SettingFieldDescriptor[]
 
 /**
  * Validate and clamp numeric settings before building the save payload.
@@ -129,22 +511,42 @@ export function validateNumericFields(form: SettingsForm): {
 const SettingsFormContext = React.createContext<SettingsFormContextValue | null>(null)
 
 /** Build form state from the cached settings query response. */
-function formFromSettings(settings: Awaited<ReturnType<typeof settingsApi.get>>): SettingsForm {
-    return {
-        API_URL: settings.API_URL || '',
-        POLL_INTERVAL_MS: settings.POLL_INTERVAL_MS || '30000',
-        LINE_CHANNEL_ACCESS_TOKEN: settings.LINE_CHANNEL_ACCESS_TOKEN || '',
-        LINEJS_TEST_ENABLED: settings.LINEJS_TEST_ENABLED || 'false',
-        LINEJS_TEST_TARGET_ID: settings.LINEJS_TEST_TARGET_ID || '',
-        LINEJS_TEST_DEVICE: settings.LINEJS_TEST_DEVICE || 'IOSIPAD',
-        LINEJS_TEST_STORAGE_PATH:
-            settings.LINEJS_TEST_STORAGE_PATH || 'data/linejs-storage.json',
-        DISCORD_WEBHOOK_URL: settings.DISCORD_WEBHOOK_URL || '',
-        BOOKING_DETAIL_CONCURRENCY: settings.BOOKING_DETAIL_CONCURRENCY || '8',
-        BOOKING_REPROCESS_COOLDOWN_MS: settings.BOOKING_REPROCESS_COOLDOWN_MS || '0',
-        BIDDING_VEHICLE_TYPE: settings.BIDDING_VEHICLE_TYPE ?? '13',
-        CODEX_IMAGE_PROVIDER: settings.CODEX_IMAGE_PROVIDER || 'auto',
+function formFromSettings(settings: SettingsResponse): SettingsForm {
+    const form: SettingsForm = { ...INITIAL_SETTINGS_FORM }
+    for (const key of Object.keys(INITIAL_SETTINGS_FORM) as Array<keyof SettingsForm>) {
+        form[key] = settings.values[key] ?? INITIAL_SETTINGS_FORM[key]
     }
+    return form
+}
+
+function changedReloadBehaviors(
+    saved: SettingsForm,
+    currentSettings: SettingsResponse | undefined,
+): Set<SettingReloadBehavior> {
+    const result = new Set<SettingReloadBehavior>()
+    const currentForm = currentSettings ? formFromSettings(currentSettings) : INITIAL_SETTINGS_FORM
+    const reloadBehavior = currentSettings?.reloadBehavior ?? {}
+
+    for (const key of Object.keys(INITIAL_SETTINGS_FORM) as Array<keyof SettingsForm>) {
+        if (saved[key] === currentForm[key]) continue
+        result.add(reloadBehavior[key] ?? 'live')
+    }
+
+    return result
+}
+
+function settingsSavedMessage(
+    saved: SettingsForm,
+    currentSettings: SettingsResponse | undefined,
+): string {
+    const behaviors = changedReloadBehaviors(saved, currentSettings)
+    if (behaviors.has('restart-process')) {
+        return 'บันทึกการตั้งค่าแล้ว บางค่าต้องรีสตาร์ท process จึงจะมีผล'
+    }
+    if (behaviors.has('restart-worker')) {
+        return 'บันทึกการตั้งค่าแล้ว บางค่าต้องรีสตาร์ท worker จึงจะมีผล'
+    }
+    return 'บันทึกการตั้งค่าแล้ว โหลดค่า live ใหม่แล้ว'
 }
 
 /**
@@ -163,7 +565,7 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
 
     const { data: settings } = useQuery({
         queryKey: ['settings'],
-        queryFn: settingsApi.get,
+        queryFn: settingsApi.getDetailed,
         staleTime: 5 * 60 * 1000,
     })
 
@@ -176,8 +578,8 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
 
     const updateMutation = useMutation({
         mutationFn: settingsApi.update,
-        onSuccess: () => {
-            toast.success('บันทึกการตั้งค่าแล้ว มีผลทันที')
+        onSuccess: (_data, saved) => {
+            toast.success(settingsSavedMessage(saved as SettingsForm, settings))
             queryClient.invalidateQueries({ queryKey: ['settings'] })
             queryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
             setIsDirty(false)
@@ -220,6 +622,7 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
 
     const value: SettingsFormContextValue = {
         formData,
+        reloadBehavior: settings?.reloadBehavior ?? {},
         setField,
         save,
         reset,
@@ -329,6 +732,134 @@ export function MaskedHint({ value }: { value: string }) {
     return <span className="text-warning">unmasked</span>
 }
 
+function fieldId(key: keyof SettingsForm): string {
+    return `s-${key.toLowerCase().replace(/_/g, '-')}`
+}
+
+function reloadBehaviorText(behavior: SettingReloadBehavior | undefined): string {
+    switch (behavior) {
+        case 'restart-process':
+            return 'restart process'
+        case 'restart-worker':
+            return 'restart worker'
+        case 'live':
+        default:
+            return 'live'
+    }
+}
+
+function SettingFieldHint({
+    behavior,
+    secretValue,
+}: {
+    behavior: SettingReloadBehavior | undefined
+    secretValue?: string
+}) {
+    return (
+        <span className="inline-flex items-center gap-2">
+            {secretValue !== undefined ? <MaskedHint value={secretValue} /> : null}
+            <span className="font-data text-[0.65rem] uppercase text-muted-foreground/70">
+                {reloadBehaviorText(behavior)}
+            </span>
+        </span>
+    )
+}
+
+function SettingFieldGrid({
+    fields,
+    formData,
+    setField,
+    columns = 'sm:grid-cols-2',
+}: {
+    fields: readonly SettingFieldDescriptor[]
+    formData: SettingsForm
+    setField: (k: keyof SettingsForm, v: string) => void
+    columns?: string
+}) {
+    return (
+        <div className={`grid gap-4 ${columns}`}>
+            {fields.map((field) => (
+                <SettingFieldControl
+                    key={field.key}
+                    field={field}
+                    formData={formData}
+                    setField={setField}
+                />
+            ))}
+        </div>
+    )
+}
+
+function SettingFieldControl({
+    field,
+    formData,
+    setField,
+}: {
+    field: SettingFieldDescriptor
+    formData: SettingsForm
+    setField: (k: keyof SettingsForm, v: string) => void
+}) {
+    const { fieldErrors, reloadBehavior } = useSettingsForm()
+    const value = formData[field.key] ?? ''
+    const id = fieldId(field.key)
+    const error = fieldErrors[field.key]
+    const kind = field.kind ?? 'text'
+    const describedBy = error ? `${id}-error` : undefined
+    const hint = (
+        <SettingFieldHint
+            behavior={reloadBehavior[field.key]}
+            secretValue={kind === 'secret' ? value : undefined}
+        />
+    )
+
+    return (
+        <Field
+            id={id}
+            label={field.label}
+            helper={field.helper}
+            error={error}
+            hint={hint}
+        >
+            {kind === 'switch' ? (
+                <div className="flex h-10 items-center gap-3">
+                    <Switch
+                        id={id}
+                        checked={value === 'true'}
+                        onCheckedChange={(checked) => setField(field.key, checked ? 'true' : 'false')}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                        {value === 'true' ? 'เปิด' : 'ปิด'}
+                    </span>
+                </div>
+            ) : kind === 'select' ? (
+                <select
+                    id={id}
+                    value={value}
+                    onChange={(e) => setField(field.key, e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                    {(field.options ?? []).map((option) => (
+                        <option key={option.value} value={option.value} className="bg-popover">
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <Input
+                    id={id}
+                    value={value}
+                    onChange={(e) => setField(field.key, e.target.value)}
+                    placeholder={field.placeholder}
+                    inputMode={field.inputMode}
+                    type={kind === 'secret' ? 'password' : 'text'}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={describedBy}
+                />
+            )}
+        </Field>
+    )
+}
+
 export function getIntervalSec(pollIntervalMs: string): number {
     const ms = Number(pollIntervalMs || 30000)
     return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 1000)) : 0
@@ -355,7 +886,6 @@ export function ApiSection({
     formData: SettingsForm
     setField: (k: keyof SettingsForm, v: string) => void
 }) {
-    const { fieldErrors } = useSettingsForm()
     const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
     const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
     const cooldownMs = Number(formData.BOOKING_REPROCESS_COOLDOWN_MS || 0)
@@ -375,126 +905,38 @@ export function ApiSection({
             </div>
 
             <Section icon={KeyRound} title="SPX API" description="ค่า endpoint กลางที่ใช้ร่วมกันทุกทีม">
-                <div className="space-y-4">
-                    <Field id="s-api-url" label="SPX API URL" helper="URL สำหรับเรียก booking/bidding/list">
-                        <Input
-                            id="s-api-url"
-                            value={formData.API_URL}
-                            onChange={(e) => setField('API_URL', e.target.value)}
-                            placeholder="https://logistics.example.com/api/..."
-                        />
-                    </Field>
-                </div>
+                <SettingFieldGrid fields={API_IDENTITY_FIELDS} formData={formData} setField={setField} />
+            </Section>
+
+            <Section icon={Settings2} title="Runtime flags" description="สวิตช์หลักของ worker และ auto-accept">
+                <SettingFieldGrid
+                    fields={RUNTIME_FLAG_FIELDS}
+                    formData={formData}
+                    setField={setField}
+                    columns="sm:grid-cols-2 lg:grid-cols-4"
+                />
             </Section>
 
             <Section icon={Settings2} title="Polling behaviour" description="รอบดึงงานและจำนวน request พร้อมกัน">
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                        id="s-poll"
-                        label="Poll interval"
-                        hint={intervalSec ? `≈ ${intervalSec}s` : ''}
-                        helper="ช่วงเวลาระหว่างการเช็คงานใหม่ (มิลลิวินาที)"
-                        error={fieldErrors.POLL_INTERVAL_MS}
-                    >
-                        <Input
-                            id="s-poll"
-                            value={formData.POLL_INTERVAL_MS}
-                            onChange={(e) => setField('POLL_INTERVAL_MS', e.target.value)}
-                            placeholder="30000"
-                            inputMode="numeric"
-                            aria-invalid={fieldErrors.POLL_INTERVAL_MS ? true : undefined}
-                            aria-describedby={
-                                fieldErrors.POLL_INTERVAL_MS ? 's-poll-error' : undefined
-                            }
-                        />
-                    </Field>
+                <SettingFieldGrid
+                    fields={REQUEST_WINDOW_FIELDS}
+                    formData={formData}
+                    setField={setField}
+                    columns="sm:grid-cols-2 xl:grid-cols-4"
+                />
+            </Section>
 
-                    <Field
-                        id="s-concurrency"
-                        label="Detail concurrency"
-                        hint={concurrency > 0 ? `${concurrency} jobs` : ''}
-                        helper="จำนวน request ดึงรายละเอียดงานพร้อมกัน (1–50)"
-                        error={fieldErrors.BOOKING_DETAIL_CONCURRENCY}
-                    >
-                        <Input
-                            id="s-concurrency"
-                            value={formData.BOOKING_DETAIL_CONCURRENCY}
-                            onChange={(e) => setField('BOOKING_DETAIL_CONCURRENCY', e.target.value)}
-                            placeholder="8"
-                            inputMode="numeric"
-                            aria-invalid={fieldErrors.BOOKING_DETAIL_CONCURRENCY ? true : undefined}
-                            aria-describedby={
-                                fieldErrors.BOOKING_DETAIL_CONCURRENCY
-                                    ? 's-concurrency-error'
-                                    : undefined
-                            }
-                        />
-                    </Field>
+            <Section icon={Lock} title="HTTP & Auth" description="ค่า dashboard/API และบัญชี admin เริ่มต้น">
+                <SettingFieldGrid
+                    fields={HTTP_AUTH_FIELDS}
+                    formData={formData}
+                    setField={setField}
+                    columns="sm:grid-cols-2 xl:grid-cols-4"
+                />
+            </Section>
 
-                    <Field
-                        id="s-reprocess-cooldown"
-                        label="Re-process cooldown"
-                        hint={
-                            Number(formData.BOOKING_REPROCESS_COOLDOWN_MS) > 0
-                                ? `≈ ${(Number(formData.BOOKING_REPROCESS_COOLDOWN_MS) / 1000).toFixed(1)}s`
-                                : 'ปิด'
-                        }
-                        helper="ข้ามการดึงรายละเอียดงานเดิมซ้ำภายใน N ms — กัน churn เมื่อตั้ง poll interval ต่ำ (0 = ปิด; งานใหม่ไม่ได้รับผลกระทบ)"
-                        error={fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS}
-                    >
-                        <Input
-                            id="s-reprocess-cooldown"
-                            value={formData.BOOKING_REPROCESS_COOLDOWN_MS}
-                            onChange={(e) => setField('BOOKING_REPROCESS_COOLDOWN_MS', e.target.value)}
-                            placeholder="0"
-                            inputMode="numeric"
-                            aria-invalid={fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS ? true : undefined}
-                            aria-describedby={
-                                fieldErrors.BOOKING_REPROCESS_COOLDOWN_MS
-                                    ? 's-reprocess-cooldown-error'
-                                    : undefined
-                            }
-                        />
-                    </Field>
-
-                    <Field
-                        id="s-bidding-vehicle-type"
-                        label="Bidding vehicle type"
-                        helper="vehicle_type สำหรับ booking/bidding/list; เว้นว่างเพื่อดึงทุกประเภทรถ"
-                        error={fieldErrors.BIDDING_VEHICLE_TYPE}
-                    >
-                        <Input
-                            id="s-bidding-vehicle-type"
-                            value={formData.BIDDING_VEHICLE_TYPE}
-                            onChange={(e) => setField('BIDDING_VEHICLE_TYPE', e.target.value)}
-                            placeholder="13"
-                            inputMode="numeric"
-                            aria-invalid={fieldErrors.BIDDING_VEHICLE_TYPE ? true : undefined}
-                            aria-describedby={
-                                fieldErrors.BIDDING_VEHICLE_TYPE
-                                    ? 's-bidding-vehicle-type-error'
-                                    : undefined
-                            }
-                        />
-                    </Field>
-
-                    <Field
-                        id="s-codex-provider"
-                        label="AI image provider"
-                        helper="เลือก codex-device เพื่ออ่านรูป LINE ผ่าน OAuth ของ OpenAI"
-                    >
-                        <select
-                            id="s-codex-provider"
-                            value={formData.CODEX_IMAGE_PROVIDER}
-                            onChange={(e) => setField('CODEX_IMAGE_PROVIDER', e.target.value)}
-                            className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                            <option value="auto" className="bg-popover">auto (ใช้ตัวที่พร้อมใช้)</option>
-                            <option value="codex-device" className="bg-popover">codex-device (OAuth)</option>
-                            <option value="codex-cli" className="bg-popover">codex-cli (local)</option>
-                        </select>
-                    </Field>
-                </div>
+            <Section icon={Bot} title="AI image extraction" description="provider, model, timeout, และขนาดไฟล์สำหรับอ่านรูป LINE">
+                <SettingFieldGrid fields={AI_IMAGE_FIELDS} formData={formData} setField={setField} />
             </Section>
 
             <CodexAuthSection />
@@ -833,49 +1275,37 @@ export function NotifySection({
     return (
         <div className="space-y-5">
             <Section
-                icon={MessageCircle}
-                title="LINE Official Account"
-                description="ส่ง push message ผ่าน LINE Messaging API"
+                icon={Bell}
+                title="Notification filters"
+                description="เงื่อนไขกลางก่อนส่งแจ้งเตือน"
             >
-                <div className="space-y-4">
-                    <Field
-                        id="s-line-token"
-                        label="Channel access token"
-                        helper="Token สำหรับส่ง push message ผ่าน LINE Messaging API"
-                        hint={<MaskedHint value={formData.LINE_CHANNEL_ACCESS_TOKEN} />}
-                    >
-                        <Input
-                            id="s-line-token"
-                            value={formData.LINE_CHANNEL_ACCESS_TOKEN}
-                            onChange={(e) => setField('LINE_CHANNEL_ACCESS_TOKEN', e.target.value)}
-                            placeholder="********"
-                        />
-                    </Field>
-                </div>
+                <SettingFieldGrid
+                    fields={NOTIFY_FILTER_FIELDS}
+                    formData={formData}
+                    setField={setField}
+                    columns="sm:grid-cols-2 xl:grid-cols-3"
+                />
             </Section>
 
             <Section
-                icon={Bell}
-                title="Discord webhook"
-                description="ส่งแจ้งเตือนเข้า channel Discord ผ่าน webhook"
+                icon={MessageCircle}
+                title="Notification channels"
+                description="LINE OA, Discord, และ LINE image listener"
             >
-                <Field
-                    id="s-discord"
-                    label="Webhook URL"
-                    helper="สร้าง webhook ใน channel Discord ที่ต้องการรับแจ้งเตือน"
-                    hint={
-                        formData.DISCORD_WEBHOOK_URL ? null : (
-                            <span className="text-muted-foreground/50">ยังไม่ตั้งค่า</span>
-                        )
-                    }
-                >
-                    <Input
-                        id="s-discord"
-                        value={formData.DISCORD_WEBHOOK_URL}
-                        onChange={(e) => setField('DISCORD_WEBHOOK_URL', e.target.value)}
-                        placeholder="https://discord.com/api/webhooks/..."
-                    />
-                </Field>
+                <SettingFieldGrid fields={NOTIFY_CHANNEL_FIELDS} formData={formData} setField={setField} />
+            </Section>
+
+            <Section
+                icon={Lock}
+                title="Notifier runtime"
+                description="auth, timeout, และ retry สำหรับ central notifier"
+            >
+                <SettingFieldGrid
+                    fields={NOTIFIER_RUNTIME_FIELDS}
+                    formData={formData}
+                    setField={setField}
+                    columns="sm:grid-cols-2 xl:grid-cols-3"
+                />
             </Section>
 
             <div className="flex items-start gap-3 rounded-[8px] border border-white/[0.06] bg-white/[0.02] p-4">
