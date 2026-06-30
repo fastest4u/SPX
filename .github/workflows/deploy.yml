@@ -42,6 +42,14 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: spx-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
     name: Deploy Production
     runs-on: ubuntu-latest
@@ -50,6 +58,33 @@ jobs:
     environment: production
 
     steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: spx-dist
+          path: dist
+
+      - name: Package build artifact
+        run: |
+          set -euo pipefail
+          test -f dist/app.js
+          test -f dist/scripts/db-migrate.js
+          tar -czf spx-dist.tar.gz dist
+
+      - name: Upload build artifact to server
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT || 22 }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_deploy_key
+          chmod 600 ~/.ssh/spx_deploy_key
+          ssh-keyscan -p "${SPX_PORT}" "${SPX_HOST}" >> ~/.ssh/known_hosts
+          scp -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key spx-dist.tar.gz "${SPX_USER}@${SPX_HOST}:/tmp/spx-dist-${GITHUB_SHA}.tar.gz"
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -61,22 +96,46 @@ jobs:
             set -euo pipefail
 
             cd /root/SPX
+            DIST_ARTIFACT="/tmp/spx-dist-${{ github.sha }}.tar.gz"
+            ROLLBACK_DIST="/tmp/spx-dist-rollback-${{ github.run_id }}.tar.gz"
 
             # Capture rollback target before fetching new code so we can restore
             # the exact commit if the new build or readiness check fails.
             PREVIOUS_COMMIT=$(git rev-parse HEAD)
             echo "Previous commit: ${PREVIOUS_COMMIT}"
 
+            if [ ! -s "${DIST_ARTIFACT}" ]; then
+              echo "Missing build artifact at ${DIST_ARTIFACT}"
+              exit 1
+            fi
+
+            if [ -d dist ]; then
+              tar -czf "${ROLLBACK_DIST}" dist
+            else
+              rm -f "${ROLLBACK_DIST}"
+            fi
+
             git fetch origin main
             git reset --hard origin/main
             NEW_COMMIT=$(git rev-parse HEAD)
             echo "New commit: ${NEW_COMMIT}"
 
-            # Build the new image first. If the build fails the running
-            # container is untouched and we just roll the working tree back.
+            rm -rf dist
+            tar -xzf "${DIST_ARTIFACT}" -C .
+            rm -f "${DIST_ARTIFACT}"
+            test -f dist/app.js
+            test -f dist/scripts/db-migrate.js
+
+            # Build the runtime image from the CI artifact. If the image build
+            # fails, the running container is untouched and we roll source/dist
+            # back together.
             if ! docker compose build; then
-              echo "docker build failed; rolling back source to ${PREVIOUS_COMMIT}"
+              echo "docker image build failed; rolling back source/dist to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
+              rm -rf dist
+              if [ -f "${ROLLBACK_DIST}" ]; then
+                tar -xzf "${ROLLBACK_DIST}" -C .
+              fi
               exit 1
             fi
 
@@ -105,12 +164,22 @@ jobs:
             if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
               echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
-              # Mirror the forward deploy exactly: rebuild then force-recreate.
-              docker compose build
+              rm -rf dist
+              if [ -f "${ROLLBACK_DIST}" ]; then
+                tar -xzf "${ROLLBACK_DIST}" -C .
+                if ! docker compose build; then
+                  echo "Rollback rebuild failed; restoring tagged rollback image"
+                  docker tag spx-app:rollback spx-app:latest
+                fi
+              else
+                echo "No previous dist snapshot; restoring tagged rollback image"
+                docker tag spx-app:rollback spx-app:latest
+              fi
               docker compose up -d --remove-orphans --force-recreate
               exit 1
             fi
 
+            rm -f "${ROLLBACK_DIST}"
             echo "Deploy succeeded: ${NEW_COMMIT}"
 
       # Notify on failure. DISCORD_WEBHOOK_URL must be configured as a GitHub
