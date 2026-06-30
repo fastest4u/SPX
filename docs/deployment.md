@@ -65,11 +65,45 @@ docker compose up --build
 - Healthcheck ยิง `GET /ready` อัตโนมัติ
 - Base image: `node:24-alpine`
 
+### Production Services
+
+Production compose runs one shared image as three services:
+
+| Service | Role | Responsibility |
+|---------|------|----------------|
+| `notifier` | `SPX_ROLE=notifier` | HTTP/dashboard, migrations, internal notification API, central LINE delivery, runtime metrics aggregation |
+| `worker-ifn` | `SPX_ROLE=worker`, `RUN_TEAM_IDS=2` | IFN polling/auto-accept worker |
+| `worker-ptwl` | `SPX_ROLE=worker`, `RUN_TEAM_IDS=1` | PTWL polling/auto-accept worker |
+
+Workers call the notifier over Docker networking. Notification events use `/internal/notification-events`; runtime telemetry uses `/internal/runtime-metrics`.
+
 ## DB-first config
 
 Production loads config from MySQL `app_settings` after reading bootstrap env. `.env` should contain only bootstrap values such as `NODE_ENV`, `DB_MODE`, database connection fields, and `SECRETS_KEY`. Docker/service environment should keep process identity values such as `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, and `HTTP_PORT`.
 
 Use the dashboard Settings and Teams pages to change SPX API, polling, auto-accept, notification, auth signing secrets, provider settings, and team credentials. Before reducing `.env`, deploy the DB-first build once with the existing `.env` so startup can seed missing `app_settings` rows. Verify `/ready`, worker healthchecks, and Settings page values. After that verification, remove runtime/operator values from `.env`.
+
+Current production has completed that rollout: `.env` should stay bootstrap-only, runtime/operator settings should come from `app_settings`, and team credentials/LINE targets should come from encrypted `teams` fields.
+
+## Post-Deploy Verification
+
+Use read-only checks and avoid printing secret values:
+
+```bash
+git rev-parse --short HEAD
+docker compose ps
+curl -s http://127.0.0.1:3000/ready
+docker compose logs --since=5m notifier | grep -c 'POST /internal/runtime-metrics 200'
+docker compose logs --since=5m worker-ifn worker-ptwl | grep -c 'runtime-metrics-publish-failed\|runtime-metrics-url-invalid'
+npm run schema:verify
+```
+
+Expected runtime state:
+- `notifier`, `worker-ifn`, and `worker-ptwl` are running and healthy.
+- `/ready` returns HTTP 200 with `ready: true`.
+- `POST /internal/runtime-metrics 200` appears frequently in notifier logs.
+- Worker logs have zero runtime-metrics publish/url failures.
+- Admin Pipeline telemetry should update after the next worker metrics publish cycle; hard-refresh the dashboard if the browser still has stale UI state.
 
 ## Production Checklist
 
@@ -82,7 +116,8 @@ Use the dashboard Settings and Teams pages to change SPX API, polling, auto-acce
 - [ ] ตั้ง `NODE_ENV=production` สำหรับ secure cookies
 - [ ] Runtime/operator secrets ต้องอยู่ใน `app_settings` หรือ team encrypted fields หลัง seed สำเร็จ
 - [ ] Monitor `/health`, `/ready`, `/metrics` ผ่าน Uptime Kuma หรือ Datadog
-- [ ] `notify-rules.json` ต้องมี controlled write access
+- [ ] Verify notifier receives worker runtime metrics (`POST /internal/runtime-metrics 200`) after deploy
+- [ ] `notify-rules.json` ต้องมี controlled write access เฉพาะ local/dev fallback; production rules อยู่ใน DB
 - [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck + frontend build)
 - [ ] ตรวจว่า `dist/public/` มี `index.html` และ assets ครบ
 

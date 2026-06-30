@@ -14,17 +14,19 @@ aliases:
 
 ## Overview
 
-ระบบ notification ของ SPX ประกอบด้วย 3 ส่วนหลัก:
+ระบบ notification ของ SPX ประกอบด้วย 5 ส่วนหลัก:
 
 1. **Rule Engine** (`notify-rules.ts`) — จับคู่ trips กับ rules
-2. **Notifier** (`notifier.ts`) — ส่ง Discord/LINE messages
-3. **Auto-Accept Flow** (`notifier.ts`) — รับงาน → แจ้งเตือน
+2. **Worker Publisher** (`notification-client.ts`) — worker ส่ง notification events เข้า notifier ผ่าน internal API
+3. **Central Notifier** (`notifier.ts`, `internal-notification-controller.ts`) — ส่ง Discord/LINE messages จาก process กลาง
+4. **Auto-Accept Flow** (`notifier.ts`) — รับงาน → แจ้งเตือน
+5. **Retry Spool** (`notification-spool.ts`) — เก็บ event ที่ส่งไม่สำเร็จเพื่อ retry แบบ crash-safe
 
 ## Rule Engine Flow
 
 ```mermaid
 flowchart TD
-  A["Poller ส่ง trips[]"] --> B["readRules() จาก notify-rules.json"]
+  A["Poller ส่ง trips[]"] --> B["readRules() จาก DB หรือ notify-rules.json"]
   B --> C["Filter: enabled && !fulfilled"]
   C --> D["ruleMatchesTrips()"]
   D --> E{"matchedTrips >= rule.need?"}
@@ -35,7 +37,7 @@ flowchart TD
 
 ## Rule Structure
 
-Rules ถูกเก็บใน `notify-rules.json` ที่ root ของ project:
+Production เก็บ rules ใน DB. Local/dev ยังรองรับ `notify-rules.json` เป็น fallback:
 
 ```json
 {
@@ -86,13 +88,23 @@ stateDiagram-v2
 // Timestamp: ISO 8601
 ```
 
-### LINE Notify
+### Central LINE Delivery
+
+Production workers ไม่ส่ง LINE โดยตรง. Workers publish signed notification events เข้า notifier:
+
+```text
+worker-* -> POST /internal/notification-events -> notifier -> LINE/Discord
 ```
-POST https://notify-api.line.me/api/notify
-Authorization: Bearer {LINE_NOTIFY_TOKEN}
-Content-Type: application/x-www-form-urlencoded
-// Max message: 3000 chars (truncated)
-```
+
+Notifier เลือก target จาก team config:
+
+| Event Type | Target Priority |
+|------------|-----------------|
+| auto-accept success/partial | `autoAcceptSuccessLineGroupId` -> `lineGroupId` |
+| auto-accept failure | `autoAcceptFailureLineGroupId` -> `lineGroupId` |
+| general/team events | `lineGroupId` |
+
+Secrets and targets are DB-first: global notification settings live in `app_settings`; team targets and SPX credentials live encrypted on `teams`. The old LINE Notify bearer-token path is no longer the production notification path.
 
 ### LINE Bot (LINEJS)
 ใช้ `linejs` library เพื่อส่งข้อความในฐานะบัญชี LINE ปกติ หรือผ่าน LINE Official Account โดยใช้วิธีสแกน QR Code:
@@ -107,6 +119,16 @@ Content-Type: application/x-www-form-urlencoded
 |------|----------|
 | `batch` (default) | รวม matches ทั้งหมดส่งในข้อความเดียว |
 | `each` | ส่งแยกข้อความต่อ rule ที่ match |
+
+## Runtime Metrics Bridge
+
+Workers also publish signed runtime snapshots to the notifier:
+
+```text
+worker-* -> POST /internal/runtime-metrics -> notifier runtime metrics cache -> /metrics + SSE
+```
+
+This keeps admin/all-team Pipeline telemetry tied to the actual worker processes. A healthy production deploy should show frequent `POST /internal/runtime-metrics 200` lines in notifier logs and no `runtime-metrics-publish-failed` warnings in worker logs.
 
 ## TripLike Interface
 

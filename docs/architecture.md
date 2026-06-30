@@ -12,7 +12,7 @@ aliases:
 
 ## Overview
 
-SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก== ที่ทำงานใน process เดียวกัน:
+SPX Bidding Poller เป็นระบบ split-runtime ใน production: process `notifier` เป็น HTTP/dashboard + central notification hub และ process `worker-*` เป็น polling/auto-accept workers ต่อทีม. Local/dev ยังสามารถใช้ `SPX_ROLE=combined` เพื่อรันทุกอย่างใน process เดียวได้.
 
 ### 1) Polling Worker (Core Engine)
 
@@ -28,23 +28,28 @@ SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก==
 | Rule Engine | `src/services/notify-rules.ts` | Match trips กับ rules, mark fulfilled |
 | Metrics | `src/services/metrics.ts` | Latency percentiles, success rate |
 | Error Classifier | `src/utils/error-classifier.ts` | จำแนก error เป็น 6 categories |
+| Runtime Metrics Client | `src/services/runtime-metrics-client.ts` | ส่ง worker metrics เข้า notifier |
+| Team Runtime | `src/services/team-runtime*.ts` | จัดการ runtime ต่อทีม, leases, desired state |
 
-### 2) Web Dashboard — React SPA (`HTTP_ENABLED=true`)
+### 2) Notifier / Dashboard Process
 
 | Component | File | หน้าที่ |
 |-----------|------|--------|
 | HTTP Server | `src/services/http-server.ts` | Fastify + CORS + JWT + Rate Limit + SPA serving |
 | Auth Controller | `src/controllers/auth-controller.ts` | Login/Logout/Refresh/Me API |
-| Dashboard Controller | `src/controllers/dashboard-controller.ts` | Health + metrics + events API |
+| Dashboard Controller | `src/controllers/dashboard-controller.ts` | Health + aggregated metrics + events API |
+| Internal Notification Controller | `src/controllers/internal-notification-controller.ts` | รับ worker notification events และ runtime metrics |
 | Rules Controller | `src/controllers/rules-controller.ts` | CRUD notification rules API |
 | History Controller | `src/controllers/history-controller.ts` | Query booking history API |
 | Users Controller | `src/controllers/users-controller.ts` | User management API (admin) |
-| Settings Controller | `src/controllers/settings-controller.ts` | .env settings via API |
+| Teams Controller | `src/controllers/teams-controller.ts` | Team config + runtime desired-state controls |
+| Settings Controller | `src/controllers/settings-controller.ts` | DB-first settings API |
 | Audit Controller | `src/controllers/audit-controller.ts` | Audit log API |
 | Report Controller | `src/controllers/report-controller.ts` | CSV export API |
 | Bidding Controller | `src/controllers/bidding-controller.ts` | Manual booking accept API |
 | Notify Controller | `src/services/notify-controller.ts` | Notification preview/test API |
 | Authz | `src/services/authz.ts` | RBAC: `viewer` < `editor` < `admin` |
+| Runtime Metrics | `src/services/runtime-metrics.ts` | เก็บ worker snapshots ชั่วคราวและ aggregate ให้ admin dashboard |
 
 #### React SPA Frontend (`src/frontend/`)
 
@@ -63,12 +68,12 @@ SPX Bidding Poller ประกอบด้วย ==2 ส่วนหลัก==
 
 ## Settings Storage
 
-Settings ถูกเก็บใน DB (`app_settings` table) ตั้งแต่ v2.0:
+Settings เป็น DB-first:
 
 ```
-Startup: .env → process.env → loadDbSettingsIntoEnv() (DB overrides env)
-Read:    readStoredSettings() = merge(Defaults, process.env, DB) — DB wins
-Write:   Web UI → upsertAppSettings(DB) + reloadSettingsLive() → สดทันที
+Startup: bootstrap .env → connect DB → loadDbFirstSettingsIntoEnv() → validateRuntimeConfig()
+Read:    readStoredSettings() = merge(catalog defaults, process.env, DB) — DB wins
+Write:   Web UI → upsertAppSettings(DB) + reloadSettingsLive() → live/restart behavior ตาม metadata
 ```
 
 > [!info] ไม่ต้อง restart
@@ -110,10 +115,13 @@ flowchart TD
   N -->|Yes| O["notifyMatchedRules()"]
   N -->|No| P["Record metrics + logs"]
   O --> P
+  P --> RM["Worker publishes runtime snapshot"]
+  RM --> IC["notifier /internal/runtime-metrics"]
+  IC --> SSE["Admin/team SSE + /metrics aggregation"]
 
-  C --> Q{"HTTP_ENABLED?"}
-  Q -->|Yes| R["startHttpServer()"]
-  Q -->|No| S["worker only mode"]
+  A --> Q{"SPX_ROLE"}
+  Q -->|notifier/combined| R["startHttpServer()"]
+  Q -->|worker/combined| C
   R --> T["Dashboard + API + Assets"]
 ```
 
@@ -126,14 +134,14 @@ flowchart TD
 
 ## Feature Flag System
 
-ระบบใช้ `.env` + DB (`app_settings` table) เป็น feature flags:
+ระบบใช้ DB-first settings เป็น feature flags หลัง startup seed สำเร็จ:
 
 ```
-FETCH_DETAILS=true    → แสดงรายละเอียด trip ใน console
-SAVE_TO_DB=true       → บันทึกลง MySQL
-NOTIFY_ENABLED=true   → ส่ง notification
-AUTO_ACCEPT_ENABLED=true → รับงานอัตโนมัติ  
-HTTP_ENABLED=true     → เปิด Web Dashboard
+FETCH_DETAILS=true       → แสดงรายละเอียด trip ใน console
+SAVE_TO_DB=true          → บันทึกลง MySQL
+NOTIFY_ENABLED=true      → ส่ง notification
+AUTO_ACCEPT_ENABLED=true → รับงานอัตโนมัติ
+HTTP_ENABLED=true        → เปิด Web Dashboard ใน notifier/combined role
 ```
 
 > [!info] Live Reload
@@ -142,8 +150,19 @@ HTTP_ENABLED=true     → เปิด Web Dashboard
 
 > [!warning] Feature Dependencies
 > - `SAVE_TO_DB`, `HTTP_ENABLED`, `AUTO_ACCEPT_ENABLED` ต้องการ DB config ทั้งหมด
-> - `NOTIFY_ENABLED` ต้องการอย่างน้อย `LINE_NOTIFY_TOKEN` หรือ `DISCORD_WEBHOOK_URL`
+> - `NOTIFY_ENABLED` ต้องการ LINE target/channel config หรือ `DISCORD_WEBHOOK_URL`
 > - `HTTP_ENABLED` ต้องการ `JWT_SECRET`, `COOKIE_SECRET`, `ADMIN_PASSWORD`
+
+## Runtime Roles
+
+| Role | Starts HTTP | Runs pollers | Sends LINE centrally | Typical production service |
+|------|-------------|--------------|----------------------|----------------------------|
+| `notifier` | yes | no | yes | `notifier` |
+| `worker` | no | yes, limited by `RUN_TEAM_IDS` | no, publishes events to notifier | `worker-ifn`, `worker-ptwl` |
+| `combined` | yes | yes | local/central depending config | local/dev |
+| `api` | yes | no | no | reserved/API-only |
+
+Workers publish signed internal events to the notifier. Runtime metrics use the same worker-to-notifier boundary, so admin/all-team telemetry reflects worker process state instead of notifier-local zero counters.
 
 ## Supporting Layers
 

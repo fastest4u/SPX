@@ -41,20 +41,21 @@ aliases:
 ## 🔑 Quick Summary
 
 > [!abstract] ระบบนี้คืออะไร
-> **SPX Bidding Poller** เป็น Full-stack TypeScript Application ที่ทำหน้าที่:
+> **SPX Bidding Poller** เป็น Full-stack TypeScript Application แบบ split-runtime ที่ทำหน้าที่:
 > 1. Poll ข้อมูล booking จาก SPX Agency Portal API แบบ real-time
 > 2. วิเคราะห์และจับคู่ trip กับ notification rules
 > 3. รับงาน (accept) อัตโนมัติตามเงื่อนไข
-> 4. แจ้งเตือนผ่าน Discord / LINE
+> 4. แจ้งเตือนผ่าน central notifier ไปยัง LINE / Discord
 > 5. บันทึกประวัติลง MySQL
 > 6. ให้ **React SPA Web Dashboard** สำหรับบริหารจัดการ
+> 7. เก็บ runtime/operator settings แบบ DB-first ผ่าน `app_settings` และ `teams`
 
 ## 🏗️ Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Language | TypeScript (strict, `NodeNext`) |
-| Runtime | Node.js 18+ |
+| Runtime | Node.js >=24.16.0 |
 | Web Framework | Fastify 5 |
 | Frontend | React 19 + TanStack Router + TanStack Query |
 | UI Library | shadcn/ui + Tailwind CSS v4 |
@@ -62,18 +63,16 @@ aliases:
 | ORM | Drizzle (mysql2) |
 | Database | MySQL (InnoDB, `utf8mb4_0900_ai_ci`) |
 | Backend Bundler | esbuild (minified, external packages) |
-| Frontend Bundler | Vite 6 |
+| Frontend Bundler | Vite 8 |
 | Auth | JWT Cookie + bcrypt |
-| Notifications | LINE Notify API + Discord Webhook |
+| Notifications | Central LINE/LINEJS + Discord Webhook |
 | Dev Tools | concurrently (run backend+frontend together) |
 
 ## 📊 สถิติโปรเจกต์
 
-- **Source files:** ~50 files
-- **Lines of code:** ~4,000 lines TypeScript + React
-- **Backend bundle:** ~88KB (minified)
-- **Frontend bundle:** ~440KB (gzipped)
-- **Dependencies:** 15 runtime + 12 dev
+- Production services: `notifier`, `worker-ifn`, `worker-ptwl`
+- Runtime config: bootstrap `.env` + MySQL `app_settings` + encrypted team fields
+- Frontend: React SPA served by the notifier process
 
 ## Notes
 - เอกสารนี้เน้นให้เข้าใจระบบเร็ว

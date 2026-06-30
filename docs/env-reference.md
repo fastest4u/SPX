@@ -48,7 +48,19 @@ These values remain in Docker/service environment: `SPX_ROLE`, `SPX_NODE_ID`, `S
 
 ## DB-First Settings
 
-Operator settings such as `POLL_INTERVAL_MS`, `API_URL`, `AUTO_ACCEPT_ENABLED`, notification settings, auth signing secrets, and provider settings are stored in `app_settings`.
+Operator settings such as `POLL_INTERVAL_MS`, `API_URL`, `AUTO_ACCEPT_ENABLED`, notification settings, internal notifier auth settings, dashboard auth signing secrets, and provider settings are stored in `app_settings`.
+
+Important DB-first keys include:
+
+| Setting | Purpose |
+|---------|---------|
+| `API_URL`, `APP_NAME`, `REFERER` | SPX upstream request shape |
+| `POLL_INTERVAL_MS`, `FETCH_DETAILS`, `SAVE_TO_DB`, `AUTO_ACCEPT_ENABLED` | Polling and auto-accept behavior |
+| `JWT_SECRET`, `COOKIE_SECRET`, `ADMIN_*`, `HTTP_ALLOWED_ORIGINS`, `HTTP_TRUST_PROXY` | Dashboard auth and HTTP controls |
+| `NOTIFIER_SHARED_SECRET`, `NOTIFIER_AUTH_MODE` | Signed worker-to-notifier internal API auth |
+| `NOTIFIER_REQUEST_TIMEOUT_MS`, `NOTIFIER_RETRY_MAX_ATTEMPTS`, `NOTIFIER_RETRY_BASE_DELAY_MS` | Worker publish timeout/retry behavior |
+| `LINE_CHANNEL_ACCESS_TOKEN`, `LINEJS_*`, `DISCORD_WEBHOOK_URL` | Notification providers |
+| `CODEX_IMAGE_*`, `LINE_IMAGE_LISTENER_CHAT_ID` | LINE image/OCR integration |
 
 Team-scoped SPX credentials and LINE targets are stored encrypted on each `teams` row. Do not keep `COOKIE`, `DEVICE_ID`, `LINE_USER_ID`, or auto-accept success/failure LINE targets as global runtime env after migration.
 

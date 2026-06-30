@@ -1,17 +1,19 @@
 # SPX Bidding Poller
 
-ระบบ polling อัตโนมัติสำหรับดึง `Agency Booking Bidding List` จาก SPX พร้อม Web Dashboard สำหรับจัดการ rules, auto-accept, users, settings, history และ notifications
+ระบบ polling อัตโนมัติสำหรับดึง `Agency Booking Bidding List` จาก SPX พร้อม Web Dashboard สำหรับจัดการ teams, rules, auto-accept, users, settings, history และ notifications
 
 ## ภาพรวม
 
 - **Polling**: ดึง bidding list ตามรอบเวลา, ตรวจสอบ変化, ดึง request details, บันทึก DB, auto-accept, แจ้งเตือน
+- **Split runtime**: production แยกเป็น `notifier`, `worker-ifn`, และ `worker-ptwl`; workers ส่ง notification events และ runtime metrics เข้า notifier ผ่าน internal API
+- **DB-first config**: `.env` เหลือ bootstrap/process identity; runtime settings และ team credentials อยู่ใน MySQL (`app_settings` + `teams`) และแก้ผ่าน Dashboard
 - **Dashboard**: React SPA + Fastify API, JWT auth, SSE real-time, admin/user RBAC
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Node.js 18+ |
+| Runtime | Node.js >=24.16.0 |
 | Backend | Fastify + TypeScript |
 | Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode) |
 | Auth | @fastify/jwt, @fastify/cookie |
@@ -26,7 +28,9 @@
 - **Auto-accept** — รับงานอัตโนมัติตาม rule + แจ้งเตือน + บันทึกประวัติ
 - **Auto-accept history** — ตาราง `auto_accept_history` ดูย้อนหลังผ่าน Web UI
 - **SSE real-time** — push metrics + rules ไป browser แบบリアルタイム
-- **Web dashboard** — React SPA, JWT cookie auth, admin/user RBAC, rate limiting
+- **Runtime telemetry bridge** — worker metrics ถูกส่งเข้า notifier เพื่อให้ admin/all-team dashboard เห็นค่าจาก worker process จริง
+- **Web dashboard** — React SPA, JWT cookie auth, admin/user RBAC, team-scoped users, rate limiting
+- **DB-first settings** — Settings UI และ Teams UI เป็น source of truth หลัง production seed สำเร็จ
 - **Security** — security headers, CORS, rate limit, password strength
 - **Graceful shutdown** — Fastify `onClose` hook, clean DB pool close
 - **DB tools** — migration, generate, reset, smoke test
@@ -49,7 +53,10 @@ src/
 │   ├── api-client.ts         # SPX API client, retry, multi-page fetch
 │   ├── db-service.ts         # booking INSERT IGNORE
 │   ├── notify-rules.ts       # dual-mode rule engine (DB/file)
-│   ├── notifier.ts           # Discord/LINE notification, auto-accept flow
+│   ├── notifier.ts           # LINE/Discord notification, auto-accept flow
+│   ├── notification-client.ts # worker-to-notifier internal notification publisher
+│   ├── runtime-metrics*.ts   # worker runtime metrics bridge for dashboard/SSE
+│   ├── team-runtime*.ts      # per-team worker runtime, leases, desired-state actions
 │   ├── metrics.ts            # polling metrics collector
 │   ├── sse.ts                # SSE broadcaster singleton
 │   ├── notify-controller.ts  # notification preview API
@@ -76,7 +83,7 @@ migrations/                   # SQL migration files
 ## การติดตั้ง
 
 ```bash
-npm install
+npm ci
 cp .env.example .env   # แก้ค่าให้ตรงกับ environment
 ```
 
@@ -84,65 +91,31 @@ cp .env.example .env   # แก้ค่าให้ตรงกับ environme
 
 ```bash
 npm run dev            # backend (tsx, HTTP_ENABLED) + frontend (vite) via concurrently
+npm run typecheck      # backend + frontend TypeScript checks
+npm run lint           # ESLint, max warnings 0
 npm run build          # typecheck + esbuild + vite
 npm start -- 10        # run dist/app.js (polling interval 10s)
 npm test               # run test suite (node --test via tsx)
 npm run db:generate    # generate migration SQL
 npm run db:migrate     # apply migrations
 npm run db:test        # integration test (live MySQL)
+npm run schema:verify  # read-only MySQL schema drift check
+npm run verify         # production build gate
 npm run flow:start     # migrate + build + start
 ```
 
-## Environment Variables
+## Configuration Model
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `API_URL` | yes | — | Bidding list endpoint |
-| `COOKIE` | yes | — | SPX session cookie |
-| `DEVICE_ID` | yes | — | SPX device ID |
-| `APP_NAME` | yes | — | SPX app name |
-| `REFERER` | yes | — | SPX referer URL |
-| `POLL_INTERVAL_MS` | no | 30000 | Polling interval in ms |
-| `NODE_ENV` | no | development | `production` activates DB rule storage |
-| `SAVE_TO_DB` | no | false | Save bookings to MySQL |
-| `FETCH_DETAILS` | no | false | Fetch request details per booking |
-| `HTTP_ENABLED` | no | false | Start Web UI + API |
-| `HTTP_PORT` | no | 3000 | Web server port |
-| `HTTP_ALLOWED_ORIGINS` | no | — | Extra CORS origins |
-| `JWT_SECRET` | yes* | — | JWT signing secret (≥32 chars) |
-| `COOKIE_SECRET` | yes* | — | Cookie signing secret (≥32 chars) |
-| `ADMIN_USERNAME` | yes* | admin | Default admin username |
-| `ADMIN_PASSWORD` | yes* | — | Default admin password (≥12 chars) |
-| `ADMIN_ROLE` | no | admin | `admin` or `user` |
-| `DB_HOST` | yes* | — | MySQL host |
-| `DB_PORT` | no | 3306 | MySQL port |
-| `DB_USERNAME` | yes* | — | MySQL user |
-| `DB_PASSWORD` | yes* | — | MySQL password |
-| `DB_NAME` | yes* | — | MySQL database |
-| `DB_MODE` | no | mysql | `mysql` or `memory` (SQLite) |
-| `NOTIFY_ENABLED` | no | false | Enable Discord/LINE notifications |
-| `NOTIFY_MODE` | no | batch | `batch` or `each` |
-| `LINE_CHANNEL_ACCESS_TOKEN` | no | — | LINE OA channel access token |
-| `LINE_USER_ID` | no | — | LINE OA target user ID |
-| `LINEJS_TEST_ENABLED` | no | false | Enable LINEJS QR-login notification channel |
-| `DISCORD_WEBHOOK_URL` | no | — | Discord webhook URL |
-| `AUTO_ACCEPT_ENABLED` | no | false | Auto-accept matching requests |
-| `BIDDING_PAGE_NO` | no | 1 | API page start |
-| `BIDDING_PAGE_COUNT` | no | 100 | Items per page |
-| `REQUEST_CTIME_START` | no | 1776358800 | Unix timestamp filter |
-| `BIDDING_VEHICLE_TYPE` | no | 13 | Optional `vehicle_type` filter for bidding list; leave empty to disable |
-| `DEBUG` | no | false | Verbose debug logging |
-| `BOOKING_DETAIL_CONCURRENCY` | no | 8 | Parallel booking-detail fetches (1–50) |
-| `REQUEST_TAB_PENDING_CONFIRMATION` | no | true | Query the pending-confirmation tab |
-| `SECRETS_KEY` | no | — | Key for AES-256-GCM at-rest encryption (≥16 chars); falls back to JWT+COOKIE secrets |
-| `NOTIFY_ORIGINS` | no | — | Comma-separated origin filters |
-| `NOTIFY_DESTINATIONS` | no | — | Comma-separated destination filters |
-| `NOTIFY_VEHICLE_TYPES` | no | — | Comma-separated vehicle-type filters |
-| `NOTIFY_MIN_TRIPS` | no | 1 | Minimum matched trips before notifying |
-| `CODEX_IMAGE_PROVIDER` | no | auto | `auto`, `codex-cli`, or `codex-device` (LINE image extraction) |
-| `LINE_IMAGE_LISTENER_CHAT_ID` | no | — | LINE chat ID to listen for images |
+Production is DB-first. `.env` is not the long-term source of truth for SPX credentials, polling, auto-accept, notification, or dashboard settings.
 
-\* Required when `HTTP_ENABLED=true`, `SAVE_TO_DB=true`, or `AUTO_ACCEPT_ENABLED=true`
+| Scope | Source of Truth | Examples |
+|-------|-----------------|----------|
+| Bootstrap | `.env` | `NODE_ENV`, `DB_MODE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `SECRETS_KEY` |
+| Process identity | Docker/service env | `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_PORT` |
+| Runtime/operator settings | MySQL `app_settings` | `API_URL`, polling flags, auto-accept flags, notification settings, dashboard auth secrets, provider settings |
+| Team secrets/targets | encrypted `teams` columns | SPX cookie/device credentials, default LINE target, auto-accept success/failure LINE targets |
+
+First DB-first rollout should deploy once with the legacy `.env` still present so startup can seed missing DB rows. After `/ready`, worker healthchecks, schema verification, and Settings/Teams values are verified, production `.env` can be reduced to bootstrap-only values.
 
 ## Docker
 
@@ -150,10 +123,11 @@ npm run flow:start     # migrate + build + start
 docker compose up --build
 ```
 
-- Container runs `db-migrate.js` before `app.js`
-- Health check: `GET /ready` every 30s
-- `notify-rules.json` created at build time, mounted as volume
-- Production deploy: GitHub Actions (`.github/workflows/deploy.yml`) over SSH on push to `main` (host/credentials via repo secrets), with build → migrate → readiness gate → rollback
+- `notifier` owns HTTP/dashboard, central LINE delivery, internal notification API, runtime-metrics aggregation, and the single migration run.
+- `worker-ifn` runs `RUN_TEAM_IDS=2`; `worker-ptwl` runs `RUN_TEAM_IDS=1`.
+- Workers publish notification events to `http://notifier:3000/internal/notification-events` and runtime snapshots to `/internal/runtime-metrics`.
+- Health checks: notifier uses `GET /ready`; workers check the Node process.
+- Production deploy: GitHub Actions (`.github/workflows/deploy.yml`) over SSH on push to `main`, with build → deploy/restart → readiness gate → rollback.
 
 ## Web Dashboard
 
@@ -169,8 +143,11 @@ http://localhost:3000
 | รายงาน | `/reports` | user+ |
 | ประวัติการใช้งาน | `/audit` | admin |
 | ประวัติรับงานอัตโนมัติ | `/auto-accept-history` | admin |
+| ทีม | `/teams` | admin |
 | จัดการผู้ใช้ | `/users` | admin |
 | ตั้งค่า | `/settings` | admin |
+
+Admin users can view all teams. Non-admin users are scoped to their own `teamId` for history, rules, metrics, and SSE updates.
 
 ## API Endpoints
 
@@ -178,7 +155,7 @@ http://localhost:3000
 |--------|------|------|-------------|
 | GET | `/health` | no | Health check |
 | GET | `/ready` | no | Readiness (DB pool check) |
-| GET | `/metrics` | no | Polling metrics snapshot |
+| GET | `/metrics` | JWT | Polling/runtime metrics snapshot |
 | GET | `/events` | JWT | SSE stream (rules + metrics) |
 | POST | `/api/login` | no | Login |
 | POST | `/api/logout` | JWT | Logout |
@@ -192,6 +169,7 @@ http://localhost:3000
 | GET | `/api/reports/*` | user+ | Reports |
 | GET | `/api/audit-logs` | admin | Audit trail |
 | GET | `/api/auto-accept-history` | admin | Auto-accept history |
+| GET/POST | `/api/teams` | admin | Team runtime/config management |
 | GET/POST | `/api/users` | admin | User management |
 | PUT | `/api/users/:id/*` | admin | Update user |
-| GET/PUT | `/api/settings` | admin | Env settings |
+| GET/PUT | `/api/settings` | admin | DB-first runtime settings |
