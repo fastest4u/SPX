@@ -70,26 +70,68 @@ async function main(): Promise<void> {
     },
   }));
   try {
+    const acceptedTrips = [
+      {
+        trip: {
+          "ต้นทาง": "SOCN",
+          "ปลายทาง": "HKYAO-A - คันนายาว",
+          "วันที่เวลาสแตนบาย": "29/06/2569 06:30",
+          "ประเภทรถ": "4WH-4ล้อ",
+          booking_name: "[ADHOC]SOCN>>HUB 06:30 2026-06-29",
+        },
+        bookingId: 2805339,
+        requestId: 40298007,
+      },
+      {
+        trip: {
+          "ต้นทาง": "SOCN",
+          "ปลายทาง": "AMBRI-A - มีนบุรี",
+          "วันที่เวลาสแตนบาย": "29/06/2569 06:30",
+          "ประเภทรถ": "4WH-4ล้อ",
+          booking_name: "[ADHOC]SOCN>>HUB 06:30 2026-06-29",
+        },
+        bookingId: 2805339,
+        requestId: 40297539,
+      },
+      {
+        trip: {
+          "ต้นทาง": "SOCN",
+          "ปลายทาง": "AKSWA-A - คลองสามวา",
+          "วันที่เวลาสแตนบาย": "29/06/2569 06:30",
+          "ประเภทรถ": "4WH-4ล้อ",
+          booking_name: "[ADHOC]SOCN>>HUB 06:30 2026-06-29",
+        },
+        bookingId: 2805339,
+        requestId: 40297461,
+      },
+    ];
     const notified = await routeAutoAcceptSuccessNotification(
-      [{ trip: {}, bookingId: 2791810, requestId: 40288114 }],
+      acceptedTrips,
       {
         teamId: 2,
         notificationContext: { teamId: 2, teamName: "PTWL", lineGroupId: "line-group" },
         source: "notifier",
-        traceId: "aa:2:2791810:40288114:123",
-        evidence: { acceptedCount: 1 },
+        traceId: "aa:2:2805339:40298007:123",
+        evidence: { acceptedCount: acceptedTrips.length },
       },
     );
 
     assert.equal(notified, true);
     assert.equal(routed.length, 1);
-    assert.equal(routed[0]?.eventKey, "auto_accept_owned:team:2:booking:2791810:req:40288114");
+    assert.equal(routed[0]?.eventKey, "auto_accept_owned:team:2:booking:2805339:req:40298007");
     assert.equal(routed[0]?.event.teamName, "PTWL");
-    assert.equal(routed[0]?.event.message, "Auto-Accept accepted 40288114 for booking 2791810.");
+    assert.deepEqual(routed[0]?.event.requestIds, ["40298007", "40297539", "40297461"]);
+    assert.match(routed[0]?.event.message ?? "", /🛣️ เส้นทาง ที่ 1 id=40298007 SOCN ➜ HKYAO-A - คันนายาว \(29\/06\/2569 06:30\)/);
+    assert.match(routed[0]?.event.message ?? "", /🛣️ เส้นทาง ที่ 2 id=40297539 SOCN ➜ AMBRI-A - มีนบุรี \(29\/06\/2569 06:30\)/);
+    assert.match(routed[0]?.event.message ?? "", /🛣️ เส้นทาง ที่ 3 id=40297461 SOCN ➜ AKSWA-A - คลองสามวา \(29\/06\/2569 06:30\)/);
+    assert.match(routed[0]?.event.message ?? "", /🚛 ประเภทรถ : 4WH-4ล้อ/);
+    assert.match(routed[0]?.event.message ?? "", /📝 Booking : \[ADHOC\]SOCN>>HUB 06:30 2026-06-29/);
+    assert.match(routed[0]?.event.message ?? "", /SPX Bidding Poller•/);
+    assert.ok(!(routed[0]?.event.message ?? "").includes("Auto-Accept accepted"));
     assert.deepEqual(routed[0]?.event.evidence, {
-      requestCount: 1,
+      requestCount: 3,
       source: "notifier",
-      acceptedCount: 1,
+      acceptedCount: 3,
     });
 
     const sessionResult = await sendSessionExpiryNotification(
