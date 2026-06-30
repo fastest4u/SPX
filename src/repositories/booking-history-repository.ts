@@ -1,6 +1,6 @@
 import { getDb, getPool } from "../db/client.js";
 import { spxBookingHistory, teams } from "../db/schema.js";
-import { and, count, desc, asc, eq, like, or, sql } from "drizzle-orm";
+import { and, count, desc, asc, eq, like, ne, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import type { SQL } from "drizzle-orm";
 import type { Pool } from "mysql2/promise";
@@ -39,6 +39,11 @@ type PaginatedHistoryQuery = HistoryFilterQuery & { page?: number; pageSize?: nu
 
 export type BookingHistoryRow = typeof spxBookingHistory.$inferSelect & { teamName?: string | null };
 type HistoryJoinRow = { history: typeof spxBookingHistory.$inferSelect; teamName: string | null };
+
+export type BookingHistoryFilterOptions = {
+  teams: Array<{ id: number; name: string }>;
+  vehicleTypes: string[];
+};
 
 function buildHistoryFilters(teamId: number | null, query: HistoryFilterQuery): SQL | undefined {
   const filters: SQL[] = [];
@@ -344,5 +349,34 @@ export async function getBookingHistoryPaginatedForScope(teamId: number | null, 
     page,
     pageSize,
     totalPages: Math.ceil(total / pageSize),
+  };
+}
+
+export async function getBookingHistoryFilterOptionsForScope(teamId: number | null): Promise<BookingHistoryFilterOptions> {
+  const db = await getDb();
+  const teamWhereClause = typeof teamId === "number" ? eq(teams.id, teamId) : undefined;
+  const historyWhereClause = typeof teamId === "number" ? eq(spxBookingHistory.teamId, teamId) : undefined;
+
+  const [teamRows, vehicleRows]: [
+    Array<{ id: number; name: string }>,
+    Array<{ vehicleType: string | null }>
+  ] = await Promise.all([
+    db
+      .select({ id: teams.id, name: teams.name })
+      .from(teams)
+      .where(teamWhereClause)
+      .orderBy(asc(teams.name)),
+    db
+      .selectDistinct({ vehicleType: spxBookingHistory.vehicleType })
+      .from(spxBookingHistory)
+      .where(historyWhereClause ? and(historyWhereClause, ne(spxBookingHistory.vehicleType, "")) : ne(spxBookingHistory.vehicleType, ""))
+      .orderBy(asc(spxBookingHistory.vehicleType)),
+  ]);
+
+  return {
+    teams: teamRows.map((team: { id: number; name: string }) => ({ id: team.id, name: team.name })),
+    vehicleTypes: vehicleRows
+      .map((row: { vehicleType: string | null }) => row.vehicleType)
+      .filter((vehicleType: string | null): vehicleType is string => Boolean(vehicleType?.trim())),
   };
 }

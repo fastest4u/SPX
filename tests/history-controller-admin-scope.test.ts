@@ -96,6 +96,32 @@ async function main(): Promise<void> {
     assert.deepEqual(userRows.map((row) => row.requestId), [1001]);
     assert.equal(userRows[0]?.teamId, alpha.id);
     assert.equal(userRows[0]?.teamName, "Alpha Ops");
+
+    const adminOptions = await app.inject({ method: "GET", url: "/api/history/filter-options", headers: { "x-test-actor": "admin" } });
+    assert.equal(adminOptions.statusCode, 200);
+    const adminOptionsBody = parseBody<{
+      teams: Array<{ id: number; name: string }>;
+      vehicleTypes: string[];
+    }>(adminOptions).data;
+    assert.deepEqual(adminOptionsBody?.teams, [
+      { id: alpha.id, name: "Alpha Ops" },
+      { id: beta.id, name: "Beta Ops" },
+    ]);
+    assert.deepEqual(adminOptionsBody?.vehicleTypes, ["4W", "6W"]);
+
+    const betaOptions = await app.inject({ method: "GET", url: `/api/history/filter-options?teamId=${beta.id}`, headers: { "x-test-actor": "admin" } });
+    assert.equal(betaOptions.statusCode, 200);
+    const betaOptionsBody = parseBody<{ vehicleTypes: string[] }>(betaOptions).data;
+    assert.deepEqual(betaOptionsBody?.vehicleTypes, ["6W"]);
+
+    const userOptions = await app.inject({ method: "GET", url: "/api/history/filter-options", headers: { "x-test-actor": "user" } });
+    assert.equal(userOptions.statusCode, 200);
+    const userOptionsBody = parseBody<{
+      teams: Array<{ id: number; name: string }>;
+      vehicleTypes: string[];
+    }>(userOptions).data;
+    assert.deepEqual(userOptionsBody?.teams, [{ id: alpha.id, name: "Alpha Ops" }]);
+    assert.deepEqual(userOptionsBody?.vehicleTypes, ["4W"]);
   } finally {
     await app.close();
   }
