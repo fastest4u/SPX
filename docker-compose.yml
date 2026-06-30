@@ -1,6 +1,7 @@
 x-spx-common: &spx-common
   build: .
   image: spx-app:latest
+  # .env is bootstrap-only. Runtime/operator settings are loaded from app_settings.
   env_file:
     - .env
   volumes:
@@ -30,7 +31,6 @@ services:
     environment:
       SPX_ROLE: notifier
       SPX_NODE_ID: prod-notifier-1
-      NOTIFIER_AUTH_MODE: hmac
     # The notifier owns HTTP, central LINE delivery, and the one production
     # migration run. Workers only start after this service is healthy.
     command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
@@ -50,7 +50,6 @@ services:
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ifn-1
       RUN_TEAM_IDS: "2"
-      NOTIFIER_AUTH_MODE: hmac
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
       NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn.jsonl
     command: ["sh", "-c", "exec node dist/app.js"]
@@ -65,7 +64,6 @@ services:
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ptwl-1
       RUN_TEAM_IDS: "1"
-      NOTIFIER_AUTH_MODE: hmac
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
       NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl.jsonl
     command: ["sh", "-c", "exec node dist/app.js"]

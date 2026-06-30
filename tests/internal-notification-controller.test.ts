@@ -89,6 +89,16 @@ async function resetDb() {
   resetMemoryDb();
 }
 
+async function getOutboxTargetId(outboxId: number): Promise<string | undefined> {
+  const db = await getDb();
+  const [outboxRow] = await db
+    .select()
+    .from(notificationOutbox)
+    .where(eq(notificationOutbox.id, outboxId))
+    .limit(1);
+  return outboxRow?.targetId;
+}
+
 async function main(): Promise<void> {
   await resetDb();
   await createTeam({
@@ -104,6 +114,8 @@ async function main(): Promise<void> {
     spxCookie: "cookie",
     spxDeviceId: "device",
     lineGroupId: "C-ptwl-line-group",
+    autoAcceptSuccessLineGroupId: "C-ptwl-success-line-group",
+    autoAcceptFailureLineGroupId: "C-ptwl-failure-line-group",
   });
   const app = await createApp({ allowedNodes: new Map([[nodeId, new Set([2])]]) });
 
@@ -121,13 +133,62 @@ async function main(): Promise<void> {
     assert.equal(firstBody.status, "success");
     assert.equal(firstBody.data?.duplicate, false);
     assert.equal(firstBody.data?.outboxStatus, "queued");
-    const db = await getDb();
-    const [outboxRow] = await db
-      .select()
-      .from(notificationOutbox)
-      .where(eq(notificationOutbox.id, firstBody.data!.outboxId))
-      .limit(1);
-    assert.equal(outboxRow?.targetId, "C-ptwl-line-group");
+    assert.equal(await getOutboxTargetId(firstBody.data!.outboxId), "C-ptwl-success-line-group");
+
+    const partialEventKey = "auto_accept_partial:team:2:booking:2791810:req:40288116";
+    const partialBody = JSON.stringify(buildPayload({
+      eventType: "auto_accept_partial_result",
+      severity: "warning",
+      requestIds: ["40288116"],
+      status: "partial",
+      message: "partially accepted booking 2791810",
+    }));
+    const partial = await app.inject({
+      method: "POST",
+      url: internalPath,
+      headers: signedHeaders(partialBody, partialEventKey),
+      payload: partialBody,
+    });
+    assert.equal(partial.statusCode, 200);
+    const partialBodyParsed = parseBody<NotificationResult>(partial);
+    assert.equal(partialBodyParsed.status, "success");
+    assert.equal(await getOutboxTargetId(partialBodyParsed.data!.outboxId), "C-ptwl-success-line-group");
+
+    const failureEventKey = "auto_accept_failed:team:2:booking:2791810:req:40288115";
+    const failureBody = JSON.stringify(buildPayload({
+      eventType: "auto_accept_failure",
+      severity: "error",
+      requestIds: ["40288115"],
+      status: "failed",
+      message: "failed booking 2791810",
+    }));
+    const failure = await app.inject({
+      method: "POST",
+      url: internalPath,
+      headers: signedHeaders(failureBody, failureEventKey),
+      payload: failureBody,
+    });
+    assert.equal(failure.statusCode, 200);
+    const failureBodyParsed = parseBody<NotificationResult>(failure);
+    assert.equal(failureBodyParsed.status, "success");
+    assert.equal(await getOutboxTargetId(failureBodyParsed.data!.outboxId), "C-ptwl-failure-line-group");
+
+    const fallbackEventKey = "session_expired:team:2";
+    const fallbackBody = JSON.stringify(buildPayload({
+      eventType: "session_expired",
+      severity: "error",
+      message: "session expired for team PTWL",
+    }));
+    const fallback = await app.inject({
+      method: "POST",
+      url: internalPath,
+      headers: signedHeaders(fallbackBody, fallbackEventKey),
+      payload: fallbackBody,
+    });
+    assert.equal(fallback.statusCode, 200);
+    const fallbackBodyParsed = parseBody<NotificationResult>(fallback);
+    assert.equal(fallbackBodyParsed.status, "success");
+    assert.equal(await getOutboxTargetId(fallbackBodyParsed.data!.outboxId), "C-ptwl-line-group");
 
     const duplicate = await app.inject({
       method: "POST",
@@ -212,7 +273,9 @@ async function main(): Promise<void> {
       payload: body,
     });
     assert.equal(response.statusCode, 200);
-    assert.equal(parseBody<NotificationResult>(response).data?.outboxStatus, "queued");
+    const responseBody = parseBody<NotificationResult>(response);
+    assert.equal(responseBody.data?.outboxStatus, "queued");
+    assert.equal(await getOutboxTargetId(responseBody.data!.outboxId), "C-ifn-line-group");
   } finally {
     await unrestrictedApp.close();
     await resetDb();

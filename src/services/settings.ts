@@ -1,4 +1,11 @@
-import { env, validateRuntimeConfig } from "../config/env.js";
+import {
+  APP_SETTING_KEYS,
+  getAppSettingDefaults,
+  pickAppSettings,
+  type AppSettingKey,
+  type AppSettings,
+} from "../config/config-catalog.js";
+import { env, parseTrustProxy, validateRuntimeConfig } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
 import { reconfigureSpxDispatcher } from "../utils/http-dispatcher.js";
@@ -12,41 +19,15 @@ const LEGACY_TEAM_SETTINGS_KEYS = [
   "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE",
 ] as const;
 
-export const SETTINGS_KEYS = [
-  "API_URL",
-  "LINE_CHANNEL_ACCESS_TOKEN",
-  "LINEJS_TEST_ENABLED",
-  "LINEJS_TEST_TARGET_ID",
-  "LINEJS_TEST_DEVICE",
-  "LINEJS_TEST_STORAGE_PATH",
-  "DISCORD_WEBHOOK_URL",
-  "POLL_INTERVAL_MS",
-  "BOOKING_DETAIL_CONCURRENCY",
-  "BOOKING_REPROCESS_COOLDOWN_MS",
-  "BIDDING_VEHICLE_TYPE",
-  "CODEX_IMAGE_PROVIDER",
-] as const;
-
-export type SettingsKey = typeof SETTINGS_KEYS[number];
+export const SETTINGS_KEYS = APP_SETTING_KEYS;
+export type SettingsKey = AppSettingKey;
 type LegacyTeamSettingsKey = typeof LEGACY_TEAM_SETTINGS_KEYS[number];
 type RuntimeSettingsKey = SettingsKey | LegacyTeamSettingsKey;
-export type EnvSettings = Partial<Record<SettingsKey, string>>;
+export type EnvSettings = AppSettings;
 type RuntimeSettings = Partial<Record<RuntimeSettingsKey, string>>;
+type ProcessEnvSnapshot = Record<string, string | undefined>;
 
-const DEFAULT_SETTINGS: Record<SettingsKey, string> = {
-  API_URL: "",
-  LINE_CHANNEL_ACCESS_TOKEN: "",
-  LINEJS_TEST_ENABLED: "false",
-  LINEJS_TEST_TARGET_ID: "",
-  LINEJS_TEST_DEVICE: "IOSIPAD",
-  LINEJS_TEST_STORAGE_PATH: "data/linejs-storage.json",
-  DISCORD_WEBHOOK_URL: "",
-  POLL_INTERVAL_MS: "30000",
-  BOOKING_DETAIL_CONCURRENCY: "8",
-  BOOKING_REPROCESS_COOLDOWN_MS: "0",
-  BIDDING_VEHICLE_TYPE: "13",
-  CODEX_IMAGE_PROVIDER: "auto",
-};
+const DEFAULT_SETTINGS = getAppSettingDefaults();
 
 const RUNTIME_SETTINGS_KEYS = [...SETTINGS_KEYS, ...LEGACY_TEAM_SETTINGS_KEYS] as const;
 
@@ -75,19 +56,22 @@ function isProduction(): boolean {
 }
 
 function pickKnownSettings(settings: Record<string, string>): EnvSettings {
-  const result: EnvSettings = {};
-  for (const key of SETTINGS_KEYS) {
-    const value = settings[key];
-    if (typeof value === "string") {
-      result[key] = value;
-    }
-  }
-  return result;
+  return pickAppSettings(settings);
+}
+
+function parseCommaSeparatedSetting(value: string | undefined): string[] {
+  if (!value || value.trim() === "") return [];
+  return value.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
 function syncEnvObjectFromProcess(): void {
   const mutableEnv = env as unknown as Record<string, unknown>;
   mutableEnv.API_URL = process.env.API_URL || "";
+  mutableEnv.APP_NAME = process.env.APP_NAME || "";
+  mutableEnv.REFERER = process.env.REFERER || "";
+  mutableEnv.DEBUG = process.env.DEBUG === "true";
+  mutableEnv.FETCH_DETAILS = process.env.FETCH_DETAILS === "true";
+  mutableEnv.SAVE_TO_DB = process.env.SAVE_TO_DB === "true";
   // Guard POLL_INTERVAL_MS against NaN — a non-finite interval would put the
   // poller into a busy loop. Fall back to a safe default and surface a warning.
   const pollInterval = readIntegerSetting("POLL_INTERVAL_MS", 30000);
@@ -99,6 +83,30 @@ function syncEnvObjectFromProcess(): void {
   }
   mutableEnv.COOKIE = process.env.COOKIE || "";
   mutableEnv.DEVICE_ID = process.env.DEVICE_ID || "";
+  mutableEnv.BIDDING_PAGE_NO = readIntegerSetting("BIDDING_PAGE_NO", 1);
+  mutableEnv.BIDDING_PAGE_COUNT = readIntegerSetting("BIDDING_PAGE_COUNT", 100);
+  mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION = process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false";
+  mutableEnv.REQUEST_CTIME_START = readIntegerSetting("REQUEST_CTIME_START", 1776358800);
+  mutableEnv.NOTIFY_ENABLED = process.env.NOTIFY_ENABLED === "true";
+  mutableEnv.NOTIFY_MODE = process.env.NOTIFY_MODE || "batch";
+  mutableEnv.NOTIFY_ORIGINS = parseCommaSeparatedSetting(process.env.NOTIFY_ORIGINS);
+  mutableEnv.NOTIFY_DESTINATIONS = parseCommaSeparatedSetting(process.env.NOTIFY_DESTINATIONS);
+  mutableEnv.NOTIFY_VEHICLE_TYPES = parseCommaSeparatedSetting(process.env.NOTIFY_VEHICLE_TYPES);
+  mutableEnv.NOTIFY_MIN_TRIPS = readIntegerSetting("NOTIFY_MIN_TRIPS", 1);
+  mutableEnv.AUTO_ACCEPT_ENABLED = process.env.AUTO_ACCEPT_ENABLED === "true";
+  mutableEnv.HTTP_ENABLED = process.env.HTTP_ENABLED === "true";
+  mutableEnv.HTTP_ALLOWED_ORIGINS = parseCommaSeparatedSetting(process.env.HTTP_ALLOWED_ORIGINS);
+  mutableEnv.HTTP_TRUST_PROXY = parseTrustProxy(process.env.HTTP_TRUST_PROXY);
+  mutableEnv.JWT_SECRET = process.env.JWT_SECRET || "";
+  mutableEnv.COOKIE_SECRET = process.env.COOKIE_SECRET || "";
+  mutableEnv.ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+  mutableEnv.ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+  mutableEnv.ADMIN_ROLE = process.env.ADMIN_ROLE || "admin";
+  mutableEnv.NOTIFIER_SHARED_SECRET = process.env.NOTIFIER_SHARED_SECRET || "";
+  mutableEnv.NOTIFIER_AUTH_MODE = process.env.NOTIFIER_AUTH_MODE || "hmac";
+  mutableEnv.NOTIFIER_REQUEST_TIMEOUT_MS = readIntegerSetting("NOTIFIER_REQUEST_TIMEOUT_MS", 1500);
+  mutableEnv.NOTIFIER_RETRY_MAX_ATTEMPTS = readIntegerSetting("NOTIFIER_RETRY_MAX_ATTEMPTS", 12);
+  mutableEnv.NOTIFIER_RETRY_BASE_DELAY_MS = readIntegerSetting("NOTIFIER_RETRY_BASE_DELAY_MS", 1000);
   mutableEnv.LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
   mutableEnv.LINE_USER_ID = process.env.LINE_USER_ID || "";
   mutableEnv.LINEJS_TEST_ENABLED = process.env.LINEJS_TEST_ENABLED === "true";
@@ -131,7 +139,11 @@ function syncEnvObjectFromProcess(): void {
   } else {
     mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
   }
+  mutableEnv.CODEX_IMAGE_MODEL = process.env.CODEX_IMAGE_MODEL || "";
   mutableEnv.CODEX_IMAGE_PROVIDER = process.env.CODEX_IMAGE_PROVIDER || "auto";
+  mutableEnv.CODEX_IMAGE_TIMEOUT_MS = readIntegerSetting("CODEX_IMAGE_TIMEOUT_MS", 300000);
+  mutableEnv.CODEX_IMAGE_MAX_BYTES = readIntegerSetting("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024);
+  mutableEnv.LINE_IMAGE_LISTENER_CHAT_ID = process.env.LINE_IMAGE_LISTENER_CHAT_ID || "";
   // Keep the HTTP keep-alive window in sync with the live poll interval so warm
   // connections always outlast the gap between polls (no-ops when unchanged).
   reconfigureSpxDispatcher(mutableEnv.POLL_INTERVAL_MS as number);
@@ -142,6 +154,22 @@ function applySettingsToEnv(settings: RuntimeSettings): void {
     if (typeof value === "string") {
       process.env[key] = value;
     }
+  }
+  syncEnvObjectFromProcess();
+}
+
+function snapshotProcessEnv(keys: readonly RuntimeSettingsKey[]): ProcessEnvSnapshot {
+  const snapshot: ProcessEnvSnapshot = {};
+  for (const key of keys) {
+    snapshot[key] = process.env[key];
+  }
+  return snapshot;
+}
+
+function restoreProcessEnv(snapshot: ProcessEnvSnapshot): void {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
   }
   syncEnvObjectFromProcess();
 }
@@ -204,21 +232,14 @@ export async function reloadSettingsLive(): Promise<void> {
   // if the DB-sourced config fails validation. Without this, an invalid stored
   // row would replace the live config and leave the poller running on broken
   // settings (the old code applied first and only logged on failure).
-  const previousProcessEnv: Record<string, string | undefined> = {};
-  for (const key of SETTINGS_KEYS) {
-    previousProcessEnv[key] = process.env[key];
-  }
+  const previousProcessEnv = snapshotProcessEnv(SETTINGS_KEYS);
 
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
   try {
     validateRuntimeConfig();
   } catch (err) {
     // Roll back to the previously-valid config and keep the poller running on it.
-    for (const [key, prev] of Object.entries(previousProcessEnv)) {
-      if (prev === undefined) delete process.env[key];
-      else process.env[key] = prev;
-    }
-    syncEnvObjectFromProcess();
+    restoreProcessEnv(previousProcessEnv);
     logger.error("settings-live-reload-validation-failed", {
       error: err instanceof Error ? err.message : String(err),
       rolledBack: true,
@@ -247,5 +268,18 @@ export async function migrateEnvSettingsToDb(): Promise<void> {
 
 export async function loadDbSettingsIntoEnv(): Promise<void> {
   const dbSettings = await getAppSettings(RUNTIME_SETTINGS_KEYS);
+  const previousProcessEnv = snapshotProcessEnv(RUNTIME_SETTINGS_KEYS);
+
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
+  try {
+    validateRuntimeConfig();
+  } catch (err) {
+    restoreProcessEnv(previousProcessEnv);
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+export async function loadDbFirstSettingsIntoEnv(): Promise<void> {
+  await migrateEnvSettingsToDb();
+  await loadDbSettingsIntoEnv();
 }

@@ -1,14 +1,16 @@
 import { cn } from '../../lib/utils'
 
 interface SwitchProps {
+  id?: string
   checked: boolean
   onCheckedChange: (checked: boolean) => void
   disabled?: boolean
 }
 
-function Switch({ checked, onCheckedChange, disabled }: SwitchProps) {
+function Switch({ id, checked, onCheckedChange, disabled }: SwitchProps) {
   return (
     <button
+      id={id}
       type="button"
       role="switch"
       aria-checked={checked}

@@ -21,6 +21,7 @@ import * as schema from "../src/db/schema.js";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const srcDir = resolve(testDir, "..", "src");
+const rootDir = resolve(testDir, "..");
 
 function readSource(relativePath: string): string {
   return readFileSync(resolve(srcDir, relativePath), "utf8");
@@ -64,5 +65,17 @@ assert.deepEqual(
   [],
   `Drizzle tables missing SQLite DDL (src/db/client-memory.ts): ${missingInSqlite.join(", ")}`,
 );
+
+const baselineMigrationSql = readFileSync(resolve(rootDir, "migrations", "001_create_booking_requests.sql"), "utf8");
+const teamTargetsMigrationSql = readFileSync(resolve(rootDir, "migrations", "026_team_notification_targets.sql"), "utf8");
+for (const columnName of ["auto_accept_success_line_group_id", "auto_accept_failure_line_group_id"]) {
+  if (baselineMigrationSql.includes(columnName)) {
+    assert.match(
+      teamTargetsMigrationSql,
+      new RegExp(`column_name\\s*=\\s*'${columnName}'`, "i"),
+      `026_team_notification_targets.sql must conditionally check ${columnName} because 001 already creates it`,
+    );
+  }
+}
 
 console.log(`schema-consistency: ${drizzleTableNames.length} tables verified across Drizzle, MySQL, and SQLite DDL`);

@@ -23,6 +23,8 @@ const EXPECTED_SCHEMA = {
       spx_cookie: { type: "varchar(4000)", nullable: false, defaultIncludes: "" },
       spx_device_id: { type: "varchar(1000)", nullable: false, defaultIncludes: "" },
       line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
+      auto_accept_success_line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
+      auto_accept_failure_line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
       updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
     },

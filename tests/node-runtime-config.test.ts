@@ -45,5 +45,9 @@ assert.match(deployWorkflow, /node-version:\s+"24"/, "CI must install Node 24");
 
 assert.match(deploymentDocs, /node:24-alpine/, "deployment docs must describe the Node 24 Docker base image");
 assert.doesNotMatch(deploymentDocs, /node:18-slim|Node 22/, "deployment docs must not describe old Node production baselines");
+assert.match(deploymentDocs, /DB-first config/i, "deployment docs must describe DB-first config");
+assert.match(deploymentDocs, /SECRETS_KEY/, "deployment docs must mention SECRETS_KEY as bootstrap env");
+assert.match(deploymentDocs, /RUN_TEAM_IDS/, "deployment docs must keep worker team assignment as process env");
+assert.doesNotMatch(deploymentDocs, /POLL_INTERVAL_MS=.*production/i, "deployment docs must not tell production operators to tune poll interval in .env");
 
 console.log("node-runtime-config: all assertions passed");

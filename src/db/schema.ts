@@ -8,6 +8,8 @@ export const teams = mysqlTable("teams", {
   spxCookie: varchar("spx_cookie", { length: 4000 }).notNull().default(""),
   spxDeviceId: varchar("spx_device_id", { length: 1000 }).notNull().default(""),
   lineGroupId: varchar("line_group_id", { length: 255 }).notNull().default(""),
+  autoAcceptSuccessLineGroupId: varchar("auto_accept_success_line_group_id", { length: 255 }).notNull().default(""),
+  autoAcceptFailureLineGroupId: varchar("auto_accept_failure_line_group_id", { length: 255 }).notNull().default(""),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({

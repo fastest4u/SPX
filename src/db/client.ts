@@ -238,11 +238,24 @@ async function createDashboardTables(): Promise<void> {
       spx_cookie VARCHAR(4000) NOT NULL DEFAULT '',
       spx_device_id VARCHAR(1000) NOT NULL DEFAULT '',
       line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+      auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+      auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       KEY teams_enabled_idx (enabled),
       KEY teams_name_idx (name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+  await ensureMysqlColumn(pool, "teams", "auto_accept_success_line_group_id", "ALTER TABLE teams ADD COLUMN auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '' AFTER line_group_id");
+  await ensureMysqlColumn(pool, "teams", "auto_accept_failure_line_group_id", "ALTER TABLE teams ADD COLUMN auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '' AFTER auto_accept_success_line_group_id");
+  await pool.query(`
+    UPDATE teams
+    SET
+      auto_accept_success_line_group_id = line_group_id,
+      auto_accept_failure_line_group_id = line_group_id
+    WHERE line_group_id <> ''
+      AND auto_accept_success_line_group_id = ''
+      AND auto_accept_failure_line_group_id = ''
   `);
 
   await pool.query(`

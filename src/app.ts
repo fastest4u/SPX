@@ -9,7 +9,7 @@ import { startNotificationDispatchLoop, type NotificationDispatchLoop } from "./
 import { sendLineTargetMessage } from "./services/notifier.js";
 import { migrateJsonToDb } from "./services/notify-rules.js";
 import { roleRunsHttp, roleRunsNotifier, roleRunsWorkers } from "./services/runtime-role.js";
-import { loadDbSettingsIntoEnv, migrateEnvSettingsToDb } from "./services/settings.js";
+import { loadDbFirstSettingsIntoEnv } from "./services/settings.js";
 import { createRoleAwareTeamRuntimeActions } from "./services/team-runtime-actions.js";
 import { TeamRuntimeManager } from "./services/team-runtime-manager.js";
 import { getSpxDispatcher } from "./utils/http-dispatcher.js";
@@ -28,8 +28,7 @@ function parseIntervalArg(value: string | undefined): number | undefined {
 }
 
 function canUseSettingsDatabase(): boolean {
-  const usesDatabase = env.HTTP_ENABLED || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED;
-  return usesDatabase && (env.DB_MODE === "memory" || Boolean(env.DB_HOST && env.DB_USERNAME && env.DB_PASSWORD && env.DB_NAME));
+  return env.DB_MODE === "memory" || Boolean(env.DB_HOST && env.DB_USERNAME && env.DB_PASSWORD && env.DB_NAME);
 }
 
 function installShutdownHandlers(
@@ -73,8 +72,7 @@ async function main(): Promise<void> {
   let stopDesiredStateLoop: (() => void) | null = null;
 
   if (canUseSettingsDatabase()) {
-    await migrateEnvSettingsToDb();
-    await loadDbSettingsIntoEnv();
+    await loadDbFirstSettingsIntoEnv();
   }
 
   validateRuntimeConfig();
