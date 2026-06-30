@@ -139,11 +139,17 @@ export interface HistoryFilterQuery {
   origin?: string;
   destination?: string;
   vehicleType?: string;
+  teamId?: number;
   sortBy?: 'created_at' | 'request_id';
   sortDir?: 'asc' | 'desc';
   limit?: number;
   page?: number;
   pageSize?: number;
+}
+
+export interface HistoryFilterOptions {
+  teams: Array<{ id: number; name: string }>;
+  vehicleTypes: string[];
 }
 
 export interface PaginatedHistory {

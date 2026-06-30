@@ -6,7 +6,7 @@ import { historyApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { ContentSection, PageShell } from '../components/layout/Page'
+import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { StatCard } from '../components/ui/stat-card'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -18,6 +18,14 @@ import { History as HistoryIcon, Search, SlidersHorizontal, X, MapPin, Car, Hash
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSavedView } from '../hooks/useSavedView'
 import { useAuth } from '../hooks/useAuth'
+import {
+  ALL_HISTORY_FILTER_VALUE,
+  buildHistoryTeamOptions,
+  buildHistoryVehicleOptions,
+  historyTeamIdFromFilter,
+  historyVehicleTypeFromFilter,
+  type HistorySelectOption,
+} from '../lib/history-filters'
 import type { BookingHistory, HistoryFilterQuery } from '../types'
 
 export const Route = createFileRoute('/history')({
@@ -60,6 +68,7 @@ const HISTORY_COLUMNS: DataTableColumn<BookingHistory>[] = [
 ]
 
 interface HistoryView {
+  team: string
   origin: string
   destination: string
   vehicleType: string
@@ -69,13 +78,16 @@ interface HistoryView {
 }
 
 const HISTORY_DEFAULT_VIEW: HistoryView = {
+  team: ALL_HISTORY_FILTER_VALUE,
   origin: '',
   destination: '',
-  vehicleType: '',
+  vehicleType: ALL_HISTORY_FILTER_VALUE,
   pageSize: 25,
   sortKey: 'created_at',
   sortDir: 'desc',
 }
+
+const filterSelectClassName = 'h-10 w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25'
 
 function HistoryComponent() {
   const { user } = useAuth()
@@ -84,19 +96,42 @@ function HistoryComponent() {
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [view, setView, resetView] = useSavedView<HistoryView>('history', HISTORY_DEFAULT_VIEW)
-  const { origin, destination, vehicleType, pageSize, sortKey, sortDir } = view
+  const normalizedView = { ...HISTORY_DEFAULT_VIEW, ...view }
+  const {
+    team: rawTeam,
+    origin,
+    destination,
+    vehicleType: rawVehicleType,
+    pageSize,
+    sortKey,
+    sortDir,
+  } = normalizedView
+  const team = rawTeam || ALL_HISTORY_FILTER_VALUE
+  const vehicleType = rawVehicleType || ALL_HISTORY_FILTER_VALUE
   const updateView = (patch: Partial<HistoryView>) => setView((prev) => ({ ...prev, ...patch }))
+  const selectedTeamId = isAdmin ? historyTeamIdFromFilter(team) : undefined
+  const selectedVehicleType = historyVehicleTypeFromFilter(vehicleType)
+  const historyScopeKey = isAdmin
+    ? `admin:${selectedTeamId ?? 'all'}`
+    : `team:${user?.teamId ?? 'none'}`
 
   const search = useDebouncedValue(searchInput.trim(), 400)
   const debouncedOrigin = useDebouncedValue(origin.trim(), 300)
   const debouncedDestination = useDebouncedValue(destination.trim(), 300)
-  const debouncedVehicleType = useDebouncedValue(vehicleType.trim(), 300)
+  const debouncedVehicleType = useDebouncedValue(selectedVehicleType ?? '', 300)
+
+  const { data: filterOptions } = useQuery({
+    queryKey: ['history-filter-options', { scope: historyScopeKey }],
+    queryFn: () => historyApi.filterOptions({ teamId: selectedTeamId }),
+    staleTime: 5 * 60 * 1000,
+  })
 
   const { data: result, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['history', { search, origin: debouncedOrigin, destination: debouncedDestination, vehicleType: debouncedVehicleType, sortKey, sortDir, page, pageSize }],
+    queryKey: ['history', { scope: historyScopeKey, search, origin: debouncedOrigin, destination: debouncedDestination, vehicleType: debouncedVehicleType, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       historyApi.paginated({
         search: search || undefined,
+        teamId: selectedTeamId,
         origin: debouncedOrigin || undefined,
         destination: debouncedDestination || undefined,
         vehicleType: debouncedVehicleType || undefined,
@@ -141,8 +176,12 @@ function HistoryComponent() {
   const uniqueOrigins = [...new Set(history.map((h) => h.origin).filter(Boolean))]
   const uniqueDests = [...new Set(history.map((h) => h.destination).filter(Boolean))]
   const uniqueVehicles = [...new Set(history.map((h) => h.vehicleType).filter(Boolean))]
+  const teamOptions = buildHistoryTeamOptions(filterOptions?.teams ?? [])
+  const vehicleOptions = buildHistoryVehicleOptions(filterOptions?.vehicleTypes ?? uniqueVehicles)
+  const selectedTeamLabel = teamOptions.find((option) => option.value === team)?.label
 
-  const hasFilters = origin || destination || vehicleType
+  const hasTeamFilter = isAdmin && team !== ALL_HISTORY_FILTER_VALUE
+  const hasFilters = Boolean(origin || destination || selectedVehicleType || hasTeamFilter)
 
   const handleReset = () => {
     setSearchInput('')
@@ -213,8 +252,34 @@ function HistoryComponent() {
 
               {/* Expandable Filters */}
               {showFilters ? (
-                <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 animate-in">
-                  <div className="grid gap-3 sm:grid-cols-3">
+                <FilterPanel className="mb-4 space-y-3 animate-in">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-foreground">Filter panel</div>
+                        <div className="text-xs text-muted-foreground">
+                          เลือกทีม เส้นทาง และประเภทรถ
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" className="self-start text-xs text-muted-foreground sm:self-auto" onClick={handleReset}>{'ล้างทั้งหมด'}</Button>
+                  </div>
+                  <div className={`grid gap-3 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+                    {isAdmin ? (
+                      <HistoryFilterSelect
+                        id="hist-team"
+                        label="ทีม"
+                        value={team}
+                        options={teamOptions}
+                        onChange={(nextTeam) => {
+                          updateView({ team: nextTeam, vehicleType: ALL_HISTORY_FILTER_VALUE })
+                          setPage(1)
+                        }}
+                      />
+                    ) : null}
                     <div className="space-y-1.5">
                       <label htmlFor="hist-origin" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ต้นทาง</label>
                       <Input
@@ -233,33 +298,34 @@ function HistoryComponent() {
                         onChange={(e) => { updateView({ destination: e.target.value }); setPage(1) }}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <label htmlFor="hist-veh" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ประเภทรถ</label>
-                      <Input
-                        id="hist-veh"
-                        placeholder={'เช่น 6WH'}
-                        value={vehicleType}
-                        onChange={(e) => { updateView({ vehicleType: e.target.value }); setPage(1) }}
-                      />
-                    </div>
+                    <HistoryFilterSelect
+                      id="hist-veh"
+                      label="ประเภทรถ"
+                      value={vehicleType}
+                      options={vehicleOptions}
+                      onChange={(nextVehicleType) => {
+                        updateView({ vehicleType: nextVehicleType })
+                        setPage(1)
+                      }}
+                    />
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={handleReset}>{'ล้างทั้งหมด'}</Button>
-                  </div>
-                </div>
+                </FilterPanel>
               ) : null}
 
               {/* Active Filter Chips */}
               {hasFilters && !showFilters ? (
                 <div className="mb-4 flex flex-wrap items-center gap-2">
+                  {hasTeamFilter && selectedTeamLabel ? (
+                    <FilterChip label="ทีม" value={selectedTeamLabel} onClear={() => { updateView({ team: ALL_HISTORY_FILTER_VALUE, vehicleType: ALL_HISTORY_FILTER_VALUE }); setPage(1) }} />
+                  ) : null}
                   {origin ? (
                     <FilterChip label="ต้นทาง" value={origin} onClear={() => { updateView({ origin: '' }); setPage(1) }} />
                   ) : null}
                   {destination ? (
                     <FilterChip label="ปลายทาง" value={destination} onClear={() => { updateView({ destination: '' }); setPage(1) }} />
                   ) : null}
-                  {vehicleType ? (
-                    <FilterChip label="รถ" value={vehicleType} onClear={() => { updateView({ vehicleType: '' }); setPage(1) }} />
+                  {selectedVehicleType ? (
+                    <FilterChip label="รถ" value={selectedVehicleType} onClear={() => { updateView({ vehicleType: ALL_HISTORY_FILTER_VALUE }); setPage(1) }} />
                   ) : null}
                 </div>
               ) : null}
@@ -304,5 +370,37 @@ function HistoryComponent() {
           )}
       </ContentSection>
     </PageShell>
+  )
+}
+
+function HistoryFilterSelect({
+  id,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  id: string
+  label: string
+  onChange: (value: string) => void
+  options: HistorySelectOption[]
+  value: string
+}) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+      <select
+        id={id}
+        className={filterSelectClassName}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getBookingHistoryForScope, getBookingHistoryPaginatedForScope } from "../repositories/booking-history-repository.js";
+import { getBookingHistoryFilterOptionsForScope, getBookingHistoryForScope, getBookingHistoryPaginatedForScope } from "../repositories/booking-history-repository.js";
 import type { HistoryFilterQuery } from "../repositories/booking-history-repository.js";
 import { resolveScopedTeamId } from "../services/team-scope.js";
 import type { AuthUser } from "../services/authz.js";
@@ -30,6 +30,26 @@ function historyTeamScope(req: { user?: unknown }, explicitTeamId?: number): num
 }
 
 export const historyController: FastifyPluginAsync = async (app) => {
+  app.get(
+    "/filter-options",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: {
+            teamId: filterSchemaProps.teamId,
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const query = req.query as { teamId?: number };
+      const teamId = historyTeamScope(req, query.teamId);
+      const options = await getBookingHistoryFilterOptionsForScope(teamId);
+      return sendSuccess(reply, options);
+    }
+  );
+
   app.get(
     "/",
     {

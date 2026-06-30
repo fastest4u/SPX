@@ -19,6 +19,7 @@ import type {
   EnvSettings,
   HealthResponse,
   HistoryFilterQuery,
+  HistoryFilterOptions,
   LineBotGroupList,
   LineBotSendInput,
   LineBotSendResult,
@@ -353,6 +354,7 @@ export const historyApi = {
       origin: params?.origin,
       destination: params?.destination,
       vehicleType: params?.vehicleType,
+      teamId: params?.teamId,
       sortBy: params?.sortBy,
       sortDir: params?.sortDir,
     })
@@ -369,10 +371,18 @@ export const historyApi = {
       origin: params?.origin,
       destination: params?.destination,
       vehicleType: params?.vehicleType,
+      teamId: params?.teamId,
       sortBy: params?.sortBy,
       sortDir: params?.sortDir,
     })
     return fetchPaginated<BookingHistory>(`${API_BASE}/history/paginated${query ? `?${query}` : ''}`)
+  },
+
+  filterOptions: (params?: Pick<HistoryFilterQuery, 'teamId'>): Promise<HistoryFilterOptions> => {
+    const query = buildQuery({
+      teamId: params?.teamId,
+    })
+    return fetchJson<HistoryFilterOptions>(`${API_BASE}/history/filter-options${query ? `?${query}` : ''}`)
   },
 }
 
