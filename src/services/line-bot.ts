@@ -100,6 +100,10 @@ const LINEJS_STORAGE_PACKAGE = "@evex/linejs/storage";
 const QR_WAIT_MS = 2500;
 const LINE_IMAGE_READ_FAILED_PREFIX = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
 const SUPPORTED_LINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const LINE_LISTENER_RECONNECT_DELAY_MS = 5000;
+const RECOVERABLE_LINEJS_LISTENER_ERROR = /fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|socket|network/i;
+const LINEJS_LISTENER_STACK_MARKER =
+  /@evex[\\/](?:linejs|__linejs)|@jsr[\\/]evex__linejs|node_modules[\\/]@evex[\\/]linejs|linejs[\\/]client|linejs[\\/]base[\\/]polling|initLegyPusher|listenTalkEvents/i;
 
 // ── Singleton state ────────────────────────────────────────────────────
 
@@ -110,6 +114,7 @@ let clientPromise: Promise<LineJsClient> | null = null;
 // currently has the handler so it is re-attached after a logout/relogin rebuild.
 let imageListenerChatId = "";
 let imageListenerClient: LineJsClient | null = null;
+let imageListenerReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let currentQrUrl = "";
 let currentPincode = "";
 let qrUrlWaiter: ((url: string) => void) | null = null;
@@ -159,11 +164,62 @@ function isLineAuthFailure(error: unknown): boolean {
  * listener binding is dropped so it re-attaches on the rebuilt client.
  */
 function clearAuthenticatedSession(reason: string): void {
-  if (!client && !clientPromise) return;
+  if (!client && !clientPromise && !imageListenerClient) return;
   client = null;
   clientPromise = null;
   imageListenerClient = null;
   logger.warn("line-bot-session-cleared", { reason });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function errorDiagnosticText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause instanceof Error
+    ? `\n${error.cause.message}\n${error.cause.stack ?? ""}`
+    : "";
+  return `${error.message}\n${error.stack ?? ""}${cause}`;
+}
+
+export function isRecoverableLineJsListenerRejection(reason: unknown): boolean {
+  const text = errorDiagnosticText(reason);
+  return RECOVERABLE_LINEJS_LISTENER_ERROR.test(text) && LINEJS_LISTENER_STACK_MARKER.test(text);
+}
+
+function scheduleImageListenerReconnect(reason: string): void {
+  if (!imageListenerChatId || !isLineBotEnabled() || imageListenerReconnectTimer) return;
+  clearAuthenticatedSession(reason);
+
+  imageListenerReconnectTimer = setTimeout(() => {
+    imageListenerReconnectTimer = null;
+    const targetChatId = imageListenerChatId;
+    if (!targetChatId || !isLineBotEnabled()) return;
+
+    void startImageListener(targetChatId).catch((error) => {
+      logger.warn("line-image-listener-reconnect-failed", {
+        error: errorMessage(error),
+      });
+      if (isLineAuthFailure(error)) {
+        clearAuthenticatedSession("line-image-listener-reconnect-auth-failure");
+        return;
+      }
+      scheduleImageListenerReconnect("line-image-listener-reconnect-retry");
+    });
+  }, LINE_LISTENER_RECONNECT_DELAY_MS);
+  imageListenerReconnectTimer.unref?.();
+}
+
+export function handleRecoverableLineJsListenerRejection(reason: unknown): boolean {
+  if (!imageListenerChatId || !isLineBotEnabled() || !isRecoverableLineJsListenerRejection(reason)) return false;
+
+  logger.warn("line-image-listener-polling-failed", {
+    error: errorMessage(reason),
+    action: "reconnect",
+  });
+  scheduleImageListenerReconnect("line-image-listener-polling-failed");
+  return true;
 }
 
 // ── Enable check ───────────────────────────────────────────────────────
