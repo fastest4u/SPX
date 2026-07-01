@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   bufferLineImageBlob,
   formatLineImageListenerError,
+  isRecoverableLineJsListenerRejection,
   isLineImageReadTimeout,
 } from "../src/services/line-bot.js";
 
@@ -44,6 +45,21 @@ async function main(): Promise<void> {
     formatLineImageListenerError(secretError, 300000),
     `${readFailedPrefix}: OCR failed. Please try again.`,
   );
+
+  const lineJsFetchError = new TypeError("fetch failed");
+  lineJsFetchError.stack = [
+    "TypeError: fetch failed",
+    "    at BaseClient.fetch (file:///app/node_modules/@evex/linejs/base/core/mod.js:110:17)",
+    "    at Polling.initLegyPusher (file:///app/node_modules/@evex/linejs/base/polling/mod.js:98:15)",
+  ].join("\n");
+  assert.equal(isRecoverableLineJsListenerRejection(lineJsFetchError), true);
+
+  const appFetchError = new TypeError("fetch failed");
+  appFetchError.stack = [
+    "TypeError: fetch failed",
+    "    at currentTeamController (file:///app/dist/controllers/teams-controller.js:130:15)",
+  ].join("\n");
+  assert.equal(isRecoverableLineJsListenerRejection(appFetchError), false);
 
   console.log("line-image-listener: all assertions passed");
 }

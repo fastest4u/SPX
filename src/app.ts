@@ -5,6 +5,7 @@ import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState } from "./repo
 import { ensureDefaultTeamFromLegacySettings } from "./repositories/team-repository.js";
 import { createAdminUserIfNotExists } from "./repositories/user-repository.js";
 import { startHttpServer, stopHttpServer } from "./services/http-server.js";
+import { handleRecoverableLineJsListenerRejection } from "./services/line-bot.js";
 import { startNotificationDispatchLoop, type NotificationDispatchLoop } from "./services/notification-dispatcher.js";
 import { sendLineTargetMessage } from "./services/notifier.js";
 import { migrateJsonToDb } from "./services/notify-rules.js";
@@ -56,11 +57,12 @@ function installShutdownHandlers(
   process.once("SIGINT", () => void shutdown(0));
   process.once("SIGTERM", () => void shutdown(0));
   process.once("uncaughtException", (error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     void shutdown(1);
   });
-  process.once("unhandledRejection", (reason) => {
-    console.error(reason instanceof Error ? reason.message : String(reason));
+  process.on("unhandledRejection", (reason) => {
+    if (handleRecoverableLineJsListenerRejection(reason)) return;
+    console.error(reason instanceof Error ? reason.stack ?? reason.message : String(reason));
     void shutdown(1);
   });
 }
