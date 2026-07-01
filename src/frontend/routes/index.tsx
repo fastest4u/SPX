@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { rulesApi, metricsApi } from '../lib/api'
+import { currentTeamApi, rulesApi, metricsApi } from '../lib/api'
 import { useSseStream } from '../hooks/useSseContext'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
@@ -18,6 +18,7 @@ import {
   Eye,
   LayoutDashboard,
   PauseCircle,
+  PowerOff,
   Plus,
   Radio,
   Search,
@@ -28,7 +29,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import type { NotifyRule, TimingSummary } from '../types'
+import type { AuthUser, NotifyRule, Team, TimingSummary } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
@@ -48,6 +49,53 @@ const ruleStatusOptions: Array<{ value: RuleStatusFilter; label: string }> = [
 ]
 
 const filterSelectClassName = 'h-10 w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25'
+
+type DashboardTeamControlState = {
+  canToggle: boolean
+  command: 'enable' | 'disable' | null
+  disabled: boolean
+  primaryLabel: 'Live' | 'Paused' | 'Off'
+  primaryTone: 'live' | 'paused' | 'off'
+  title: string
+  healthLabel: 'Healthy' | 'Degraded'
+  healthTone: 'healthy' | 'degraded'
+}
+
+export function getDashboardTeamControlState({
+  user,
+  team,
+  isSystemPaused,
+  isSessionHealthy,
+  isMutating,
+}: {
+  user: AuthUser | null
+  team?: Pick<Team, 'id' | 'name' | 'enabled' | 'runtimeStatus'> | null
+  isSystemPaused: boolean
+  isSessionHealthy: boolean
+  isMutating: boolean
+}): DashboardTeamControlState {
+  const isOwnTeamUser = user?.role === 'user' && typeof user.teamId === 'number' && team?.id === user.teamId
+  const teamEnabled = team ? team.enabled : !isSystemPaused
+  const primaryLabel = teamEnabled ? (isSystemPaused && !team ? 'Paused' : 'Live') : 'Off'
+  const primaryTone = primaryLabel === 'Off' ? 'off' : primaryLabel === 'Paused' ? 'paused' : 'live'
+  const command = isOwnTeamUser ? (teamEnabled ? 'disable' : 'enable') : null
+  const readonlyTitle = user?.role === 'admin'
+    ? 'Admin ดูสถานะจาก Dashboard ได้เท่านั้น ใช้หน้า Teams เพื่อเปิดหรือปิดทีม'
+    : 'ยังไม่พบทีมของผู้ใช้ จึงเปิดหรือปิดระบบบิทจาก Dashboard ไม่ได้'
+
+  return {
+    canToggle: isOwnTeamUser,
+    command,
+    disabled: !isOwnTeamUser || isMutating,
+    primaryLabel,
+    primaryTone,
+    title: isOwnTeamUser
+      ? `กดเพื่อ${teamEnabled ? 'ปิด' : 'เปิด'}ระบบบิทของทีม ${team.name}`
+      : readonlyTitle,
+    healthLabel: isSessionHealthy ? 'Healthy' : 'Degraded',
+    healthTone: isSessionHealthy ? 'healthy' : 'degraded',
+  }
+}
 
 function DashboardComponent() {
   const queryClient = useQueryClient()
@@ -87,20 +135,30 @@ function DashboardComponent() {
     staleTime: 30_000,
   })
 
+  const shouldLoadCurrentTeam = user?.role === 'user' && typeof user.teamId === 'number'
+  const { data: currentTeam } = useQuery({
+    queryKey: ['current-team'],
+    queryFn: currentTeamApi.get,
+    enabled: shouldLoadCurrentTeam,
+    staleTime: 10_000,
+  })
+
   const { data: sseMetrics, rules: sseRules, sessionAlert } = useSseStream()
   const metrics = sseMetrics || initialMetrics
   const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
   const sessionAlertTimestamp = sessionAlert?.timestamp
 
-  const togglePollerMutation = useMutation({
-    mutationFn: () =>
-      metrics?.isPaused ? metricsApi.resume() : metricsApi.pause(),
-    onSuccess: (data) => {
-      toast.success(
-        data.paused
-          ? 'หยุดการทำงาน (Pause) เรียบร้อย'
-          : 'เริ่มทำงาน (Resume) เรียบร้อย'
-      )
+  const toggleTeamMutation = useMutation({
+    mutationFn: () => {
+      if (!currentTeam) throw new Error('TEAM_NOT_LOADED: Team status is not ready')
+      return currentTeamApi.setEnabled(!currentTeam.enabled)
+    },
+    onSuccess: (team) => {
+      queryClient.setQueryData(['current-team'], team)
+      void queryClient.invalidateQueries({ queryKey: ['metrics'] })
+      toast.success(team.enabled ? 'เปิดระบบบิทของทีมแล้ว' : 'ปิดระบบบิทของทีมแล้ว', {
+        description: team.name,
+      })
     },
     onError: (error) => {
       toast.error('ไม่สามารถเปลี่ยนสถานะได้: ' + error.message)
@@ -283,39 +341,62 @@ function DashboardComponent() {
     )
   }
 
+  const teamControlState = getDashboardTeamControlState({
+    user,
+    team: currentTeam,
+    isSystemPaused: metrics?.isPaused ?? false,
+    isSessionHealthy: metrics?.session?.isHealthy ?? true,
+    isMutating: toggleTeamMutation.isPending,
+  })
+
+  const primaryStatusClassName = `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-50 ${teamControlState.primaryTone === 'off'
+    ? 'bg-white/[0.05] text-muted-foreground'
+    : teamControlState.primaryTone === 'paused'
+      ? 'bg-[color:var(--color-warning-soft)] text-warning'
+      : 'bg-[color:var(--color-info-soft)] text-info'
+    }`
+
+  const primaryStatusContent = (
+    <>
+      {teamControlState.primaryTone === 'off' ? (
+        <PowerOff className="h-3 w-3" />
+      ) : teamControlState.primaryTone === 'paused' ? (
+        <PauseCircle className="h-3 w-3" />
+      ) : (
+        <Radio className="h-3 w-3 animate-pulse" />
+      )}
+      {teamControlState.primaryLabel}
+    </>
+  )
+
   const statusGroup = (
     <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-0.5 pr-2">
-      <button
-        onClick={() => togglePollerMutation.mutate()}
-        disabled={togglePollerMutation.isPending}
-        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-50 ${metrics?.isPaused
-          ? 'bg-[color:var(--color-warning-soft)] text-warning'
-          : 'bg-[color:var(--color-info-soft)] text-info'
-          }`}
-        title={metrics?.isPaused ? 'กดเพื่อเริ่มทำงาน' : 'กดเพื่อหยุดทำงาน'}
-      >
-        {metrics?.isPaused ? (
-          <>
-            <PauseCircle className="h-3 w-3" />
-            Paused
-          </>
-        ) : (
-          <>
-            <Radio className="h-3 w-3 animate-pulse" />
-            Live
-          </>
-        )}
-      </button>
+      {teamControlState.canToggle ? (
+        <button
+          type="button"
+          onClick={() => toggleTeamMutation.mutate()}
+          disabled={teamControlState.disabled}
+          className={primaryStatusClassName}
+          title={teamControlState.title}
+          aria-label={teamControlState.title}
+        >
+          {primaryStatusContent}
+        </button>
+      ) : (
+        <span className={primaryStatusClassName} title={teamControlState.title}>
+          {primaryStatusContent}
+        </span>
+      )}
       <span className="h-3 w-px bg-white/10" aria-hidden="true" />
-      {metrics?.session?.isHealthy ? (
+      {teamControlState.healthTone === 'healthy' ? (
         <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-success">
           <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
-          Healthy
+          {teamControlState.healthLabel}
         </span>
       ) : (
         <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-warning">
           <WifiOff className="h-3 w-3" />
-          Degraded
+          {teamControlState.healthLabel}
         </span>
       )}
     </div>

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { createTeam, disableTeam, getTeamById, listTeams, updateTeam, type TeamInput, type TeamPatch } from "../repositories/team-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser } from "../services/authz.js";
+import { requireTeamUser } from "../services/team-scope.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 
 type RuntimeTeamAction = (teamId: number) => Promise<unknown>;
@@ -25,6 +26,10 @@ export function setTeamRuntimeActions(actions: TeamRuntimeActions): void {
 
 interface IdParams {
   id: string;
+}
+
+interface EnabledBody {
+  enabled: boolean;
 }
 
 function currentUser(req: { user?: unknown }): AuthUser {
@@ -107,6 +112,50 @@ async function listTeamsWithRuntimeStatus() {
   const teams = await listTeams();
   return Promise.all(teams.map(withRuntimeStatus));
 }
+
+async function getCurrentUserTeam(teamId: number) {
+  const team = await getTeamById(teamId);
+  return team ? withRuntimeStatus(team) : null;
+}
+
+const enabledBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["enabled"],
+  properties: {
+    enabled: { type: "boolean" },
+  },
+} as const;
+
+export const currentTeamController: FastifyPluginAsync = async (app) => {
+  app.get("/", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const team = await getCurrentUserTeam(teamId);
+    if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+    return sendSuccess(reply, team);
+  });
+
+  app.put<{ Body: EnabledBody }>("/enabled", { schema: { body: enabledBodySchema } }, async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const user = currentUser(req);
+    const team = await updateTeam(teamId, { enabled: req.body.enabled });
+    if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+
+    if (req.body.enabled) {
+      await runtimeActions.restartTeam?.(teamId);
+    } else {
+      await runtimeActions.stopTeam?.(teamId);
+    }
+
+    await insertAuditLog(
+      user.username,
+      req.body.enabled ? "Enable Own Team" : "Disable Own Team",
+      `${req.body.enabled ? "Enabled" : "Disabled"} team ${teamId}: ${team.name}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+    return sendSuccess(reply, await withRuntimeStatus(team), "Team enabled state updated");
+  });
+};
 
 export const teamsController: FastifyPluginAsync = async (app) => {
   app.get("/", async (_req, reply) => {

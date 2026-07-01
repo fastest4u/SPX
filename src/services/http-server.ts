@@ -19,7 +19,7 @@ import { authController } from "../controllers/auth-controller.js";
 import { rulesController } from "../controllers/rules-controller.js";
 import { usersController } from "../controllers/users-controller.js";
 import { settingsController } from "../controllers/settings-controller.js";
-import { teamsController } from "../controllers/teams-controller.js";
+import { currentTeamController, teamsController } from "../controllers/teams-controller.js";
 import { historyController } from "../controllers/history-controller.js";
 import { auditController } from "../controllers/audit-controller.js";
 import { dashboardController } from "../controllers/dashboard-controller.js";
@@ -347,6 +347,7 @@ export async function startHttpServer(port: number): Promise<void> {
         }
       });
       await userScope.register(rulesController, { prefix: "/rules" });
+      await userScope.register(currentTeamController, { prefix: "/team" });
       await userScope.register(notifyController, { prefix: "/notifications" });
       await userScope.register(biddingController, { prefix: "/bidding" });
       await userScope.register(lineBotController, { prefix: "/line-bot" });
