@@ -528,6 +528,17 @@ export const teamsApi = {
     }),
 }
 
+export const currentTeamApi = {
+  get: (): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/team`),
+
+  setEnabled: (enabled: boolean): Promise<Team> =>
+    fetchJson<Team>(`${API_BASE}/team/enabled`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+}
+
 // Settings API
 function isSettingsResponse(
   response: Record<string, string> | SettingsResponse,
