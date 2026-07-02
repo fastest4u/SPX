@@ -2,14 +2,14 @@
 title: Runbook — Auto-Accept Not Firing
 type: runbook
 status: active
-last-verified: 2026-05-13
-verified-by: human
-source: file:src/controllers/poller.ts + ADR-001-Dual-Storage-Notify-Rules
+last-verified: 2026-07-02
+verified-by: codex
+source: file:src/controllers/poller.ts + file:docker-compose.yml + ADR-001-Dual-Storage-Notify-Rules
 confidence: high
 severity-when-applies: high
 related-adrs: [[ADR-001-Dual-Storage-Notify-Rules]]
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-07-02
 aliases:
   - Runbook-Auto-Accept-Debug
   - Auto-Accept Runbook
@@ -35,7 +35,7 @@ tags:
 
 ```bash
 # 1. Verify env enables auto-accept (prints SET/MISSING, not the value).
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
+ssh root@45.83.207.139 'cd /root/SPX && docker compose exec -T notifier sh -c "
 val=$(printenv AUTO_ACCEPT_ENABLED)
 echo \"AUTO_ACCEPT_ENABLED: ${val:-MISSING}\"
 "'
@@ -76,7 +76,7 @@ ORDER BY id DESC LIMIT 1;
 ### 3. Check application logs
 
 ```bash
-docker compose logs --tail=200 app | grep -i "auto.accept\|notify-rule\|match"
+docker compose logs --tail=200 notifier worker-ifn worker-ptwl | grep -i "auto.accept\|notify-rule\|match"
 ```
 
 **Look for:**
@@ -100,7 +100,7 @@ docker compose logs --tail=200 app | grep -i "auto.accept\|notify-rule\|match"
 **Pattern: header file with chmod 600 (run inside container so secrets never leave it):**
 
 ```bash
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
+ssh root@45.83.207.139 'cd /root/SPX && docker compose exec -T notifier sh -c "
 set -eu
 # 1. Write headers to a 600-perm file in tmpfs (no disk persistence on /tmp under tmpfs)
 hdr=$(mktemp)
@@ -173,3 +173,4 @@ If auto-accept caused wrong booking to be accepted:
 ## Changelog
 
 - **2026-05-13** — Initial version.
+- **2026-07-02** — Updated production commands for split runtime services and notifier-owned HTTP endpoint.

@@ -2,14 +2,14 @@
 title: Runbook — Bidding API Session Expired / 401 Loop
 type: runbook
 status: active
-last-verified: 2026-05-13
-verified-by: human
-source: file:src/services/api-client.ts
+last-verified: 2026-07-02
+verified-by: codex
+source: file:src/services/api-client.ts + file:src/controllers/settings-controller.ts + file:src/services/settings.ts + file:docker-compose.yml
 confidence: high
 severity-when-applies: critical
 related-adrs: []
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-07-02
 aliases:
   - Runbook-API-Session-Expired
   - 401 Loop
@@ -37,7 +37,7 @@ tags:
 ```bash
 # Confirm required env vars are SET (without revealing values).
 # Prints e.g. "COOKIE: SET (1842 chars)" or "COOKIE: MISSING".
-ssh root@45.83.207.139 'docker exec spx-app sh -c "
+ssh root@45.83.207.139 'cd /root/SPX && docker compose exec -T notifier sh -c "
 for v in COOKIE API_URL DEVICE_ID; do
   val=$(printenv \"$v\")
   if [ -z \"$val\" ]; then echo \"$v: MISSING\"; else echo \"$v: SET (${#val} chars)\"; fi
@@ -56,26 +56,26 @@ The bidding provider's session is stored in env var `COOKIE`. To refresh:
 4. Find the request to `booking/bidding/list`
 5. Copy the **full `Cookie:` header value**
 
-### 2. Update `.env` via Web UI (preferred)
+### 2. Update live setting via Web UI (preferred)
 
-> [!tip] The Web UI has a Settings page
+> [!tip] The Web UI has a Settings page backed by `app_settings`
 > Navigate to `https://<server>/settings` → paste new cookie → save.
-> This calls `SettingsController` which overwrites `.env` and triggers `process.exit(0)`.
-> Docker auto-restart picks up the new value.
+> This calls `SettingsController`, writes DB-backed settings, preserves masked secrets, and calls `reloadSettingsLive()`.
+> No container restart is normally required for Settings UI changes that validate successfully.
 
-### 3. Update `.env` manually (fallback)
+### 3. Update bootstrap `.env` manually (fallback)
 
 ```bash
 ssh root@45.83.207.139
 cd /root/SPX
 vi .env  # edit COOKIE=... line
-docker compose restart app
+docker compose restart notifier worker-ifn worker-ptwl
 ```
 
 ### 4. Verify
 
 ```bash
-docker compose logs --tail=50 app | grep -E "(session|cookie|fetched|polled)"
+docker compose logs --tail=50 notifier worker-ifn worker-ptwl | grep -E "(session|cookie|fetched|polled)"
 ```
 
 Look for first successful poll:
@@ -111,9 +111,11 @@ Look for first successful poll:
 ## References
 
 - `src/services/api-client.ts` — retry + session-expired detection
-- `src/controllers/settings-controller.ts` — Web UI env writer
+- `src/controllers/settings-controller.ts` — Web UI DB-backed live settings writer
+- `src/services/settings.ts` — settings validation, persistence, and live reload
 - Root `AGENTS.md` → Runtime Env section (lists `COOKIE`, `DEVICE_ID`)
 
 ## Changelog
 
 - **2026-05-13** — Initial version.
+- **2026-07-02** — Updated for DB-backed Settings live reload and split runtime services.
