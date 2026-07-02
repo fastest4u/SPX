@@ -1,13 +1,40 @@
 import type { FastifyPluginAsync } from "fastify";
+import { listTeamRuntimeDesiredStates, listTeamRuntimeLeases, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
 import { createTeam, disableTeam, getTeamById, listTeams, updateTeam, type TeamInput, type TeamPatch } from "../repositories/team-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser } from "../services/authz.js";
+import type { TeamRuntimeStatusValue } from "../services/team-runtime.js";
 import { requireTeamUser } from "../services/team-scope.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 
 type RuntimeTeamAction = (teamId: number) => Promise<unknown>;
 type RuntimeAllAction = () => Promise<unknown>;
 type RuntimeStatusAction = (teamId: number) => { status: string } | null;
+type RuntimeStatusTeam = {
+  id: number;
+  enabled: boolean;
+  hasSpxCookie: boolean;
+  hasSpxDeviceId: boolean;
+};
+type RuntimeLeaseStatus = {
+  teamId: number;
+  status: string;
+  leaseExpiresAt: Date | string;
+};
+
+interface RuntimeStateSnapshot {
+  desiredStates: Map<number, TeamRuntimeDesiredStateValue>;
+  leases: Map<number, RuntimeLeaseStatus>;
+  now: Date;
+}
+
+interface ResolveTeamRuntimeStatusInput {
+  team: RuntimeStatusTeam;
+  localStatus?: { status: string } | null;
+  desiredState?: TeamRuntimeDesiredStateValue;
+  lease?: RuntimeLeaseStatus;
+  now?: Date;
+}
 
 interface TeamRuntimeActions {
   restartTeam?: RuntimeTeamAction;
@@ -94,9 +121,82 @@ async function runRuntimeAction(action: RuntimeTeamAction | undefined, teamId: n
   return true;
 }
 
-async function withRuntimeStatus<T extends { id: number }>(team: T): Promise<T & { runtimeStatus?: string }> {
-  const status = runtimeActions.getStatus?.(team.id)?.status;
-  return status ? { ...team, runtimeStatus: status } : team;
+const runtimeStatusValues = new Set<TeamRuntimeStatusValue>([
+  "stopped",
+  "running",
+  "paused",
+  "misconfigured",
+  "session_expired",
+  "error",
+]);
+
+function normalizeRuntimeStatus(status: string | undefined): TeamRuntimeStatusValue | null {
+  return status && runtimeStatusValues.has(status as TeamRuntimeStatusValue)
+    ? status as TeamRuntimeStatusValue
+    : null;
+}
+
+function timeMs(value: Date | string | undefined): number | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function isActiveLease(lease: RuntimeLeaseStatus | undefined, teamId: number, now: Date): boolean {
+  if (!lease || lease.teamId !== teamId) return false;
+  const expiresAtMs = timeMs(lease.leaseExpiresAt);
+  return expiresAtMs !== null && expiresAtMs > now.getTime();
+}
+
+export function resolveTeamRuntimeStatus({
+  team,
+  localStatus,
+  desiredState,
+  lease,
+  now = new Date(),
+}: ResolveTeamRuntimeStatusInput): TeamRuntimeStatusValue {
+  const local = normalizeRuntimeStatus(localStatus?.status);
+  if (local) return local;
+
+  if (!team.enabled) return "stopped";
+  if (!team.hasSpxCookie || !team.hasSpxDeviceId) return "misconfigured";
+  if (desiredState === "stopped") return "stopped";
+
+  const hasActiveLease = isActiveLease(lease, team.id, now);
+  if (desiredState === "paused" && hasActiveLease) return "paused";
+
+  if (hasActiveLease) {
+    return normalizeRuntimeStatus(lease?.status) ?? "running";
+  }
+
+  return "stopped";
+}
+
+async function loadRuntimeStateSnapshot(): Promise<RuntimeStateSnapshot> {
+  const [desiredStates, leases] = await Promise.all([
+    listTeamRuntimeDesiredStates(),
+    listTeamRuntimeLeases(),
+  ]);
+
+  return {
+    desiredStates: new Map(desiredStates.map((state) => [state.teamId, state.desiredState])),
+    leases: new Map(leases.map((lease) => [lease.teamId, lease])),
+    now: new Date(),
+  };
+}
+
+async function withRuntimeStatus<T extends RuntimeStatusTeam>(team: T, snapshot?: RuntimeStateSnapshot): Promise<T & { runtimeStatus: TeamRuntimeStatusValue }> {
+  const runtimeState = snapshot ?? await loadRuntimeStateSnapshot();
+  const runtimeStatus = resolveTeamRuntimeStatus({
+    team,
+    localStatus: runtimeActions.getStatus?.(team.id) ?? null,
+    desiredState: runtimeState.desiredStates.get(team.id),
+    lease: runtimeState.leases.get(team.id),
+    now: runtimeState.now,
+  });
+
+  return { ...team, runtimeStatus };
 }
 
 export function patchTouchesRuntime(patch: TeamPatch): boolean {
@@ -110,7 +210,8 @@ export function patchTouchesRuntime(patch: TeamPatch): boolean {
 
 async function listTeamsWithRuntimeStatus() {
   const teams = await listTeams();
-  return Promise.all(teams.map(withRuntimeStatus));
+  const snapshot = await loadRuntimeStateSnapshot();
+  return Promise.all(teams.map((team) => withRuntimeStatus(team, snapshot)));
 }
 
 async function getCurrentUserTeam(teamId: number) {
