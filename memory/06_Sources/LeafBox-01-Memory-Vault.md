@@ -3,7 +3,7 @@ title: "LeafBox Digest — AI Agent ที่ไม่มี Memory Vault = Dev 
 type: source
 source-author: LeafBox Digest (นิว)
 source-url: 
-source-date: 2026-05
+source-date: "2026-05-01"
 ingested-date: 2026-05-13
 created: 2026-05-13
 updated: 2026-05-13

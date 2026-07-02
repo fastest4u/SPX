@@ -1,16 +1,12 @@
-import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildE2eEnv, e2eSuites, installChromium, runE2eSuite } from "./e2e-runner.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 
 console.log("Installing Playwright Chromium browser binary...");
-const installResult = spawnSync(
-  process.platform === "win32" ? "cmd.exe" : "npx",
-  process.platform === "win32" ? ["/d", "/s", "/c", "npx playwright install chromium"] : ["playwright", "install", "chromium"],
-  { stdio: "inherit", cwd: repoRoot, shell: process.platform === "win32" }
-);
+const installResult = installChromium(repoRoot);
 
 if (installResult.status !== 0) {
   console.error("Failed to install Playwright Chromium binary.");
@@ -18,15 +14,15 @@ if (installResult.status !== 0) {
 }
 
 console.log("Running E2E tests...");
-const testResult = spawnSync(
-  process.platform === "win32" ? "cmd.exe" : "npx",
-  process.platform === "win32" ? ["/d", "/s", "/c", "npx tsx tests/admin-ui-e2e.test.ts"] : ["tsx", "tests/admin-ui-e2e.test.ts"],
-  {
-    stdio: "inherit",
-    cwd: repoRoot,
-    shell: process.platform === "win32",
-    env: { ...process.env, RUN_E2E: "true" }
-  }
-);
+const env = buildE2eEnv(process.env);
 
-process.exit(testResult.status ?? 0);
+for (const suite of e2eSuites) {
+  console.log(`\n=== ${suite.name} ===`);
+  const testResult = runE2eSuite(repoRoot, suite, env);
+  if (testResult.status !== 0) {
+    console.error(`${suite.name} E2E suite failed.`);
+    process.exit(testResult.status ?? 1);
+  }
+}
+
+process.exit(0);

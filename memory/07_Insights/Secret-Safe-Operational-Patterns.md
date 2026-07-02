@@ -8,7 +8,7 @@ derived-from:
   - [[2026-05-13-Vault-Hardening-Pass-3]]
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-07-02
 tags:
   - insight
   - project/spx
@@ -57,11 +57,15 @@ curl -H @"$hdr" ...
 ### 2. Container-Side Commands
 
 ```bash
-# GOOD — secrets never touch host shell history
-docker exec spx-app printenv | grep -E 'COOKIE|TOKEN'
+# GOOD — confirms presence/length without printing secret values
+docker compose exec -T notifier sh -c '
+for v in COOKIE LINE_CHANNEL_ACCESS_TOKEN DISCORD_WEBHOOK_URL; do
+  val=$(printenv "$v")
+  if [ -z "$val" ]; then echo "$v: MISSING"; else echo "$v: SET (${#val} chars)"; fi
+done'
 
-# BAD — host shell history captures the full command
-docker exec spx-app env | grep COOKIE
+# BAD — prints secret values into terminal scrollback/logs
+docker compose exec -T notifier env | grep COOKIE
 ```
 
 ### 3. Docker `-e` Over Config `env:`

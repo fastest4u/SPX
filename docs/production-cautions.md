@@ -24,11 +24,11 @@ aliases:
 > - Expired buckets ถูก cleanup อัตโนมัติทุก 60 วินาที
 > - Role-based limits: viewer=120, editor=180, admin=300 req/min
 
-## 2) Settings Page ทำให้ Process Exit
+## 2) Settings Page ใช้ DB-Backed Live Settings
 
-> [!caution] Auto-restart required
-> - บันทึก settings → เขียน `.env` → `process.exit(0)` ทันที
-> - ==ต้องมี process manager== (PM2, Docker restart, systemd)
+> [!caution] Secrets stay masked
+> - Settings UI เขียนค่าที่รองรับลง `app_settings` และเรียก `reloadSettingsLive()` เพื่อใช้ค่าที่เปลี่ยนทันที
+> - ไม่ควร restart service หลังเปลี่ยน cookie/notification settings ผ่าน UI เว้นแต่ health check ยัง degrade
 > - API response redact secret values — ปล่อย masked values ไว้จะไม่เขียนทับ secret เดิม
 
 ดู [[deployment#Process Manager]] สำหรับ setup

@@ -2,12 +2,12 @@
 title: API — Bidding Provider Endpoints (List / Overview / Request List / Accept)
 type: reference
 status: active
-last-verified: 2026-05-13
-verified-by: cascade
-source: file:src/services/api-client.ts
+last-verified: 2026-07-02
+verified-by: codex
+source: file:src/services/api-client.ts + file:src/controllers/settings-controller.ts + file:src/services/settings.ts
 confidence: high
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-07-02
 aliases:
   - Bidding API
   - Bidding Endpoints
@@ -234,7 +234,7 @@ HTTP-level retryable statuses are separate: `408`, `425`, `429`, `5xx` go throug
 
 ## Cookie Override (Hot-Refresh Path)
 
-`ApiClient.setCookie(cookie: string)` lets the Web UI Settings flow swap the cookie at runtime without restarting (currently unused — `process.exit(0)` triggers a Docker restart instead, see root `AGENTS.md` § "Runtime Env"). If the auto-restart approach is ever replaced, this is the hook.
+`ApiClient.setCookie(cookie: string)` lets the Web UI Settings flow swap the cookie at runtime without restarting. The current Settings flow writes DB-backed `app_settings`, preserves masked secrets, calls `reloadSettingsLive()`, and applies the cookie live when validation succeeds.
 
 ---
 
