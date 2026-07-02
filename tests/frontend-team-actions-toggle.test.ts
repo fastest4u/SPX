@@ -4,6 +4,7 @@ import {
   getLineGroupSelectValue,
   getNextLinkedLineTarget,
   getTeamEnableToggleAction,
+  getTeamRuntimeToggleAction,
 } from "../src/frontend/routes/teams.tsx";
 import type { Team, TeamInput } from "../src/frontend/types/index.ts";
 
@@ -27,6 +28,28 @@ assert.deepEqual(
     danger: false,
   },
   "disabled teams should expose a direct enable action",
+);
+
+assert.deepEqual(
+  getTeamRuntimeToggleAction({ name: "PTWL", enabled: true, runtimeStatus: "stopped" }),
+  {
+    command: "pause",
+    label: "Pause",
+    title: "Pause ทีม PTWL",
+    disabled: true,
+  },
+  "enabled but stopped teams should not expose a clickable pause action",
+);
+
+assert.deepEqual(
+  getTeamRuntimeToggleAction({ name: "PTWL", enabled: true, runtimeStatus: "paused" }),
+  {
+    command: "resume",
+    label: "Resume",
+    title: "Resume ทีม PTWL",
+    disabled: false,
+  },
+  "paused teams should expose a resume action",
 );
 
 const teamWithNotificationTargets: Team = {

@@ -392,7 +392,7 @@ function TeamsComponent() {
   )
 }
 
-function getRuntimeStatus(team: Team): NonNullable<Team['runtimeStatus']> {
+function getRuntimeStatus(team: Pick<Team, 'runtimeStatus'>): NonNullable<Team['runtimeStatus']> {
   return team.runtimeStatus || 'stopped'
 }
 
@@ -542,6 +542,21 @@ export function getTeamEnableToggleAction(team: Pick<Team, 'enabled' | 'name'>) 
   } as const
 }
 
+export function getTeamRuntimeToggleAction(team: Pick<Team, 'enabled' | 'name' | 'runtimeStatus'>) {
+  const status = getRuntimeStatus(team)
+  const isPaused = status === 'paused'
+  const canToggle = status === 'running' || isPaused
+  const command = isPaused ? 'resume' : 'pause'
+  const label = isPaused ? 'Resume' : 'Pause'
+
+  return {
+    command,
+    label,
+    title: `${label} ทีม ${team.name}`,
+    disabled: !team.enabled || !canToggle,
+  } as const
+}
+
 function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: () => void; compact?: boolean }) {
   const queryClient = useQueryClient()
 
@@ -566,8 +581,8 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
     onError: (error: Error) => toast.error('ดำเนินการไม่สำเร็จ', { description: error.message }),
   })
 
-  const isPaused = team.runtimeStatus === 'paused'
   const enableToggleAction = getTeamEnableToggleAction(team)
+  const runtimeToggleAction = getTeamRuntimeToggleAction(team)
   const actionItems = [
     {
       key: 'edit',
@@ -588,12 +603,12 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
       danger: false,
     },
     {
-      key: isPaused ? 'resume' : 'pause',
-      label: isPaused ? 'Resume' : 'Pause',
-      title: `${isPaused ? 'Resume' : 'Pause'} ทีม ${team.name}`,
-      icon: isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />,
-      onClick: () => actionMutation.mutate(isPaused ? 'resume' : 'pause'),
-      disabled: actionMutation.isPending || !team.enabled,
+      key: runtimeToggleAction.command,
+      label: runtimeToggleAction.label,
+      title: runtimeToggleAction.title,
+      icon: runtimeToggleAction.command === 'resume' ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />,
+      onClick: () => actionMutation.mutate(runtimeToggleAction.command),
+      disabled: actionMutation.isPending || runtimeToggleAction.disabled,
       danger: false,
     },
     {
