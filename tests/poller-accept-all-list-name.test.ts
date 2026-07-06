@@ -144,6 +144,7 @@ async function main(): Promise<void> {
   const { createRule, readRules } = await import("../src/services/notify-rules.js");
   const { getAutoAcceptHistory } = await import("../src/repositories/auto-accept-repository.js");
   const { getAutoAcceptResult, upsertAutoAcceptResult } = await import("../src/repositories/auto-accept-result-repository.js");
+  const { getBookingHistory } = await import("../src/repositories/booking-history-repository.js");
   resetMemoryDb();
   setLogLevel(LogLevel.ERROR);
   Object.assign(mutableEnv, {
@@ -161,6 +162,7 @@ async function main(): Promise<void> {
     const events: string[] = [];
     const published: PublishEnvelope[] = [];
     const reconcileGate = deferred();
+    mutableEnv.SAVE_TO_DB = true;
     mutableEnv.SPX_ROLE = "worker";
     setWorkerNotificationPublisherForTests(createNotificationPublisher({
       publish: async (envelope) => {
@@ -223,6 +225,17 @@ async function main(): Promise<void> {
     assert.deepEqual(published[0]?.event.requestIds, ["38659805", "38659806"]);
     assert.equal(published[0]?.event.evidence?.sourcePath, "fast_accept_all_reconcile");
     assert.equal(published[0]?.event.evidence?.acceptedCount, 2);
+    const savedRows = await waitFor(
+      () => getBookingHistory(1, { limit: 20, sortBy: "request_id", sortDir: "asc" }),
+      (rows) => [38659805, 38659806].every((requestId) => rows.some((row) => row.requestId === requestId)),
+      "fast accept_all reconcile should save accepted trips into spx_booking_history"
+    );
+    const savedAcceptAllRows = savedRows.filter((row) => [38659805, 38659806].includes(row.requestId));
+    assert.deepEqual(savedAcceptAllRows.map((row) => row.requestId), [38659805, 38659806]);
+    assert.deepEqual(savedAcceptAllRows.map((row) => row.bookingId), [2706815, 2706815]);
+    assert.deepEqual(savedAcceptAllRows.map((row) => row.origin), ["NORC-B", "NORC-B"]);
+    assert.deepEqual(savedAcceptAllRows.map((row) => row.destination), ["SOCs", "SOCs"]);
+    mutableEnv.SAVE_TO_DB = false;
     mutableEnv.SPX_ROLE = original.SPX_ROLE;
     setWorkerNotificationPublisherForTests(null);
   }

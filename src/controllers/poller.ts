@@ -1298,6 +1298,13 @@ export class Poller {
       });
     }
 
+    // Save accepted trips to spx_booking_history so they appear in the
+    // history search page. The normal save path (processBookingDetail) is
+    // skipped when accept_all returns early, so reconcile must do it.
+    if (env.SAVE_TO_DB && acceptedTrips.length > 0) {
+      this.historySaveQueue.enqueue(acceptedTrips);
+    }
+
     await routeAutoAcceptSuccessNotification(
       acceptedTrips.map((trip) => ({ trip, bookingId: booking.booking_id, requestId: trip.request_id })),
       {
