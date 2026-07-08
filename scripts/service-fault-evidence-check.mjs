@@ -33,12 +33,17 @@ const UNSAFE_EVIDENCE_KEY_FRAGMENTS = [
   "rawresponsebody",
   "requestbody",
   "responsebody",
+  "groupid",
+  "linegroupid",
+  "recipient",
   "secret",
   "stderr",
   "stdout",
+  "target",
   "targetid",
   "token",
 ];
+const UNSAFE_EVIDENCE_KEYS = new Set(["to"]);
 const DIRECTORY_METADATA_FILE = "drill-metadata.json";
 const DIRECTORY_EVIDENCE_FILES = {
   baselineProbe: "baseline-probe.json",
@@ -122,7 +127,10 @@ function hasNoUnsafeEvidenceFields(value) {
   if (!isObject(value)) return true;
   return Object.entries(value).every(([key, childValue]) => {
     const normalizedKey = key.toLowerCase();
-    if (UNSAFE_EVIDENCE_KEY_FRAGMENTS.some((fragment) => normalizedKey.includes(fragment))) {
+    if (
+      UNSAFE_EVIDENCE_KEYS.has(normalizedKey) ||
+      UNSAFE_EVIDENCE_KEY_FRAGMENTS.some((fragment) => normalizedKey.includes(fragment))
+    ) {
       return false;
     }
     return hasNoUnsafeEvidenceFields(childValue);

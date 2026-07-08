@@ -6,7 +6,7 @@
 // such as eventKey, HTTP status, and outbox ids. It never prints the shared
 // secret, request payload, LINE targets, DB credentials, or raw response body.
 
-import { createHmac, randomUUID } from "node:crypto";
+import { createDecipheriv, createHash, createHmac, randomUUID } from "node:crypto";
 
 const INTERNAL_NOTIFICATION_PATH = "/internal/notification-events";
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -14,6 +14,8 @@ const CONFIRM_FLAG = "confirm-send-test-notification";
 const DRY_RUN_FLAG = "dry-run";
 const DRILL_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const PLACEHOLDER_TEXT_PATTERN = /YYYY|HHMM|TODO|TBD|<|>/i;
+const ENCRYPTED_SECRET_PREFIX = "enc:v1:";
+const SECRET_ALGO = "aes-256-gcm";
 
 function argValue(name) {
   const prefix = `--${name}=`;
@@ -120,6 +122,84 @@ function createSignature(input) {
   return createHmac("sha256", input.secret).update(payload).digest("hex");
 }
 
+function deriveSecretsKey() {
+  const explicit = process.env.SECRETS_KEY?.trim();
+  const fallback = `${process.env.JWT_SECRET ?? ""}::${process.env.COOKIE_SECRET ?? ""}`;
+  const seed = explicit && explicit.length >= 16 ? explicit : fallback;
+  if (!seed || seed === "::") return null;
+  return createHash("sha256").update(seed).digest();
+}
+
+function decryptStoredSecret(value) {
+  if (!value) return "";
+  if (!value.startsWith(ENCRYPTED_SECRET_PREFIX)) return value;
+  const [, , ivB64, tagB64, ctB64] = value.split(":");
+  const key = deriveSecretsKey();
+  if (!key || !ivB64 || !tagB64 || !ctB64) return "";
+  try {
+    const decipher = createDecipheriv(SECRET_ALGO, key, Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(ctB64, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function dbConfigFromEnv() {
+  const required = ["DB_HOST", "DB_USERNAME", "DB_PASSWORD", "DB_NAME"];
+  const missing = required.filter((name) => !process.env[name]);
+  return {
+    missing,
+    config: {
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+    },
+  };
+}
+
+async function readSharedSecretFromDbSettings() {
+  if (process.env.DB_MODE === "memory") return { value: "", missingConfig: ["DB_MODE=mysql"] };
+  const { missing, config } = dbConfigFromEnv();
+  if (missing.length > 0) return { value: "", missingConfig: missing };
+
+  try {
+    const mysql = await import("mysql2/promise");
+    const connection = await mysql.createConnection(config);
+    try {
+      const [rows] = await connection.execute(
+        "SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1",
+        ["NOTIFIER_SHARED_SECRET"],
+      );
+      const stored = Array.isArray(rows) ? rows[0]?.setting_value : "";
+      return { value: decryptStoredSecret(typeof stored === "string" ? stored : ""), missingConfig: [] };
+    } finally {
+      await connection.end();
+    }
+  } catch {
+    return { value: "", missingConfig: ["app_settings.NOTIFIER_SHARED_SECRET"] };
+  }
+}
+
+async function resolveSharedSecret() {
+  const envSecret = requiredTrimmed(process.env.NOTIFIER_SHARED_SECRET);
+  if (envSecret) return { value: envSecret, missingConfig: [] };
+  const dbSecret = await readSharedSecretFromDbSettings();
+  if (dbSecret.value.trim()) return { value: dbSecret.value.trim(), missingConfig: [] };
+  return {
+    value: "",
+    missingConfig:
+      dbSecret.missingConfig.length > 0
+        ? dbSecret.missingConfig
+        : ["NOTIFIER_SHARED_SECRET or app_settings.NOTIFIER_SHARED_SECRET"],
+  };
+}
+
 function buildEvent(input) {
   return {
     schemaVersion: 1,
@@ -169,7 +249,7 @@ async function main() {
   const urlInput = requiredTrimmed(
     argValue("url") || process.env.NOTIFICATION_SERVICE_URL || process.env.NOTIFIER_API_URL,
   );
-  const sharedSecret = requiredTrimmed(process.env.NOTIFIER_SHARED_SECRET);
+  const sharedSecret = await resolveSharedSecret();
   const nodeId = requiredTrimmed(argValue("node-id") || process.env.SPX_NODE_ID);
   const teamId = parsePositiveInteger("team-id", null);
   const drillId = parseDrillId(argValue("drill-id"));
@@ -179,7 +259,7 @@ async function main() {
 
   const missingConfig = [];
   if (!urlInput) missingConfig.push("NOTIFICATION_SERVICE_URL or NOTIFIER_API_URL or --url");
-  if (!sharedSecret) missingConfig.push("NOTIFIER_SHARED_SECRET");
+  if (!sharedSecret.value) missingConfig.push(...sharedSecret.missingConfig);
   if (!nodeId) missingConfig.push("SPX_NODE_ID or --node-id");
   if (teamId === null) missingConfig.push("--team-id");
   if (!drillId) missingConfig.push("--drill-id");
@@ -257,7 +337,7 @@ async function main() {
     body,
     timestamp,
     nodeId,
-    secret: sharedSecret,
+    secret: sharedSecret.value,
     eventKey,
   });
 

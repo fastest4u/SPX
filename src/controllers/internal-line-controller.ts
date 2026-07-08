@@ -55,6 +55,10 @@ function sendInternalAuthFailed(reply: FastifyReply): void {
   sendError(reply, 401, "INTERNAL_AUTH_FAILED", "Internal authentication failed");
 }
 
+function sendInternalAdminForbidden(reply: FastifyReply): void {
+  sendError(reply, 403, "INTERNAL_LINE_ADMIN_FORBIDDEN", "LINE admin action is not allowed");
+}
+
 function sendInvalidLineRequest(reply: FastifyReply, error: unknown): void {
   sendError(
     reply,
@@ -69,7 +73,7 @@ function verifySignedRequest(input: {
   rawBody: string;
   path: string;
   sharedSecret: string;
-}): { ok: true } | { ok: false } {
+}): { ok: true; nodeId: string } | { ok: false } {
   const nodeId = firstHeader(input.request.headers["x-spx-node-id"]);
   const timestamp = firstHeader(input.request.headers["x-spx-timestamp"]);
   const signature = firstHeader(input.request.headers["x-spx-signature"]);
@@ -86,7 +90,11 @@ function verifySignedRequest(input: {
     signature,
     eventKey,
   });
-  return authResult.ok ? { ok: true } : { ok: false };
+  return authResult.ok ? { ok: true, nodeId } : { ok: false };
+}
+
+function isLineAdminNode(nodeId: string): boolean {
+  return /(?:^|[-_])web-api(?:[-_]|$)/.test(nodeId);
 }
 
 function parseSendRequest(rawBody: string): LineServiceSendRequest {
@@ -232,6 +240,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.sharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!isLineAdminNode(authResult.nodeId)) return sendInternalAdminForbidden(reply);
 
     let status: LineBotStatus;
     try {
@@ -264,6 +273,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.sharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!isLineAdminNode(authResult.nodeId)) return sendInternalAdminForbidden(reply);
 
     try {
       const response = await options.line.getGroups();
@@ -286,6 +296,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.sharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!isLineAdminNode(authResult.nodeId)) return sendInternalAdminForbidden(reply);
 
     let profile: LineBotProfile | null;
     try {
@@ -323,6 +334,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.sharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!isLineAdminNode(authResult.nodeId)) return sendInternalAdminForbidden(reply);
 
     let storage: LineBotStorageHealth;
     try {
@@ -354,6 +366,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.sharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!isLineAdminNode(authResult.nodeId)) return sendInternalAdminForbidden(reply);
 
     let body: LineServiceLogoutRequest;
     try {

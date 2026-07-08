@@ -50,6 +50,7 @@ const RATE_LIMIT_ADMIN = 300;
 const AUTH_RATE_LIMIT_MAX_REQUESTS = 10;
 const RATE_LIMIT_BUCKET_CLEANUP_INTERVAL_MS = 60_000;
 const MAX_RATE_LIMIT_BUCKETS = 10_000;
+const OCR_JSON_BODY_OVERHEAD_BYTES = 4096;
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 let lastBucketCleanup = 0;
 const publicAssetsDir = resolve(process.cwd(), "dist/public");
@@ -65,6 +66,11 @@ function getSpaIndexTemplate(): string {
 
 function isProd(): boolean {
   return env.NODE_ENV === "production";
+}
+
+function bodyLimitForSurface(surface: HttpSurface): number | undefined {
+  if (surface !== "ocr-service") return undefined;
+  return Math.ceil((env.CODEX_IMAGE_MAX_BYTES * 4) / 3) + OCR_JSON_BODY_OVERHEAD_BYTES;
 }
 
 function isAllowedCorsOrigin(origin: string): boolean {
@@ -268,7 +274,11 @@ function jwtSecretForRuntime(): string {
 
 export async function createHttpServer(options: HttpServerOptions): Promise<FastifyInstance> {
   const previousApp = app;
-  app = Fastify({ logger: false, trustProxy: env.HTTP_TRUST_PROXY });
+  app = Fastify({
+    logger: false,
+    trustProxy: env.HTTP_TRUST_PROXY,
+    bodyLimit: bodyLimitForSurface(options.surface),
+  });
 
   await app.register(cors, {
     origin: (origin, cb) => {
@@ -430,13 +440,14 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
 
   if (options.surface === "line-service") {
     const lineBot = await import("./line-bot.js");
+    const notifier = await import("./notifier.js");
     await app.register(internalLineController, {
       prefix: "/internal",
       sharedSecret: env.NOTIFIER_SHARED_SECRET,
       line: {
         isEnabled: lineBot.isLineBotEnabled,
         getStatus: lineBot.getStatus,
-        sendMessage: lineBot.sendMessage,
+        sendMessage: notifier.sendLineTargetMessage,
         requestQrLogin: lineBot.requestQrLogin,
         getGroups: lineBot.getGroups,
         getProfile: lineBot.getProfile,

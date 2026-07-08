@@ -109,6 +109,9 @@ function parseLineImageRequest(rawBody: string): OcrLineImageRequest {
   if (decoded.byteLength === 0 || decoded.toString("base64") !== imageBase64.trim()) {
     throw new Error("imageBase64 must be valid base64");
   }
+  if (decoded.byteLength > env.CODEX_IMAGE_MAX_BYTES) {
+    throw new Error("imageBase64 exceeds CODEX_IMAGE_MAX_BYTES");
+  }
 
   const request: OcrLineImageRequest = {
     imageBase64: imageBase64.trim(),

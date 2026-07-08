@@ -211,6 +211,9 @@ const services = serviceDefinitions
       allowDegraded.has(service.name) ||
       expectedDownServices.has(service.name),
   }));
+const invalidConfiguredServices = services
+  .filter((service) => !safeUrl(service.url, "/"))
+  .map((service) => service.name);
 
 const results = await Promise.all(services.map((service) => probeService(service, timeoutMs)));
 const checkedServiceNames = new Set(results.map((service) => service.name));
@@ -235,7 +238,8 @@ const ok =
   unknownServiceNames.length === 0 &&
   missingRequiredServices.length === 0 &&
   missingExpectedDownServices.length === 0 &&
-  expectedDownStillReachableServices.length === 0;
+  expectedDownStillReachableServices.length === 0 &&
+  invalidConfiguredServices.length === 0;
 
 console.log(
   JSON.stringify(
@@ -249,6 +253,7 @@ console.log(
       unknownServiceNames,
       missingRequiredServices,
       missingExpectedDownServices,
+      invalidConfiguredServices,
       expectedDownStillReachableServices,
       unexpectedFailures: failures.map((service) => service.name),
       services: results,

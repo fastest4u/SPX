@@ -179,8 +179,8 @@ async function loadRowsFromDb(options) {
   const filters = ["created_at >= ?"];
   const eventKeyContains = argValue("event-key-contains");
   if (eventKeyContains) {
-    filters.push("event_key LIKE ?");
-    params.push(`%${eventKeyContains}%`);
+    filters.push("event_key = ?");
+    params.push(eventKeyContains);
   }
 
   const mysql = await import("mysql2/promise");
@@ -263,31 +263,46 @@ if (hasFlag("dry-run")) {
   process.exit();
 }
 
-let rows = loadRowsFromFixture();
-let missingDbEnv = [];
-let mode = "fixture";
+try {
+  let rows = loadRowsFromFixture();
+  let missingDbEnv = [];
+  let mode = "fixture";
 
-if (!rows) {
-  mode = "mysql";
-  const dbResult = await loadRowsFromDb(options);
-  rows = dbResult.rows;
-  missingDbEnv = dbResult.missingDbEnv;
+  if (!rows) {
+    mode = "mysql";
+    const dbResult = await loadRowsFromDb(options);
+    rows = dbResult.rows;
+    missingDbEnv = dbResult.missingDbEnv;
+  }
+
+  const summary = summarizeRows(rows);
+  const expectationFailures = missingDbEnv.length > 0 ? [] : evaluateExpectations(summary, options);
+  const ok = missingDbEnv.length === 0 && expectationFailures.length === 0;
+
+  printJson({
+    ok,
+    checkedAt: new Date().toISOString(),
+    mode,
+    sinceMinutes: options.sinceMinutes,
+    filters: filterEvidence(eventKeyContains),
+    expectations: expectationEvidence(options),
+    missingDbEnv,
+    expectationFailures,
+    summary,
+  });
+
+  if (!ok) process.exitCode = 1;
+} catch {
+  printJson({
+    ok: false,
+    checkedAt: new Date().toISOString(),
+    mode: hasFixtureJson ? "fixture" : "mysql",
+    sinceMinutes: options.sinceMinutes,
+    filters: filterEvidence(eventKeyContains),
+    expectations: expectationEvidence(options),
+    missingDbEnv: [],
+    expectationFailures: ["query-failed"],
+    summary: { total: 0, pending: 0, failedAttempts: 0, sent: 0, byStatus: {} },
+  });
+  process.exitCode = 1;
 }
-
-const summary = summarizeRows(rows);
-const expectationFailures = missingDbEnv.length > 0 ? [] : evaluateExpectations(summary, options);
-const ok = missingDbEnv.length === 0 && expectationFailures.length === 0;
-
-printJson({
-  ok,
-  checkedAt: new Date().toISOString(),
-  mode,
-  sinceMinutes: options.sinceMinutes,
-  filters: filterEvidence(eventKeyContains),
-  expectations: expectationEvidence(options),
-  missingDbEnv,
-  expectationFailures,
-  summary,
-});
-
-if (!ok) process.exitCode = 1;

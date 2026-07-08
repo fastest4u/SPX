@@ -12,15 +12,18 @@ import {
 import { createInternalSignature } from "../src/services/internal-auth.js";
 
 const sharedSecret = "super-secret-value";
-const nodeId = "notification-service-01";
+const notificationNodeId = "notification-service-01";
+const webApiNodeId = "prod-web-api-1";
 
 function signedHeaders(input: {
   path: string;
   body: string;
   eventKey?: string;
+  nodeId?: string;
   timestamp?: string;
 }): Record<string, string> {
   const timestamp = input.timestamp ?? new Date().toISOString();
+  const nodeId = input.nodeId ?? notificationNodeId;
   return {
     "content-type": "application/json",
     "x-spx-node-id": nodeId,
@@ -314,7 +317,7 @@ async function testSignedAdminRoutes(): Promise<void> {
             method: "POST",
             url: request.path,
             payload: request.body,
-            headers: signedHeaders({ path: request.path, body: request.body }),
+            headers: signedHeaders({ path: request.path, body: request.body, nodeId: webApiNodeId }),
           }),
         );
       }
@@ -355,6 +358,37 @@ async function testSignedAdminRoutes(): Promise<void> {
   );
 }
 
+async function testAdminRoutesRejectNonWebApiNode(): Promise<void> {
+  let loginCalled = false;
+  await withController(
+    {
+      line: {
+        isEnabled: () => true,
+        getStatus: () => ({ enabled: true, authenticated: true, message: "connected" }),
+        sendMessage: async () => ({ ok: true }),
+        requestQrLogin: async () => {
+          loginCalled = true;
+          return { enabled: true, authenticated: true, message: "connected" };
+        },
+      },
+    },
+    async (app) => {
+      const rawBody = "{}";
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/line/login",
+        payload: rawBody,
+        headers: signedHeaders({ path: "/internal/line/login", body: rawBody }),
+      });
+
+      assert.equal(response.statusCode, 403);
+      assert.equal(loginCalled, false);
+      const body = JSON.parse(response.body) as { error_code: string };
+      assert.equal(body.error_code, "INTERNAL_LINE_ADMIN_FORBIDDEN");
+    },
+  );
+}
+
 async function main(): Promise<void> {
   await testSignedSendSucceeds();
   await testAuthFailureReturns401();
@@ -363,6 +397,7 @@ async function main(): Promise<void> {
   await testSendFailureReturnsRetryable503WithoutTargetLeak();
   await testSignedStatus();
   await testSignedAdminRoutes();
+  await testAdminRoutesRejectNonWebApiNode();
 }
 
 main().catch((error) => {

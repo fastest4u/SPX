@@ -43,16 +43,20 @@ export interface BuildServiceReadinessInput {
   checkedAt?: string;
 }
 
+const DEFAULT_HEALTH_PROBE_TIMEOUT_MS = 1500;
 const REDACTED_VALUE = "[redacted]";
 const SENSITIVE_DETAIL_KEY = /(secret|token|password|cookie|authorization|credential|pincode)/i;
 const SENSITIVE_TEXT_FRAGMENT =
   /\b(secret|token|password|cookie|authorization|credential|pincode)=\S+/gi;
 
 function timeoutSignal(timeoutMs: number | undefined): AbortSignal | undefined {
-  if (!timeoutMs || timeoutMs <= 0) return undefined;
-  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(timeoutMs);
+  const boundedTimeoutMs = Math.min(
+    timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_HEALTH_PROBE_TIMEOUT_MS,
+    DEFAULT_HEALTH_PROBE_TIMEOUT_MS,
+  );
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(boundedTimeoutMs);
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs).unref?.();
+  setTimeout(() => controller.abort(), boundedTimeoutMs).unref?.();
   return controller.signal;
 }
 
