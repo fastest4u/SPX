@@ -10,6 +10,8 @@ import { insertAuditLog } from "../repositories/audit-repository.js";
 import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "../services/authz.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "../services/poller-control.js";
+import { env } from "../config/env.js";
+import { buildServiceReadiness } from "../services/service-health.js";
 
 interface AuthTokenLike {
   username?: string;
@@ -19,9 +21,13 @@ interface AuthTokenLike {
   jti?: string;
 }
 
-async function authenticate(req: FastifyRequest, reply: FastifyReply, requiredRole: UserRole = "user"): Promise<AuthUser | null> {
+async function authenticate(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  requiredRole: UserRole = "user",
+): Promise<AuthUser | null> {
   try {
-    const decoded = await req.jwtVerify({ onlyCookie: true }) as AuthTokenLike;
+    const decoded = (await req.jwtVerify({ onlyCookie: true })) as AuthTokenLike;
     const role = normalizeRole(decoded.role);
     if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
       sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
@@ -72,7 +78,7 @@ function parseOptionalTeamId(value: unknown): number | undefined {
 }
 
 function snapshotForUser(user: AuthUser, explicitTeamId?: number): MetricsSnapshot {
-  const teamId = user.role === "admin" ? explicitTeamId ?? null : user.teamId;
+  const teamId = user.role === "admin" ? (explicitTeamId ?? null) : user.teamId;
   return runtimeMetricsSnapshotFor(metrics.snapshot({ teamId }), teamId);
 }
 
@@ -84,16 +90,17 @@ function resolveOperationalTeamId(user: AuthUser, explicitTeamId?: number): numb
 }
 
 export function buildDashboardHealthResponse(snap: MetricsSnapshot): {
-  statusCode: 200 | 503;
+  statusCode: 200;
   data: DashboardHealthData;
 } {
-  const errorRate = snap.polling.totalRequests > 0
-    ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
-    : 0;
+  const errorRate =
+    snap.polling.totalRequests > 0
+      ? Math.round((snap.polling.errorCount / snap.polling.totalRequests) * 100)
+      : 0;
   const isHealthy = snap.session.isHealthy;
 
   return {
-    statusCode: isHealthy ? 200 : 503,
+    statusCode: 200,
     data: {
       status: isHealthy ? "ok" : "degraded",
       uptime: snap.uptime,
@@ -126,22 +133,42 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     } catch {
       ready = false;
     }
-    return sendSuccess(reply, { ready }, ready ? undefined : "Service unavailable", ready ? 200 : 503);
+
+    const readiness = await buildServiceReadiness({
+      surface: "web-api",
+      role: env.SPX_ROLE,
+      nodeId: env.SPX_NODE_ID || "web-api",
+      databaseReady: ready,
+      lineServiceUrl: env.LINE_SERVICE_URL,
+      lineServiceRequestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
+      ocrServiceUrl: env.OCR_SERVICE_URL,
+      ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
+    });
+    return sendSuccess(
+      reply,
+      readiness.data,
+      ready ? undefined : "Service unavailable",
+      ready ? 200 : 503,
+    );
   });
 
   // Authenticated — full metrics include database/pool internals and runtime details.
-  app.get<{ Querystring: TeamScopedQuery }>("/metrics", {
-    schema: {
-      querystring: {
-        type: "object",
-        properties: { teamId: { type: "integer", minimum: 1 } },
+  app.get<{ Querystring: TeamScopedQuery }>(
+    "/metrics",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: { teamId: { type: "integer", minimum: 1 } },
+        },
       },
     },
-  }, async (req, reply) => {
-    const user = await authenticate(req, reply);
-    if (!user) return;
-    return sendSuccess(reply, snapshotForUser(user, parseOptionalTeamId(req.query.teamId)));
-  });
+    async (req, reply) => {
+      const user = await authenticate(req, reply);
+      if (!user) return;
+      return sendSuccess(reply, snapshotForUser(user, parseOptionalTeamId(req.query.teamId)));
+    },
+  );
 
   app.get("/events", async (req, reply) => {
     const user = await authenticate(req, reply);
@@ -150,28 +177,35 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     sseBroadcaster.addClient(reply.raw, { teamId: user.role === "admin" ? null : user.teamId });
   });
 
-  app.get<{ Querystring: { limit?: number; teamId?: number | string } }>("/metrics/history", {
-    schema: {
-      querystring: {
-        type: "object",
-        properties: {
-          limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
-          teamId: { type: "integer", minimum: 1 },
+  app.get<{ Querystring: { limit?: number; teamId?: number | string } }>(
+    "/metrics/history",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+            teamId: { type: "integer", minimum: 1 },
+          },
         },
       },
     },
-  }, async (req, reply) => {
-    const user = await authenticate(req, reply);
-    if (!user) return;
-    try {
-      const limit = (req.query as { limit?: number }).limit ?? 100;
-      const scopedTeamId = user.role === "admin" ? parseOptionalTeamId(req.query.teamId) : user.teamId ?? undefined;
-      const history = await getRecentMetricsSnapshots(limit, scopedTeamId);
-      return sendSuccess(reply, history);
-    } catch {
-      return sendSuccess(reply, []);
-    }
-  });
+    async (req, reply) => {
+      const user = await authenticate(req, reply);
+      if (!user) return;
+      try {
+        const limit = (req.query as { limit?: number }).limit ?? 100;
+        const scopedTeamId =
+          user.role === "admin"
+            ? parseOptionalTeamId(req.query.teamId)
+            : (user.teamId ?? undefined);
+        const history = await getRecentMetricsSnapshots(limit, scopedTeamId);
+        return sendSuccess(reply, history);
+      } catch {
+        return sendSuccess(reply, []);
+      }
+    },
+  );
 
   app.get("/pool-stats", async (req, reply) => {
     if (!(await authenticate(req, reply, "admin"))) return;
@@ -189,33 +223,43 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     properties: { teamId: { type: "integer", minimum: 1 } },
   } as const;
 
-  app.post<{ Querystring: TeamScopedQuery }>("/system/pause", { schema: { querystring: teamControlQuerySchema } }, async (req, reply) => {
-    const user = await authenticate(req, reply);
-    if (!user) return;
-    const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
-    if (teamId === null) return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
-    pauseTeam(teamId);
-    sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
-    await insertAuditLog(user.username, "Pause Team Poller", `Paused team ${teamId} polling`, {
-      actorUserId: user.id,
-      actorTeamId: user.teamId,
-      targetTeamId: teamId,
-    });
-    return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
-  });
+  app.post<{ Querystring: TeamScopedQuery }>(
+    "/system/pause",
+    { schema: { querystring: teamControlQuerySchema } },
+    async (req, reply) => {
+      const user = await authenticate(req, reply);
+      if (!user) return;
+      const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
+      if (teamId === null)
+        return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
+      pauseTeam(teamId);
+      sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+      await insertAuditLog(user.username, "Pause Team Poller", `Paused team ${teamId} polling`, {
+        actorUserId: user.id,
+        actorTeamId: user.teamId,
+        targetTeamId: teamId,
+      });
+      return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
+    },
+  );
 
-  app.post<{ Querystring: TeamScopedQuery }>("/system/resume", { schema: { querystring: teamControlQuerySchema } }, async (req, reply) => {
-    const user = await authenticate(req, reply);
-    if (!user) return;
-    const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
-    if (teamId === null) return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
-    resumeTeam(teamId);
-    sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
-    await insertAuditLog(user.username, "Resume Team Poller", `Resumed team ${teamId} polling`, {
-      actorUserId: user.id,
-      actorTeamId: user.teamId,
-      targetTeamId: teamId,
-    });
-    return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
-  });
+  app.post<{ Querystring: TeamScopedQuery }>(
+    "/system/resume",
+    { schema: { querystring: teamControlQuerySchema } },
+    async (req, reply) => {
+      const user = await authenticate(req, reply);
+      if (!user) return;
+      const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
+      if (teamId === null)
+        return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
+      resumeTeam(teamId);
+      sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+      await insertAuditLog(user.username, "Resume Team Poller", `Resumed team ${teamId} polling`, {
+        actorUserId: user.id,
+        actorTeamId: user.teamId,
+        targetTeamId: teamId,
+      });
+      return sendSuccess(reply, { teamId, paused: isTeamPaused(teamId) });
+    },
+  );
 };

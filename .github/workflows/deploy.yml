@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      deploy_topology:
+        description: "Production topology to deploy. Use split only after Task 9 evidence is recorded."
+        required: true
+        default: legacy
+        type: choice
+        options:
+          - legacy
+          - split
 
 concurrency:
   group: spx-production
@@ -109,11 +118,142 @@ jobs:
               exit 1
             fi
 
+            DEPLOY_TOPOLOGY="${{ github.event.inputs.deploy_topology || 'legacy' }}"
+            if [ "${DEPLOY_TOPOLOGY}" != "legacy" ] && [ "${DEPLOY_TOPOLOGY}" != "split" ]; then
+              echo "deploy_topology must be legacy or split"
+              exit 1
+            fi
+
+            if [ "${DEPLOY_TOPOLOGY}" = "split" ] && [ -z "${LINE_SERVICE_ADMIN_SECRET:-}" ]; then
+              LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
+            fi
+            if [ "${DEPLOY_TOPOLOGY}" = "split" ] && [ -z "${LINE_SERVICE_SEND_SECRET:-}" ]; then
+              LINE_SERVICE_SEND_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
+            fi
+            export LINE_SERVICE_SEND_SECRET
+            export LINE_SERVICE_ADMIN_SECRET
+
+            compose_build() {
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+                docker compose --profile split build
+              else
+                docker compose build
+              fi
+            }
+
+            compose_up_split() {
+              docker compose stop notifier worker-ifn worker-ptwl || true
+              docker compose --profile split up -d --force-recreate \
+                web-api notification-service line-service ocr-service \
+                worker-ifn-split worker-ptwl-split
+            }
+
+            compose_up_current() {
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+                compose_up_split
+              else
+                docker compose up -d --remove-orphans --force-recreate
+              fi
+            }
+
+            detect_rollback_topology() {
+              split_web_api="$(docker compose --profile split ps -q web-api 2>/dev/null | head -n1 || true)"
+              if [ -n "${split_web_api}" ]; then
+                echo split
+              else
+                echo legacy
+              fi
+            }
+
+            rollback_legacy() {
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ] || [ "${ROLLBACK_TOPOLOGY}" = "legacy" ]; then
+                docker compose --profile split stop \
+                  web-api notification-service line-service ocr-service \
+                  worker-ifn-split worker-ptwl-split || true
+              fi
+              docker compose up -d --remove-orphans --force-recreate
+            }
+
+            rollback_runtime() {
+              if [ "${ROLLBACK_TOPOLOGY}" = "split" ]; then
+                docker compose stop notifier worker-ifn worker-ptwl || true
+                compose_up_split
+              else
+                rollback_legacy
+              fi
+            }
+
+            compose_ps_current() {
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+                docker compose --profile split ps
+              else
+                docker compose ps
+              fi
+            }
+
+            split_service_state() {
+              service="$1"
+              container_id="$(docker compose --profile split ps -q "${service}" | head -n1 || true)"
+              if [ -z "${container_id}" ]; then
+                echo "${service}:missing"
+                return 1
+              fi
+
+              running="$(docker inspect --format '{{.State.Running}}' "${container_id}" 2>/dev/null || echo false)"
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo missing)"
+              echo "${service}:running=${running}:health=${health}"
+
+              [ "${running}" = "true" ] && [ "${health}" = "healthy" ]
+            }
+
+            wait_split_services_ready() {
+              expected_services="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+              deadline=$(( $(date +%s) + 150 ))
+
+              while [ "$(date +%s)" -le "${deadline}" ]; do
+                all_ready=true
+                for service in ${expected_services}; do
+                  if ! split_service_state "${service}" >/dev/null; then
+                    all_ready=false
+                    break
+                  fi
+                done
+
+                if [ "${all_ready}" = "true" ]; then
+                  echo "Split services healthy: ${expected_services}"
+                  return 0
+                fi
+
+                sleep 5
+              done
+
+              echo "Split service readiness failed:"
+              for service in ${expected_services}; do
+                split_service_state "${service}" || true
+              done
+              compose_ps_current
+              return 1
+            }
+
+            wait_current_readiness() {
+              if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
+                echo "Public web/API readiness check failed"
+                return 1
+              fi
+
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+                wait_split_services_ready
+              fi
+            }
+
             if [ -d dist ]; then
               tar -czf "${ROLLBACK_DIST}" dist
             else
               rm -f "${ROLLBACK_DIST}"
             fi
+
+            ROLLBACK_TOPOLOGY="$(detect_rollback_topology)"
+            echo "Rollback topology: ${ROLLBACK_TOPOLOGY}"
 
             git fetch origin main
             git reset --hard origin/main
@@ -129,7 +269,7 @@ jobs:
             # Build the runtime image from the CI artifact. If the image build
             # fails, the running container is untouched and we roll source/dist
             # back together.
-            if ! docker compose build; then
+            if ! compose_build; then
               echo "docker image build failed; rolling back source/dist to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
               rm -rf dist
@@ -143,25 +283,44 @@ jobs:
             # before we recreate the container, so the rollback path can restore
             # a proven image even if rebuilding the old source were to fail.
             # `|| true` keeps first-ever deploys (no prior image) from aborting.
-            CURRENT_IMAGE=$(docker compose images -q notifier 2>/dev/null | head -n1 || true)
+            CURRENT_IMAGE=$(docker compose images -q web-api 2>/dev/null | head -n1 || true)
+            if [ -z "${CURRENT_IMAGE}" ]; then
+              CURRENT_IMAGE=$(docker compose images -q notifier 2>/dev/null | head -n1 || true)
+            fi
             if [ -n "${CURRENT_IMAGE}" ]; then
               docker tag "${CURRENT_IMAGE}" spx-app:rollback || true
               echo "Tagged current image ${CURRENT_IMAGE} as spx-app:rollback"
             fi
 
-            # The notifier service runs db:migrate before app.js. Worker
-            # services wait for notifier health and then start without running
-            # migrations, so only one production migration runner exists.
-            docker compose up -d --remove-orphans --force-recreate
+            # In legacy topology, notifier runs the one migration. In split
+            # topology, web-api runs the one migration before internal services
+            # and workers start.
+            if ! compose_up_current; then
+              echo "docker compose up failed; rolling back to ${PREVIOUS_COMMIT}"
+              git reset --hard "${PREVIOUS_COMMIT}"
+              rm -rf dist
+              if [ -f "${ROLLBACK_DIST}" ]; then
+                tar -xzf "${ROLLBACK_DIST}" -C .
+                if ! docker compose build; then
+                  echo "Rollback rebuild failed; restoring tagged rollback image"
+                  docker tag spx-app:rollback spx-app:latest
+                fi
+              else
+                echo "No previous dist snapshot; restoring tagged rollback image"
+                docker tag spx-app:rollback spx-app:latest
+              fi
+              rollback_runtime
+              exit 1
+            fi
 
-            docker compose ps
+            compose_ps_current
 
             # Readiness gate. /ready checks whether the notifier/API service can serve HTTP
             # and reach the DB without tying deploy success to upstream SPX
             # poller/session health. Probe the container loopback over this SSH
             # session instead of the public URL so the check is independent of
             # DNS/TLS/proxy state.
-            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
+            if ! wait_current_readiness; then
               echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
               rm -rf dist
@@ -175,12 +334,12 @@ jobs:
                 echo "No previous dist snapshot; restoring tagged rollback image"
                 docker tag spx-app:rollback spx-app:latest
               fi
-              docker compose up -d --remove-orphans --force-recreate
+              rollback_runtime
               exit 1
             fi
 
             rm -f "${ROLLBACK_DIST}"
-            echo "Deploy succeeded: ${NEW_COMMIT}"
+            echo "Deploy succeeded: ${NEW_COMMIT} (${DEPLOY_TOPOLOGY})"
 
       # Notify on failure. DISCORD_WEBHOOK_URL must be configured as a GitHub
       # Actions secret for this step to post; if unset the step is a no-op.

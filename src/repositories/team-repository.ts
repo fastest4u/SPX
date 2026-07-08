@@ -125,8 +125,12 @@ function toRuntimeConfig(row: TeamRow): TeamRuntimeConfig {
   };
 }
 
-function shouldBackfillLegacyTarget(currentTarget: string, lineGroupId: string, legacyTarget: string): boolean {
-  return legacyTarget.length > 0 && (currentTarget.length === 0 || currentTarget === lineGroupId);
+function shouldBackfillLegacyTarget(
+  currentTarget: string,
+  lineGroupId: string,
+  legacyTarget: string | undefined,
+): boolean {
+  return (legacyTarget ?? "").length > 0 && (currentTarget.length === 0 || currentTarget === lineGroupId);
 }
 
 async function getTeamRowById(id: number): Promise<TeamRow | null> {

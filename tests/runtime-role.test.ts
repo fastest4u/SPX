@@ -135,6 +135,15 @@ assertConfigValidationFailure(
   },
   /NOTIFIER_SHARED_SECRET/,
 );
+assertConfigValidationFailure(
+  {
+    SPX_ROLE: "api",
+    HTTP_ENABLED: "true",
+    LINE_SERVICE_URL: "http://line-service:3003",
+    LINE_SERVICE_ADMIN_SECRET: "admin-secret",
+  },
+  /LINE_SERVICE_SEND_SECRET/,
+);
 
 const workerMissingResult = assertConfigValidationFailure(
   {

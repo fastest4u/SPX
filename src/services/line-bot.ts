@@ -22,17 +22,31 @@ import { Readable } from "node:stream";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { decryptString, encryptString } from "../utils/crypto.js";
-import { deleteLineBotSession, getLineBotSession, saveLineBotSession } from "../repositories/line-bot-session-repository.js";
+import {
+  deleteLineBotSession,
+  getLineBotSession,
+  saveLineBotSession,
+} from "../repositories/line-bot-session-repository.js";
 
 // ── Types (duck-typed to keep @evex/linejs as a lazy dynamic import) ───
 
 type LineJsClient = {
   base: {
     talk: {
-      sendMessage(input: { to: string; text: string; contentType?: string; e2ee?: boolean }): Promise<unknown>;
+      sendMessage(input: {
+        to: string;
+        text: string;
+        contentType?: string;
+        e2ee?: boolean;
+      }): Promise<unknown>;
       getProfile(): Promise<{ displayName: string; mid: string; statusMessage?: string }>;
-      getAllChatMids(args: { syncReason: string; request: { withMemberChats: boolean } }): Promise<{ memberChatMids: string[] }>;
-      getChats(args: { chatMids: string[] }): Promise<{ chats: Array<{ chatMid: string; chatName: string }> }>;
+      getAllChatMids(args: {
+        syncReason: string;
+        request: { withMemberChats: boolean };
+      }): Promise<{ memberChatMids: string[] }>;
+      getChats(args: {
+        chatMids: string[];
+      }): Promise<{ chats: Array<{ chatMid: string; chatName: string }> }>;
     };
   };
   authToken: string;
@@ -49,12 +63,18 @@ type LineImageMessage = {
 };
 
 type LineJsLoginModule = {
-  loginWithQR(credentials: {
-    onReceiveQRUrl(url: string): void | Promise<void>;
-    onPincodeRequest(pincode: string): void | Promise<void>;
-  }, options: { device: string; storage: unknown }): Promise<LineJsClient>;
+  loginWithQR(
+    credentials: {
+      onReceiveQRUrl(url: string): void | Promise<void>;
+      onPincodeRequest(pincode: string): void | Promise<void>;
+    },
+    options: { device: string; storage: unknown },
+  ): Promise<LineJsClient>;
 
-  loginWithAuthToken(token: string, options: { device: string; storage: unknown }): Promise<LineJsClient>;
+  loginWithAuthToken(
+    token: string,
+    options: { device: string; storage: unknown },
+  ): Promise<LineJsClient>;
 };
 
 type LineJsStorageModule = {
@@ -98,10 +118,12 @@ export type LineBotStorageHealth = {
 const LINEJS_PACKAGE = "@evex/linejs";
 const LINEJS_STORAGE_PACKAGE = "@evex/linejs/storage";
 const QR_WAIT_MS = 2500;
-const LINE_IMAGE_READ_FAILED_PREFIX = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
+const LINE_IMAGE_READ_FAILED_PREFIX =
+  "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
 const SUPPORTED_LINE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const LINE_LISTENER_RECONNECT_DELAY_MS = 5000;
-const RECOVERABLE_LINEJS_LISTENER_ERROR = /fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|socket|network/i;
+const RECOVERABLE_LINEJS_LISTENER_ERROR =
+  /fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|socket|network/i;
 const LINEJS_LISTENER_STACK_MARKER =
   /@evex[\\/](?:linejs|__linejs)|@jsr[\\/]evex__linejs|node_modules[\\/]@evex[\\/]linejs|linejs[\\/]client|linejs[\\/]base[\\/]polling|initLegyPusher|listenTalkEvents/i;
 
@@ -145,15 +167,17 @@ function isLineAuthFailure(error: unknown): boolean {
   if (error instanceof LineBotQrRequiredError) return false;
   const name = error instanceof Error ? error.name : "";
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return name === "TalkException"
-    || /authentication\s*fail/.test(message)
-    || /auth\s*token/.test(message)
-    || /not\s*authorized/.test(message)
-    || /unauthorized/.test(message)
-    || /must_refresh_v3_token/.test(message)
-    || /access\s*token/.test(message)
-    || /invalid.*token/.test(message)
-    || /token.*(expired|invalid|revoked)/.test(message);
+  return (
+    name === "TalkException" ||
+    /authentication\s*fail/.test(message) ||
+    /auth\s*token/.test(message) ||
+    /not\s*authorized/.test(message) ||
+    /unauthorized/.test(message) ||
+    /must_refresh_v3_token/.test(message) ||
+    /access\s*token/.test(message) ||
+    /invalid.*token/.test(message) ||
+    /token.*(expired|invalid|revoked)/.test(message)
+  );
 }
 
 /**
@@ -177,9 +201,8 @@ function errorMessage(error: unknown): string {
 
 function errorDiagnosticText(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
-  const cause = error.cause instanceof Error
-    ? `\n${error.cause.message}\n${error.cause.stack ?? ""}`
-    : "";
+  const cause =
+    error.cause instanceof Error ? `\n${error.cause.message}\n${error.cause.stack ?? ""}` : "";
   return `${error.message}\n${error.stack ?? ""}${cause}`;
 }
 
@@ -212,7 +235,8 @@ function scheduleImageListenerReconnect(reason: string): void {
 }
 
 export function handleRecoverableLineJsListenerRejection(reason: unknown): boolean {
-  if (!imageListenerChatId || !isLineBotEnabled() || !isRecoverableLineJsListenerRejection(reason)) return false;
+  if (!imageListenerChatId || !isLineBotEnabled() || !isRecoverableLineJsListenerRejection(reason))
+    return false;
 
   logger.warn("line-image-listener-polling-failed", {
     error: errorMessage(reason),
@@ -230,7 +254,10 @@ export function isLineBotEnabled(): boolean {
 
 // ── Lazy module loader ─────────────────────────────────────────────────
 
-async function loadLinejsModules(): Promise<{ linejs: LineJsLoginModule; FileStorage: LineJsStorageModule["FileStorage"] }> {
+async function loadLinejsModules(): Promise<{
+  linejs: LineJsLoginModule;
+  FileStorage: LineJsStorageModule["FileStorage"];
+}> {
   const [linejs, storage] = await Promise.all([
     import(LINEJS_PACKAGE) as Promise<LineJsLoginModule>,
     import(LINEJS_STORAGE_PACKAGE) as Promise<LineJsStorageModule>,
@@ -273,7 +300,8 @@ async function readStoredAuthToken(): Promise<{ token: string; device: string } 
     const raw = await readFile(getAuthTokenPath(), "utf-8");
     const parsed = JSON.parse(raw) as { token?: string; device?: string };
     const decryptedToken = parsed.token ? decryptString(parsed.token) : "";
-    if (decryptedToken) return { token: decryptedToken, device: parsed.device || env.LINEJS_TEST_DEVICE };
+    if (decryptedToken)
+      return { token: decryptedToken, device: parsed.device || env.LINEJS_TEST_DEVICE };
     return null;
   } catch {
     return null;
@@ -291,9 +319,15 @@ async function saveAuthToken(token: string, device = env.LINEJS_TEST_DEVICE): Pr
       savedAt: new Date().toISOString(),
     });
     await writeFile(getAuthTokenPath(), payload);
-    try { await chmod(getAuthTokenPath(), 0o600); } catch { /* best effort on Windows */ }
+    try {
+      await chmod(getAuthTokenPath(), 0o600);
+    } catch {
+      /* best effort on Windows */
+    }
   } catch (error) {
-    logger.warn("line-bot-auth-token-file-save-failed", { error: error instanceof Error ? error.message : String(error) });
+    logger.warn("line-bot-auth-token-file-save-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // Also try DB (encryption handled inside the repository).
@@ -333,7 +367,9 @@ export async function getClient(): Promise<LineJsClient> {
           logger.info("line-bot-restored-from-token");
           return c;
         } catch (error) {
-          logger.warn("line-bot-token-restore-failed", { error: error instanceof Error ? error.message : String(error) });
+          logger.warn("line-bot-token-restore-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
 
@@ -490,14 +526,19 @@ export async function sendNotification(title: string, message: string): Promise<
 /**
  * Fetch groups/chats the authenticated account is a member of.
  */
-export async function getGroups(): Promise<{ chats: Array<{ chatMid: string; chatName: string }> }> {
+export async function getGroups(): Promise<{
+  chats: Array<{ chatMid: string; chatName: string }>;
+}> {
   if (!isLineBotEnabled()) {
     return { chats: [] };
   }
 
   try {
     const c = await getClient();
-    const midsResult = await c.base.talk.getAllChatMids({ syncReason: "INITIAL", request: { withMemberChats: true } });
+    const midsResult = await c.base.talk.getAllChatMids({
+      syncReason: "INITIAL",
+      request: { withMemberChats: true },
+    });
     const chatMids = midsResult.memberChatMids ?? [];
     if (chatMids.length === 0) {
       return { chats: [] };
@@ -522,7 +563,9 @@ export async function getGroups(): Promise<{ chats: Array<{ chatMid: string; cha
     if (error instanceof LineBotQrRequiredError) {
       return { chats: [] };
     }
-    logger.error("line-bot-get-groups-failed", { error: error instanceof Error ? error.message : String(error) });
+    logger.error("line-bot-get-groups-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { chats: [] };
   }
 }
@@ -564,6 +607,10 @@ export function getStatus(): LineBotStatus {
   };
 }
 
+export function isImageListenerActive(): boolean {
+  return Boolean(imageListenerChatId && imageListenerClient);
+}
+
 /**
  * Get LINE profile of the authenticated account.
  */
@@ -581,7 +628,9 @@ export async function getProfile(): Promise<LineBotProfile | null> {
       // but linejs getProfile may not expose it directly
     };
   } catch (error) {
-    logger.warn("line-bot-get-profile-failed", { error: error instanceof Error ? error.message : String(error) });
+    logger.warn("line-bot-get-profile-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     if (isLineAuthFailure(error)) {
       clearAuthenticatedSession("get-profile-auth-failure");
     }
@@ -610,9 +659,14 @@ export async function getStorageHealth(): Promise<LineBotStorageHealth> {
       const data = JSON.parse(content);
       const keys = Object.keys(data);
       // E2EE keys stored under keys like "e2eeKeys:5843820"
-      hasE2EEKeys = keys.some((k) => k.includes("e2ee") || k.includes("keyStore") || k.includes("e2eeKeyIds"));
+      hasE2EEKeys = keys.some(
+        (k) => k.includes("e2ee") || k.includes("keyStore") || k.includes("e2eeKeyIds"),
+      );
       // Auth state: qrCert, authToken, cert, etc.
-      hasAuthState = keys.some((k) => k.includes("cert") || k.includes("auth") || k.includes("token") || k.includes("meta"));
+      hasAuthState = keys.some(
+        (k) =>
+          k.includes("cert") || k.includes("auth") || k.includes("token") || k.includes("meta"),
+      );
     }
   } catch {
     // file may not exist yet
@@ -674,29 +728,15 @@ export async function logout(clearStorage = false): Promise<void> {
 
 // ── Image listener ────────────────────────────────────────────────────
 
-function getModuleExport<T>(module: unknown, name: string): T {
-  const record = module as Record<string, unknown>;
-  const direct = record[name];
-  if (direct) return direct as T;
-
-  const defaultRecord = record.default as Record<string, unknown> | undefined;
-  const defaultExport = defaultRecord?.[name];
-  if (defaultExport) return defaultExport as T;
-
-  const cjsRecord = record["module.exports"] as Record<string, unknown> | undefined;
-  const cjsExport = cjsRecord?.[name];
-  if (cjsExport) return cjsExport as T;
-
-  throw new Error(`Module export not found: ${name}`);
-}
-
 export function isLineImageReadTimeout(error: unknown): boolean {
   const name = error instanceof Error ? error.name : "";
   const message = error instanceof Error ? error.message : String(error);
-  return name === "AbortError"
-    || name === "TimeoutError"
-    || /timeout/i.test(message)
-    || /aborted/i.test(message);
+  return (
+    name === "AbortError" ||
+    name === "TimeoutError" ||
+    /timeout/i.test(message) ||
+    /aborted/i.test(message)
+  );
 }
 
 export function formatLineImageListenerError(error: unknown, timeoutMs: number): string {
@@ -712,22 +752,22 @@ function sniffImageMimeType(buffer: Buffer): "image/jpeg" | "image/png" | "image
     return "image/jpeg";
   }
   if (
-    buffer.length >= 8
-    && buffer[0] === 0x89
-    && buffer[1] === 0x50
-    && buffer[2] === 0x4e
-    && buffer[3] === 0x47
-    && buffer[4] === 0x0d
-    && buffer[5] === 0x0a
-    && buffer[6] === 0x1a
-    && buffer[7] === 0x0a
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
   ) {
     return "image/png";
   }
   if (
-    buffer.length >= 12
-    && buffer.subarray(0, 4).toString("ascii") === "RIFF"
-    && buffer.subarray(8, 12).toString("ascii") === "WEBP"
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WEBP"
   ) {
     return "image/webp";
   }
@@ -740,7 +780,10 @@ function extensionForLineImageMimeType(mimeType: string): ".jpg" | ".png" | ".we
   return ".jpg";
 }
 
-export async function bufferLineImageBlob(blob: Blob, maxBytes: number): Promise<{ buffer: Buffer; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
+export async function bufferLineImageBlob(
+  blob: Blob,
+  maxBytes: number,
+): Promise<{ buffer: Buffer; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
   const declaredType = blob.type.trim().toLowerCase();
   if (declaredType && !SUPPORTED_LINE_IMAGE_MIME_TYPES.has(declaredType)) {
     throw new Error("Unsupported LINE image type. Supported image types are JPEG, PNG, and WebP.");
@@ -756,7 +799,9 @@ export async function bufferLineImageBlob(blob: Blob, maxBytes: number): Promise
 
   const sniffedType = sniffImageMimeType(buffer);
   if (!sniffedType) {
-    throw new Error("Unsupported LINE image content. Supported image types are JPEG, PNG, and WebP.");
+    throw new Error(
+      "Unsupported LINE image content. Supported image types are JPEG, PNG, and WebP.",
+    );
   }
   if (declaredType && declaredType !== sniffedType) {
     throw new Error("LINE image MIME type does not match its content.");
@@ -832,43 +877,28 @@ function attachImageListener(c: LineJsClient): void {
 
       await pipeline(Readable.from(buffer), createWriteStream(imagePath, { flags: "wx" }));
 
-      // Lazy-load to avoid circular import
-      const codexImageReader = await import("./codex-image-reader.js");
-      const readImageWithCodex = getModuleExport<typeof import("./codex-image-reader.js").readImageWithCodex>(
-        codexImageReader,
-        "readImageWithCodex"
-      );
-      const defaultPrompt = getModuleExport<typeof import("./codex-image-reader.js").DEFAULT_CODEX_IMAGE_PROMPT>(
-        codexImageReader,
-        "DEFAULT_CODEX_IMAGE_PROMPT"
-      );
-      const lineImageExtraction = await import("./line-image-extraction.js");
-      const readLineImageWithRetry = getModuleExport<typeof import("./line-image-extraction.js").readLineImageWithRetry>(
-        lineImageExtraction,
-        "readLineImageWithRetry"
-      );
-      const persistValidLineImageExtraction = getModuleExport<typeof import("./line-image-extraction.js").persistValidLineImageExtraction>(
-        lineImageExtraction,
-        "persistValidLineImageExtraction"
-      );
-      const codexStartedAt = Date.now();
-      logger.info("line-image-listener-codex-start", {
+      const ocrStartedAt = Date.now();
+      logger.info("line-image-listener-ocr-start", {
         to: msg.to.id,
         bytes: buffer.byteLength,
         timeoutMs,
+        remoteOcr: Boolean(env.OCR_SERVICE_URL.trim()),
       });
-      // One read plus at most one feedback-guided retry when the reply fails
-      // field-format validation (misread trip number / date / route).
-      const read = await readLineImageWithRetry(
-        (promptOverride) => readImageWithCodex({
-          imagePath,
-          mimeType,
-          prompt: promptOverride ?? "", // default 6-field prompt on the first pass
-          timeoutMs,
-        }),
-        defaultPrompt,
-      );
-      const text = read.text;
+      const { processLineImage } = await import("./line-image-processor.js");
+      const processed = await processLineImage({
+        tempImagePath: imagePath,
+        imageBuffer: buffer,
+        mimeType,
+        chatId: msg.to.id,
+        senderId: msg.from.id,
+        traceId: `${msg.to.id}:${startedAt}`,
+        timeoutMs,
+        ocrServiceUrl: env.OCR_SERVICE_URL,
+        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        nodeId: env.SPX_NODE_ID || "combined-line-service",
+        ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
+      });
+      const read = processed.read;
       if (read.attempts > 1) {
         logger.info("line-image-listener-retried", {
           to: msg.to.id,
@@ -877,29 +907,20 @@ function attachImageListener(c: LineJsClient): void {
           reason: read.validation.ok ? undefined : read.validation.reason,
         });
       }
-      logger.info("line-image-listener-codex-finished", {
+      logger.info("line-image-listener-ocr-finished", {
         to: msg.to.id,
-        durationMs: Date.now() - codexStartedAt,
-        textLength: text.length,
+        durationMs: Date.now() - ocrStartedAt,
+        textLength: read.text.length,
         attempts: read.attempts,
-      });
-      const saved = await persistValidLineImageExtraction({
-        tempImagePath: imagePath,
-        chatId: msg.to.id,
-        senderId: msg.from.id,
-        aiText: text,
+        remoteOcr: processed.usedRemoteOcr,
       });
 
-      const replyText = saved.saved
-        ? `${text}\n\nSaved to DB: #${saved.id}`
-        : `${text}\n\nNot saved to DB: ${saved.reason}`;
-
-      const replyDelivered = await replyToLineImageMessage(msg, replyText);
+      const replyDelivered = await replyToLineImageMessage(msg, processed.replyText);
       logger.info("line-image-listener-reply", {
         to: msg.to.id,
-        savedToDb: saved.saved,
-        extractionId: saved.id,
-        reason: saved.reason,
+        savedToDb: processed.saved.saved,
+        extractionId: processed.saved.id,
+        reason: processed.saved.reason,
         replyDelivered,
         durationMs: Date.now() - startedAt,
       });

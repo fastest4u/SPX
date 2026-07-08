@@ -1,8 +1,10 @@
 import { logger } from "../utils/logger.js";
 import {
   claimNotificationOutboxBatch,
+  getNotificationOutboxDeliveryState,
   markNotificationDelivered,
   markNotificationFailed,
+  markNotificationFailedPermanently,
   type NotificationOutboxRow,
 } from "../repositories/notification-repository.js";
 
@@ -10,13 +12,18 @@ export interface SendLineMessageResult {
   ok: boolean;
   providerMessageId?: string;
   error?: string;
+  retryable?: boolean;
 }
 
 export interface NotificationDispatcherOptions {
   nodeId: string;
   batchSize: number;
   lockMs: number;
-  sendLineMessage: (targetId: string, text: string) => Promise<SendLineMessageResult>;
+  sendLineMessage: (
+    targetId: string,
+    text: string,
+    context?: { outboxId: number; eventKey: string },
+  ) => Promise<SendLineMessageResult>;
 }
 
 export interface NotificationDispatchLoop {
@@ -59,6 +66,24 @@ function logStaleLock(row: NotificationOutboxRow, nodeId: string, outcome: "deli
   });
 }
 
+async function markDeliveredOrAlreadySent(
+  row: NotificationOutboxRow,
+  nodeId: string,
+  providerMessageId?: string,
+): Promise<boolean> {
+  const marked = await markNotificationDelivered(row.id, nodeId, "linejs", providerMessageId);
+  if (marked) return true;
+  const state = await getNotificationOutboxDeliveryState(row.id);
+  return state === "sent";
+}
+
+async function markFailed(row: NotificationOutboxRow, nodeId: string, message: string, retryable: boolean): Promise<boolean> {
+  if (!retryable) {
+    return await markNotificationFailedPermanently(row.id, nodeId, message);
+  }
+  return await markNotificationFailed(row.id, nodeId, message, nextRetryDelayMs(row));
+}
+
 export async function runNotificationDispatchOnce(options: NotificationDispatcherOptions): Promise<{ claimed: number; sent: number; failed: number }> {
   const nodeId = validateOptions(options);
   if (options.batchSize <= 0) return EMPTY_DISPATCH_RESULT;
@@ -70,16 +95,19 @@ export async function runNotificationDispatchOnce(options: NotificationDispatche
   for (const row of rows) {
     const text = `${row.title}\n${row.message}`;
     try {
-      const result = await options.sendLineMessage(row.targetId, text);
+      const result = await options.sendLineMessage(row.targetId, text, {
+        outboxId: row.id,
+        eventKey: row.eventKey,
+      });
       if (result.ok) {
-        const marked = await markNotificationDelivered(row.id, nodeId, "linejs", result.providerMessageId);
+        const marked = await markDeliveredOrAlreadySent(row, nodeId, result.providerMessageId);
         if (marked) {
           sent += 1;
         } else {
           logStaleLock(row, nodeId, "delivered");
         }
       } else {
-        const marked = await markNotificationFailed(row.id, nodeId, result.error || "LINE send failed", nextRetryDelayMs(row));
+        const marked = await markFailed(row, nodeId, result.error || "LINE send failed", result.retryable !== false);
         if (marked) {
           failed += 1;
         } else {

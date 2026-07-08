@@ -29,7 +29,6 @@ const settingsSchema = {
     NOTIFY_VEHICLE_TYPES: { type: "string" },
     NOTIFY_MIN_TRIPS: { type: "string" },
     AUTO_ACCEPT_ENABLED: { type: "string" },
-    HTTP_ENABLED: { type: "string" },
     HTTP_ALLOWED_ORIGINS: { type: "string" },
     HTTP_TRUST_PROXY: { type: "string" },
     JWT_SECRET: { type: "string" },

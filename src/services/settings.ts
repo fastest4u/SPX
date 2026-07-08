@@ -6,11 +6,13 @@ import {
   type AppSettings,
 } from "../config/config-catalog.js";
 import { env, parseTrustProxy, validateRuntimeConfig } from "../config/env.js";
+import { parseRuntimeRole, parseRunTeamIds } from "./runtime-role.js";
 import { logger } from "../utils/logger.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
 import { reconfigureSpxDispatcher } from "../utils/http-dispatcher.js";
 
 const REMOVED_SETTINGS_KEYS = ["LINEJS_TEST_EMAIL", "LINEJS_TEST_PASSWORD"] as const;
+const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 const LEGACY_TEAM_SETTINGS_KEYS = [
   "COOKIE",
   "DEVICE_ID",
@@ -21,7 +23,7 @@ const LEGACY_TEAM_SETTINGS_KEYS = [
 
 export const SETTINGS_KEYS = APP_SETTING_KEYS;
 export type SettingsKey = AppSettingKey;
-type LegacyTeamSettingsKey = typeof LEGACY_TEAM_SETTINGS_KEYS[number];
+type LegacyTeamSettingsKey = (typeof LEGACY_TEAM_SETTINGS_KEYS)[number];
 type RuntimeSettingsKey = SettingsKey | LegacyTeamSettingsKey;
 export type EnvSettings = AppSettings;
 type RuntimeSettings = Partial<Record<RuntimeSettingsKey, string>>;
@@ -61,11 +63,37 @@ function pickKnownSettings(settings: Record<string, string>): EnvSettings {
 
 function parseCommaSeparatedSetting(value: string | undefined): string[] {
   if (!value || value.trim() === "") return [];
-  return value.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function safeParseRuntimeRoleSetting(): unknown {
+  try {
+    return parseRuntimeRole(process.env.SPX_ROLE);
+  } catch {
+    return process.env.SPX_ROLE || "combined";
+  }
+}
+
+function safeParseRunTeamIdsSetting(): unknown[] {
+  try {
+    return parseRunTeamIds(process.env.RUN_TEAM_IDS);
+  } catch {
+    return [];
+  }
 }
 
 function syncEnvObjectFromProcess(): void {
   const mutableEnv = env as unknown as Record<string, unknown>;
+  mutableEnv.SPX_ROLE = safeParseRuntimeRoleSetting();
+  mutableEnv.SPX_NODE_ID = (process.env.SPX_NODE_ID || "").trim();
+  mutableEnv.SPX_NODE_NAME = process.env.SPX_NODE_NAME || "";
+  mutableEnv.RUN_TEAM_IDS = safeParseRunTeamIdsSetting();
+  mutableEnv.NOTIFIER_API_URL = process.env.NOTIFIER_API_URL || "";
+  mutableEnv.NOTIFIER_LOCAL_SPOOL_PATH =
+    process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl";
   mutableEnv.API_URL = process.env.API_URL || "";
   mutableEnv.APP_NAME = process.env.APP_NAME || "";
   mutableEnv.REFERER = process.env.REFERER || "";
@@ -76,7 +104,9 @@ function syncEnvObjectFromProcess(): void {
   // poller into a busy loop. Fall back to a safe default and surface a warning.
   const pollInterval = readIntegerSetting("POLL_INTERVAL_MS", 30000);
   if (!Number.isFinite(pollInterval) || pollInterval <= 0) {
-    console.warn(`POLL_INTERVAL_MS is invalid (${process.env.POLL_INTERVAL_MS}); falling back to 30000`);
+    console.warn(
+      `POLL_INTERVAL_MS is invalid (${process.env.POLL_INTERVAL_MS}); falling back to 30000`,
+    );
     mutableEnv.POLL_INTERVAL_MS = 30000;
   } else {
     mutableEnv.POLL_INTERVAL_MS = pollInterval;
@@ -85,7 +115,8 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.DEVICE_ID = process.env.DEVICE_ID || "";
   mutableEnv.BIDDING_PAGE_NO = readIntegerSetting("BIDDING_PAGE_NO", 1);
   mutableEnv.BIDDING_PAGE_COUNT = readIntegerSetting("BIDDING_PAGE_COUNT", 100);
-  mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION = process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false";
+  mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION =
+    process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false";
   mutableEnv.REQUEST_CTIME_START = readIntegerSetting("REQUEST_CTIME_START", 1776358800);
   mutableEnv.NOTIFY_ENABLED = process.env.NOTIFY_ENABLED === "true";
   mutableEnv.NOTIFY_MODE = process.env.NOTIFY_MODE || "batch";
@@ -95,6 +126,7 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.NOTIFY_MIN_TRIPS = readIntegerSetting("NOTIFY_MIN_TRIPS", 1);
   mutableEnv.AUTO_ACCEPT_ENABLED = process.env.AUTO_ACCEPT_ENABLED === "true";
   mutableEnv.HTTP_ENABLED = process.env.HTTP_ENABLED === "true";
+  mutableEnv.HTTP_PORT = readIntegerSetting("HTTP_PORT", 3000);
   mutableEnv.HTTP_ALLOWED_ORIGINS = parseCommaSeparatedSetting(process.env.HTTP_ALLOWED_ORIGINS);
   mutableEnv.HTTP_TRUST_PROXY = parseTrustProxy(process.env.HTTP_TRUST_PROXY);
   mutableEnv.JWT_SECRET = process.env.JWT_SECRET || "";
@@ -106,20 +138,47 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.NOTIFIER_AUTH_MODE = process.env.NOTIFIER_AUTH_MODE || "hmac";
   mutableEnv.NOTIFIER_REQUEST_TIMEOUT_MS = readIntegerSetting("NOTIFIER_REQUEST_TIMEOUT_MS", 1500);
   mutableEnv.NOTIFIER_RETRY_MAX_ATTEMPTS = readIntegerSetting("NOTIFIER_RETRY_MAX_ATTEMPTS", 12);
-  mutableEnv.NOTIFIER_RETRY_BASE_DELAY_MS = readIntegerSetting("NOTIFIER_RETRY_BASE_DELAY_MS", 1000);
+  mutableEnv.NOTIFIER_RETRY_BASE_DELAY_MS = readIntegerSetting(
+    "NOTIFIER_RETRY_BASE_DELAY_MS",
+    1000,
+  );
+  mutableEnv.LINE_SERVICE_URL = process.env.LINE_SERVICE_URL || "";
+  mutableEnv.LINE_SERVICE_SEND_SECRET = process.env.LINE_SERVICE_SEND_SECRET || "";
+  mutableEnv.LINE_SERVICE_ADMIN_SECRET = process.env.LINE_SERVICE_ADMIN_SECRET || "";
+  mutableEnv.LINE_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
+    "LINE_SERVICE_REQUEST_TIMEOUT_MS",
+    1500,
+  );
+  mutableEnv.OCR_SERVICE_URL = process.env.OCR_SERVICE_URL || "";
+  mutableEnv.OCR_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
+    "OCR_SERVICE_REQUEST_TIMEOUT_MS",
+    readIntegerSetting("CODEX_IMAGE_TIMEOUT_MS", DEFAULT_CODEX_IMAGE_TIMEOUT_MS) + 5000,
+  );
   mutableEnv.LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
   mutableEnv.LINE_USER_ID = process.env.LINE_USER_ID || "";
   mutableEnv.LINEJS_TEST_ENABLED = process.env.LINEJS_TEST_ENABLED === "true";
-  mutableEnv.LINEJS_TEST_TARGET_ID = process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "";
-  mutableEnv.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS = process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "";
-  mutableEnv.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE = process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "";
+  mutableEnv.LINEJS_TEST_TARGET_ID =
+    process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "";
+  mutableEnv.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS =
+    process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS ||
+    process.env.LINEJS_TEST_TARGET_ID ||
+    process.env.LINE_USER_ID ||
+    "";
+  mutableEnv.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE =
+    process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE ||
+    process.env.LINEJS_TEST_TARGET_ID ||
+    process.env.LINE_USER_ID ||
+    "";
   mutableEnv.LINEJS_TEST_DEVICE = process.env.LINEJS_TEST_DEVICE || "IOSIPAD";
-  mutableEnv.LINEJS_TEST_STORAGE_PATH = process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json";
+  mutableEnv.LINEJS_TEST_STORAGE_PATH =
+    process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json";
   mutableEnv.DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || "";
   // Cap detail concurrency at runtime to prevent UI bypass of boot-time validation.
   const concurrency = readIntegerSetting("BOOKING_DETAIL_CONCURRENCY", 8);
   if (!Number.isFinite(concurrency) || concurrency <= 0 || concurrency > 50) {
-    console.warn(`BOOKING_DETAIL_CONCURRENCY out of range (${process.env.BOOKING_DETAIL_CONCURRENCY}); falling back to 8`);
+    console.warn(
+      `BOOKING_DETAIL_CONCURRENCY out of range (${process.env.BOOKING_DETAIL_CONCURRENCY}); falling back to 8`,
+    );
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = 8;
   } else {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
@@ -127,14 +186,21 @@ function syncEnvObjectFromProcess(): void {
   // Re-process cooldown (ms). Guard against NaN/negative; 0 disables it.
   const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 0);
   if (!Number.isFinite(reprocessCooldown) || reprocessCooldown < 0) {
-    console.warn(`BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 0`);
+    console.warn(
+      `BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 0`,
+    );
     mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 0;
   } else {
     mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = reprocessCooldown;
   }
   const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
-  if (biddingVehicleType !== undefined && (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)) {
-    console.warn(`BIDDING_VEHICLE_TYPE is invalid (${process.env.BIDDING_VEHICLE_TYPE}); falling back to undefined`);
+  if (
+    biddingVehicleType !== undefined &&
+    (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)
+  ) {
+    console.warn(
+      `BIDDING_VEHICLE_TYPE is invalid (${process.env.BIDDING_VEHICLE_TYPE}); falling back to undefined`,
+    );
     mutableEnv.BIDDING_VEHICLE_TYPE = undefined;
   } else {
     mutableEnv.BIDDING_VEHICLE_TYPE = biddingVehicleType;
@@ -150,7 +216,9 @@ function syncEnvObjectFromProcess(): void {
 }
 
 function applySettingsToEnv(settings: RuntimeSettings): void {
-  for (const [key, value] of Object.entries(settings) as Array<[RuntimeSettingsKey, string | undefined]>) {
+  for (const [key, value] of Object.entries(settings) as Array<
+    [RuntimeSettingsKey, string | undefined]
+  >) {
     if (typeof value === "string") {
       process.env[key] = value;
     }
@@ -174,7 +242,9 @@ function restoreProcessEnv(snapshot: ProcessEnvSnapshot): void {
   syncEnvObjectFromProcess();
 }
 
-function readProcessSettings(keys: readonly RuntimeSettingsKey[] = SETTINGS_KEYS): Record<string, string> {
+function readProcessSettings(
+  keys: readonly RuntimeSettingsKey[] = SETTINGS_KEYS,
+): Record<string, string> {
   const settings: Record<string, string> = {};
   for (const key of keys) {
     const value = process.env[key];
@@ -255,7 +325,9 @@ export async function migrateEnvSettingsToDb(): Promise<void> {
 
   const currentSettings = await getAppSettings(RUNTIME_SETTINGS_KEYS);
   const missingSettings: RuntimeSettings = {};
-  for (const [key, value] of Object.entries(envSettings) as Array<[RuntimeSettingsKey, string | undefined]>) {
+  for (const [key, value] of Object.entries(envSettings) as Array<
+    [RuntimeSettingsKey, string | undefined]
+  >) {
     if (typeof value === "string" && currentSettings[key] === undefined) {
       missingSettings[key] = value;
     }

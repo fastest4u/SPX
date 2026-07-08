@@ -2,12 +2,15 @@
 // before top-level code. env.ts reads process.env.DB_MODE at module load
 // time; if imported first, it sees "mysql" (default) instead of "memory".
 process.env.DB_MODE = "memory";
+process.env.LINE_SERVICE_URL = "";
+process.env.OCR_SERVICE_URL = "";
 
 import assert from "node:assert/strict";
 
 async function main(): Promise<void> {
   const Fastify = (await import("fastify")).default;
-  const { buildDashboardHealthResponse, dashboardController } = await import("../src/controllers/dashboard-controller.js");
+  const { buildDashboardHealthResponse, dashboardController } =
+    await import("../src/controllers/dashboard-controller.js");
   const { closePool } = await import("../src/db/client.js");
   const { metrics } = await import("../src/services/metrics.js");
 
@@ -22,7 +25,7 @@ async function main(): Promise<void> {
 
     const health = buildDashboardHealthResponse(metrics.snapshot());
 
-    assert.equal(health.statusCode, 503);
+    assert.equal(health.statusCode, 200);
     assert.equal(health.data.status, "degraded");
     assert.equal(health.data.session.healthy, false);
 
@@ -31,6 +34,8 @@ async function main(): Promise<void> {
 
     assert.equal(readyResponse.statusCode, 200);
     assert.equal(readyBody.data.ready, true);
+    assert.equal(readyBody.data.service, "web-api");
+    assert.deepEqual(readyBody.data.dependencies, []);
   } finally {
     await app.close();
     await closePool();

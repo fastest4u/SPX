@@ -1,8 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseRuntimeRole, parseRunTeamIds, requireNodeIdForDistributedRole, type RuntimeRole } from "../services/runtime-role.js";
+import {
+  httpSurfaceForRole,
+  parseRuntimeRole,
+  parseRunTeamIds,
+  requireNodeIdForDistributedRole,
+  type RuntimeRole,
+} from "../services/runtime-role.js";
 
 const envFilePath = resolve(process.cwd(), ".env");
+const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 
 if (existsSync(envFilePath)) {
   const lines = readFileSync(envFilePath, "utf8").split(/\r?\n/);
@@ -68,7 +75,10 @@ function readOptionalIntegerEnv(name: string, defaultValue?: number): number | u
 
 function parseCommaSeparated(value: string | undefined): string[] {
   if (!value || value.trim() === "") return [];
-  return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 /**
@@ -87,7 +97,10 @@ export function parseTrustProxy(value: string | undefined): boolean | number | s
   if (v === "true") return true;
   if (v === "false") return false;
   if (/^\d+$/.test(v)) return Number(v);
-  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 function isPositiveInteger(value: number): boolean {
@@ -156,7 +169,17 @@ export const env = {
   NOTIFIER_REQUEST_TIMEOUT_MS: readIntegerEnv("NOTIFIER_REQUEST_TIMEOUT_MS", 1500),
   NOTIFIER_RETRY_MAX_ATTEMPTS: readIntegerEnv("NOTIFIER_RETRY_MAX_ATTEMPTS", 12),
   NOTIFIER_RETRY_BASE_DELAY_MS: readIntegerEnv("NOTIFIER_RETRY_BASE_DELAY_MS", 1000),
-  NOTIFIER_LOCAL_SPOOL_PATH: process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl",
+  NOTIFIER_LOCAL_SPOOL_PATH:
+    process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl",
+  LINE_SERVICE_URL: process.env.LINE_SERVICE_URL || "",
+  LINE_SERVICE_SEND_SECRET: process.env.LINE_SERVICE_SEND_SECRET || "",
+  LINE_SERVICE_ADMIN_SECRET: process.env.LINE_SERVICE_ADMIN_SECRET || "",
+  LINE_SERVICE_REQUEST_TIMEOUT_MS: readIntegerEnv("LINE_SERVICE_REQUEST_TIMEOUT_MS", 1500),
+  OCR_SERVICE_URL: process.env.OCR_SERVICE_URL || "",
+  OCR_SERVICE_REQUEST_TIMEOUT_MS: readIntegerEnv(
+    "OCR_SERVICE_REQUEST_TIMEOUT_MS",
+    readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", DEFAULT_CODEX_IMAGE_TIMEOUT_MS) + 5000,
+  ),
   API_URL: process.env.API_URL || "",
   POLL_INTERVAL_MS: readIntegerEnv("POLL_INTERVAL_MS", 30000),
   COOKIE: process.env.COOKIE || "",
@@ -189,8 +212,16 @@ export const env = {
   LINE_USER_ID: process.env.LINE_USER_ID || "",
   LINEJS_TEST_ENABLED: process.env.LINEJS_TEST_ENABLED === "true",
   LINEJS_TEST_TARGET_ID: process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
-  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || process.env.LINEJS_TEST_TARGET_ID || process.env.LINE_USER_ID || "",
+  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS:
+    process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS ||
+    process.env.LINEJS_TEST_TARGET_ID ||
+    process.env.LINE_USER_ID ||
+    "",
+  LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE:
+    process.env.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE ||
+    process.env.LINEJS_TEST_TARGET_ID ||
+    process.env.LINE_USER_ID ||
+    "",
   LINEJS_TEST_DEVICE: process.env.LINEJS_TEST_DEVICE || "IOSIPAD",
   LINEJS_TEST_STORAGE_PATH: process.env.LINEJS_TEST_STORAGE_PATH || "data/linejs-storage.json",
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
@@ -211,8 +242,11 @@ export const env = {
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "",
   ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "user",
   CODEX_IMAGE_MODEL: process.env.CODEX_IMAGE_MODEL || "",
-  CODEX_IMAGE_PROVIDER: (process.env.CODEX_IMAGE_PROVIDER || "auto") as "auto" | "codex-cli" | "codex-device",
-  CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", 300000),
+  CODEX_IMAGE_PROVIDER: (process.env.CODEX_IMAGE_PROVIDER || "auto") as
+    | "auto"
+    | "codex-cli"
+    | "codex-device",
+  CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", DEFAULT_CODEX_IMAGE_TIMEOUT_MS),
   CODEX_IMAGE_MAX_BYTES: readIntegerEnv("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
 } as const;
@@ -245,45 +279,107 @@ export function validateRuntimeConfig(): void {
     missing.push("SPX_NODE_ID");
   }
 
-  if (runtimeRole === "worker" && runTeamIdsValid && runTeamIds.length === 0) invalid.push("RUN_TEAM_IDS must be set when SPX_ROLE=worker");
-  if (runtimeRole === "worker" && !env.NOTIFIER_API_URL) missing.push("NOTIFIER_API_URL");
-  if ((runtimeRole === "worker" || runtimeRole === "notifier") && !env.NOTIFIER_SHARED_SECRET.trim()) missing.push("NOTIFIER_SHARED_SECRET");
-  if (env.NOTIFIER_AUTH_MODE !== "hmac" && env.NOTIFIER_AUTH_MODE !== "bearer") invalid.push("NOTIFIER_AUTH_MODE must be hmac or bearer");
-  if (env.NOTIFIER_API_URL && !isValidUrl(env.NOTIFIER_API_URL)) invalid.push("NOTIFIER_API_URL must be a valid URL");
-  if (!isPositiveInteger(env.NOTIFIER_REQUEST_TIMEOUT_MS)) invalid.push("NOTIFIER_REQUEST_TIMEOUT_MS must be a positive integer");
-  if (!isPositiveInteger(env.NOTIFIER_RETRY_MAX_ATTEMPTS)) invalid.push("NOTIFIER_RETRY_MAX_ATTEMPTS must be a positive integer");
-  if (!isPositiveInteger(env.NOTIFIER_RETRY_BASE_DELAY_MS)) invalid.push("NOTIFIER_RETRY_BASE_DELAY_MS must be a positive integer");
+  const httpSurface = httpSurfaceForRole(runtimeRole);
+  const runsWebApiHttp = env.HTTP_ENABLED && httpSurface === "web-api";
+  const runsSpxApiClient = runtimeRole === "worker" || runtimeRole === "combined";
 
-  if (!env.API_URL) missing.push("API_URL");
-  if (!env.APP_NAME) missing.push("APP_NAME");
-  if (!env.REFERER) missing.push("REFERER");
+  if (runtimeRole === "worker" && runTeamIdsValid && runTeamIds.length === 0)
+    invalid.push("RUN_TEAM_IDS must be set when SPX_ROLE=worker");
+  if (runtimeRole === "worker" && !env.NOTIFIER_API_URL) missing.push("NOTIFIER_API_URL");
+  if (runtimeRole === "notification-service" && !env.LINE_SERVICE_URL.trim())
+    missing.push("LINE_SERVICE_URL");
+  if (
+    (runtimeRole === "notification-service" ||
+      runtimeRole === "line-service" ||
+      (runsWebApiHttp && env.LINE_SERVICE_URL.trim())) &&
+    !env.LINE_SERVICE_SEND_SECRET.trim()
+  )
+    missing.push("LINE_SERVICE_SEND_SECRET");
+  if (
+    (runtimeRole === "line-service" || (runsWebApiHttp && env.LINE_SERVICE_URL.trim())) &&
+    !env.LINE_SERVICE_ADMIN_SECRET.trim()
+  )
+    missing.push("LINE_SERVICE_ADMIN_SECRET");
+  if (
+    (runtimeRole === "worker" ||
+      runtimeRole === "notifier" ||
+      runtimeRole === "notification-service" ||
+      runtimeRole === "line-service" ||
+      runtimeRole === "ocr-service") &&
+    !env.NOTIFIER_SHARED_SECRET.trim()
+  )
+    missing.push("NOTIFIER_SHARED_SECRET");
+  if (env.NOTIFIER_AUTH_MODE !== "hmac" && env.NOTIFIER_AUTH_MODE !== "bearer")
+    invalid.push("NOTIFIER_AUTH_MODE must be hmac or bearer");
+  if (env.NOTIFIER_API_URL && !isValidUrl(env.NOTIFIER_API_URL))
+    invalid.push("NOTIFIER_API_URL must be a valid URL");
+  if (env.LINE_SERVICE_URL && !isValidUrl(env.LINE_SERVICE_URL))
+    invalid.push("LINE_SERVICE_URL must be a valid URL");
+  if (env.OCR_SERVICE_URL && !isValidUrl(env.OCR_SERVICE_URL))
+    invalid.push("OCR_SERVICE_URL must be a valid URL");
+  if (!isPositiveInteger(env.NOTIFIER_REQUEST_TIMEOUT_MS))
+    invalid.push("NOTIFIER_REQUEST_TIMEOUT_MS must be a positive integer");
+  if (!isPositiveInteger(env.LINE_SERVICE_REQUEST_TIMEOUT_MS))
+    invalid.push("LINE_SERVICE_REQUEST_TIMEOUT_MS must be a positive integer");
+  if (!isPositiveInteger(env.OCR_SERVICE_REQUEST_TIMEOUT_MS))
+    invalid.push("OCR_SERVICE_REQUEST_TIMEOUT_MS must be a positive integer");
+  if (!isPositiveInteger(env.NOTIFIER_RETRY_MAX_ATTEMPTS))
+    invalid.push("NOTIFIER_RETRY_MAX_ATTEMPTS must be a positive integer");
+  if (!isPositiveInteger(env.NOTIFIER_RETRY_BASE_DELAY_MS))
+    invalid.push("NOTIFIER_RETRY_BASE_DELAY_MS must be a positive integer");
+
+  if (runsSpxApiClient) {
+    if (!env.API_URL) missing.push("API_URL");
+    if (!env.APP_NAME) missing.push("APP_NAME");
+    if (!env.REFERER) missing.push("REFERER");
+  }
 
   if (env.API_URL && !isValidUrl(env.API_URL)) invalid.push("API_URL must be a valid URL");
-  if (env.API_URL && !env.API_URL.includes("/booking/bidding/list")) invalid.push("API_URL must contain /booking/bidding/list");
+  if (env.API_URL && !env.API_URL.includes("/booking/bidding/list"))
+    invalid.push("API_URL must contain /booking/bidding/list");
   if (env.REFERER && !isValidUrl(env.REFERER)) invalid.push("REFERER must be a valid URL");
   // POLL_INTERVAL_MS is intentionally only checked for positivity. The operator
   // controls how aggressive polling is — a lower interval captures more bidding
   // jobs (a competitive advantage), and ticks are serialized so a low value
   // cannot busy-loop. Bound resource use via BOOKING_DETAIL_CONCURRENCY (capped
   // at 50 below) rather than flooring the interval.
-  if (!isPositiveInteger(env.POLL_INTERVAL_MS)) invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
-  if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50) invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
-  if (!isNonNegativeInteger(env.BOOKING_REPROCESS_COOLDOWN_MS)) invalid.push("BOOKING_REPROCESS_COOLDOWN_MS must be a non-negative integer in milliseconds (0 disables the re-process cooldown)");
-  if (!isPositiveInteger(env.BIDDING_PAGE_NO)) invalid.push("BIDDING_PAGE_NO must be a positive integer");
-  if (!isPositiveInteger(env.BIDDING_PAGE_COUNT)) invalid.push("BIDDING_PAGE_COUNT must be a positive integer");
-  if (!isNonNegativeInteger(env.REQUEST_CTIME_START)) invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");
-  if (env.BIDDING_VEHICLE_TYPE !== undefined && !isPositiveInteger(env.BIDDING_VEHICLE_TYPE)) invalid.push("BIDDING_VEHICLE_TYPE must be empty or a positive integer");
-  if (!isPositiveInteger(env.NOTIFY_MIN_TRIPS)) invalid.push("NOTIFY_MIN_TRIPS must be a positive integer");
+  if (!isPositiveInteger(env.POLL_INTERVAL_MS))
+    invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
+  if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50)
+    invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
+  if (!isNonNegativeInteger(env.BOOKING_REPROCESS_COOLDOWN_MS))
+    invalid.push(
+      "BOOKING_REPROCESS_COOLDOWN_MS must be a non-negative integer in milliseconds (0 disables the re-process cooldown)",
+    );
+  if (!isPositiveInteger(env.BIDDING_PAGE_NO))
+    invalid.push("BIDDING_PAGE_NO must be a positive integer");
+  if (!isPositiveInteger(env.BIDDING_PAGE_COUNT))
+    invalid.push("BIDDING_PAGE_COUNT must be a positive integer");
+  if (!isNonNegativeInteger(env.REQUEST_CTIME_START))
+    invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");
+  if (env.BIDDING_VEHICLE_TYPE !== undefined && !isPositiveInteger(env.BIDDING_VEHICLE_TYPE))
+    invalid.push("BIDDING_VEHICLE_TYPE must be empty or a positive integer");
+  if (!isPositiveInteger(env.NOTIFY_MIN_TRIPS))
+    invalid.push("NOTIFY_MIN_TRIPS must be a positive integer");
   if (!isBooleanString(process.env.DEBUG)) invalid.push("DEBUG must be true or false");
-  if (!isBooleanString(process.env.FETCH_DETAILS)) invalid.push("FETCH_DETAILS must be true or false");
+  if (!isBooleanString(process.env.FETCH_DETAILS))
+    invalid.push("FETCH_DETAILS must be true or false");
   if (!isBooleanString(process.env.SAVE_TO_DB)) invalid.push("SAVE_TO_DB must be true or false");
-  if (!isBooleanString(process.env.NOTIFY_ENABLED)) invalid.push("NOTIFY_ENABLED must be true or false");
-  if (!isBooleanString(process.env.LINEJS_TEST_ENABLED)) invalid.push("LINEJS_TEST_ENABLED must be true or false");
-  if (!isBooleanString(process.env.AUTO_ACCEPT_ENABLED)) invalid.push("AUTO_ACCEPT_ENABLED must be true or false");
-  if (!isBooleanString(process.env.HTTP_ENABLED)) invalid.push("HTTP_ENABLED must be true or false");
-  if (!isBooleanString(process.env.REQUEST_TAB_PENDING_CONFIRMATION)) invalid.push("REQUEST_TAB_PENDING_CONFIRMATION must be true or false");
+  if (!isBooleanString(process.env.NOTIFY_ENABLED))
+    invalid.push("NOTIFY_ENABLED must be true or false");
+  if (!isBooleanString(process.env.LINEJS_TEST_ENABLED))
+    invalid.push("LINEJS_TEST_ENABLED must be true or false");
+  if (!isBooleanString(process.env.AUTO_ACCEPT_ENABLED))
+    invalid.push("AUTO_ACCEPT_ENABLED must be true or false");
+  if (!isBooleanString(process.env.HTTP_ENABLED))
+    invalid.push("HTTP_ENABLED must be true or false");
+  if (!isBooleanString(process.env.REQUEST_TAB_PENDING_CONFIRMATION))
+    invalid.push("REQUEST_TAB_PENDING_CONFIRMATION must be true or false");
 
-  const listError = validateList("NOTIFY_ORIGINS", env.NOTIFY_ORIGINS) ?? validateList("NOTIFY_DESTINATIONS", env.NOTIFY_DESTINATIONS) ?? validateList("NOTIFY_VEHICLE_TYPES", env.NOTIFY_VEHICLE_TYPES);
+  const listError =
+    validateList("NOTIFY_ORIGINS", env.NOTIFY_ORIGINS) ??
+    validateList("NOTIFY_DESTINATIONS", env.NOTIFY_DESTINATIONS) ??
+    validateList("NOTIFY_VEHICLE_TYPES", env.NOTIFY_VEHICLE_TYPES);
   if (listError) invalid.push(listError);
 
   // Unconditionally validate DB_MODE. `env.DB_MODE` is cast to "mysql" | "memory"
@@ -299,37 +395,67 @@ export function validateRuntimeConfig(): void {
     if (!env.DB_USERNAME) missing.push("DB_USERNAME");
     if (!env.DB_PASSWORD) missing.push("DB_PASSWORD");
     if (!env.DB_NAME) missing.push("DB_NAME");
-    if (!isPositiveInteger(env.DB_PORT) || env.DB_PORT > 65535) invalid.push("DB_PORT must be an integer from 1 to 65535");
+    if (!isPositiveInteger(env.DB_PORT) || env.DB_PORT > 65535)
+      invalid.push("DB_PORT must be an integer from 1 to 65535");
   }
 
-  if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL)) invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
-  if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch") invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
+  if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL))
+    invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
+  if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch")
+    invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
+
+  if (!isPositiveInteger(env.CODEX_IMAGE_TIMEOUT_MS))
+    invalid.push("CODEX_IMAGE_TIMEOUT_MS must be a positive integer in milliseconds");
+  if (!isPositiveInteger(env.CODEX_IMAGE_MAX_BYTES))
+    invalid.push("CODEX_IMAGE_MAX_BYTES must be a positive integer in bytes");
+  if (
+    env.CODEX_IMAGE_PROVIDER !== "auto" &&
+    env.CODEX_IMAGE_PROVIDER !== "codex-cli" &&
+    env.CODEX_IMAGE_PROVIDER !== "codex-device"
+  ) {
+    invalid.push("CODEX_IMAGE_PROVIDER must be auto, codex-cli, or codex-device");
+  }
 
   if (env.LINEJS_TEST_ENABLED) {
     if (!env.LINEJS_TEST_DEVICE.trim()) invalid.push("LINEJS_TEST_DEVICE must not be empty");
-    if (!env.LINEJS_TEST_STORAGE_PATH.trim()) invalid.push("LINEJS_TEST_STORAGE_PATH must not be empty");
+    if (!env.LINEJS_TEST_STORAGE_PATH.trim())
+      invalid.push("LINEJS_TEST_STORAGE_PATH must not be empty");
   }
 
   if (env.LINEJS_TEST_ENABLED && !env.LINEJS_TEST_TARGET_ID) {
     // Not fatal — target can be set later via UI or .env
-    console.warn("⚠ LINEJS_TEST_TARGET_ID is empty; LINE Bot notifications won't work until it is set");
+    console.warn(
+      "⚠ LINEJS_TEST_TARGET_ID is empty; LINE Bot notifications won't work until it is set",
+    );
   }
 
-  if (env.HTTP_ENABLED) {
-    if (!isPositiveInteger(env.HTTP_PORT) || env.HTTP_PORT > 65535) invalid.push("HTTP_PORT must be an integer from 1 to 65535");
+  if (env.HTTP_ENABLED && httpSurface === null) {
+    invalid.push("HTTP_ENABLED cannot be true when SPX_ROLE=worker");
+  }
+
+  if (runsWebApiHttp) {
+    if (!isPositiveInteger(env.HTTP_PORT) || env.HTTP_PORT > 65535)
+      invalid.push("HTTP_PORT must be an integer from 1 to 65535");
     for (const origin of env.HTTP_ALLOWED_ORIGINS) {
-      if (!isValidUrl(origin)) invalid.push(`HTTP_ALLOWED_ORIGINS contains an invalid URL: ${origin}`);
+      if (!isValidUrl(origin))
+        invalid.push(`HTTP_ALLOWED_ORIGINS contains an invalid URL: ${origin}`);
     }
-    if (!env.JWT_SECRET || !isValidJwtSecret(env.JWT_SECRET)) invalid.push("JWT_SECRET must be set and at least 32 characters long when HTTP_ENABLED=true");
-    if (!env.COOKIE_SECRET || !isValidJwtSecret(env.COOKIE_SECRET)) invalid.push("COOKIE_SECRET must be set and at least 32 characters long when HTTP_ENABLED=true");
-    if (!isStrongPassword(env.ADMIN_PASSWORD)) invalid.push("ADMIN_PASSWORD must be set and at least 12 characters long when HTTP_ENABLED=true");
-    if (!env.ADMIN_USERNAME || env.ADMIN_USERNAME.trim().length < 3) invalid.push("ADMIN_USERNAME must be at least 3 characters long");
-    if (env.ADMIN_ROLE !== "admin" && env.ADMIN_ROLE !== "user") invalid.push("ADMIN_ROLE must be admin or user");
-    if (!isPositiveInteger(env.CODEX_IMAGE_TIMEOUT_MS)) invalid.push("CODEX_IMAGE_TIMEOUT_MS must be a positive integer in milliseconds");
-    if (!isPositiveInteger(env.CODEX_IMAGE_MAX_BYTES)) invalid.push("CODEX_IMAGE_MAX_BYTES must be a positive integer in bytes");
-    if (env.CODEX_IMAGE_PROVIDER !== "auto" && env.CODEX_IMAGE_PROVIDER !== "codex-cli" && env.CODEX_IMAGE_PROVIDER !== "codex-device") {
-      invalid.push("CODEX_IMAGE_PROVIDER must be auto, codex-cli, or codex-device");
-    }
+    if (!env.JWT_SECRET || !isValidJwtSecret(env.JWT_SECRET))
+      invalid.push("JWT_SECRET must be set and at least 32 characters long when HTTP_ENABLED=true");
+    if (!env.COOKIE_SECRET || !isValidJwtSecret(env.COOKIE_SECRET))
+      invalid.push(
+        "COOKIE_SECRET must be set and at least 32 characters long when HTTP_ENABLED=true",
+      );
+    if (!isStrongPassword(env.ADMIN_PASSWORD))
+      invalid.push(
+        "ADMIN_PASSWORD must be set and at least 12 characters long when HTTP_ENABLED=true",
+      );
+    if (!env.ADMIN_USERNAME || env.ADMIN_USERNAME.trim().length < 3)
+      invalid.push("ADMIN_USERNAME must be at least 3 characters long");
+    if (env.ADMIN_ROLE !== "admin" && env.ADMIN_ROLE !== "user")
+      invalid.push("ADMIN_ROLE must be admin or user");
+  } else if (env.HTTP_ENABLED && (!isPositiveInteger(env.HTTP_PORT) || env.HTTP_PORT > 65535)) {
+    invalid.push("HTTP_PORT must be an integer from 1 to 65535");
   }
 
   if (missing.length > 0) throw new Error(`Missing required .env values: ${missing.join(", ")}`);

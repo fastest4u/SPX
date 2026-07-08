@@ -50,7 +50,6 @@ export const INITIAL_SETTINGS_FORM = {
     NOTIFY_VEHICLE_TYPES: '',
     NOTIFY_MIN_TRIPS: '1',
     AUTO_ACCEPT_ENABLED: 'false',
-    HTTP_ENABLED: 'true',
     HTTP_ALLOWED_ORIGINS: '',
     HTTP_TRUST_PROXY: 'false',
     JWT_SECRET: '',
@@ -247,12 +246,6 @@ const REQUEST_WINDOW_FIELDS = [
 ] as const satisfies readonly SettingFieldDescriptor[]
 
 const HTTP_AUTH_FIELDS = [
-    {
-        key: 'HTTP_ENABLED',
-        label: 'HTTP enabled',
-        helper: 'เปิด HTTP dashboard/API process',
-        kind: 'switch',
-    },
     {
         key: 'HTTP_ALLOWED_ORIGINS',
         label: 'HTTP allowed origins',
