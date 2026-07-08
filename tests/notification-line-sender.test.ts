@@ -23,7 +23,7 @@ async function testRemoteLineServiceUsedWhenConfigured(): Promise<void> {
   assert.deepEqual(calls, ["C123:hello:42:event-42"]);
 }
 
-async function testLocalFallbackAllowedAfterRemoteFailure(): Promise<void> {
+async function testLocalFallbackSkippedAfterRemoteFailure(): Promise<void> {
   const calls: string[] = [];
   const sender = createNotificationLineSender({
     lineServiceUrl: "https://line.internal.example",
@@ -32,6 +32,28 @@ async function testLocalFallbackAllowedAfterRemoteFailure(): Promise<void> {
     requestTimeoutMs: 25,
     allowLocalFallback: true,
     sendRemoteLineMessage: async () => ({ ok: false, error: "line-service down", retryable: true }),
+    sendLocalLineMessage: async (targetId, text) => {
+      calls.push(`${targetId}:${text}`);
+      return { ok: true };
+    },
+  });
+
+  assert.deepEqual(await sender("C123", "hello"), {
+    ok: false,
+    error: "line-service down",
+    retryable: true,
+  });
+  assert.deepEqual(calls, []);
+}
+
+async function testLocalFallbackAllowedWhenRemoteIsUnset(): Promise<void> {
+  const calls: string[] = [];
+  const sender = createNotificationLineSender({
+    lineServiceUrl: "",
+    sharedSecret: "secret",
+    nodeId: "notifier-01",
+    requestTimeoutMs: 25,
+    allowLocalFallback: true,
     sendLocalLineMessage: async (targetId, text) => {
       calls.push(`${targetId}:${text}`);
       return { ok: true };
@@ -60,7 +82,8 @@ async function testMissingLineServiceUrlWithoutFallbackFails(): Promise<void> {
 
 async function main(): Promise<void> {
   await testRemoteLineServiceUsedWhenConfigured();
-  await testLocalFallbackAllowedAfterRemoteFailure();
+  await testLocalFallbackSkippedAfterRemoteFailure();
+  await testLocalFallbackAllowedWhenRemoteIsUnset();
   await testMissingLineServiceUrlWithoutFallbackFails();
 }
 

@@ -47,7 +47,7 @@ export function createNotificationLineSender(
         },
         { targetId, text, outboxId: context?.outboxId, traceId: context?.eventKey },
       );
-      if (result.ok || !options.allowLocalFallback) return result;
+      return result;
     }
 
     if (options.allowLocalFallback) {

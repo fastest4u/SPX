@@ -147,6 +147,61 @@ jobs:
               fi
             }
 
+            split_service_state() {
+              service="$1"
+              container_id="$(docker compose --profile split ps -q "${service}" | head -n1 || true)"
+              if [ -z "${container_id}" ]; then
+                echo "${service}:missing"
+                return 1
+              fi
+
+              running="$(docker inspect --format '{{.State.Running}}' "${container_id}" 2>/dev/null || echo false)"
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo missing)"
+              echo "${service}:running=${running}:health=${health}"
+
+              [ "${running}" = "true" ] && [ "${health}" = "healthy" ]
+            }
+
+            wait_split_services_ready() {
+              expected_services="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+              deadline=$(( $(date +%s) + 150 ))
+
+              while [ "$(date +%s)" -le "${deadline}" ]; do
+                all_ready=true
+                for service in ${expected_services}; do
+                  if ! split_service_state "${service}" >/dev/null; then
+                    all_ready=false
+                    break
+                  fi
+                done
+
+                if [ "${all_ready}" = "true" ]; then
+                  echo "Split services healthy: ${expected_services}"
+                  return 0
+                fi
+
+                sleep 5
+              done
+
+              echo "Split service readiness failed:"
+              for service in ${expected_services}; do
+                split_service_state "${service}" || true
+              done
+              compose_ps_current
+              return 1
+            }
+
+            wait_current_readiness() {
+              if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
+                echo "Public web/API readiness check failed"
+                return 1
+              fi
+
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+                wait_split_services_ready
+              fi
+            }
+
             rollback_legacy() {
               docker compose up -d --remove-orphans --force-recreate
             }
@@ -206,7 +261,7 @@ jobs:
             # poller/session health. Probe the container loopback over this SSH
             # session instead of the public URL so the check is independent of
             # DNS/TLS/proxy state.
-            if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
+            if ! wait_current_readiness; then
               echo "Readiness check failed; rolling back to ${PREVIOUS_COMMIT}"
               git reset --hard "${PREVIOUS_COMMIT}"
               rm -rf dist

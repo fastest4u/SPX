@@ -400,12 +400,23 @@ docker compose logs --since=5m worker-ifn worker-ptwl | grep -c 'runtime-metrics
 npm run schema:verify
 ```
 
+For split topology, check the explicit split service set and notification-service metrics logs instead of legacy notifier logs:
+
+```bash
+git rev-parse --short HEAD
+docker compose --profile split ps web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split
+curl -s http://127.0.0.1:3000/ready
+docker compose --profile split logs --since=5m notification-service | grep -c 'POST /internal/runtime-metrics 200'
+docker compose --profile split logs --since=5m worker-ifn-split worker-ptwl-split | grep -c 'runtime-metrics-publish-failed\|runtime-metrics-url-invalid'
+npm run schema:verify
+```
+
 Expected runtime state:
 
 - Legacy: `notifier`, `worker-ifn`, and `worker-ptwl` are running and healthy.
 - Split: `web-api`, `notification-service`, `line-service`, `ocr-service`, `worker-ifn-split`, and `worker-ptwl-split` are running; only `web-api` is public.
 - `/ready` returns HTTP 200 with `ready: true`.
-- `POST /internal/runtime-metrics 200` appears frequently in notifier logs.
+- `POST /internal/runtime-metrics 200` appears frequently in the legacy `notifier` logs or split `notification-service` logs.
 - Worker logs have zero runtime-metrics publish/url failures.
 - Admin Pipeline telemetry should update after the next worker metrics publish cycle; hard-refresh the dashboard if the browser still has stale UI state.
 
@@ -420,7 +431,7 @@ Expected runtime state:
 - [ ] ตั้ง `NODE_ENV=production` สำหรับ secure cookies
 - [ ] Runtime/operator secrets ต้องอยู่ใน `app_settings` หรือ team encrypted fields หลัง seed สำเร็จ
 - [ ] Monitor `/health`, `/ready`, `/metrics` ผ่าน Uptime Kuma หรือ Datadog
-- [ ] Verify notifier receives worker runtime metrics (`POST /internal/runtime-metrics 200`) after deploy
+- [ ] Verify the notifier/notification-service receives worker runtime metrics (`POST /internal/runtime-metrics 200`) after deploy
 - [ ] `notify-rules.json` ต้องมี controlled write access เฉพาะ local/dev fallback; production rules อยู่ใน DB
 - [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck + frontend build)
 - [ ] ตรวจว่า `dist/public/` มี `index.html` และ assets ครบ
