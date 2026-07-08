@@ -29,8 +29,12 @@ async function sendLocalLineMessage(
 
 export function createNotificationLineSender(
   options: NotificationLineSenderOptions,
-): (targetId: string, text: string) => Promise<SendLineMessageResult & { retryable?: boolean }> {
-  return async (targetId: string, text: string) => {
+): (
+  targetId: string,
+  text: string,
+  context?: { outboxId: number; eventKey: string },
+) => Promise<SendLineMessageResult & { retryable?: boolean }> {
+  return async (targetId: string, text: string, context?: { outboxId: number; eventKey: string }) => {
     const lineServiceUrl = options.lineServiceUrl.trim();
     const remoteSender = options.sendRemoteLineMessage ?? sendLineServiceMessage;
     if (lineServiceUrl) {
@@ -41,7 +45,7 @@ export function createNotificationLineSender(
           nodeId: options.nodeId,
           requestTimeoutMs: options.requestTimeoutMs,
         },
-        { targetId, text },
+        { targetId, text, outboxId: context?.outboxId, traceId: context?.eventKey },
       );
       if (result.ok || !options.allowLocalFallback) return result;
     }

@@ -40,7 +40,7 @@ Options:
   --require=<services>               Comma-separated required service names.
   --expect-down=<services>           Comma-separated services intentionally stopped for the drill.
   --allow-down=<services>            Comma-separated services allowed to be unavailable.
-  --allow-degraded=<services>        Services whose /health must pass while /ready may fail.
+  --allow-degraded=<services>        Services whose /health must pass and /ready must fail.
   --timeout-ms=<ms>                  Positive request timeout in milliseconds; default 2000.
 
 Known services:
@@ -229,7 +229,7 @@ const expectedDownStillReachableServices = results
   .map((service) => service.name);
 const failures = results.filter((service) => {
   if (allowDown.has(service.name) || expectedDownServices.has(service.name)) return false;
-  if (allowDegraded.has(service.name)) return !service.health.ok;
+  if (allowDegraded.has(service.name)) return !service.health.ok || service.ready.ok;
   if (service.required) return !service.health.ok || !service.ready.ok;
   return !service.health.ok;
 });

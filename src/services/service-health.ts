@@ -159,11 +159,13 @@ export function buildOcrServiceHealthSnapshot(input: {
   });
 }
 
-export async function probeHttpServiceHealth(input: {
+async function probeHttpServiceEndpoint(input: {
   service: string;
   role: RuntimeRole;
   nodeId: string;
   baseUrl: string;
+  path: "/health" | "/ready";
+  unavailableState: ServiceHealthState;
   timeoutMs?: number;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
   checkedAt?: string;
@@ -182,7 +184,7 @@ export async function probeHttpServiceHealth(input: {
 
   let url: URL;
   try {
-    url = new URL("/health", trimmedBaseUrl);
+    url = new URL(input.path, trimmedBaseUrl);
   } catch (error) {
     return createServiceHealthSnapshot({
       service: input.service,
@@ -204,7 +206,7 @@ export async function probeHttpServiceHealth(input: {
       service: input.service,
       role: input.role,
       nodeId: input.nodeId,
-      state: response.ok ? "ok" : "down",
+      state: response.ok ? "ok" : input.unavailableState,
       checkedAt: input.checkedAt,
       details: {
         configured: true,
@@ -226,6 +228,30 @@ export async function probeHttpServiceHealth(input: {
       },
     });
   }
+}
+
+export async function probeHttpServiceHealth(input: {
+  service: string;
+  role: RuntimeRole;
+  nodeId: string;
+  baseUrl: string;
+  timeoutMs?: number;
+  fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  checkedAt?: string;
+}): Promise<ServiceHealthSnapshot> {
+  return probeHttpServiceEndpoint({ ...input, path: "/health", unavailableState: "down" });
+}
+
+async function probeHttpServiceReadiness(input: {
+  service: string;
+  role: RuntimeRole;
+  nodeId: string;
+  baseUrl: string;
+  timeoutMs?: number;
+  fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  checkedAt?: string;
+}): Promise<ServiceHealthSnapshot> {
+  return probeHttpServiceEndpoint({ ...input, path: "/ready", unavailableState: "degraded" });
 }
 
 export async function collectConfiguredDownstreamHealth(input: {
@@ -301,7 +327,9 @@ export async function buildServiceReadiness(
     ready = databaseReady;
     state = databaseReady ? "ok" : "down";
   } else if (input.surface === "notification-service") {
-    const lineDependency = await probeHttpServiceHealth({
+    const databaseReady = input.databaseReady ?? true;
+    details.database = databaseReady ? "ok" : "down";
+    const lineDependency = await probeHttpServiceReadiness({
       service: "line-service",
       role: "line-service",
       nodeId: "line-service",
@@ -311,8 +339,8 @@ export async function buildServiceReadiness(
       checkedAt,
     });
     dependencies.push(lineDependency);
-    ready = lineDependency.state === "ok";
-    state = ready ? "ok" : "down";
+    ready = databaseReady && lineDependency.state === "ok";
+    state = strongestState([databaseReady ? "ok" : "down", lineDependency.state]);
   } else if (input.surface === "line-service") {
     const lineStatus = input.lineStatus ?? {
       enabled: false,

@@ -91,8 +91,15 @@ async function main(): Promise<void> {
     assert.equal(dataOf(webReady.body).ready, true);
 
     const notificationReady = await fetchJson(notificationService.baseUrl, "/ready");
-    assert.equal(notificationReady.status, 200);
-    assert.equal(dataOf(notificationReady.body).ready, true);
+    assert.equal(notificationReady.status, 503);
+    const notificationData = dataOf(notificationReady.body);
+    assert.equal(notificationData.ready, false);
+    assert.equal(
+      (notificationData.dependencies as Array<{ service: string; state: string }>).some(
+        (item) => item.service === "line-service" && item.state === "degraded",
+      ),
+      true,
+    );
 
     await lineService.app.close();
     apps.splice(apps.indexOf(lineService.app), 1);
@@ -110,15 +117,29 @@ async function main(): Promise<void> {
 
     const notificationReadyWithLineDown = await fetchJson(notificationService.baseUrl, "/ready");
     assert.equal(notificationReadyWithLineDown.status, 503);
-    assert.equal(dataOf(notificationReadyWithLineDown.body).ready, false);
+    const notificationDataWithLineDown = dataOf(notificationReadyWithLineDown.body);
+    assert.equal(notificationDataWithLineDown.ready, false);
+    assert.equal(
+      (notificationDataWithLineDown.dependencies as Array<{ service: string; state: string }>).some(
+        (item) => item.service === "line-service" && item.state === "down",
+      ),
+      true,
+    );
 
     const lineServiceRecovered = await startSurface("line-service");
     apps.push(lineServiceRecovered.app);
     mutableEnv().LINE_SERVICE_URL = lineServiceRecovered.baseUrl;
 
     const notificationReadyRecovered = await fetchJson(notificationService.baseUrl, "/ready");
-    assert.equal(notificationReadyRecovered.status, 200);
-    assert.equal(dataOf(notificationReadyRecovered.body).ready, true);
+    assert.equal(notificationReadyRecovered.status, 503);
+    const notificationDataRecovered = dataOf(notificationReadyRecovered.body);
+    assert.equal(notificationDataRecovered.ready, false);
+    assert.equal(
+      (notificationDataRecovered.dependencies as Array<{ service: string; state: string }>).some(
+        (item) => item.service === "line-service" && item.state === "degraded",
+      ),
+      true,
+    );
 
     await ocrService.app.close();
     apps.splice(apps.indexOf(ocrService.app), 1);

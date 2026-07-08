@@ -214,6 +214,18 @@ async function main() {
       });
     }
 
+    const nonDegradedResult = await runScript([
+      `--web-api-url=http://127.0.0.1:${port}`,
+      `--notification-service-url=http://127.0.0.1:${port}`,
+      "--require=web-api,notification-service",
+      "--allow-degraded=notification-service",
+      "--timeout-ms=1000",
+    ]);
+    assert.equal(nonDegradedResult.status, 1, nonDegradedResult.stdout);
+    const nonDegradedOutput = JSON.parse(nonDegradedResult.stdout);
+    assert.equal(nonDegradedOutput.ok, false);
+    assert.deepEqual(nonDegradedOutput.unexpectedFailures, ["notification-service"]);
+
     const unknownServiceResult = await runScript([
       `--web-api-url=http://127.0.0.1:${port}`,
       "--require=web-api,line-servcie",

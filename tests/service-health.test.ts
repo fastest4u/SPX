@@ -127,6 +127,35 @@ async function testReadinessRules(): Promise<void> {
   assert.equal(notificationDown.data.ready, false);
   assert.equal(notificationDown.data.dependencies[0]?.state, "down");
 
+  const notificationDegraded = await buildServiceReadiness({
+    surface: "notification-service",
+    role: "notification-service",
+    nodeId: "notification-01",
+    lineServiceUrl: "https://line.internal.example",
+    lineServiceRequestTimeoutMs: 25,
+    checkedAt: "2026-07-07T00:00:00.000Z",
+    fetchImpl: async () => new Response(JSON.stringify({ ready: false }), { status: 503 }),
+  });
+  assert.equal(notificationDegraded.statusCode, 503);
+  assert.equal(notificationDegraded.data.ready, false);
+  assert.equal(notificationDegraded.data.state, "degraded");
+  assert.equal(notificationDegraded.data.dependencies[0]?.state, "degraded");
+
+  const notificationDbDown = await buildServiceReadiness({
+    surface: "notification-service",
+    role: "notification-service",
+    nodeId: "notification-01",
+    lineServiceUrl: "https://line.internal.example",
+    lineServiceRequestTimeoutMs: 25,
+    databaseReady: false,
+    checkedAt: "2026-07-07T00:00:00.000Z",
+    fetchImpl: async () => new Response("ok", { status: 200 }),
+  });
+  assert.equal(notificationDbDown.statusCode, 503);
+  assert.equal(notificationDbDown.data.ready, false);
+  assert.equal(notificationDbDown.data.state, "down");
+  assert.equal(notificationDbDown.data.details.database, "down");
+
   const webApiWithDownstreamDown = await buildServiceReadiness({
     surface: "web-api",
     role: "api",

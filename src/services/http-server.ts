@@ -8,6 +8,7 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyFormbody from "@fastify/formbody";
 import { env } from "../config/env.js";
+import { getPool } from "../db/client.js";
 import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole } from "./authz.js";
 import { resolveAuthUserFromJwtPayload } from "./auth-session.js";
@@ -219,6 +220,16 @@ function requireRole(required: UserRole) {
   };
 }
 
+async function isDatabaseReady(): Promise<boolean> {
+  try {
+    const pool = getPool();
+    if (pool) await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function renderSpaIndex(nonce: string): string {
   const template = getSpaIndexTemplate();
   // Inject nonce on every <script> tag in the template. Vite emits a few of
@@ -242,10 +253,12 @@ async function registerServiceHealthRoutes(
 
   instance.get("/ready", async (_req, reply) => {
     const lineBot = surface === "line-service" ? await import("./line-bot.js") : null;
+    const databaseReady = await isDatabaseReady();
     const readiness = await buildServiceReadiness({
       surface,
       role: env.SPX_ROLE,
       nodeId: env.SPX_NODE_ID || surface,
+      databaseReady,
       lineServiceUrl: env.LINE_SERVICE_URL,
       lineServiceRequestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
       ocrServiceUrl: env.OCR_SERVICE_URL,
@@ -444,6 +457,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     await app.register(internalLineController, {
       prefix: "/internal",
       sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      adminSharedSecret: env.LINE_SERVICE_ADMIN_SECRET,
       line: {
         isEnabled: lineBot.isLineBotEnabled,
         getStatus: lineBot.getStatus,

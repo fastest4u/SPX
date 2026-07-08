@@ -16,7 +16,11 @@ export interface NotificationDispatcherOptions {
   nodeId: string;
   batchSize: number;
   lockMs: number;
-  sendLineMessage: (targetId: string, text: string) => Promise<SendLineMessageResult>;
+  sendLineMessage: (
+    targetId: string,
+    text: string,
+    context?: { outboxId: number; eventKey: string },
+  ) => Promise<SendLineMessageResult>;
 }
 
 export interface NotificationDispatchLoop {
@@ -70,7 +74,10 @@ export async function runNotificationDispatchOnce(options: NotificationDispatche
   for (const row of rows) {
     const text = `${row.title}\n${row.message}`;
     try {
-      const result = await options.sendLineMessage(row.targetId, text);
+      const result = await options.sendLineMessage(row.targetId, text, {
+        outboxId: row.id,
+        eventKey: row.eventKey,
+      });
       if (result.ok) {
         const marked = await markNotificationDelivered(row.id, nodeId, "linejs", result.providerMessageId);
         if (marked) {

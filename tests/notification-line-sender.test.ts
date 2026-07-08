@@ -10,17 +10,17 @@ async function testRemoteLineServiceUsedWhenConfigured(): Promise<void> {
     requestTimeoutMs: 25,
     allowLocalFallback: false,
     sendRemoteLineMessage: async (_options, request) => {
-      calls.push(`${request.targetId}:${request.text}`);
+      calls.push(`${request.targetId}:${request.text}:${request.outboxId}:${request.traceId}`);
       return { ok: true, providerMessageId: "line-msg-1", retryable: false };
     },
   });
 
-  assert.deepEqual(await sender("C123", "hello"), {
+  assert.deepEqual(await sender("C123", "hello", { outboxId: 42, eventKey: "event-42" }), {
     ok: true,
     providerMessageId: "line-msg-1",
     retryable: false,
   });
-  assert.deepEqual(calls, ["C123:hello"]);
+  assert.deepEqual(calls, ["C123:hello:42:event-42"]);
 }
 
 async function testLocalFallbackAllowedAfterRemoteFailure(): Promise<void> {

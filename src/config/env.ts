@@ -172,6 +172,7 @@ export const env = {
   NOTIFIER_LOCAL_SPOOL_PATH:
     process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl",
   LINE_SERVICE_URL: process.env.LINE_SERVICE_URL || "",
+  LINE_SERVICE_ADMIN_SECRET: process.env.LINE_SERVICE_ADMIN_SECRET || "",
   LINE_SERVICE_REQUEST_TIMEOUT_MS: readIntegerEnv("LINE_SERVICE_REQUEST_TIMEOUT_MS", 1500),
   OCR_SERVICE_URL: process.env.OCR_SERVICE_URL || "",
   OCR_SERVICE_REQUEST_TIMEOUT_MS: readIntegerEnv(
@@ -279,12 +280,18 @@ export function validateRuntimeConfig(): void {
 
   const httpSurface = httpSurfaceForRole(runtimeRole);
   const runsWebApiHttp = env.HTTP_ENABLED && httpSurface === "web-api";
+  const runsSpxApiClient = runtimeRole === "worker" || runtimeRole === "combined";
 
   if (runtimeRole === "worker" && runTeamIdsValid && runTeamIds.length === 0)
     invalid.push("RUN_TEAM_IDS must be set when SPX_ROLE=worker");
   if (runtimeRole === "worker" && !env.NOTIFIER_API_URL) missing.push("NOTIFIER_API_URL");
   if (runtimeRole === "notification-service" && !env.LINE_SERVICE_URL.trim())
     missing.push("LINE_SERVICE_URL");
+  if (
+    (runtimeRole === "line-service" || (runsWebApiHttp && env.LINE_SERVICE_URL.trim())) &&
+    !env.LINE_SERVICE_ADMIN_SECRET.trim()
+  )
+    missing.push("LINE_SERVICE_ADMIN_SECRET");
   if (
     (runtimeRole === "worker" ||
       runtimeRole === "notifier" ||
@@ -313,9 +320,11 @@ export function validateRuntimeConfig(): void {
   if (!isPositiveInteger(env.NOTIFIER_RETRY_BASE_DELAY_MS))
     invalid.push("NOTIFIER_RETRY_BASE_DELAY_MS must be a positive integer");
 
-  if (!env.API_URL) missing.push("API_URL");
-  if (!env.APP_NAME) missing.push("APP_NAME");
-  if (!env.REFERER) missing.push("REFERER");
+  if (runsSpxApiClient) {
+    if (!env.API_URL) missing.push("API_URL");
+    if (!env.APP_NAME) missing.push("APP_NAME");
+    if (!env.REFERER) missing.push("REFERER");
+  }
 
   if (env.API_URL && !isValidUrl(env.API_URL)) invalid.push("API_URL must be a valid URL");
   if (env.API_URL && !env.API_URL.includes("/booking/bidding/list"))

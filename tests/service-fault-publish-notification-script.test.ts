@@ -220,6 +220,32 @@ async function main() {
     );
     assert.equal(failure.status, 1, failure.stdout);
     assert.doesNotMatch(failure.stdout, /another-secret-value|wrong path/);
+
+    const missingOutboxServer = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "success", data: { duplicate: false } }));
+    });
+    missingOutboxServer.listen(0, "127.0.0.1");
+    await once(missingOutboxServer, "listening");
+    try {
+      const { port: missingOutboxPort } = missingOutboxServer.address() as AddressInfo;
+      const incompleteSuccess = await runScript([
+        `--url=http://127.0.0.1:${missingOutboxPort}`,
+        "--team-id=2",
+        `--drill-id=${drillId}`,
+        "--confirm-send-test-notification",
+      ]);
+      assert.equal(incompleteSuccess.status, 1, incompleteSuccess.stdout);
+      const incompleteSuccessOutput = JSON.parse(incompleteSuccess.stdout);
+      assert.equal(incompleteSuccessOutput.ok, false);
+      assert.equal(incompleteSuccessOutput.status, 200);
+      assert.equal(incompleteSuccessOutput.duplicate, false);
+      assert.equal("outboxId" in incompleteSuccessOutput, false);
+    } finally {
+      await new Promise<void>((resolveClose, rejectClose) => {
+        missingOutboxServer.close((error) => (error ? rejectClose(error) : resolveClose()));
+      });
+    }
   } finally {
     await new Promise<void>((resolveClose, rejectClose) => {
       server.close((error) => (error ? rejectClose(error) : resolveClose()));

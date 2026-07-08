@@ -12,6 +12,7 @@ import {
 import { createInternalSignature } from "../src/services/internal-auth.js";
 
 const sharedSecret = "super-secret-value";
+const adminSharedSecret = "admin-secret-value";
 const notificationNodeId = "notification-service-01";
 const webApiNodeId = "prod-web-api-1";
 
@@ -20,10 +21,12 @@ function signedHeaders(input: {
   body: string;
   eventKey?: string;
   nodeId?: string;
+  secret?: string;
   timestamp?: string;
 }): Record<string, string> {
   const timestamp = input.timestamp ?? new Date().toISOString();
   const nodeId = input.nodeId ?? notificationNodeId;
+  const secret = input.secret ?? sharedSecret;
   return {
     "content-type": "application/json",
     "x-spx-node-id": nodeId,
@@ -33,7 +36,7 @@ function signedHeaders(input: {
       timestamp,
       nodeId,
       path: input.path,
-      secret: sharedSecret,
+      secret,
       eventKey: input.eventKey,
     }),
     ...(input.eventKey ? { "idempotency-key": input.eventKey } : {}),
@@ -48,6 +51,7 @@ async function withController<T>(
   await app.register(internalLineController, {
     prefix: "/internal",
     sharedSecret,
+    adminSharedSecret,
     ...options,
   });
   try {
@@ -241,7 +245,12 @@ async function testSignedStatus(): Promise<void> {
         method: "POST",
         url: LINE_INTERNAL_STATUS_PATH,
         payload: rawBody,
-        headers: signedHeaders({ path: LINE_INTERNAL_STATUS_PATH, body: rawBody }),
+        headers: signedHeaders({
+          path: LINE_INTERNAL_STATUS_PATH,
+          body: rawBody,
+          nodeId: webApiNodeId,
+          secret: adminSharedSecret,
+        }),
       });
 
       assert.equal(response.statusCode, 200);
@@ -317,7 +326,12 @@ async function testSignedAdminRoutes(): Promise<void> {
             method: "POST",
             url: request.path,
             payload: request.body,
-            headers: signedHeaders({ path: request.path, body: request.body, nodeId: webApiNodeId }),
+            headers: signedHeaders({
+              path: request.path,
+              body: request.body,
+              nodeId: webApiNodeId,
+              secret: adminSharedSecret,
+            }),
           }),
         );
       }
@@ -358,7 +372,7 @@ async function testSignedAdminRoutes(): Promise<void> {
   );
 }
 
-async function testAdminRoutesRejectNonWebApiNode(): Promise<void> {
+async function testAdminRoutesRejectSharedSecretSpoofingWebApiNode(): Promise<void> {
   let loginCalled = false;
   await withController(
     {
@@ -378,13 +392,55 @@ async function testAdminRoutesRejectNonWebApiNode(): Promise<void> {
         method: "POST",
         url: "/internal/line/login",
         payload: rawBody,
-        headers: signedHeaders({ path: "/internal/line/login", body: rawBody }),
+        headers: signedHeaders({
+          path: "/internal/line/login",
+          body: rawBody,
+          nodeId: webApiNodeId,
+          secret: sharedSecret,
+        }),
       });
 
-      assert.equal(response.statusCode, 403);
+      assert.equal(response.statusCode, 401);
       assert.equal(loginCalled, false);
       const body = JSON.parse(response.body) as { error_code: string };
-      assert.equal(body.error_code, "INTERNAL_LINE_ADMIN_FORBIDDEN");
+      assert.equal(body.error_code, "INTERNAL_AUTH_FAILED");
+    },
+  );
+}
+
+async function testRepeatedOutboxIdDoesNotSendTwice(): Promise<void> {
+  let sendCount = 0;
+  const body: LineServiceSendRequest = {
+    targetId: "C123456789-secret-target",
+    text: "hello once",
+    traceId: "trace-dedupe",
+    outboxId: 456,
+  };
+  const rawBody = JSON.stringify(body);
+  const eventKey = "notification-outbox:456";
+
+  await withController(
+    {
+      line: {
+        isEnabled: () => true,
+        getStatus: () => ({ enabled: true, authenticated: true, message: "connected" }),
+        sendMessage: async () => {
+          sendCount += 1;
+          return { ok: true };
+        },
+      },
+    },
+    async (app) => {
+      for (let i = 0; i < 2; i += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: LINE_INTERNAL_SEND_PATH,
+          headers: signedHeaders({ path: LINE_INTERNAL_SEND_PATH, body: rawBody, eventKey }),
+          payload: rawBody,
+        });
+        assert.equal(response.statusCode, 200);
+      }
+      assert.equal(sendCount, 1);
     },
   );
 }
@@ -397,7 +453,8 @@ async function main(): Promise<void> {
   await testSendFailureReturnsRetryable503WithoutTargetLeak();
   await testSignedStatus();
   await testSignedAdminRoutes();
-  await testAdminRoutesRejectNonWebApiNode();
+  await testAdminRoutesRejectSharedSecretSpoofingWebApiNode();
+  await testRepeatedOutboxIdDoesNotSendTwice();
 }
 
 main().catch((error) => {

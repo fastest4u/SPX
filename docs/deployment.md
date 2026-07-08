@@ -84,10 +84,12 @@ Workers call the notifier over Docker networking. Notification events use `/inte
 
 ### Split-Service Topology (Optional)
 
-`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. Start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
+`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide a per-cutover `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
 
 ```bash
-docker compose --profile split up --build \
+docker compose stop notifier worker-ifn worker-ptwl
+export LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
+docker compose --profile split up --build -d \
   web-api notification-service line-service ocr-service \
   worker-ifn-split worker-ptwl-split
 ```
@@ -105,7 +107,7 @@ Target single-host topology:
 
 Only `web-api` should be published through nginx/public ports. Keep `notification-service`, `line-service`, and `ocr-service` on internal Docker network ports unless an operator intentionally exposes them for a private admin network.
 
-`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested.
+`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested. `LINE_SERVICE_ADMIN_SECRET` is process-local split topology credential material for web-api-to-line-service admin/status routes; do not store it in DB-backed `app_settings` or expose it to worker/notification-service containers.
 
 Rollback path:
 
@@ -143,7 +145,7 @@ docker compose --profile split exec -T web-api sh -lc '
 '
 ```
 
-`--help` prints the read-only probe options without calling `/health` or `/ready`. Use the internal probe for `notification-service`, `line-service`, and `ocr-service` because they are intentionally not published to the host. The `--require` list prevents a false-positive drill if one of the internal service URLs is missing from the probe environment. Keep the JSON output from each probe as drill evidence; it records `requiredServices`, `allowedDownServices`, `allowedDegradedServices`, `expectedDownServices`, `unknownServiceNames`, `missingRequiredServices`, `missingExpectedDownServices`, `expectedDownStillReachableServices`, `unexpectedFailures`, and sanitized service URLs/status payloads. `--allow-degraded=<service>` means that service must still pass `/health`, but its `/ready` endpoint may fail because an expected downstream dependency is unavailable. Avoid full `docker compose config` output during the drill; it can expand env-file values. Use `docker compose --profile split config --services` only when service-name validation is needed.
+`--help` prints the read-only probe options without calling `/health` or `/ready`. Use the internal probe for `notification-service`, `line-service`, and `ocr-service` because they are intentionally not published to the host. The `--require` list prevents a false-positive drill if one of the internal service URLs is missing from the probe environment. Keep the JSON output from each probe as drill evidence; it records `requiredServices`, `allowedDownServices`, `allowedDegradedServices`, `expectedDownServices`, `unknownServiceNames`, `missingRequiredServices`, `missingExpectedDownServices`, `expectedDownStillReachableServices`, `unexpectedFailures`, and sanitized service URLs/status payloads. `--allow-degraded=<service>` means that service must still pass `/health` and must fail `/ready` because an expected downstream dependency is unavailable. Avoid full `docker compose config` output during the drill; it can expand env-file values. Use `docker compose --profile split config --services` only when service-name validation is needed.
 
 For expected-down evidence, the probe options must match the runbook exactly: `allowedDownServices` must be empty, `expectedDownServices` must contain only the stopped service, and `allowedDegradedServices` must contain only the explicitly allowed downstream service for that step. `missingRequiredServices` must also be empty. The stopped service row must be present and down, allowed degraded service rows must be present and degraded, and every other required service row must be present and healthy.
 
@@ -208,7 +210,7 @@ Manual drill:
    '
    ```
 
-   `--help` prints the read-only outbox evidence contract without reading DB env or querying MySQL. The outbox dry run validates DB env presence, the 30-minute window, expectation flags, and event-key hash binding without querying MySQL; it refuses dry-run/live checks that omit `--event-key-contains`, and it is not final evidence because final evidence must use `mode: "mysql"`. The real outbox checker does not echo the raw event key filter. It performs an exact `event_key` lookup, emits `filters.eventKeyContainsSha256`, and the evidence checker compares that hash with the publisher `eventKey` so the outbox proof is tied to the same drill event. Keep the outbox command flags exactly as shown; all outbox evidence must use `--since-minutes=30`, and baseline and recovery evidence must include `--min-total=1 --expect-sent --max-pending=0`.
+   `--help` prints the read-only outbox evidence contract without reading DB env or querying MySQL. The outbox dry run validates DB env presence, the 30-minute window, expectation flags, and event-key hash binding without querying MySQL; it refuses dry-run/live checks that omit `--event-key-contains`, and it is not final evidence because final evidence must use `mode: "mysql"`. The real outbox checker does not echo the raw event key filter. It performs an exact `event_key` lookup, emits `filters.eventKeyContainsSha256`, and the evidence checker compares that hash with the publisher `eventKey` so the outbox proof is tied to the same drill event. Keep the outbox command flags exactly as shown; all outbox evidence must use `--since-minutes=30`, and baseline and recovery evidence must include `--min-total=1 --expect-sent --max-pending=0`. If dispatch is still pending, wait a bounded interval and re-run the same read-only outbox command instead of republishing the notification.
 
 6. Stop line-service: `docker compose --profile split stop line-service`.
 7. Confirm web API still returns success: `curl -s http://127.0.0.1:3000/health`.
@@ -284,6 +286,8 @@ Manual drill:
       node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
     '
     ```
+
+    Recovery can be delayed by retry backoff. If the first read-only recovery check still shows a pending retryable row, wait a bounded interval and re-run the same command; do not publish a replacement event for recovery evidence.
 
 12. Stop ocr-service: `docker compose --profile split stop ocr-service`.
 13. Probe from inside the Docker network with expected OCR outage:

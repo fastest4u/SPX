@@ -358,9 +358,16 @@ async function main() {
     });
     const responseText = await response.text();
     const successData = response.ok ? successDataFrom(responseText) : {};
+    const publishOk = Boolean(
+      response.ok &&
+        successData.duplicate === false &&
+        Number.isInteger(successData.outboxId) &&
+        successData.outboxId > 0 &&
+        successData.outboxStatus,
+    );
     printAndExit(
       {
-        ok: response.ok,
+        ok: publishOk,
         checkedAt,
         url: sanitizeUrl(endpoint.toString()),
         eventKey,
@@ -372,7 +379,7 @@ async function main() {
         outboxId: successData.outboxId,
         outboxStatus: successData.outboxStatus,
       },
-      response.ok ? 0 : 1,
+      publishOk ? 0 : 1,
     );
   } catch (error) {
     printAndExit(

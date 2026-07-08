@@ -54,17 +54,21 @@ function isRemoteLineServiceEnabled(options: LineBotControllerOptions): boolean 
   return options.lineService?.isEnabled?.() ?? env.LINE_SERVICE_URL.trim() !== "";
 }
 
-function lineServiceClientOptions() {
+function lineServiceClientOptions(sharedSecret = env.NOTIFIER_SHARED_SECRET) {
   return {
     baseUrl: env.LINE_SERVICE_URL,
-    sharedSecret: env.NOTIFIER_SHARED_SECRET,
+    sharedSecret,
     nodeId: env.SPX_NODE_ID || "web-api",
     requestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
   };
 }
 
+function lineServiceAdminClientOptions() {
+  return lineServiceClientOptions(env.LINE_SERVICE_ADMIN_SECRET);
+}
+
 async function defaultLineServiceStatus(): Promise<LineServiceStatusResult> {
-  return getLineServiceStatus(lineServiceClientOptions());
+  return getLineServiceStatus(lineServiceAdminClientOptions());
 }
 
 async function defaultLineServiceSend(
@@ -74,25 +78,25 @@ async function defaultLineServiceSend(
 }
 
 async function defaultLineServiceLogin(): Promise<LineServiceLoginResult> {
-  return requestLineServiceLogin(lineServiceClientOptions());
+  return requestLineServiceLogin(lineServiceAdminClientOptions());
 }
 
 async function defaultLineServiceGroups(): Promise<LineServiceGroupsResult> {
-  return getLineServiceGroups(lineServiceClientOptions());
+  return getLineServiceGroups(lineServiceAdminClientOptions());
 }
 
 async function defaultLineServiceProfile(): Promise<LineServiceProfileResult> {
-  return getLineServiceProfile(lineServiceClientOptions());
+  return getLineServiceProfile(lineServiceAdminClientOptions());
 }
 
 async function defaultLineServiceStorage(): Promise<LineServiceStorageResult> {
-  return getLineServiceStorage(lineServiceClientOptions());
+  return getLineServiceStorage(lineServiceAdminClientOptions());
 }
 
 async function defaultLineServiceLogout(
   request: LineServiceLogoutRequest,
 ): Promise<LineServiceLogoutResult> {
-  return logoutLineService(lineServiceClientOptions(), request);
+  return logoutLineService(lineServiceAdminClientOptions(), request);
 }
 
 function lineServiceStatusToApiStatus(

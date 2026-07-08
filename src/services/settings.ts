@@ -143,6 +143,7 @@ function syncEnvObjectFromProcess(): void {
     1000,
   );
   mutableEnv.LINE_SERVICE_URL = process.env.LINE_SERVICE_URL || "";
+  mutableEnv.LINE_SERVICE_ADMIN_SECRET = process.env.LINE_SERVICE_ADMIN_SECRET || "";
   mutableEnv.LINE_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
     "LINE_SERVICE_REQUEST_TIMEOUT_MS",
     1500,
