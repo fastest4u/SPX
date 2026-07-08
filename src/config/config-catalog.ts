@@ -25,7 +25,12 @@ export const PROCESS_ENV_KEYS = [
   "RUN_TEAM_IDS",
   "NOTIFIER_API_URL",
   "NOTIFIER_LOCAL_SPOOL_PATH",
+  "HTTP_ENABLED",
   "HTTP_PORT",
+  "LINE_SERVICE_URL",
+  "LINE_SERVICE_REQUEST_TIMEOUT_MS",
+  "OCR_SERVICE_URL",
+  "OCR_SERVICE_REQUEST_TIMEOUT_MS",
 ] as const;
 
 const APP_SETTING_METADATA = [
@@ -50,7 +55,6 @@ const APP_SETTING_METADATA = [
   { key: "NOTIFY_VEHICLE_TYPES", defaultValue: "", secret: false, reload: "live" },
   { key: "NOTIFY_MIN_TRIPS", defaultValue: "1", secret: false, reload: "live" },
   { key: "AUTO_ACCEPT_ENABLED", defaultValue: "false", secret: false, reload: "live" },
-  { key: "HTTP_ENABLED", defaultValue: "true", secret: false, reload: "restart-process" },
   { key: "HTTP_ALLOWED_ORIGINS", defaultValue: "", secret: false, reload: "restart-process" },
   { key: "HTTP_TRUST_PROXY", defaultValue: "false", secret: false, reload: "restart-process" },
   { key: "JWT_SECRET", defaultValue: "", secret: true, reload: "restart-process" },
@@ -62,7 +66,12 @@ const APP_SETTING_METADATA = [
   { key: "LINEJS_TEST_ENABLED", defaultValue: "false", secret: false, reload: "restart-process" },
   { key: "LINEJS_TEST_TARGET_ID", defaultValue: "", secret: true, reload: "live" },
   { key: "LINEJS_TEST_DEVICE", defaultValue: "IOSIPAD", secret: false, reload: "restart-process" },
-  { key: "LINEJS_TEST_STORAGE_PATH", defaultValue: "data/linejs-storage.json", secret: false, reload: "restart-process" },
+  {
+    key: "LINEJS_TEST_STORAGE_PATH",
+    defaultValue: "data/linejs-storage.json",
+    secret: false,
+    reload: "restart-process",
+  },
   { key: "DISCORD_WEBHOOK_URL", defaultValue: "", secret: true, reload: "live" },
   { key: "LINE_IMAGE_LISTENER_CHAT_ID", defaultValue: "", secret: true, reload: "restart-process" },
   { key: "NOTIFIER_SHARED_SECRET", defaultValue: "", secret: true, reload: "restart-process" },
@@ -73,12 +82,17 @@ const APP_SETTING_METADATA = [
   { key: "CODEX_IMAGE_MODEL", defaultValue: "", secret: false, reload: "live" },
   { key: "CODEX_IMAGE_PROVIDER", defaultValue: "auto", secret: false, reload: "live" },
   { key: "CODEX_IMAGE_TIMEOUT_MS", defaultValue: "300000", secret: false, reload: "live" },
-  { key: "CODEX_IMAGE_MAX_BYTES", defaultValue: String(10 * 1024 * 1024), secret: false, reload: "live" },
+  {
+    key: "CODEX_IMAGE_MAX_BYTES",
+    defaultValue: String(10 * 1024 * 1024),
+    secret: false,
+    reload: "live",
+  },
 ] as const satisfies readonly AppSettingMetadata[];
 
-export type AppSettingKey = typeof APP_SETTING_METADATA[number]["key"];
-export type BootstrapEnvKey = typeof BOOTSTRAP_ENV_KEYS[number];
-export type ProcessEnvKey = typeof PROCESS_ENV_KEYS[number];
+export type AppSettingKey = (typeof APP_SETTING_METADATA)[number]["key"];
+export type BootstrapEnvKey = (typeof BOOTSTRAP_ENV_KEYS)[number];
+export type ProcessEnvKey = (typeof PROCESS_ENV_KEYS)[number];
 export type AppSettings = Partial<Record<AppSettingKey, string>>;
 
 export const APP_SETTING_KEYS: readonly AppSettingKey[] = Object.freeze(

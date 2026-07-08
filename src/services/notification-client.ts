@@ -1,4 +1,4 @@
-import { createInternalSignature } from "./internal-auth.js";
+import { signedJsonPost } from "./internal-service-client.js";
 import type { NotificationEventInput } from "./notification-events.js";
 import type { NotificationSpool, NotificationSpoolEntry } from "./notification-spool.js";
 
@@ -25,11 +25,6 @@ export interface SendSpooledNotificationEventInput {
   requestTimeoutMs?: number;
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 async function appendToSpool(
   input: PublishNotificationEventInput,
   headers: Record<string, string>,
@@ -44,11 +39,11 @@ async function appendToSpool(
   });
 }
 
-function stableSpoolHeaders(headers: Record<string, string>): Record<string, string> {
+function stableSpoolHeaders(input: { nodeId: string; eventKey: string }): Record<string, string> {
   return {
-    "content-type": headers["content-type"],
-    "x-spx-node-id": headers["x-spx-node-id"],
-    "idempotency-key": headers["idempotency-key"],
+    "content-type": "application/json",
+    "x-spx-node-id": input.nodeId,
+    "idempotency-key": input.eventKey,
   };
 }
 
@@ -60,92 +55,36 @@ function getHeader(headers: Record<string, string>, name: string): string | unde
   return match?.[1];
 }
 
-function timeoutSignal(timeoutMs: number | undefined): AbortSignal | undefined {
-  if (!timeoutMs || timeoutMs <= 0) return undefined;
-  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(timeoutMs);
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs).unref?.();
-  return controller.signal;
-}
-
-function shouldSpoolFailure(status: number | undefined): boolean {
-  if (status === undefined) return true;
-  if (status === 408 || status === 429) return true;
-  return status < 400 || status >= 500;
-}
-
-async function sendSignedNotificationEvent(input: {
-  url: string;
-  sharedSecret: string;
-  nodeId: string;
-  eventKey: string;
-  body: string;
-  contentType?: string;
-  fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
-  requestTimeoutMs?: number;
-}): Promise<{ headers: Record<string, string>; result: PublishNotificationEventResult }> {
-  const path = new URL(input.url).pathname;
-  const timestamp = new Date().toISOString();
-  const signature = createInternalSignature({
-    body: input.body,
-    timestamp,
-    nodeId: input.nodeId,
-    path,
-    secret: input.sharedSecret,
-    eventKey: input.eventKey,
-  });
-  const headers: Record<string, string> = {
-    "content-type": input.contentType ?? "application/json",
-    "x-spx-node-id": input.nodeId,
-    "x-spx-timestamp": timestamp,
-    "x-spx-signature": signature,
-    "idempotency-key": input.eventKey,
-  };
-  const fetchImpl = input.fetchImpl ?? fetch;
-
-  let response: Response;
-  try {
-    response = await fetchImpl(input.url, {
-      method: "POST",
-      headers,
-      body: input.body,
-      signal: timeoutSignal(input.requestTimeoutMs),
-    });
-  } catch (error) {
-    return { headers, result: { ok: false, error: errorMessage(error) } };
-  }
-
-  if (!response.ok) {
-    const error = await response.text();
-    return { headers, result: { ok: false, status: response.status, error } };
-  }
-
-  const json = (await response.json()) as { data?: { duplicate?: unknown } };
-  return {
-    headers,
-    result: { ok: true, duplicate: Boolean(json.data?.duplicate), status: response.status },
-  };
+function notificationFailureResult(input: {
+  status?: number;
+  error: string;
+}): PublishNotificationEventResult {
+  if (input.status === undefined) return { ok: false, error: input.error };
+  return { ok: false, status: input.status, error: input.error };
 }
 
 export async function publishNotificationEvent(
   input: PublishNotificationEventInput,
 ): Promise<PublishNotificationEventResult> {
   const body = JSON.stringify(input.event);
-  const sent = await sendSignedNotificationEvent({
+  const sent = await signedJsonPost<NotificationEventInput, { duplicate?: unknown }>({
     url: input.url,
     sharedSecret: input.sharedSecret,
-    body,
+    body: input.event,
     nodeId: input.nodeId,
     eventKey: input.eventKey,
     fetchImpl: input.fetchImpl,
     requestTimeoutMs: input.requestTimeoutMs,
   });
 
-  if (!sent.result.ok && shouldSpoolFailure(sent.result.status)) {
-    await appendToSpool(input, stableSpoolHeaders(sent.headers), body);
+  if (!sent.ok && sent.retryable) {
+    await appendToSpool(input, stableSpoolHeaders(input), body);
   }
 
-  return sent.result;
+  if (sent.ok) {
+    return { ok: true, duplicate: Boolean(sent.data?.duplicate), status: sent.status };
+  }
+  return notificationFailureResult(sent);
 }
 
 export async function sendSpooledNotificationEvent(
@@ -156,15 +95,24 @@ export async function sendSpooledNotificationEvent(
     return { ok: false, error: "missing x-spx-node-id" };
   }
 
-  const sent = await sendSignedNotificationEvent({
+  let body: NotificationEventInput;
+  try {
+    body = JSON.parse(input.entry.body) as NotificationEventInput;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+
+  const sent = await signedJsonPost<NotificationEventInput, { duplicate?: unknown }>({
     url: input.entry.url,
     sharedSecret: input.sharedSecret,
-    body: input.entry.body,
+    body,
     nodeId,
     eventKey: input.entry.eventKey,
-    contentType: getHeader(input.entry.headers, "content-type"),
     fetchImpl: input.fetchImpl,
     requestTimeoutMs: input.requestTimeoutMs,
   });
-  return sent.result;
+  if (sent.ok) {
+    return { ok: true, duplicate: Boolean(sent.data?.duplicate), status: sent.status };
+  }
+  return notificationFailureResult(sent);
 }

@@ -21,10 +21,7 @@ const invalidConcurrency = validateNumericFields({
   BOOKING_DETAIL_CONCURRENCY: "0",
 });
 
-assert.equal(
-  invalidConcurrency.errors.BOOKING_DETAIL_CONCURRENCY,
-  "ต้องเป็นจำนวนเต็มบวก",
-);
+assert.equal(invalidConcurrency.errors.BOOKING_DETAIL_CONCURRENCY, "ต้องเป็นจำนวนเต็มบวก");
 
 const dbFirstDefaults = getAppSettingDefaults();
 
@@ -69,35 +66,81 @@ for (const teamSpecificKey of [
   "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS",
   "LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE",
 ] as const) {
-  assert.equal(SETTINGS_KEYS.includes(teamSpecificKey), false, `${teamSpecificKey} must be configured per team, not as a global setting`);
+  assert.equal(
+    SETTINGS_KEYS.includes(teamSpecificKey),
+    false,
+    `${teamSpecificKey} must be configured per team, not as a global setting`,
+  );
 }
 
 for (const globalDbKey of [
   "APP_NAME",
   "REFERER",
   "AUTO_ACCEPT_ENABLED",
-  "HTTP_ENABLED",
   "JWT_SECRET",
   "COOKIE_SECRET",
   "NOTIFIER_SHARED_SECRET",
 ] as const) {
-  assert.equal(SETTINGS_KEYS.includes(globalDbKey), true, `${globalDbKey} must be configured through app_settings`);
+  assert.equal(
+    SETTINGS_KEYS.includes(globalDbKey),
+    true,
+    `${globalDbKey} must be configured through app_settings`,
+  );
 }
+assert.equal(
+  SETTINGS_KEYS.includes("HTTP_ENABLED"),
+  false,
+  "HTTP_ENABLED must remain process-local, not app_settings",
+);
+assert.equal(
+  SETTINGS_KEYS.includes("LINE_SERVICE_URL"),
+  false,
+  "LINE_SERVICE_URL must remain process-local, not app_settings",
+);
+assert.equal(
+  SETTINGS_KEYS.includes("OCR_SERVICE_URL"),
+  false,
+  "OCR_SERVICE_URL must remain process-local, not app_settings",
+);
+assert.equal(
+  SETTINGS_KEYS.includes("LINE_SERVICE_REQUEST_TIMEOUT_MS"),
+  false,
+  "LINE_SERVICE_REQUEST_TIMEOUT_MS must remain process-local, not app_settings",
+);
+assert.equal(
+  SETTINGS_KEYS.includes("OCR_SERVICE_REQUEST_TIMEOUT_MS"),
+  false,
+  "OCR_SERVICE_REQUEST_TIMEOUT_MS must remain process-local, not app_settings",
+);
 
-const settingsControllerSource = readFileSync(resolve(process.cwd(), "src/controllers/settings-controller.ts"), "utf8");
+const settingsControllerSource = readFileSync(
+  resolve(process.cwd(), "src/controllers/settings-controller.ts"),
+  "utf8",
+);
 const frontendApiSource = readFileSync(resolve(process.cwd(), "src/frontend/lib/api.ts"), "utf8");
-const settingsSharedSource = readFileSync(resolve(process.cwd(), "src/frontend/lib/settings-shared.tsx"), "utf8");
+const settingsSharedSource = readFileSync(
+  resolve(process.cwd(), "src/frontend/lib/settings-shared.tsx"),
+  "utf8",
+);
 for (const dbFirstUiKey of [
   "APP_NAME",
   "REFERER",
   "AUTO_ACCEPT_ENABLED",
-  "HTTP_ENABLED",
   "NOTIFIER_SHARED_SECRET",
   "JWT_SECRET",
   "COOKIE_SECRET",
 ] as const) {
-  assert.match(settingsControllerSource, new RegExp(`${dbFirstUiKey}`), `${dbFirstUiKey} must be exposed by settings controller`);
+  assert.match(
+    settingsControllerSource,
+    new RegExp(`${dbFirstUiKey}`),
+    `${dbFirstUiKey} must be exposed by settings controller`,
+  );
 }
+assert.doesNotMatch(
+  settingsControllerSource,
+  /HTTP_ENABLED:\s*\{/,
+  "HTTP_ENABLED must not be accepted by the DB-backed settings controller",
+);
 
 assert.match(
   frontendApiSource,
@@ -136,7 +179,6 @@ const visibleDbFirstSettings = [
   "REQUEST_TAB_PENDING_CONFIRMATION",
   "REQUEST_CTIME_START",
   "AUTO_ACCEPT_ENABLED",
-  "HTTP_ENABLED",
   "HTTP_ALLOWED_ORIGINS",
   "HTTP_TRUST_PROXY",
   "JWT_SECRET",
@@ -168,3 +210,8 @@ for (const key of visibleDbFirstSettings) {
     `${key} must have a visible settings field descriptor with a label`,
   );
 }
+assert.doesNotMatch(
+  settingsSharedSource,
+  /key:\s*["']HTTP_ENABLED["']/,
+  "HTTP_ENABLED must not be rendered as a DB-backed settings field",
+);

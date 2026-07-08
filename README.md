@@ -5,21 +5,21 @@
 ## ภาพรวม
 
 - **Polling**: ดึง bidding list ตามรอบเวลา, ตรวจสอบ変化, ดึง request details, บันทึก DB, auto-accept, แจ้งเตือน
-- **Split runtime**: production แยกเป็น `notifier`, `worker-ifn`, และ `worker-ptwl`; workers ส่ง notification events และ runtime metrics เข้า notifier ผ่าน internal API
+- **Split runtime**: production legacy แยกเป็น `notifier`, `worker-ifn`, และ `worker-ptwl`; target topology แยกต่อเป็น `web-api`, `notification-service`, `line-service`, `ocr-service`, และ workers
 - **DB-first config**: `.env` เหลือ bootstrap/process identity; runtime settings และ team credentials อยู่ใน MySQL (`app_settings` + `teams`) และแก้ผ่าน Dashboard
 - **Dashboard**: React SPA + Fastify API, JWT auth, SSE real-time, admin/user RBAC
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Runtime | Node.js >=24.16.0 |
-| Backend | Fastify + TypeScript |
-| Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode) |
-| Auth | @fastify/jwt, @fastify/cookie |
+| Layer    | Technology                                                 |
+| -------- | ---------------------------------------------------------- |
+| Runtime  | Node.js >=24.16.0                                          |
+| Backend  | Fastify + TypeScript                                       |
+| Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode)         |
+| Auth     | @fastify/jwt, @fastify/cookie                              |
 | Frontend | React 19 + TanStack Router + TanStack Query + Tailwind CSS |
-| Build | esbuild + Vite |
-| Deploy | Docker Compose, auto-deploy via git push |
+| Build    | esbuild + Vite                                             |
+| Deploy   | Docker Compose, auto-deploy via git push                   |
 
 ## ฟีเจอร์
 
@@ -108,12 +108,12 @@ npm run flow:start     # migrate + build + start
 
 Production is DB-first. `.env` is not the long-term source of truth for SPX credentials, polling, auto-accept, notification, or dashboard settings.
 
-| Scope | Source of Truth | Examples |
-|-------|-----------------|----------|
-| Bootstrap | `.env` | `NODE_ENV`, `DB_MODE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `SECRETS_KEY` |
-| Process identity | Docker/service env | `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_PORT` |
-| Runtime/operator settings | MySQL `app_settings` | `API_URL`, polling flags, auto-accept flags, notification settings, dashboard auth secrets, provider settings |
-| Team secrets/targets | encrypted `teams` columns | SPX cookie/device credentials, default LINE target, auto-accept success/failure LINE targets |
+| Scope                     | Source of Truth           | Examples                                                                                                                 |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Bootstrap                 | `.env`                    | `NODE_ENV`, `DB_MODE`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `SECRETS_KEY`                      |
+| Process identity          | Docker/service env        | `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_PORT` |
+| Runtime/operator settings | MySQL `app_settings`      | `API_URL`, polling flags, auto-accept flags, notification settings, dashboard auth secrets, provider settings            |
+| Team secrets/targets      | encrypted `teams` columns | SPX cookie/device credentials, default LINE target, auto-accept success/failure LINE targets                             |
 
 First DB-first rollout should deploy once with the legacy `.env` still present so startup can seed missing DB rows. After `/ready`, worker healthchecks, schema verification, and Settings/Teams values are verified, production `.env` can be reduced to bootstrap-only values.
 
@@ -123,10 +123,15 @@ First DB-first rollout should deploy once with the legacy `.env` still present s
 docker compose up --build
 ```
 
-- `notifier` owns HTTP/dashboard, central LINE delivery, internal notification API, runtime-metrics aggregation, and the single migration run.
+- Default legacy compose keeps `notifier` owning HTTP/dashboard, central LINE delivery, internal notification API, runtime-metrics aggregation, and the single migration run.
 - `worker-ifn` runs `RUN_TEAM_IDS=2`; `worker-ptwl` runs `RUN_TEAM_IDS=1`.
-- Workers publish notification events to `http://notifier:3000/internal/notification-events` and runtime snapshots to `/internal/runtime-metrics`.
-- Health checks: notifier uses `GET /ready`; workers check the Node process.
+- Legacy workers publish notification events to `http://notifier:3000/internal/notification-events` and runtime snapshots to `/internal/runtime-metrics`.
+- Optional split-service compose is available with `web-api`, `notification-service`, `line-service`, `ocr-service`, `worker-ifn-split`, and `worker-ptwl-split`; in that mode workers publish to `http://notification-service:3002/internal/notification-events`.
+- Only `web-api`/legacy `notifier` should be published publicly. `notification-service`, `line-service`, and `ocr-service` stay on Docker's internal network by default.
+- Every process needs a unique `SPX_NODE_ID`; keep `RUN_TEAM_IDS` explicit and non-overlapping unless deliberately testing failover.
+- The shared runtime image documents split-service HTTP ports `3000`, `3002`, `3003`, and `3004`; Compose still controls which ports are published or internal.
+- Health checks: HTTP services use `GET /ready` on their configured `HTTP_PORT`; workers check the Node process.
+- Fault-injection probe: `npm run service:fault-check` checks split-service `/health` and `/ready` without sending notifications or printing secrets. Run it from the host for public `web-api`, or from inside the Docker network with `docker compose --profile split exec -T web-api ...` to reach internal split services.
 - Production deploy: GitHub Actions (`.github/workflows/deploy.yml`) over SSH on push to `main`, with build → deploy/restart → readiness gate → rollback.
 
 ## Web Dashboard
@@ -135,41 +140,60 @@ docker compose up --build
 http://localhost:3000
 ```
 
-| หน้า | Path | Access |
-|------|------|--------|
-| Dashboard | `/` | user+ |
-| ประวัติงาน | `/history` | user+ |
-| แจ้งเตือน | `/notifications` | user+ |
-| รายงาน | `/reports` | user+ |
-| ประวัติการใช้งาน | `/audit` | admin |
-| ประวัติรับงานอัตโนมัติ | `/auto-accept-history` | admin |
-| ทีม | `/teams` | admin |
-| จัดการผู้ใช้ | `/users` | admin |
-| ตั้งค่า | `/settings` | admin |
+| หน้า                   | Path                   | Access |
+| ---------------------- | ---------------------- | ------ |
+| Dashboard              | `/`                    | user+  |
+| ประวัติงาน             | `/history`             | user+  |
+| แจ้งเตือน              | `/notifications`       | user+  |
+| รายงาน                 | `/reports`             | user+  |
+| ประวัติการใช้งาน       | `/audit`               | admin  |
+| ประวัติรับงานอัตโนมัติ | `/auto-accept-history` | admin  |
+| ทีม                    | `/teams`               | admin  |
+| จัดการผู้ใช้           | `/users`               | admin  |
+| ตั้งค่า                | `/settings`            | admin  |
 
 Admin users can view all teams. Non-admin users are scoped to their own `teamId` for history, rules, metrics, and SSE updates.
 
 ## API Endpoints
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/health` | no | Health check |
-| GET | `/ready` | no | Readiness (DB pool check) |
-| GET | `/metrics` | JWT | Polling/runtime metrics snapshot |
-| GET | `/events` | JWT | SSE stream (rules + metrics) |
-| POST | `/api/login` | no | Login |
-| POST | `/api/logout` | JWT | Logout |
-| POST | `/api/refresh` | JWT | Refresh token |
-| GET | `/api/me` | JWT | Current user |
-| GET/POST | `/api/rules` | user+ | Rules CRUD |
-| PUT/DELETE | `/api/rules/:id` | user+ | Rule update/delete |
-| GET | `/api/history` | user+ | Booking history |
-| GET | `/api/notifications/*` | user+ | Notification preview/test |
-| GET | `/api/bidding/*` | user+ | Bidding list |
-| GET | `/api/reports/*` | user+ | Reports |
-| GET | `/api/audit-logs` | admin | Audit trail |
-| GET | `/api/auto-accept-history` | admin | Auto-accept history |
-| GET/POST | `/api/teams` | admin | Team runtime/config management |
-| GET/POST | `/api/users` | admin | User management |
-| PUT | `/api/users/:id/*` | admin | Update user |
-| GET/PUT | `/api/settings` | admin | DB-first runtime settings |
+| Method     | Path                       | Auth  | Description                               |
+| ---------- | -------------------------- | ----- | ----------------------------------------- |
+| GET        | `/health`                  | no    | Health check                              |
+| GET        | `/ready`                   | no    | Readiness for the current service surface |
+| GET        | `/metrics`                 | JWT   | Polling/runtime metrics snapshot          |
+| GET        | `/events`                  | JWT   | SSE stream (rules + metrics)              |
+| POST       | `/api/login`               | no    | Login                                     |
+| POST       | `/api/logout`              | JWT   | Logout                                    |
+| POST       | `/api/refresh`             | JWT   | Refresh token                             |
+| GET        | `/api/me`                  | JWT   | Current user                              |
+| GET/POST   | `/api/rules`               | user+ | Rules CRUD                                |
+| PUT/DELETE | `/api/rules/:id`           | user+ | Rule update/delete                        |
+| GET        | `/api/history`             | user+ | Booking history                           |
+| GET        | `/api/notifications/*`     | user+ | Notification preview/test                 |
+| GET        | `/api/bidding/*`           | user+ | Bidding list                              |
+| GET        | `/api/reports/*`           | user+ | Reports                                   |
+| GET        | `/api/audit-logs`          | admin | Audit trail                               |
+| GET        | `/api/auto-accept-history` | admin | Auto-accept history                       |
+| GET/POST   | `/api/teams`               | admin | Team runtime/config management            |
+| GET/POST   | `/api/users`               | admin | User management                           |
+| PUT        | `/api/users/:id/*`         | admin | Update user                               |
+| GET/PUT    | `/api/settings`            | admin | DB-first runtime settings                 |
+
+Split-service internal endpoints are only registered on their matching internal surfaces:
+
+| Service                | Method | Path                            | Purpose                                     |
+| ---------------------- | ------ | ------------------------------- | ------------------------------------------- |
+| `notification-service` | POST   | `/internal/notification-events` | Worker notification event intake            |
+| `notification-service` | POST   | `/internal/runtime-metrics`     | Worker runtime metrics intake               |
+| `line-service`         | POST   | `/internal/line/messages`       | Notification-service to LINEJS send command |
+| `line-service`         | POST   | `/internal/line/status`         | Signed LINEJS status read                   |
+| `line-service`         | POST   | `/internal/line/login`          | Signed QR login request                     |
+| `line-service`         | POST   | `/internal/line/groups`         | Signed group list read                      |
+| `line-service`         | POST   | `/internal/line/profile`        | Signed LINE profile read                    |
+| `line-service`         | POST   | `/internal/line/storage`        | Signed LINE storage health read             |
+| `line-service`         | POST   | `/internal/line/logout`         | Signed LINE logout command                  |
+| `ocr-service`          | POST   | `/internal/ocr/line-image`      | Line-service image OCR request              |
+
+These internal endpoints require signed service-auth headers and should stay on the Docker/private network.
+
+When `LINE_SERVICE_URL` is set on the web API/legacy notifier, authenticated `/api/line-bot/*` routes proxy to the split `line-service`. Legacy local LINEJS fallback is used only when `LINE_SERVICE_URL` is unset.

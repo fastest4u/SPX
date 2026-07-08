@@ -11,9 +11,11 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { hasRole, type AuthUser, type UserRole } from "./authz.js";
 import { resolveAuthUserFromJwtPayload } from "./auth-session.js";
-import { sendError } from "../utils/response.js";
+import { sendError, sendSuccess } from "../utils/response.js";
 import { isAppError } from "../utils/errors.js";
 import { resolve } from "node:path";
+import type { HttpSurface } from "./runtime-role.js";
+import { buildServiceReadiness } from "./service-health.js";
 
 import { authController } from "../controllers/auth-controller.js";
 import { rulesController } from "../controllers/rules-controller.js";
@@ -31,9 +33,15 @@ import { lineBotController } from "../controllers/line-bot-controller.js";
 import { aiController } from "../controllers/ai-controller.js";
 import { lineImageExtractionController } from "../controllers/line-image-extraction-controller.js";
 import { internalNotificationController } from "../controllers/internal-notification-controller.js";
+import { internalLineController } from "../controllers/internal-line-controller.js";
+import { internalOcrController } from "../controllers/internal-ocr-controller.js";
 import { runtimeStatusController } from "../controllers/runtime-status-controller.js";
 
 let app: FastifyInstance | null = null;
+
+export interface HttpServerOptions {
+  surface: HttpSurface;
+}
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 120;
@@ -71,7 +79,12 @@ function isAllowedCorsOrigin(origin: string): boolean {
   try {
     const parsed = new URL(origin);
     const hostname = parsed.hostname.toLowerCase();
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
   } catch {
     return false;
   }
@@ -85,9 +98,15 @@ function getClientKey(request: FastifyRequest): string {
   return request.ip;
 }
 
-function checkRateLimit(key: string, limit: number): { allowed: boolean; remaining: number; resetAt: number } {
+function checkRateLimit(
+  key: string,
+  limit: number,
+): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
-  if (now - lastBucketCleanup >= RATE_LIMIT_BUCKET_CLEANUP_INTERVAL_MS || requestBuckets.size > MAX_RATE_LIMIT_BUCKETS) {
+  if (
+    now - lastBucketCleanup >= RATE_LIMIT_BUCKET_CLEANUP_INTERVAL_MS ||
+    requestBuckets.size > MAX_RATE_LIMIT_BUCKETS
+  ) {
     pruneExpiredRateLimitBuckets(now);
     lastBucketCleanup = now;
   }
@@ -102,7 +121,11 @@ function checkRateLimit(key: string, limit: number): { allowed: boolean; remaini
 
   current.count += 1;
   requestBuckets.set(key, current);
-  return { allowed: current.count <= limit, remaining: Math.max(0, limit - current.count), resetAt: current.resetAt };
+  return {
+    allowed: current.count <= limit,
+    remaining: Math.max(0, limit - current.count),
+    resetAt: current.resetAt,
+  };
 }
 
 function pruneExpiredRateLimitBuckets(now: number): void {
@@ -157,7 +180,13 @@ function applySecurityHeaders(reply: FastifyReply, nonce: string): void {
   );
 }
 
-function sendApiError(reply: FastifyReply, statusCode: number, message: string, code: string, details?: unknown): void {
+function sendApiError(
+  reply: FastifyReply,
+  statusCode: number,
+  message: string,
+  code: string,
+  details?: unknown,
+): void {
   sendError(reply, statusCode, code, message, details);
 }
 
@@ -192,7 +221,53 @@ function renderSpaIndex(nonce: string): string {
   return template.replace(/<script(?![^>]*\snonce=)/g, `<script nonce="${nonce}"`);
 }
 
-export async function startHttpServer(port: number): Promise<void> {
+async function registerServiceHealthRoutes(
+  instance: FastifyInstance,
+  surface: HttpSurface,
+): Promise<void> {
+  instance.get("/health", async (_req, reply) => {
+    return sendSuccess(reply, {
+      status: "ok",
+      service: surface,
+      uptime: Math.floor(process.uptime()),
+      checkedAt: new Date().toISOString(),
+    });
+  });
+
+  instance.get("/ready", async (_req, reply) => {
+    const lineBot = surface === "line-service" ? await import("./line-bot.js") : null;
+    const readiness = await buildServiceReadiness({
+      surface,
+      role: env.SPX_ROLE,
+      nodeId: env.SPX_NODE_ID || surface,
+      lineServiceUrl: env.LINE_SERVICE_URL,
+      lineServiceRequestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
+      ocrServiceUrl: env.OCR_SERVICE_URL,
+      ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
+      codexImageProvider: env.CODEX_IMAGE_PROVIDER,
+      codexImageModel: env.CODEX_IMAGE_MODEL,
+      codexImageTimeoutMs: env.CODEX_IMAGE_TIMEOUT_MS,
+      codexImageMaxBytes: env.CODEX_IMAGE_MAX_BYTES,
+      lineStatus: lineBot?.getStatus(),
+      lineImageListenerActive: lineBot?.isImageListenerActive(),
+    });
+    return sendSuccess(
+      reply,
+      readiness.data,
+      readiness.data.ready ? undefined : "Service unavailable",
+      readiness.statusCode,
+    );
+  });
+}
+
+function jwtSecretForRuntime(): string {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  if (env.NODE_ENV === "test") return "test-jwt-secret-minimum-32-characters";
+  return env.JWT_SECRET;
+}
+
+export async function createHttpServer(options: HttpServerOptions): Promise<FastifyInstance> {
+  const previousApp = app;
   app = Fastify({ logger: false, trustProxy: env.HTTP_TRUST_PROXY });
 
   await app.register(cors, {
@@ -205,35 +280,42 @@ export async function startHttpServer(port: number): Promise<void> {
     },
     credentials: true,
   });
-  await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
-  await app.register(fastifyJwt, { secret: env.JWT_SECRET, cookie: { cookieName: "token", signed: true } });
-  await app.register(fastifyMultipart, {
-    limits: {
-      fileSize: 25 * 1024 * 1024, // 25MB per file
-      files: 1,
-      fields: 20,
-    },
-  });
-  // Serve SPA static files - explicit file paths only (no wildcard)
-  await app.register(fastifyStatic, {
-    root: publicAssetsDir,
-    prefix: "/",
-    maxAge: "1h",
-    immutable: false,
-    wildcard: false,
-    index: false,
-  });
-  await app.register(async (instance) => {
-    instance.addHook("preHandler", authenticateRequest);
-    await instance.register(fastifyStatic, {
-      root: resolve(process.cwd(), "data", "line-images"),
-      prefix: "/line-images/",
-      decorateReply: false,
+
+  if (options.surface === "web-api") {
+    await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
+    await app.register(fastifyJwt, {
+      secret: jwtSecretForRuntime(),
+      cookie: { cookieName: "token", signed: true },
+    });
+    await app.register(fastifyMultipart, {
+      limits: {
+        fileSize: 25 * 1024 * 1024, // 25MB per file
+        files: 1,
+        fields: 20,
+      },
+    });
+    // Serve SPA static files - explicit file paths only (no wildcard)
+    await app.register(fastifyStatic, {
+      root: publicAssetsDir,
+      prefix: "/",
       maxAge: "1h",
       immutable: false,
-      wildcard: true,
+      wildcard: false,
+      index: false,
     });
-  });
+    await app.register(async (instance) => {
+      instance.addHook("preHandler", authenticateRequest);
+      await instance.register(fastifyStatic, {
+        root: resolve(process.cwd(), "data", "line-images"),
+        prefix: "/line-images/",
+        decorateReply: false,
+        maxAge: "1h",
+        immutable: false,
+        wildcard: true,
+      });
+    });
+  }
+
   await app.register(fastifyFormbody);
 
   // Graceful shutdown: close DB pool when Fastify closes
@@ -251,17 +333,26 @@ export async function startHttpServer(port: number): Promise<void> {
       const decoded = await req.jwtVerify({ onlyCookie: true });
       req.user = await resolveAuthUserFromJwtPayload(decoded);
     } catch (error) {
-      const errorCode = error instanceof Error && "errorCode" in error ? (error as { errorCode?: string }).errorCode : undefined;
+      const errorCode =
+        error instanceof Error && "errorCode" in error
+          ? (error as { errorCode?: string }).errorCode
+          : undefined;
       if (errorCode === "TOKEN_REVOKED" || errorCode === "TOKEN_INVALID") {
-        return sendApiError(reply, 401, error instanceof Error ? error.message : "Unauthorized", errorCode);
+        return sendApiError(
+          reply,
+          401,
+          error instanceof Error ? error.message : "Unauthorized",
+          errorCode,
+        );
       }
       return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
     }
   }
 
-  app.decorate("authenticate", authenticateRequest);
-
-  app.decorate("requireRole", requireRole);
+  if (options.surface === "web-api") {
+    app.decorate("authenticate", authenticateRequest);
+    app.decorate("requireRole", requireRole);
+  }
 
   app.addHook("onRequest", async (request, reply) => {
     const nonce = randomBytes(16).toString("base64");
@@ -273,7 +364,12 @@ export async function startHttpServer(port: number): Promise<void> {
     (request as FastifyRequest & { startTime?: number }).startTime = Date.now();
 
     const isApiRequest = request.url.startsWith("/api/");
-    const isSpaAssetRequest = request.url === "/" || request.url === "/login" || request.url.startsWith("/assets/") || request.url === "/favicon.ico" || request.url === "/vite.svg";
+    const isSpaAssetRequest =
+      request.url === "/" ||
+      request.url === "/login" ||
+      request.url.startsWith("/assets/") ||
+      request.url === "/favicon.ico" ||
+      request.url === "/vite.svg";
 
     if (!isApiRequest || isSpaAssetRequest) {
       return;
@@ -284,14 +380,19 @@ export async function startHttpServer(port: number): Promise<void> {
     // stricter brute-force budget.
     const isLoginRequest = request.url.startsWith("/api/login");
     const limit = isLoginRequest ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
-    const rateLimit = checkRateLimit(`${isLoginRequest ? "login" : "api"}:${getClientKey(request)}`, limit);
+    const rateLimit = checkRateLimit(
+      `${isLoginRequest ? "login" : "api"}:${getClientKey(request)}`,
+      limit,
+    );
 
     reply.header("X-RateLimit-Limit", String(limit));
     reply.header("X-RateLimit-Remaining", String(rateLimit.remaining));
     reply.header("X-RateLimit-Reset", String(Math.ceil(rateLimit.resetAt / 1000)));
 
     if (!rateLimit.allowed) {
-      return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED", { retryAfterMs: Math.max(0, rateLimit.resetAt - Date.now()) });
+      return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED", {
+        retryAfterMs: Math.max(0, rateLimit.resetAt - Date.now()),
+      });
     }
   });
 
@@ -312,14 +413,52 @@ export async function startHttpServer(port: number): Promise<void> {
     else logger.warn("request-error", { message, statusCode });
     if (reply.sent) return;
     const errorCode = statusCode >= 500 ? "INTERNAL_SERVER_ERROR" : "REQUEST_ERROR";
-    sendApiError(reply, statusCode, statusCode >= 500 ? "Internal server error" : message, errorCode);
+    sendApiError(
+      reply,
+      statusCode,
+      statusCode >= 500 ? "Internal server error" : message,
+      errorCode,
+    );
   });
 
-  if (env.SPX_ROLE === "notifier" || env.SPX_ROLE === "combined") {
+  if (options.surface === "web-api" || options.surface === "notification-service") {
     await app.register(internalNotificationController, {
       prefix: "/internal",
       sharedSecret: env.NOTIFIER_SHARED_SECRET,
     });
+  }
+
+  if (options.surface === "line-service") {
+    const lineBot = await import("./line-bot.js");
+    await app.register(internalLineController, {
+      prefix: "/internal",
+      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      line: {
+        isEnabled: lineBot.isLineBotEnabled,
+        getStatus: lineBot.getStatus,
+        sendMessage: lineBot.sendMessage,
+        requestQrLogin: lineBot.requestQrLogin,
+        getGroups: lineBot.getGroups,
+        getProfile: lineBot.getProfile,
+        getStorageHealth: lineBot.getStorageHealth,
+        logout: lineBot.logout,
+      },
+      isListenerActive: lineBot.isImageListenerActive,
+    });
+  }
+
+  if (options.surface === "ocr-service") {
+    await app.register(internalOcrController, {
+      prefix: "/internal",
+      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+    });
+  }
+
+  if (options.surface !== "web-api") {
+    await registerServiceHealthRoutes(app, options.surface);
+    const builtApp = app;
+    app = previousApp;
+    return builtApp;
   }
 
   await app.register(authController, { prefix: "/api" });
@@ -332,70 +471,88 @@ export async function startHttpServer(port: number): Promise<void> {
     await opsScope.register(dashboardController);
   });
 
-  await app.register(async (apiScope) => {
-    apiScope.addHook("preHandler", authenticateRequest);
-    await apiScope.register(historyController, { prefix: "/history" });
-    await apiScope.register(autoAcceptHistoryController, { prefix: "/auto-accept-history" });
-    await apiScope.register(reportController, { prefix: "/reports" });
+  await app.register(
+    async (apiScope) => {
+      apiScope.addHook("preHandler", authenticateRequest);
+      await apiScope.register(historyController, { prefix: "/history" });
+      await apiScope.register(autoAcceptHistoryController, { prefix: "/auto-accept-history" });
+      await apiScope.register(reportController, { prefix: "/reports" });
 
-    await apiScope.register(async (userScope) => {
-      userScope.addHook("preHandler", requireRole("user"));
-      userScope.addHook("onRequest", async (request, reply) => {
-        const rateLimit = checkRateLimit(`role:user:${getClientKey(request)}`, RATE_LIMIT_USER);
-        if (!rateLimit.allowed) {
-          return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
-        }
+      await apiScope.register(async (userScope) => {
+        userScope.addHook("preHandler", requireRole("user"));
+        userScope.addHook("onRequest", async (request, reply) => {
+          const rateLimit = checkRateLimit(`role:user:${getClientKey(request)}`, RATE_LIMIT_USER);
+          if (!rateLimit.allowed) {
+            return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
+          }
+        });
+        await userScope.register(rulesController, { prefix: "/rules" });
+        await userScope.register(currentTeamController, { prefix: "/team" });
+        await userScope.register(notifyController, { prefix: "/notifications" });
+        await userScope.register(biddingController, { prefix: "/bidding" });
+        await userScope.register(lineBotController, { prefix: "/line-bot" });
+        await userScope.register(aiController, { prefix: "/ai" });
+        await userScope.register(lineImageExtractionController, {
+          prefix: "/line-image-extractions",
+        });
       });
-      await userScope.register(rulesController, { prefix: "/rules" });
-      await userScope.register(currentTeamController, { prefix: "/team" });
-      await userScope.register(notifyController, { prefix: "/notifications" });
-      await userScope.register(biddingController, { prefix: "/bidding" });
-      await userScope.register(lineBotController, { prefix: "/line-bot" });
-      await userScope.register(aiController, { prefix: "/ai" });
-      await userScope.register(lineImageExtractionController, { prefix: "/line-image-extractions" });
-    });
 
-    await apiScope.register(async (adminScope) => {
-      adminScope.addHook("preHandler", requireRole("admin"));
-      // Admins get highest rate limit
-      adminScope.addHook("onRequest", async (request, reply) => {
-        const rateLimit = checkRateLimit(`role:admin:${getClientKey(request)}`, RATE_LIMIT_ADMIN);
-        if (!rateLimit.allowed) {
-          return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
-        }
+      await apiScope.register(async (adminScope) => {
+        adminScope.addHook("preHandler", requireRole("admin"));
+        // Admins get highest rate limit
+        adminScope.addHook("onRequest", async (request, reply) => {
+          const rateLimit = checkRateLimit(`role:admin:${getClientKey(request)}`, RATE_LIMIT_ADMIN);
+          if (!rateLimit.allowed) {
+            return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
+          }
+        });
+        await adminScope.register(teamsController, { prefix: "/teams" });
+        await adminScope.register(usersController, { prefix: "/users" });
+        await adminScope.register(settingsController, { prefix: "/settings" });
+        await adminScope.register(auditController, { prefix: "/audit-logs" });
+        await adminScope.register(auditReportController, { prefix: "/reports" });
+        await adminScope.register(runtimeStatusController, { prefix: "/runtime" });
       });
-      await adminScope.register(teamsController, { prefix: "/teams" });
-      await adminScope.register(usersController, { prefix: "/users" });
-      await adminScope.register(settingsController, { prefix: "/settings" });
-      await adminScope.register(auditController, { prefix: "/audit-logs" });
-      await adminScope.register(auditReportController, { prefix: "/reports" });
-      await adminScope.register(runtimeStatusController, { prefix: "/runtime" });
-    });
-  }, { prefix: "/api" });
+    },
+    { prefix: "/api" },
+  );
 
   // SPA catch-all: serve index.html with per-request nonce for non-API routes.
   app.get("/*", async (req, reply) => {
-    if (req.url.startsWith("/api/") || req.url.startsWith("/assets/") || req.url.startsWith("/vite.svg") || req.url.startsWith("/metrics") || req.url.startsWith("/health") || req.url.startsWith("/ready") || req.url.startsWith("/events") || req.url.startsWith("/line-images/")) {
+    if (
+      req.url.startsWith("/api/") ||
+      req.url.startsWith("/assets/") ||
+      req.url.startsWith("/vite.svg") ||
+      req.url.startsWith("/metrics") ||
+      req.url.startsWith("/health") ||
+      req.url.startsWith("/ready") ||
+      req.url.startsWith("/events") ||
+      req.url.startsWith("/line-images/")
+    ) {
       return reply.callNotFound();
     }
-    const nonce = (req as FastifyRequest & { cspNonce?: string }).cspNonce ?? randomBytes(16).toString("base64");
+    const nonce =
+      (req as FastifyRequest & { cspNonce?: string }).cspNonce ??
+      randomBytes(16).toString("base64");
     reply
       .header("Cache-Control", "no-store")
       .type("text/html; charset=utf-8")
       .send(renderSpaIndex(nonce));
   });
 
-  await app.listen({ port, host: "0.0.0.0" });
-  logger.info("http-server-started", { url: `http://localhost:${port}` });
+  const builtApp = app;
+  app = previousApp;
+  return builtApp;
+}
 
-  // Start LINE image listener if configured
-  const listenerChatId = env.LINE_IMAGE_LISTENER_CHAT_ID;
-  if (listenerChatId) {
-    const { startImageListener } = await import("./line-bot.js");
-    startImageListener(listenerChatId).catch((error) => {
-      logger.error("line-image-listener-start-failed", { error: error instanceof Error ? error.message : String(error) });
-    });
-  }
+export async function startHttpServer(
+  port: number,
+  options: HttpServerOptions = { surface: "web-api" },
+): Promise<void> {
+  app = await createHttpServer(options);
+
+  await app.listen({ port, host: "0.0.0.0" });
+  logger.info("http-server-started", { url: `http://localhost:${port}`, surface: options.surface });
 }
 
 export async function stopHttpServer(): Promise<void> {

@@ -23,6 +23,19 @@ x-spx-worker-healthcheck: &spx-worker-healthcheck
   retries: 3
   start_period: 20s
 
+x-spx-http-healthcheck: &spx-http-healthcheck
+  test:
+    [
+      "CMD",
+      "node",
+      "-e",
+      "const port=process.env.HTTP_PORT||3000; fetch('http://127.0.0.1:'+port+'/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+    ]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
 services:
   notifier:
     <<: *spx-common
@@ -31,15 +44,115 @@ services:
     environment:
       SPX_ROLE: notifier
       SPX_NODE_ID: prod-notifier-1
+      HTTP_PORT: "3000"
     # The notifier owns HTTP, central LINE delivery, and the one production
     # migration run. Workers only start after this service is healthy.
     command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+    healthcheck: *spx-http-healthcheck
+
+  # Optional split-service topology. Start split services explicitly with:
+  #   docker compose --profile split up --build \
+  #     web-api notification-service line-service ocr-service \
+  #     worker-ifn-split worker-ptwl-split
+  # Keep `notifier` above as the legacy compatibility service until split-service
+  # fault-injection has passed in production.
+  web-api:
+    <<: *spx-common
+    profiles: ["split"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      SPX_ROLE: api
+      SPX_NODE_ID: prod-web-api-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3000"
+    command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+
+  notification-service:
+    <<: *spx-common
+    profiles: ["split"]
+    expose:
+      - "3002"
+    depends_on:
+      web-api:
+        condition: service_healthy
+      line-service:
+        condition: service_started
+    environment:
+      SPX_ROLE: notification-service
+      SPX_NODE_ID: prod-notification-service-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3002"
+      LINE_SERVICE_URL: http://line-service:3003
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+
+  line-service:
+    <<: *spx-common
+    profiles: ["split"]
+    expose:
+      - "3003"
+    depends_on:
+      web-api:
+        condition: service_healthy
+      ocr-service:
+        condition: service_started
+    environment:
+      SPX_ROLE: line-service
+      SPX_NODE_ID: prod-line-service-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3003"
+      LINEJS_TEST_ENABLED: "true"
+      OCR_SERVICE_URL: http://ocr-service:3004
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+
+  ocr-service:
+    <<: *spx-common
+    profiles: ["split"]
+    expose:
+      - "3004"
+    depends_on:
+      web-api:
+        condition: service_healthy
+    environment:
+      SPX_ROLE: ocr-service
+      SPX_NODE_ID: prod-ocr-service-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3004"
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+
+  worker-ifn-split:
+    <<: *spx-common
+    profiles: ["split"]
+    depends_on:
+      notification-service:
+        condition: service_healthy
+    environment:
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-ifn-split-1
+      RUN_TEAM_IDS: "2"
+      NOTIFIER_API_URL: http://notification-service:3002/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn-split.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
+
+  worker-ptwl-split:
+    <<: *spx-common
+    profiles: ["split"]
+    depends_on:
+      notification-service:
+        condition: service_healthy
+    environment:
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-ptwl-split-1
+      RUN_TEAM_IDS: "1"
+      NOTIFIER_API_URL: http://notification-service:3002/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl-split.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
 
   worker-ifn:
     <<: *spx-common

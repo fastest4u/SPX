@@ -1,15 +1,27 @@
 import { validateRuntimeConfig, env } from "./config/env.js";
 import { closePool } from "./db/client.js";
 import { setTeamRuntimeActions } from "./controllers/teams-controller.js";
-import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState } from "./repositories/runtime-repository.js";
+import {
+  listTeamRuntimeDesiredStates,
+  setTeamRuntimeDesiredState,
+} from "./repositories/runtime-repository.js";
 import { ensureDefaultTeamFromLegacySettings } from "./repositories/team-repository.js";
 import { createAdminUserIfNotExists } from "./repositories/user-repository.js";
 import { startHttpServer, stopHttpServer } from "./services/http-server.js";
 import { handleRecoverableLineJsListenerRejection } from "./services/line-bot.js";
-import { startNotificationDispatchLoop, type NotificationDispatchLoop } from "./services/notification-dispatcher.js";
-import { sendLineTargetMessage } from "./services/notifier.js";
+import { startLineImageListenerForRole } from "./services/line-image-listener-runtime.js";
+import {
+  startNotificationDispatchLoop,
+  type NotificationDispatchLoop,
+} from "./services/notification-dispatcher.js";
+import { createNotificationLineSender } from "./services/notification-line-sender.js";
 import { migrateJsonToDb } from "./services/notify-rules.js";
-import { roleRunsHttp, roleRunsNotifier, roleRunsWorkers } from "./services/runtime-role.js";
+import {
+  httpSurfaceForRole,
+  roleRunsHttp,
+  roleRunsNotifier,
+  roleRunsWorkers,
+} from "./services/runtime-role.js";
 import { loadDbFirstSettingsIntoEnv } from "./services/settings.js";
 import { createRoleAwareTeamRuntimeActions } from "./services/team-runtime-actions.js";
 import { TeamRuntimeManager } from "./services/team-runtime-manager.js";
@@ -29,7 +41,10 @@ function parseIntervalArg(value: string | undefined): number | undefined {
 }
 
 function canUseSettingsDatabase(): boolean {
-  return env.DB_MODE === "memory" || Boolean(env.DB_HOST && env.DB_USERNAME && env.DB_PASSWORD && env.DB_NAME);
+  return (
+    env.DB_MODE === "memory" ||
+    Boolean(env.DB_HOST && env.DB_USERNAME && env.DB_PASSWORD && env.DB_NAME)
+  );
 }
 
 function installShutdownHandlers(
@@ -41,6 +56,14 @@ function installShutdownHandlers(
   const shutdown = async (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
+
+    // Start a watchdog timer to force exit if graceful shutdown hangs (e.g. active SSE streams)
+    const watchdog = setTimeout(() => {
+      console.error("Graceful shutdown timed out, force exiting...");
+      process.exit(exitCode === 0 ? 1 : exitCode);
+    }, 10000);
+    watchdog.unref();
+
     try {
       stopBackgroundLoops();
       await manager.stopAll();
@@ -50,6 +73,8 @@ function installShutdownHandlers(
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
+    } finally {
+      clearTimeout(watchdog);
     }
     process.exit(exitCode);
   };
@@ -57,12 +82,12 @@ function installShutdownHandlers(
   process.once("SIGINT", () => void shutdown(0));
   process.once("SIGTERM", () => void shutdown(0));
   process.once("uncaughtException", (error) => {
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
     void shutdown(1);
   });
   process.on("unhandledRejection", (reason) => {
     if (handleRecoverableLineJsListenerRejection(reason)) return;
-    console.error(reason instanceof Error ? reason.stack ?? reason.message : String(reason));
+    console.error(reason instanceof Error ? (reason.stack ?? reason.message) : String(reason));
     void shutdown(1);
   });
 }
@@ -87,48 +112,71 @@ async function main(): Promise<void> {
     await ensureDefaultTeamFromLegacySettings();
   }
 
-  if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
+  const httpSurface = httpSurfaceForRole(env.SPX_ROLE);
+
+  if (env.HTTP_ENABLED && httpSurface === "web-api") {
     await createAdminUserIfNotExists(env.ADMIN_USERNAME, env.ADMIN_PASSWORD, env.ADMIN_ROLE);
   }
 
   const runtimeManager = new TeamRuntimeManager({
     intervalSec,
     assignedTeamIds: env.SPX_ROLE === "worker" ? env.RUN_TEAM_IDS : undefined,
-    lease: roleRunsWorkers(env.SPX_ROLE) ? {
-      nodeId: env.SPX_NODE_ID || "combined-worker",
-      role: env.SPX_ROLE,
-      ttlMs: 30_000,
-      renewIntervalMs: 10_000,
-    } : undefined,
-    desiredState: roleRunsWorkers(env.SPX_ROLE) ? {
-      intervalMs: 1_000,
-      list: listTeamRuntimeDesiredStates,
-      set: setTeamRuntimeDesiredState,
-    } : undefined,
+    lease: roleRunsWorkers(env.SPX_ROLE)
+      ? {
+          nodeId: env.SPX_NODE_ID || "combined-worker",
+          role: env.SPX_ROLE,
+          ttlMs: 30_000,
+          renewIntervalMs: 10_000,
+        }
+      : undefined,
+    desiredState: roleRunsWorkers(env.SPX_ROLE)
+      ? {
+          intervalMs: 1_000,
+          list: listTeamRuntimeDesiredStates,
+          set: setTeamRuntimeDesiredState,
+        }
+      : undefined,
   });
   const workerActionsEnabled = roleRunsWorkers(env.SPX_ROLE);
   setTeamRuntimeActions(createRoleAwareTeamRuntimeActions(runtimeManager, workerActionsEnabled));
-  installShutdownHandlers(runtimeManager, () => httpStarted, () => {
-    notificationLoop?.stop();
-    notificationLoop = null;
-    stopDesiredStateLoop?.();
-    stopDesiredStateLoop = null;
-  });
+  installShutdownHandlers(
+    runtimeManager,
+    () => httpStarted,
+    () => {
+      notificationLoop?.stop();
+      notificationLoop = null;
+      stopDesiredStateLoop?.();
+      stopDesiredStateLoop = null;
+    },
+  );
 
   if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
-    await startHttpServer(env.HTTP_PORT);
+    await startHttpServer(env.HTTP_PORT, { surface: httpSurface ?? "web-api" });
     httpStarted = true;
   }
 
   if (roleRunsNotifier(env.SPX_ROLE)) {
+    const notifierNodeId = env.SPX_NODE_ID || "combined-notifier";
     notificationLoop = startNotificationDispatchLoop({
-      nodeId: env.SPX_NODE_ID || "combined-notifier",
+      nodeId: notifierNodeId,
       batchSize: 10,
       lockMs: 30_000,
       intervalMs: 1_000,
-      sendLineMessage: sendLineTargetMessage,
+      sendLineMessage: createNotificationLineSender({
+        lineServiceUrl: env.LINE_SERVICE_URL,
+        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        nodeId: notifierNodeId,
+        requestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
+        allowLocalFallback: env.SPX_ROLE === "notifier" || env.SPX_ROLE === "combined",
+      }),
     });
   }
+
+  await startLineImageListenerForRole({
+    role: env.SPX_ROLE,
+    nodeId: env.SPX_NODE_ID || "combined-line-service",
+    chatId: env.LINE_IMAGE_LISTENER_CHAT_ID,
+  });
 
   if (roleRunsWorkers(env.SPX_ROLE)) {
     await runtimeManager.startAllEnabledTeams();

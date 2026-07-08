@@ -31,6 +31,10 @@
     "frontend:build": "vite build --emptyOutDir",
     "flow:start": "npm run db:migrate && npm run build --silent && node dist/app.js",
     "schema:verify": "node scripts/schema-verify.mjs",
+    "service:fault-check": "node scripts/service-fault-check.mjs",
+    "service:fault-publish-notification": "node scripts/service-fault-publish-notification.mjs",
+    "service:fault-evidence-check": "node scripts/service-fault-evidence-check.mjs",
+    "service:fault-outbox-check": "node scripts/service-fault-outbox-check.mjs",
     "verify": "npm run build"
   },
   "keywords": [

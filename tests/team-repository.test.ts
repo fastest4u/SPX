@@ -85,6 +85,25 @@ async function main(): Promise<void> {
     COOKIE: "legacy-cookie",
     DEVICE_ID: "legacy-device",
     LINE_USER_ID: "legacy-line-group",
+  });
+  await teams.createTeam({
+    name: "Default Team",
+    enabled: true,
+    spxCookie: "existing-cookie",
+    spxDeviceId: "existing-device",
+    lineGroupId: "legacy-line-group",
+  });
+  const missingLegacyTargetsDefaultTeam = await teams.ensureDefaultTeamFromLegacySettings();
+  assert.equal(missingLegacyTargetsDefaultTeam.id, 1);
+  const missingLegacyTargetsRuntime = await teams.getTeamRuntimeConfig(1);
+  assert.equal(missingLegacyTargetsRuntime?.autoAcceptSuccessLineGroupId, "legacy-line-group");
+  assert.equal(missingLegacyTargetsRuntime?.autoAcceptFailureLineGroupId, "legacy-line-group");
+
+  await resetDb();
+  await upsertAppSettings({
+    COOKIE: "legacy-cookie",
+    DEVICE_ID: "legacy-device",
+    LINE_USER_ID: "legacy-line-group",
     LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS: "legacy-success-line-group",
     LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE: "legacy-failure-line-group",
   });
