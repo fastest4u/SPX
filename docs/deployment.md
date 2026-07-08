@@ -84,7 +84,7 @@ Workers call the notifier over Docker networking. Notification events use `/inte
 
 ### Split-Service Topology (Optional)
 
-`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide per-cutover `LINE_SERVICE_SEND_SECRET` only to `web-api`, `notification-service`, and `line-service`, provide `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
+`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the legacy topology by default on `main` pushes; after Task 9 drill evidence is recorded, operators can explicitly choose `deploy_topology=split` from `workflow_dispatch`. For a manual cutover, stop legacy services first, provide per-cutover `LINE_SERVICE_SEND_SECRET` only to `web-api`, `notification-service`, and `line-service`, provide `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
 
 ```bash
 docker compose stop notifier worker-ifn worker-ptwl
@@ -119,7 +119,7 @@ Rollback path:
 
 ### Split-Service Fault-Injection Drill
 
-Run this in staging or during a supervised production migration window before making split services the default topology.
+Run this in staging or during a supervised production migration window before selecting `deploy_topology=split` or making split services the default topology.
 
 Read-only host probe for the public web API:
 

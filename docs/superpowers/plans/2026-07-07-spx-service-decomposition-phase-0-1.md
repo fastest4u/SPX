@@ -311,7 +311,7 @@ export function createNotificationLineSender(
 - `LINE_SERVICE_URL`: process-local base URL such as `http://line-service:3003`.
 - `LINE_SERVICE_REQUEST_TIMEOUT_MS`: process-local timeout; default `1500`.
 
-Use `NOTIFIER_SHARED_SECRET` as the initial internal shared secret for both worker-to-notification and notification-to-line calls. Rename to a broader service token in a later ADR when operators are ready to rotate secrets.
+Use `NOTIFIER_SHARED_SECRET` for worker-to-notification calls. Use `LINE_SERVICE_SEND_SECRET` for notification-to-line calls and authenticated web-api manual LINE sends so workers cannot bypass the notification outbox and call line-service directly.
 
 **Steps:**
 

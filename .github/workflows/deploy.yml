@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      deploy_topology:
+        description: "Production topology to deploy. Use split only after Task 9 evidence is recorded."
+        required: true
+        default: legacy
+        type: choice
+        options:
+          - legacy
+          - split
 
 concurrency:
   group: spx-production
@@ -109,9 +118,9 @@ jobs:
               exit 1
             fi
 
-            DEPLOY_TOPOLOGY="${SPX_DEPLOY_TOPOLOGY:-split}"
+            DEPLOY_TOPOLOGY="${{ github.event.inputs.deploy_topology || 'legacy' }}"
             if [ "${DEPLOY_TOPOLOGY}" != "legacy" ] && [ "${DEPLOY_TOPOLOGY}" != "split" ]; then
-              echo "SPX_DEPLOY_TOPOLOGY must be legacy or split"
+              echo "deploy_topology must be legacy or split"
               exit 1
             fi
 
