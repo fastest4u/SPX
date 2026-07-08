@@ -289,7 +289,9 @@ export function validateRuntimeConfig(): void {
   if (runtimeRole === "notification-service" && !env.LINE_SERVICE_URL.trim())
     missing.push("LINE_SERVICE_URL");
   if (
-    (runtimeRole === "notification-service" || runtimeRole === "line-service") &&
+    (runtimeRole === "notification-service" ||
+      runtimeRole === "line-service" ||
+      (runsWebApiHttp && env.LINE_SERVICE_URL.trim())) &&
     !env.LINE_SERVICE_SEND_SECRET.trim()
   )
     missing.push("LINE_SERVICE_SEND_SECRET");

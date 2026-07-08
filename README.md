@@ -185,7 +185,7 @@ Split-service internal endpoints are only registered on their matching internal 
 | ---------------------- | ------ | ------------------------------- | ------------------------------------------- |
 | `notification-service` | POST   | `/internal/notification-events` | Worker notification event intake            |
 | `notification-service` | POST   | `/internal/runtime-metrics`     | Worker runtime metrics intake               |
-| `line-service`         | POST   | `/internal/line/messages`       | Notification-service to LINEJS send command |
+| `line-service`         | POST   | `/internal/line/messages`       | Notification-service or authenticated web API LINEJS send command |
 | `line-service`         | POST   | `/internal/line/status`         | Signed LINEJS status read                   |
 | `line-service`         | POST   | `/internal/line/login`          | Signed QR login request                     |
 | `line-service`         | POST   | `/internal/line/groups`         | Signed group list read                      |
@@ -196,4 +196,4 @@ Split-service internal endpoints are only registered on their matching internal 
 
 These internal endpoints require signed service-auth headers and should stay on the Docker/private network.
 
-When `LINE_SERVICE_URL` is set on the web API/legacy notifier, authenticated `/api/line-bot/*` routes proxy to the split `line-service`. Legacy local LINEJS fallback is used only when `LINE_SERVICE_URL` is unset.
+When `LINE_SERVICE_URL` is set on the web API/legacy notifier, authenticated `/api/line-bot/*` routes proxy to the split `line-service`; `/api/line-bot/send` signs with `LINE_SERVICE_SEND_SECRET` and admin/status routes sign with `LINE_SERVICE_ADMIN_SECRET`. Legacy local LINEJS fallback is used only when `LINE_SERVICE_URL` is unset.

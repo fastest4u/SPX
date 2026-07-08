@@ -15,7 +15,7 @@ import { resolveAuthUserFromJwtPayload } from "./auth-session.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 import { isAppError } from "../utils/errors.js";
 import { resolve } from "node:path";
-import type { HttpSurface } from "./runtime-role.js";
+import type { HttpSurface, RuntimeRole } from "./runtime-role.js";
 import { buildServiceReadiness } from "./service-health.js";
 
 import { authController } from "../controllers/auth-controller.js";
@@ -42,6 +42,7 @@ let app: FastifyInstance | null = null;
 
 export interface HttpServerOptions {
   surface: HttpSurface;
+  role?: RuntimeRole;
 }
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -444,7 +445,8 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     );
   });
 
-  if (options.surface === "web-api" || options.surface === "notification-service") {
+  const legacyNotificationSurface = options.role === "notifier" || options.role === "combined";
+  if (options.surface === "notification-service" || legacyNotificationSurface) {
     await app.register(internalNotificationController, {
       prefix: "/internal",
       sharedSecret: env.NOTIFIER_SHARED_SECRET,
@@ -577,7 +579,7 @@ export async function startHttpServer(
   app = await createHttpServer(options);
 
   await app.listen({ port, host: "0.0.0.0" });
-  logger.info("http-server-started", { url: `http://localhost:${port}`, surface: options.surface });
+  logger.info("http-server-started", { url: `http://localhost:${port}`, surface: options.surface, role: options.role });
 }
 
 export async function stopHttpServer(): Promise<void> {

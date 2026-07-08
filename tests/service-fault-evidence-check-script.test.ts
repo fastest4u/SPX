@@ -335,7 +335,7 @@ async function main() {
     };
     unsafeValueVariantEvidence.ocrRecoveryObserved = {
       ...unsafeValueVariantEvidence.ocrRecoveryObserved,
-      note: "password=plain-text-secret DB_PASSWORD=db-secret OPENAI_API_KEY=api-secret accessToken=inline-token",
+      note: "password=plain-text-secret DB_PASSWORD:db-secret OPENAI_API_KEY=api-secret accessToken:inline-token",
     };
     const unsafeValueVariant = await runScript([
       `--fixture-json=${JSON.stringify(unsafeValueVariantEvidence)}`,

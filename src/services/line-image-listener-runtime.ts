@@ -22,11 +22,15 @@ function maskTarget(value: string): string {
   return trimmed.length <= 4 ? "****" : `****${trimmed.slice(-4)}`;
 }
 
+function roleOwnsLineClient(role: RuntimeRole): boolean {
+  return role === "notifier" || roleRunsLineService(role);
+}
+
 export function shouldStartLineImageListener(
   role: RuntimeRole,
   chatId: string | undefined,
 ): boolean {
-  return roleRunsLineService(role) && Boolean(chatId?.trim());
+  return roleOwnsLineClient(role) && Boolean(chatId?.trim());
 }
 
 async function resolveStartImageListener(
@@ -50,7 +54,7 @@ async function resolveInitializeLineClient(
 export async function startLineImageListenerForRole(
   options: StartLineImageListenerForRoleOptions,
 ): Promise<boolean> {
-  if (!roleRunsLineService(options.role)) return false;
+  if (!roleOwnsLineClient(options.role)) return false;
 
   const log = options.logger ?? defaultLogger;
   const chatId = options.chatId.trim();

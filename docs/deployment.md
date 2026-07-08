@@ -84,7 +84,7 @@ Workers call the notifier over Docker networking. Notification events use `/inte
 
 ### Split-Service Topology (Optional)
 
-`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide per-cutover `LINE_SERVICE_SEND_SECRET` only to `notification-service` and `line-service`, provide `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
+`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide per-cutover `LINE_SERVICE_SEND_SECRET` only to `web-api`, `notification-service`, and `line-service`, provide `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
 
 ```bash
 docker compose stop notifier worker-ifn worker-ptwl
@@ -108,7 +108,7 @@ Target single-host topology:
 
 Only `web-api` should be published through nginx/public ports. Keep `notification-service`, `line-service`, and `ocr-service` on internal Docker network ports unless an operator intentionally exposes them for a private admin network.
 
-`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested. `LINE_SERVICE_SEND_SECRET` is process-local credential material for notification-service-to-line-service send routes; do not expose it to workers or web-api. `LINE_SERVICE_ADMIN_SECRET` is process-local credential material for web-api-to-line-service admin/status routes; do not store either split secret in DB-backed `app_settings`.
+`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested. `LINE_SERVICE_SEND_SECRET` is process-local credential material for notification-service-to-line-service sends and authenticated web-api-to-line-service manual sends; do not expose it to workers. `LINE_SERVICE_ADMIN_SECRET` is process-local credential material for web-api-to-line-service admin/status routes; do not store either split secret in DB-backed `app_settings`.
 
 Rollback path:
 

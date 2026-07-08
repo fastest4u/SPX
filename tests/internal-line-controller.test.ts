@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { closePool } from "../src/db/client.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
-import { claimNotificationOutboxBatch, createNotificationEventAndOutbox } from "../src/repositories/notification-repository.js";
+import {
+  claimNotificationOutboxBatch,
+  createNotificationEventAndOutbox,
+  markNotificationFailed,
+} from "../src/repositories/notification-repository.js";
 import {
   internalLineController,
   type InternalLineControllerOptions,
@@ -526,6 +530,63 @@ async function testSentOutboxIdDedupesAfterControllerRestart(): Promise<void> {
   assert.equal(sendCount, 1);
 }
 
+async function testProviderSuccessCanRecoverTimedOutDispatchFailure(): Promise<void> {
+  await resetDb();
+  const eventKey = "auto_accept_owned:team:2:booking:2791810:req:timeout-race-recovery";
+  const created = await createNotificationEventAndOutbox(buildNotificationEvent(eventKey), {
+    targetType: "line_group",
+    targetId: "C123456789-secret-target",
+    title: "success",
+    message: "accepted",
+  });
+  const [claimed] = await claimNotificationOutboxBatch(notificationNodeId, 5, 30_000);
+  assert.equal(claimed?.id, created.outboxId);
+  assert.equal(
+    await markNotificationFailed(
+      created.outboxId,
+      notificationNodeId,
+      "caller timed out",
+      1000,
+    ),
+    true,
+  );
+
+  let sendCount = 0;
+  const body: LineServiceSendRequest = {
+    targetId: "C123456789-secret-target",
+    text: "provider completed after timeout",
+    traceId: eventKey,
+    outboxId: created.outboxId,
+  };
+  const rawBody = JSON.stringify(body);
+
+  await withController(
+    {
+      line: {
+        isEnabled: () => true,
+        getStatus: () => ({ enabled: true, authenticated: true, message: "connected" }),
+        sendMessage: async () => {
+          sendCount += 1;
+          return { ok: true };
+        },
+      },
+    },
+    async (app) => {
+      const response = await app.inject({
+        method: "POST",
+        url: LINE_INTERNAL_SEND_PATH,
+        headers: signedHeaders({ path: LINE_INTERNAL_SEND_PATH, body: rawBody, eventKey }),
+        payload: rawBody,
+      });
+      assert.equal(response.statusCode, 200);
+    },
+  );
+
+  const retry = await claimNotificationOutboxBatch("retry-node", 5, 30_000, new Date(Date.now() + 3_000));
+  assert.equal(retry.length, 0);
+  assert.equal(sendCount, 1);
+}
+
 async function main(): Promise<void> {
   await testSignedSendSucceeds();
   await testAuthFailureReturns401();
@@ -537,6 +598,7 @@ async function main(): Promise<void> {
   await testAdminRoutesRejectSharedSecretSpoofingWebApiNode();
   await testRepeatedOutboxIdDoesNotSendTwice();
   await testSentOutboxIdDedupesAfterControllerRestart();
+  await testProviderSuccessCanRecoverTimedOutDispatchFailure();
 }
 
 main().catch((error) => {

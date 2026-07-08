@@ -76,7 +76,7 @@ Internal service URLs:
 | --------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NOTIFIER_API_URL`                | workers                                    | `http://notification-service:3002/internal/notification-events` in split mode, or `http://notifier:3000/internal/notification-events` in legacy mode |
 | `LINE_SERVICE_URL`                | notification-service, web API proxy routes | `http://line-service:3003`                                                                                                                           |
-| `LINE_SERVICE_SEND_SECRET`        | notification-service and line-service only | generated per split cutover                                                                                                                         |
+| `LINE_SERVICE_SEND_SECRET`        | web API, notification-service, and line-service | generated per split cutover                                                                                                                     |
 | `LINE_SERVICE_ADMIN_SECRET`       | web API and line-service only             | generated per split cutover                                                                                                                         |
 | `LINE_SERVICE_REQUEST_TIMEOUT_MS` | notification-service, web API proxy routes | `1500`                                                                                                                                               |
 | `OCR_SERVICE_URL`                 | line-service                               | `http://ocr-service:3004`                                                                                                                            |
@@ -90,7 +90,7 @@ Split-service internal endpoints:
 | `line-service`         | `POST /internal/line/messages`, `POST /internal/line/status`, `POST /internal/line/login`, `POST /internal/line/groups`, `POST /internal/line/profile`, `POST /internal/line/storage`, `POST /internal/line/logout` |
 | `ocr-service`          | `POST /internal/ocr/line-image`                                                                                                                                                                                     |
 
-Worker-to-notification-service endpoints use `NOTIFIER_SHARED_SECRET`. Notification-service-to-line-service sends use `LINE_SERVICE_SEND_SECRET`, so workers cannot bypass the notification outbox and call LINE send directly with the worker notification secret. LINE status/admin endpoints use `LINE_SERVICE_ADMIN_SECRET` so workers and notification-service cannot spoof web-api admin actions with the shared notification secret. Public `/health` and `/ready` remain available on every HTTP surface for process and readiness checks.
+Worker-to-notification-service endpoints use `NOTIFIER_SHARED_SECRET`. Notification-service-to-line-service sends and the authenticated web API `/api/line-bot/send` proxy use `LINE_SERVICE_SEND_SECRET`, so workers cannot bypass the notification outbox and call LINE send directly with the worker notification secret. LINE status/admin endpoints use `LINE_SERVICE_ADMIN_SECRET` so workers and notification-service cannot spoof web-api admin actions with the shared notification secret. Public `/health` and `/ready` remain available on every HTTP surface for process and readiness checks.
 
 When `LINE_SERVICE_URL` is configured, the web API's authenticated `/api/line-bot/*` routes proxy through the split `line-service` instead of loading local LINEJS state. Legacy local LINEJS fallback is used only when `LINE_SERVICE_URL` is unset.
 
@@ -121,7 +121,7 @@ Before removing legacy runtime values from production `.env`, deploy the DB-firs
 ## Validation Rules
 
 - URLs ต้องเป็น valid URL format
-- Integer fields ต้องเป็นค่าบวก
+- Integer fields ต้องเป็นตัวเลขตาม contract ของแต่ละค่า; ส่วนใหญ่ต้องเป็นค่าบวก แต่บางค่าอนุญาต `0` หรือค่าว่างตาม `src/config/env.ts`
 - Dashboard secrets (`JWT_SECRET`, `COOKIE_SECRET`) ต้อง ≥ 32 characters
 - Admin password ต้องแข็งแรงเพียงพอ
 - CORS origins ต้องเป็น valid URLs

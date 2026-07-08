@@ -53,6 +53,7 @@ services:
 
   # Optional split-service topology. Stop legacy services first, then start split services explicitly with:
   #   docker compose stop notifier worker-ifn worker-ptwl
+  #   export LINE_SERVICE_SEND_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
   #   export LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
   #   docker compose --profile split up --build \
   #     web-api notification-service line-service ocr-service \
@@ -70,6 +71,7 @@ services:
       HTTP_ENABLED: "true"
       HTTP_PORT: "3000"
       LINE_SERVICE_URL: http://line-service:3003
+      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
       LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
     command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
     healthcheck: *spx-http-healthcheck

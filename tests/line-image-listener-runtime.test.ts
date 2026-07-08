@@ -6,10 +6,10 @@ import {
 
 assert.equal(shouldStartLineImageListener("line-service", "C123"), true);
 assert.equal(shouldStartLineImageListener("combined", "C123"), true);
+assert.equal(shouldStartLineImageListener("notifier", "C123"), true);
 assert.equal(shouldStartLineImageListener("line-service", " "), false);
 assert.equal(shouldStartLineImageListener("api", "C123"), false);
 assert.equal(shouldStartLineImageListener("notification-service", "C123"), false);
-assert.equal(shouldStartLineImageListener("notifier", "C123"), false);
 
 async function main(): Promise<void> {
   const started: string[] = [];

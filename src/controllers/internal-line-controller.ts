@@ -20,7 +20,7 @@ import {
 import { verifyInternalSignature } from "../services/internal-auth.js";
 import {
   getNotificationOutboxDeliveryState,
-  markNotificationDelivered,
+  markNotificationDeliveredAfterProviderSend,
 } from "../repositories/notification-repository.js";
 import type {
   LineBotProfile,
@@ -49,7 +49,7 @@ export interface InternalLineControllerOptions {
 }
 
 const MAX_DEDUPED_OUTBOX_IDS = 10_000;
-const sentOutboxIds = new Set<number>();
+const sentOutboxIds = new Set<string>();
 
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -97,17 +97,24 @@ function verifySignedRequest(input: {
   return authResult.ok ? { ok: true, nodeId } : { ok: false };
 }
 
-function rememberSentOutboxId(outboxId: number | undefined): void {
-  if (!outboxId) return;
-  sentOutboxIds.add(outboxId);
+function sentOutboxDedupeKey(outboxId: number | undefined, traceId: string | undefined): string | null {
+  if (!outboxId) return null;
+  return `${outboxId}:${traceId ?? ""}`;
+}
+
+function rememberSentOutboxId(outboxId: number | undefined, traceId: string | undefined): void {
+  const key = sentOutboxDedupeKey(outboxId, traceId);
+  if (!key) return;
+  sentOutboxIds.add(key);
   if (sentOutboxIds.size > MAX_DEDUPED_OUTBOX_IDS) {
-    const oldest = sentOutboxIds.values().next().value as number | undefined;
+    const oldest = sentOutboxIds.values().next().value as string | undefined;
     if (oldest !== undefined) sentOutboxIds.delete(oldest);
   }
 }
 
-function hasSentOutboxId(outboxId: number | undefined): boolean {
-  return Boolean(outboxId && sentOutboxIds.has(outboxId));
+function hasSentOutboxId(outboxId: number | undefined, traceId: string | undefined): boolean {
+  const key = sentOutboxDedupeKey(outboxId, traceId);
+  return Boolean(key && sentOutboxIds.has(key));
 }
 
 function sentResponse(): LineServiceSendResponse {
@@ -196,7 +203,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       return retryableUnavailable(reply, "LINE_SERVICE_UNAVAILABLE", "LINE service is unavailable");
     }
 
-    if (hasSentOutboxId(body.outboxId)) {
+    if (hasSentOutboxId(body.outboxId, body.traceId)) {
       return sendSuccess(reply, sentResponse());
     }
 
@@ -212,7 +219,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
         );
       }
       if (state === "sent") {
-        rememberSentOutboxId(body.outboxId);
+        rememberSentOutboxId(body.outboxId, body.traceId);
         return sendSuccess(reply, sentResponse());
       }
     }
@@ -234,10 +241,10 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       });
     }
 
-    rememberSentOutboxId(body.outboxId);
+    rememberSentOutboxId(body.outboxId, body.traceId);
     if (body.outboxId) {
       try {
-        await markNotificationDelivered(body.outboxId, authResult.nodeId, "linejs");
+        await markNotificationDeliveredAfterProviderSend(body.outboxId, authResult.nodeId, "linejs");
       } catch {
         // The caller still marks the shared outbox row after this successful response.
       }

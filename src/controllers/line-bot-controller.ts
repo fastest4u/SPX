@@ -54,7 +54,7 @@ function isRemoteLineServiceEnabled(options: LineBotControllerOptions): boolean 
   return options.lineService?.isEnabled?.() ?? env.LINE_SERVICE_URL.trim() !== "";
 }
 
-function lineServiceClientOptions(sharedSecret = env.NOTIFIER_SHARED_SECRET) {
+function lineServiceClientOptions(sharedSecret: string) {
   return {
     baseUrl: env.LINE_SERVICE_URL,
     sharedSecret,
@@ -67,6 +67,10 @@ function lineServiceAdminClientOptions() {
   return lineServiceClientOptions(env.LINE_SERVICE_ADMIN_SECRET);
 }
 
+function lineServiceSendClientOptions() {
+  return lineServiceClientOptions(env.LINE_SERVICE_SEND_SECRET);
+}
+
 async function defaultLineServiceStatus(): Promise<LineServiceStatusResult> {
   return getLineServiceStatus(lineServiceAdminClientOptions());
 }
@@ -74,7 +78,7 @@ async function defaultLineServiceStatus(): Promise<LineServiceStatusResult> {
 async function defaultLineServiceSend(
   request: LineServiceSendRequest,
 ): Promise<LineServiceMessageResult> {
-  return sendLineServiceMessage(lineServiceClientOptions(), request);
+  return sendLineServiceMessage(lineServiceSendClientOptions(), request);
 }
 
 async function defaultLineServiceLogin(): Promise<LineServiceLoginResult> {

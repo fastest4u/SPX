@@ -1,6 +1,87 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
 import { lineBotController } from "../src/controllers/line-bot-controller.js";
+import { env } from "../src/config/env.js";
+import { verifyInternalSignature } from "../src/services/internal-auth.js";
+import { LINE_INTERNAL_SEND_PATH } from "../src/services/line-service-contract.js";
+
+async function testDefaultRemoteSendUsesLineServiceSendSecret(): Promise<void> {
+  let capturedHeaders: Headers | undefined;
+  let capturedBody = "";
+  const sendSecret = "line-send-secret-for-web-api";
+  const server = createServer((request, response) => {
+    if (request.url !== LINE_INTERNAL_SEND_PATH || request.method !== "POST") {
+      response.writeHead(404);
+      response.end("not found");
+      return;
+    }
+    capturedHeaders = new Headers(request.headers as Record<string, string>);
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      capturedBody += chunk;
+    });
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "success", data: { sent: true, provider: "linejs" } }));
+    });
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const previous = {
+    lineServiceUrl: env.LINE_SERVICE_URL,
+    lineServiceSendSecret: env.LINE_SERVICE_SEND_SECRET,
+    lineServiceRequestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
+    nodeId: env.SPX_NODE_ID,
+  };
+  const app = Fastify({ logger: false });
+  try {
+    const { port } = server.address() as AddressInfo;
+    env.LINE_SERVICE_URL = `http://127.0.0.1:${port}`;
+    env.LINE_SERVICE_SEND_SECRET = sendSecret;
+    env.LINE_SERVICE_REQUEST_TIMEOUT_MS = 1000;
+    env.SPX_NODE_ID = "web-api-test-node";
+
+    await app.register(lineBotController, {
+      lineService: { isEnabled: () => true },
+      loadLocalLineBot: async () => {
+        throw new Error("local LINEJS must not load in remote line-service mode");
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/send",
+      payload: { to: "C123456789", text: "hello through default client" },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const timestamp = capturedHeaders?.get("x-spx-timestamp") ?? "";
+    assert.deepEqual(
+      verifyInternalSignature({
+        body: capturedBody,
+        timestamp,
+        nodeId: "web-api-test-node",
+        path: LINE_INTERNAL_SEND_PATH,
+        secret: sendSecret,
+        signature: capturedHeaders?.get("x-spx-signature") ?? "",
+        now: new Date(timestamp),
+      }),
+      { ok: true },
+    );
+  } finally {
+    env.LINE_SERVICE_URL = previous.lineServiceUrl;
+    env.LINE_SERVICE_SEND_SECRET = previous.lineServiceSendSecret;
+    env.LINE_SERVICE_REQUEST_TIMEOUT_MS = previous.lineServiceRequestTimeoutMs;
+    env.SPX_NODE_ID = previous.nodeId;
+    await app.close();
+    server.close();
+    await once(server, "close");
+  }
+}
 
 async function main(): Promise<void> {
   const app = Fastify({ logger: false });
@@ -210,6 +291,7 @@ async function main(): Promise<void> {
   assert.equal(localLoadCalls, 0);
 
   await app.close();
+  await testDefaultRemoteSendUsesLineServiceSendSecret();
 }
 
 main().catch((error) => {

@@ -23,8 +23,9 @@ const lineInternalPaths = [
 async function withServer<T>(
   surface: Parameters<typeof createHttpServer>[0]["surface"],
   fn: (app: Awaited<ReturnType<typeof createHttpServer>>) => Promise<T>,
+  role?: Parameters<typeof createHttpServer>[0]["role"],
 ): Promise<T> {
-  const app = await createHttpServer({ surface });
+  const app = await createHttpServer({ surface, role });
   try {
     return await fn(app);
   } finally {
@@ -141,6 +142,20 @@ async function main(): Promise<void> {
     const settings = await app.inject({ method: "GET", url: "/api/settings" });
     assert.equal(settings.statusCode, 401);
 
+    const internalNotification = await app.inject({
+      method: "POST",
+      url: "/internal/notification-events",
+      payload: {},
+    });
+    assert.equal(internalNotification.statusCode, 404);
+
+    const internalMetrics = await app.inject({
+      method: "POST",
+      url: "/internal/runtime-metrics",
+      payload: {},
+    });
+    assert.equal(internalMetrics.statusCode, 404);
+
     for (const url of lineInternalPaths) {
       const internalLine = await app.inject({
         method: "POST",
@@ -150,6 +165,15 @@ async function main(): Promise<void> {
       assert.equal(internalLine.statusCode, 404, `${url} should not be registered on web-api`);
     }
   });
+
+  await withServer("web-api", async (app) => {
+    const internalNotification = await app.inject({
+      method: "POST",
+      url: "/internal/notification-events",
+      payload: {},
+    });
+    assert.equal(internalNotification.statusCode, 401);
+  }, "notifier");
 }
 
 main().catch((error) => {

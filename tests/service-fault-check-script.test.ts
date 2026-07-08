@@ -51,7 +51,7 @@ async function main() {
   const server = createServer((request, response) => {
     if (request.url === "/health") {
       response.writeHead(200, { "content-type": "text/plain" });
-      response.end("ok token=plain-secret password=hunter2 Authorization=Bearer abc123");
+      response.end("ok token=plain-secret password:hunter2 OPENAI_API_KEY:api-secret Authorization: Bearer abc123");
       return;
     }
 
@@ -64,7 +64,7 @@ async function main() {
           nested: {
             password: "json-password",
             message:
-              "credential=inline-secret cookie=session-secret DB_PASSWORD=db-secret OPENAI_API_KEY=api-secret accessToken=inline-token",
+              "credential=inline-secret cookie:session-secret DB_PASSWORD:db-secret OPENAI_API_KEY=api-secret accessToken:inline-token",
           },
           auth: ["Bearer nested-token"],
         }),
@@ -120,6 +120,7 @@ async function main() {
     assert.equal(output.services[0].url, `http://127.0.0.1:${port}/`);
     assert.match(output.services[0].health.data.text, /token=\[redacted\]/);
     assert.match(output.services[0].health.data.text, /password=\[redacted\]/);
+    assert.match(output.services[0].health.data.text, /OPENAI_API_KEY=\[redacted\]/);
     assert.match(output.services[0].health.data.text, /Authorization=\[redacted\]/i);
     assert.equal(output.services[0].ready.data.token, "[redacted]");
     assert.equal(output.services[0].ready.data.nested.password, "[redacted]");

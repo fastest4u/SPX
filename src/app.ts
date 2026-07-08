@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   );
 
   if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
-    await startHttpServer(env.HTTP_PORT, { surface: httpSurface ?? "web-api" });
+    await startHttpServer(env.HTTP_PORT, { surface: httpSurface ?? "web-api", role: env.SPX_ROLE });
     httpStarted = true;
   }
 

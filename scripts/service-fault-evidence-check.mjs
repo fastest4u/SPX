@@ -49,7 +49,7 @@ const UNSAFE_EVIDENCE_VALUE_PATTERNS = [
   /\bAuthorization\s*:\s*(?:Bearer|Basic)\s+\S+/i,
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/i,
   /\b(?:secret|token|password|cookie|credential|pincode)\s*[=:]\s*\S+/i,
-  /\b[A-Za-z0-9_.-]*(?:secret|token|password|cookie|credential|pincode|api[_-]?key)[A-Za-z0-9_.-]*\s*=\s*\S+/i,
+  /\b[A-Za-z0-9_.-]*(?:secret|token|password|cookie|credential|pincode|api[_-]?key)[A-Za-z0-9_.-]*\s*[=:]\s*\S+/i,
 ];
 const DIRECTORY_METADATA_FILE = "drill-metadata.json";
 const DIRECTORY_EVIDENCE_FILES = {

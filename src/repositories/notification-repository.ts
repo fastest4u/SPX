@@ -111,6 +111,19 @@ function lockedSendingWhere(outboxId: number, nodeId: string) {
   );
 }
 
+function deliveredAfterProviderSendWhere(outboxId: number, nodeId: string) {
+  return and(
+    eq(notificationOutbox.id, outboxId),
+    or(
+      lockedSendingWhere(outboxId, nodeId),
+      and(
+        eq(notificationOutbox.status, "failed"),
+        isNull(notificationOutbox.lockedBy),
+      ),
+    ),
+  );
+}
+
 function affectedRows(result: unknown): number | null {
   if (Array.isArray(result)) return affectedRows(result[0]);
   if (!result || typeof result !== "object") return null;
@@ -294,6 +307,48 @@ export async function markNotificationDelivered(
   await db.insert(notificationDeliveries).values({
     outboxId,
     deliveryAttempt: row.attempts + 1,
+    provider,
+    status: "success",
+    providerMessageId: providerMessageId ?? null,
+    startedAt: dbTimestamp(now),
+    finishedAt: dbTimestamp(now),
+  });
+
+  return true;
+}
+
+export async function markNotificationDeliveredAfterProviderSend(
+  outboxId: number,
+  nodeId: string,
+  provider: string,
+  providerMessageId?: string,
+  now = new Date(),
+): Promise<boolean> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [row] = await db
+    .select()
+    .from(notificationOutbox)
+    .where(deliveredAfterProviderSendWhere(outboxId, nodeId))
+    .limit(1);
+  if (!row) return false;
+
+  const updateResult = await db
+    .update(notificationOutbox)
+    .set({
+      status: "sent",
+      sentAt: dbTimestamp(now),
+      lockedBy: null,
+      lockedUntil: null,
+      lastError: null,
+      updatedAt: dbTimestamp(now),
+    })
+    .where(deliveredAfterProviderSendWhere(outboxId, nodeId));
+  if (affectedRows(updateResult) === 0) return false;
+
+  await db.insert(notificationDeliveries).values({
+    outboxId,
+    deliveryAttempt: row.status === "failed" ? Math.max(1, row.attempts) : row.attempts + 1,
     provider,
     status: "success",
     providerMessageId: providerMessageId ?? null,
