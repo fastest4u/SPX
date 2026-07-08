@@ -12,6 +12,7 @@ export interface StartLineImageListenerForRoleOptions {
   nodeId: string;
   chatId: string;
   startImageListener?: (chatId: string) => Promise<void>;
+  initializeLineClient?: () => Promise<void>;
   logger?: LineImageListenerRuntimeLogger;
 }
 
@@ -36,13 +37,41 @@ async function resolveStartImageListener(
   return lineBot.startImageListener;
 }
 
+async function resolveInitializeLineClient(
+  initializeLineClient: (() => Promise<void>) | undefined,
+): Promise<() => Promise<void>> {
+  if (initializeLineClient) return initializeLineClient;
+  const lineBot = await import("./line-bot.js");
+  return async () => {
+    await lineBot.getClient();
+  };
+}
+
 export async function startLineImageListenerForRole(
   options: StartLineImageListenerForRoleOptions,
 ): Promise<boolean> {
-  if (!shouldStartLineImageListener(options.role, options.chatId)) return false;
+  if (!roleRunsLineService(options.role)) return false;
 
   const log = options.logger ?? defaultLogger;
   const chatId = options.chatId.trim();
+  if (!chatId) {
+    const initializeLineClient = await resolveInitializeLineClient(options.initializeLineClient);
+    log.info("line-service-client-initialization-started", {
+      role: options.role,
+      nodeId: options.nodeId,
+    });
+    void Promise.resolve()
+      .then(() => initializeLineClient())
+      .catch((error) => {
+        log.error("line-service-client-initialization-failed", {
+          role: options.role,
+          nodeId: options.nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return true;
+  }
+
   const startImageListener = await resolveStartImageListener(options.startImageListener);
 
   log.info("line-image-listener-started", {

@@ -217,7 +217,8 @@ const invalidConfiguredServices = services
 
 const results = await Promise.all(services.map((service) => probeService(service, timeoutMs)));
 const checkedServiceNames = new Set(results.map((service) => service.name));
-const missingRequiredServices = [...requiredServices].filter(
+const servicesThatMustBeProbed = new Set([...requiredServices, ...allowDegraded]);
+const missingRequiredServices = [...servicesThatMustBeProbed].filter(
   (name) => knownServiceNames.has(name) && !checkedServiceNames.has(name),
 );
 const missingExpectedDownServices = [...expectedDownServices].filter(

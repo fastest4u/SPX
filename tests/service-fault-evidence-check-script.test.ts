@@ -314,6 +314,26 @@ async function main() {
       /C-secret-line-target|line-access-token|Bearer secret-token|not-for-evidence/,
     );
 
+    const unsafeValueVariantEvidence = validEvidence();
+    unsafeValueVariantEvidence.workerAlive = {
+      ...unsafeValueVariantEvidence.workerAlive,
+      note: "Authorization: Bearer secret-token-value",
+    };
+    unsafeValueVariantEvidence.ocrRecoveryObserved = {
+      ...unsafeValueVariantEvidence.ocrRecoveryObserved,
+      note: "password=plain-text-secret",
+    };
+    const unsafeValueVariant = await runScript([
+      `--fixture-json=${JSON.stringify(unsafeValueVariantEvidence)}`,
+    ]);
+    assert.equal(unsafeValueVariant.status, 1, unsafeValueVariant.stdout);
+    const unsafeValueVariantOutput = JSON.parse(unsafeValueVariant.stdout);
+    assert.deepEqual(unsafeValueVariantOutput.failedChecks, ["sanitizedEvidence"]);
+    assert.doesNotMatch(
+      unsafeValueVariant.stdout,
+      /secret-token-value|plain-text-secret/,
+    );
+
     const missingDrillMetadataEvidence = validEvidence();
     delete (missingDrillMetadataEvidence as { drillId?: string }).drillId;
     const missingDrillMetadata = await runScript([

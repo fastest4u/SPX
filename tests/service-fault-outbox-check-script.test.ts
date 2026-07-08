@@ -52,6 +52,9 @@ async function main() {
     { status: "failed", count: 2, attempted: 2, minAttempts: 1, maxAttempts: 3 },
     { status: "sent", count: 5, attempted: 5, minAttempts: 1, maxAttempts: 1 },
   ]);
+  const cleanSentFixture = JSON.stringify([
+    { status: "sent", count: 5, attempted: 0, minAttempts: 0, maxAttempts: 0 },
+  ]);
 
   const help = await runScript(["--help"], {
     DB_HOST: "db-host-should-not-print",
@@ -80,13 +83,14 @@ async function main() {
   assert.equal(successOutput.ok, true);
   assert.equal(successOutput.mode, "fixture");
   assert.equal(successOutput.summary.failedAttempts, 2);
+  assert.equal(successOutput.summary.retriedRows, 7);
   assert.equal(successOutput.summary.pending, 2);
   assert.equal(successOutput.summary.sent, 5);
   assert.deepEqual(successOutput.expectationFailures, []);
   assert.doesNotMatch(success.stdout, /target|payload|message|secret|password/i);
 
   const minTotalAndSent = await runScript([
-    `--fixture-json=${fixture}`,
+    `--fixture-json=${cleanSentFixture}`,
     "--min-total=1",
     "--expect-sent",
   ]);
@@ -95,6 +99,17 @@ async function main() {
   assert.equal(minTotalAndSentOutput.expectations.minTotal, 1);
   assert.equal(minTotalAndSentOutput.expectations.expectSent, true);
   assert.deepEqual(minTotalAndSentOutput.expectationFailures, []);
+
+  const sentAfterRetry = await runScript([
+    `--fixture-json=${JSON.stringify([{ status: "sent", count: 1, attempted: 1 }])}`,
+    "--min-total=1",
+    "--expect-sent",
+  ]);
+  assert.equal(sentAfterRetry.status, 1, sentAfterRetry.stdout);
+  const sentAfterRetryOutput = JSON.parse(sentAfterRetry.stdout);
+  assert.deepEqual(sentAfterRetryOutput.expectationFailures, [
+    "unexpected-failed-attempt-present",
+  ]);
 
   const missingSent = await runScript([
     `--fixture-json=${JSON.stringify([{ status: "queued", count: 1, attempted: 0 }])}`,

@@ -128,14 +128,45 @@ jobs:
               fi
             }
 
+            compose_up_split() {
+              docker compose stop notifier worker-ifn worker-ptwl || true
+              docker compose --profile split up -d --force-recreate \
+                web-api notification-service line-service ocr-service \
+                worker-ifn-split worker-ptwl-split
+            }
+
             compose_up_current() {
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
-                docker compose stop notifier worker-ifn worker-ptwl || true
-                docker compose --profile split up -d --force-recreate \
-                  web-api notification-service line-service ocr-service \
-                  worker-ifn-split worker-ptwl-split
+                compose_up_split
               else
                 docker compose up -d --remove-orphans --force-recreate
+              fi
+            }
+
+            detect_rollback_topology() {
+              split_web_api="$(docker compose --profile split ps -q web-api 2>/dev/null | head -n1 || true)"
+              if [ -n "${split_web_api}" ]; then
+                echo split
+              else
+                echo legacy
+              fi
+            }
+
+            rollback_legacy() {
+              if [ "${DEPLOY_TOPOLOGY}" = "split" ] || [ "${ROLLBACK_TOPOLOGY}" = "legacy" ]; then
+                docker compose --profile split stop \
+                  web-api notification-service line-service ocr-service \
+                  worker-ifn-split worker-ptwl-split || true
+              fi
+              docker compose up -d --remove-orphans --force-recreate
+            }
+
+            rollback_runtime() {
+              if [ "${ROLLBACK_TOPOLOGY}" = "split" ]; then
+                docker compose stop notifier worker-ifn worker-ptwl || true
+                compose_up_split
+              else
+                rollback_legacy
               fi
             }
 
@@ -202,15 +233,14 @@ jobs:
               fi
             }
 
-            rollback_legacy() {
-              docker compose up -d --remove-orphans --force-recreate
-            }
-
             if [ -d dist ]; then
               tar -czf "${ROLLBACK_DIST}" dist
             else
               rm -f "${ROLLBACK_DIST}"
             fi
+
+            ROLLBACK_TOPOLOGY="$(detect_rollback_topology)"
+            echo "Rollback topology: ${ROLLBACK_TOPOLOGY}"
 
             git fetch origin main
             git reset --hard origin/main
@@ -252,7 +282,23 @@ jobs:
             # In legacy topology, notifier runs the one migration. In split
             # topology, web-api runs the one migration before internal services
             # and workers start.
-            compose_up_current
+            if ! compose_up_current; then
+              echo "docker compose up failed; rolling back to ${PREVIOUS_COMMIT}"
+              git reset --hard "${PREVIOUS_COMMIT}"
+              rm -rf dist
+              if [ -f "${ROLLBACK_DIST}" ]; then
+                tar -xzf "${ROLLBACK_DIST}" -C .
+                if ! docker compose build; then
+                  echo "Rollback rebuild failed; restoring tagged rollback image"
+                  docker tag spx-app:rollback spx-app:latest
+                fi
+              else
+                echo "No previous dist snapshot; restoring tagged rollback image"
+                docker tag spx-app:rollback spx-app:latest
+              fi
+              rollback_runtime
+              exit 1
+            fi
 
             compose_ps_current
 
@@ -275,7 +321,7 @@ jobs:
                 echo "No previous dist snapshot; restoring tagged rollback image"
                 docker tag spx-app:rollback spx-app:latest
               fi
-              rollback_legacy
+              rollback_runtime
               exit 1
             fi
 

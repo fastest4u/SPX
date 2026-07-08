@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Non-mutating Task 9 evidence bundle checker.
+// Task 9 evidence bundle checker. Validation modes are non-mutating; --init-dir
+// only writes the requested scaffold files.
 //
 // Operators paste sanitized outputs from service-fault-* scripts plus a few
 // manual booleans into one JSON file. This checker prints only pass/fail
@@ -44,6 +45,11 @@ const UNSAFE_EVIDENCE_KEY_FRAGMENTS = [
   "token",
 ];
 const UNSAFE_EVIDENCE_KEYS = new Set(["to"]);
+const UNSAFE_EVIDENCE_VALUE_PATTERNS = [
+  /\bAuthorization\s*:\s*(?:Bearer|Basic)\s+\S+/i,
+  /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/i,
+  /\b(?:secret|token|password|cookie|credential|pincode)\s*[=:]\s*\S+/i,
+];
 const DIRECTORY_METADATA_FILE = "drill-metadata.json";
 const DIRECTORY_EVIDENCE_FILES = {
   baselineProbe: "baseline-probe.json",
@@ -72,8 +78,9 @@ function hasFlag(name) {
 function helpText() {
   return `service-fault-evidence-check.mjs
 
-Non-mutating Task 9 evidence bundle checker. Prints only pass/fail or
-metadata-only readiness output; it does not echo raw evidence values.
+Task 9 evidence bundle checker. Validation modes are non-mutating; --init-dir
+only writes the requested scaffold files. Output is pass/fail or metadata-only
+readiness data and does not echo raw evidence values.
 
 Usage:
   node scripts/service-fault-evidence-check.mjs --template
@@ -124,6 +131,9 @@ function hasDrillMetadata(value) {
 
 function hasNoUnsafeEvidenceFields(value) {
   if (Array.isArray(value)) return value.every((item) => hasNoUnsafeEvidenceFields(item));
+  if (typeof value === "string") {
+    return !UNSAFE_EVIDENCE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+  }
   if (!isObject(value)) return true;
   return Object.entries(value).every(([key, childValue]) => {
     const normalizedKey = key.toLowerCase();

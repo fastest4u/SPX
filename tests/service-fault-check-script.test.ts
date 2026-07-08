@@ -19,7 +19,17 @@ function runScript(args: string[]): Promise<ScriptResult> {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn(process.execPath, [scriptPath, ...args], {
       cwd: repoRoot,
-      env: { ...process.env, WEB_API_URL: "" },
+      env: {
+        ...process.env,
+        WEB_API_URL: "",
+        NOTIFICATION_SERVICE_URL: "",
+        LINE_SERVICE_URL: "",
+        OCR_SERVICE_URL: "",
+        SERVICE_FAULT_REQUIRE: "",
+        SERVICE_FAULT_ALLOW_DOWN: "",
+        SERVICE_FAULT_ALLOW_DEGRADED: "",
+        SERVICE_FAULT_EXPECT_DOWN: "",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -140,6 +150,21 @@ async function main() {
     assert.deepEqual(missingRequiredOutput.expectedDownStillReachableServices, []);
     assert.deepEqual(missingRequiredOutput.unexpectedFailures, []);
     assert.equal(missingRequiredOutput.services.length, 1);
+
+    const missingAllowedDegradedResult = await runScript([
+      `--web-api-url=http://127.0.0.1:${port}`,
+      "--allow-degraded=notification-service",
+      "--timeout-ms=1000",
+    ]);
+    assert.equal(missingAllowedDegradedResult.status, 1, missingAllowedDegradedResult.stdout);
+    const missingAllowedDegradedOutput = JSON.parse(missingAllowedDegradedResult.stdout);
+    assert.equal(missingAllowedDegradedOutput.ok, false);
+    assert.deepEqual(missingAllowedDegradedOutput.allowedDegradedServices, [
+      "notification-service",
+    ]);
+    assert.deepEqual(missingAllowedDegradedOutput.missingRequiredServices, [
+      "notification-service",
+    ]);
 
     const stillReachableResult = await runScript([
       `--web-api-url=http://127.0.0.1:${port}`,

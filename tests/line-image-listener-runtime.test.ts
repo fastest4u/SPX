@@ -35,6 +35,25 @@ async function main(): Promise<void> {
   assert.equal(logs[0]?.meta.nodeId, "line-service-01");
   assert.equal(String(logs[0]?.meta.chatId).includes("secret-chat"), false);
 
+  const initialized: string[] = [];
+  const initializedWithoutListener = await startLineImageListenerForRole({
+    role: "line-service",
+    nodeId: "line-service-01",
+    chatId: " ",
+    initializeLineClient: async () => {
+      initialized.push("client");
+    },
+    logger: {
+      info: (event, meta) => logs.push({ event, meta }),
+      error: (event, meta) => logs.push({ event, meta }),
+    },
+  });
+
+  assert.equal(initializedWithoutListener, true);
+  await Promise.resolve();
+  assert.deepEqual(initialized, ["client"]);
+  assert.equal(logs[1]?.event, "line-service-client-initialization-started");
+
   const skipped = await startLineImageListenerForRole({
     role: "notification-service",
     nodeId: "notification-service-01",

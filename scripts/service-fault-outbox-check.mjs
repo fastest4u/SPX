@@ -81,6 +81,7 @@ function summarizeRows(rows) {
   let total = 0;
   let pending = 0;
   let failedAttempts = 0;
+  let retriedRows = 0;
   let sent = 0;
 
   for (const row of rows) {
@@ -92,11 +93,12 @@ function summarizeRows(rows) {
     byStatus[status] = { count, attempted, minAttempts, maxAttempts };
     total += count;
     if (PENDING_STATUSES.has(status)) pending += count;
+    retriedRows += attempted;
     if (status === "failed") failedAttempts += attempted;
     if (status === "sent") sent += count;
   }
 
-  return { total, pending, failedAttempts, sent, byStatus };
+  return { total, pending, failedAttempts, retriedRows, sent, byStatus };
 }
 
 function evaluateExpectations(summary, options) {
@@ -109,6 +111,9 @@ function evaluateExpectations(summary, options) {
   }
   if (options.expectFailedAttempt && summary.failedAttempts <= 0) {
     failures.push("expected-failed-attempt-missing");
+  }
+  if (options.expectSent && !options.expectFailedAttempt && summary.retriedRows > 0) {
+    failures.push("unexpected-failed-attempt-present");
   }
   if (options.maxPending !== null && summary.pending > options.maxPending) {
     failures.push("pending-count-above-threshold");
@@ -302,7 +307,7 @@ try {
     expectations: expectationEvidence(options),
     missingDbEnv: [],
     expectationFailures: ["query-failed"],
-    summary: { total: 0, pending: 0, failedAttempts: 0, sent: 0, byStatus: {} },
+    summary: { total: 0, pending: 0, failedAttempts: 0, retriedRows: 0, sent: 0, byStatus: {} },
   });
   process.exitCode = 1;
 }
