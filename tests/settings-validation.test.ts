@@ -103,6 +103,11 @@ assert.equal(
   "LINE_SERVICE_ADMIN_SECRET must remain process-local, not app_settings",
 );
 assert.equal(
+  SETTINGS_KEYS.includes("LINE_SERVICE_SEND_SECRET"),
+  false,
+  "LINE_SERVICE_SEND_SECRET must remain process-local, not app_settings",
+);
+assert.equal(
   SETTINGS_KEYS.includes("OCR_SERVICE_URL"),
   false,
   "OCR_SERVICE_URL must remain process-local, not app_settings",

@@ -63,7 +63,8 @@ async function main() {
           token: "json-token",
           nested: {
             password: "json-password",
-            message: "credential=inline-secret cookie=session-secret",
+            message:
+              "credential=inline-secret cookie=session-secret DB_PASSWORD=db-secret OPENAI_API_KEY=api-secret accessToken=inline-token",
           },
           auth: ["Bearer nested-token"],
         }),
@@ -124,12 +125,15 @@ async function main() {
     assert.equal(output.services[0].ready.data.nested.password, "[redacted]");
     assert.match(output.services[0].ready.data.nested.message, /credential=\[redacted\]/);
     assert.match(output.services[0].ready.data.nested.message, /cookie=\[redacted\]/);
+    assert.match(output.services[0].ready.data.nested.message, /DB_PASSWORD=\[redacted\]/);
+    assert.match(output.services[0].ready.data.nested.message, /OPENAI_API_KEY=\[redacted\]/);
+    assert.match(output.services[0].ready.data.nested.message, /accessToken=\[redacted\]/);
     assert.equal(output.services[0].ready.data.auth[0], "Bearer [redacted]");
 
     assert.doesNotMatch(outputText, /plain-secret|hunter2|abc123|json-token|json-password/);
     assert.doesNotMatch(
       outputText,
-      /inline-secret|session-secret|nested-token|probe-user|probe-pass/,
+      /inline-secret|session-secret|db-secret|api-secret|inline-token|nested-token|probe-user|probe-pass/,
     );
     assert.doesNotMatch(outputText, /query-secret/);
 

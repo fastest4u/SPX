@@ -90,6 +90,7 @@ services:
       HTTP_ENABLED: "true"
       HTTP_PORT: "3002"
       LINE_SERVICE_URL: http://line-service:3003
+      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
     command: ["sh", "-c", "exec node dist/app.js"]
     healthcheck: *spx-http-healthcheck
 
@@ -109,6 +110,7 @@ services:
       HTTP_ENABLED: "true"
       HTTP_PORT: "3003"
       LINEJS_TEST_ENABLED: "true"
+      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
       LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
       OCR_SERVICE_URL: http://ocr-service:3004
     command: ["sh", "-c", "exec node dist/app.js"]

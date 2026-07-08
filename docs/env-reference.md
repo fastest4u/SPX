@@ -35,7 +35,7 @@ These values remain in `.env`: `NODE_ENV`, `DB_MODE`, `DB_HOST`, `DB_PORT`, `DB_
 
 ## Process Identity Env
 
-These values remain in Docker/service environment: `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_ENABLED`, `HTTP_PORT`, `LINE_SERVICE_URL`, `LINE_SERVICE_ADMIN_SECRET`, `LINE_SERVICE_REQUEST_TIMEOUT_MS`, `OCR_SERVICE_URL`, `OCR_SERVICE_REQUEST_TIMEOUT_MS`.
+These values remain in Docker/service environment: `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_ENABLED`, `HTTP_PORT`, `LINE_SERVICE_URL`, `LINE_SERVICE_SEND_SECRET`, `LINE_SERVICE_ADMIN_SECRET`, `LINE_SERVICE_REQUEST_TIMEOUT_MS`, `OCR_SERVICE_URL`, `OCR_SERVICE_REQUEST_TIMEOUT_MS`.
 
 | Variable                          | Description                                                                                                     |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -48,6 +48,7 @@ These values remain in Docker/service environment: `SPX_ROLE`, `SPX_NODE_ID`, `S
 | `HTTP_ENABLED`                    | Process-local HTTP boot flag; keep `false` for workers and `true` for HTTP surfaces                             |
 | `HTTP_PORT`                       | Fastify HTTP port for the notifier/dashboard process                                                            |
 | `LINE_SERVICE_URL`                | Process-local URL for callers that must reach split `line-service`                                              |
+| `LINE_SERVICE_SEND_SECRET`        | Process-local notification-service-to-line-service send signing secret; keep off DB-backed shared settings      |
 | `LINE_SERVICE_ADMIN_SECRET`       | Process-local web-api-to-line-service admin/status signing secret; keep off DB-backed shared settings           |
 | `LINE_SERVICE_REQUEST_TIMEOUT_MS` | Process-local timeout for signed calls to split `line-service`                                                  |
 | `OCR_SERVICE_URL`                 | Process-local URL for callers that must reach split `ocr-service`                                               |
@@ -75,6 +76,7 @@ Internal service URLs:
 | --------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NOTIFIER_API_URL`                | workers                                    | `http://notification-service:3002/internal/notification-events` in split mode, or `http://notifier:3000/internal/notification-events` in legacy mode |
 | `LINE_SERVICE_URL`                | notification-service, web API proxy routes | `http://line-service:3003`                                                                                                                           |
+| `LINE_SERVICE_SEND_SECRET`        | notification-service and line-service only | generated per split cutover                                                                                                                         |
 | `LINE_SERVICE_ADMIN_SECRET`       | web API and line-service only             | generated per split cutover                                                                                                                         |
 | `LINE_SERVICE_REQUEST_TIMEOUT_MS` | notification-service, web API proxy routes | `1500`                                                                                                                                               |
 | `OCR_SERVICE_URL`                 | line-service                               | `http://ocr-service:3004`                                                                                                                            |
@@ -88,7 +90,7 @@ Split-service internal endpoints:
 | `line-service`         | `POST /internal/line/messages`, `POST /internal/line/status`, `POST /internal/line/login`, `POST /internal/line/groups`, `POST /internal/line/profile`, `POST /internal/line/storage`, `POST /internal/line/logout` |
 | `ocr-service`          | `POST /internal/ocr/line-image`                                                                                                                                                                                     |
 
-Internal send endpoints require signed service-auth headers using the configured internal shared secret. LINE status/admin endpoints use `LINE_SERVICE_ADMIN_SECRET` so workers and notification-service cannot spoof web-api admin actions with the shared notification secret. Public `/health` and `/ready` remain available on every HTTP surface for process and readiness checks.
+Worker-to-notification-service endpoints use `NOTIFIER_SHARED_SECRET`. Notification-service-to-line-service sends use `LINE_SERVICE_SEND_SECRET`, so workers cannot bypass the notification outbox and call LINE send directly with the worker notification secret. LINE status/admin endpoints use `LINE_SERVICE_ADMIN_SECRET` so workers and notification-service cannot spoof web-api admin actions with the shared notification secret. Public `/health` and `/ready` remain available on every HTTP surface for process and readiness checks.
 
 When `LINE_SERVICE_URL` is configured, the web API's authenticated `/api/line-bot/*` routes proxy through the split `line-service` instead of loading local LINEJS state. Legacy local LINEJS fallback is used only when `LINE_SERVICE_URL` is unset.
 
@@ -110,7 +112,7 @@ Important DB-first keys include:
 | `LINE_CHANNEL_ACCESS_TOKEN`, `LINEJS_*`, `DISCORD_WEBHOOK_URL`                               | Notification providers                   |
 | `CODEX_IMAGE_*`, `LINE_IMAGE_LISTENER_CHAT_ID`                                               | LINE image/OCR integration               |
 
-Process identity keys such as `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_ENABLED`, `HTTP_PORT`, `LINE_SERVICE_URL`, `LINE_SERVICE_ADMIN_SECRET`, `LINE_SERVICE_REQUEST_TIMEOUT_MS`, `OCR_SERVICE_URL`, and `OCR_SERVICE_REQUEST_TIMEOUT_MS` are intentionally not DB-first keys. They are process-local so workers can boot with `HTTP_ENABLED=false`, HTTP roles can boot with their own surfaces enabled, and each service role can keep its own identity, worker assignment, internal peer URLs, admin route credential, and bounded peer-call timeouts without mutating shared `app_settings`.
+Process identity keys such as `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_ENABLED`, `HTTP_PORT`, `LINE_SERVICE_URL`, `LINE_SERVICE_SEND_SECRET`, `LINE_SERVICE_ADMIN_SECRET`, `LINE_SERVICE_REQUEST_TIMEOUT_MS`, `OCR_SERVICE_URL`, and `OCR_SERVICE_REQUEST_TIMEOUT_MS` are intentionally not DB-first keys. They are process-local so workers can boot with `HTTP_ENABLED=false`, HTTP roles can boot with their own surfaces enabled, and each service role can keep its own identity, worker assignment, internal peer URLs, split LINE send/admin credentials, and bounded peer-call timeouts without mutating shared `app_settings`.
 
 Team-scoped SPX credentials and LINE targets are stored encrypted on each `teams` row. Do not keep `COOKIE`, `DEVICE_ID`, `LINE_USER_ID`, or auto-accept success/failure LINE targets as global runtime env after migration.
 

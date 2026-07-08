@@ -456,7 +456,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     const notifier = await import("./notifier.js");
     await app.register(internalLineController, {
       prefix: "/internal",
-      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      sharedSecret: env.LINE_SERVICE_SEND_SECRET,
       adminSharedSecret: env.LINE_SERVICE_ADMIN_SECRET,
       line: {
         isEnabled: lineBot.isLineBotEnabled,

@@ -109,7 +109,7 @@ function evaluateExpectations(summary, options) {
   if (options.expectSent && summary.sent <= 0) {
     failures.push("expected-sent-missing");
   }
-  if (options.expectFailedAttempt && summary.failedAttempts <= 0) {
+  if (options.expectFailedAttempt && summary.retriedRows <= 0) {
     failures.push("expected-failed-attempt-missing");
   }
   if (options.expectSent && !options.expectFailedAttempt && summary.retriedRows > 0) {

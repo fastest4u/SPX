@@ -20,6 +20,8 @@ export interface CreateNotificationResult {
 export type NotificationOutboxRow = typeof notificationOutbox.$inferSelect;
 export type NotificationQueueSummary = Record<string, number>;
 
+const TERMINAL_FAILURE_STATUS = "failed_terminal";
+
 function insertResultId(result: unknown): number | null {
   if (Array.isArray(result)) return insertResultId(result[0]);
   const insertId = (result as { insertId?: unknown })?.insertId;
@@ -70,6 +72,18 @@ async function findOutboxByEventKey(eventKey: string): Promise<NotificationOutbo
     .where(eq(notificationOutbox.eventKey, eventKey))
     .limit(1);
   return row ?? null;
+}
+
+export async function getNotificationOutboxDeliveryState(outboxId: number): Promise<"missing" | "pending" | "sent"> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [row] = await db
+    .select({ status: notificationOutbox.status })
+    .from(notificationOutbox)
+    .where(eq(notificationOutbox.id, outboxId))
+    .limit(1);
+  if (!row) return "missing";
+  return row.status === "sent" ? "sent" : "pending";
 }
 
 async function findLockedSendingOutbox(
@@ -309,6 +323,45 @@ export async function markNotificationFailed(
       status: "failed",
       attempts: sql`${notificationOutbox.attempts} + 1`,
       availableAt: dbTimestamp(new Date(now.getTime() + retryDelayMs)),
+      lockedBy: null,
+      lockedUntil: null,
+      lastError: truncatedError,
+      updatedAt: dbTimestamp(now),
+    })
+    .where(lockedSendingWhere(outboxId, nodeId));
+  if (affectedRows(updateResult) === 0) return false;
+
+  await db.insert(notificationDeliveries).values({
+    outboxId,
+    deliveryAttempt: row.attempts + 1,
+    provider: "linejs",
+    status: "failed",
+    errorMessage: truncatedError,
+    startedAt: dbTimestamp(now),
+    finishedAt: dbTimestamp(now),
+  });
+
+  return true;
+}
+
+export async function markNotificationFailedPermanently(
+  outboxId: number,
+  nodeId: string,
+  errorMessage: string,
+  now = new Date(),
+): Promise<boolean> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const row = await findLockedSendingOutbox(db, outboxId, nodeId);
+  if (!row) return false;
+
+  const truncatedError = truncate(errorMessage, 1000);
+  const updateResult = await db
+    .update(notificationOutbox)
+    .set({
+      status: TERMINAL_FAILURE_STATUS,
+      attempts: sql`${notificationOutbox.attempts} + 1`,
+      availableAt: dbTimestamp(now),
       lockedBy: null,
       lockedUntil: null,
       lastError: truncatedError,

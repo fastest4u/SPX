@@ -18,6 +18,10 @@ import {
   type LineServiceStatusResponse,
 } from "../services/line-service-contract.js";
 import { verifyInternalSignature } from "../services/internal-auth.js";
+import {
+  getNotificationOutboxDeliveryState,
+  markNotificationDelivered,
+} from "../repositories/notification-repository.js";
 import type {
   LineBotProfile,
   LineBotSendResult,
@@ -106,6 +110,13 @@ function hasSentOutboxId(outboxId: number | undefined): boolean {
   return Boolean(outboxId && sentOutboxIds.has(outboxId));
 }
 
+function sentResponse(): LineServiceSendResponse {
+  return {
+    sent: true,
+    provider: "linejs",
+  };
+}
+
 function parseSendRequest(rawBody: string): LineServiceSendRequest {
   const parsed = JSON.parse(rawBody) as unknown;
   if (!isObject(parsed)) throw new Error("LINE send request must be an object");
@@ -186,11 +197,24 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
     }
 
     if (hasSentOutboxId(body.outboxId)) {
-      const response: LineServiceSendResponse = {
-        sent: true,
-        provider: "linejs",
-      };
-      return sendSuccess(reply, response);
+      return sendSuccess(reply, sentResponse());
+    }
+
+    if (body.outboxId) {
+      let state: "missing" | "pending" | "sent";
+      try {
+        state = await getNotificationOutboxDeliveryState(body.outboxId);
+      } catch (error) {
+        return retryableUnavailable(
+          reply,
+          "LINE_SEND_DEDUPE_CHECK_FAILED",
+          error instanceof Error ? error.message : "LINE send dedupe check failed",
+        );
+      }
+      if (state === "sent") {
+        rememberSentOutboxId(body.outboxId);
+        return sendSuccess(reply, sentResponse());
+      }
     }
 
     let result: LineBotSendResult;
@@ -211,12 +235,15 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
     }
 
     rememberSentOutboxId(body.outboxId);
+    if (body.outboxId) {
+      try {
+        await markNotificationDelivered(body.outboxId, authResult.nodeId, "linejs");
+      } catch {
+        // The caller still marks the shared outbox row after this successful response.
+      }
+    }
 
-    const response: LineServiceSendResponse = {
-      sent: true,
-      provider: "linejs",
-    };
-    return sendSuccess(reply, response);
+    return sendSuccess(reply, sentResponse());
   });
 
   app.post("/line/status", async (request: FastifyRequest, reply: FastifyReply) => {

@@ -26,6 +26,7 @@ assert.equal(processEnvKeys.includes("NOTIFIER_LOCAL_SPOOL_PATH"), true);
 assert.equal(processEnvKeys.includes("HTTP_ENABLED"), true);
 assert.equal(processEnvKeys.includes("HTTP_PORT"), true);
 assert.equal(processEnvKeys.includes("LINE_SERVICE_URL"), true);
+assert.equal(processEnvKeys.includes("LINE_SERVICE_SEND_SECRET"), true);
 assert.equal(processEnvKeys.includes("OCR_SERVICE_URL"), true);
 assert.equal(processEnvKeys.includes("LINE_SERVICE_REQUEST_TIMEOUT_MS"), true);
 assert.equal(processEnvKeys.includes("OCR_SERVICE_REQUEST_TIMEOUT_MS"), true);
@@ -36,6 +37,7 @@ assert.equal(appSettingKeys.includes("COOKIE_SECRET"), true);
 assert.equal(appSettingKeys.includes("NOTIFIER_SHARED_SECRET"), true);
 assert.equal(appSettingKeys.includes("HTTP_ENABLED"), false);
 assert.equal(appSettingKeys.includes("LINE_SERVICE_URL"), false);
+assert.equal(appSettingKeys.includes("LINE_SERVICE_SEND_SECRET"), false);
 assert.equal(appSettingKeys.includes("OCR_SERVICE_URL"), false);
 assert.equal(appSettingKeys.includes("LINE_SERVICE_REQUEST_TIMEOUT_MS"), false);
 assert.equal(appSettingKeys.includes("OCR_SERVICE_REQUEST_TIMEOUT_MS"), false);
@@ -168,6 +170,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   process.env.HTTP_ENABLED = "false";
   process.env.HTTP_PORT = "4321";
   process.env.LINE_SERVICE_URL = "http://env-line-service:3003";
+  process.env.LINE_SERVICE_SEND_SECRET = "env-line-send-secret";
   process.env.LINE_SERVICE_ADMIN_SECRET = "env-line-admin-secret";
   process.env.OCR_SERVICE_URL = "http://env-ocr-service:3004";
   process.env.LINE_SERVICE_REQUEST_TIMEOUT_MS = "1234";
@@ -191,6 +194,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   assert.equal(process.env.HTTP_ENABLED, "false");
   assert.equal(process.env.HTTP_PORT, "4321");
   assert.equal(process.env.LINE_SERVICE_URL, "http://env-line-service:3003");
+  assert.equal(process.env.LINE_SERVICE_SEND_SECRET, "env-line-send-secret");
   assert.equal(process.env.LINE_SERVICE_ADMIN_SECRET, "env-line-admin-secret");
   assert.equal(process.env.OCR_SERVICE_URL, "http://env-ocr-service:3004");
   assert.equal(process.env.LINE_SERVICE_REQUEST_TIMEOUT_MS, "1234");
@@ -210,6 +214,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   assert.equal(env.HTTP_ENABLED, false);
   assert.equal(env.HTTP_PORT, 4321);
   assert.equal(env.LINE_SERVICE_URL, "http://env-line-service:3003");
+  assert.equal(env.LINE_SERVICE_SEND_SECRET, "env-line-send-secret");
   assert.equal(env.LINE_SERVICE_ADMIN_SECRET, "env-line-admin-secret");
   assert.equal(env.OCR_SERVICE_URL, "http://env-ocr-service:3004");
   assert.equal(env.LINE_SERVICE_REQUEST_TIMEOUT_MS, 1234);
@@ -228,6 +233,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
     "HTTP_ENABLED",
     "HTTP_PORT",
     "LINE_SERVICE_URL",
+    "LINE_SERVICE_SEND_SECRET",
     "LINE_SERVICE_ADMIN_SECRET",
     "OCR_SERVICE_URL",
     "LINE_SERVICE_REQUEST_TIMEOUT_MS",
@@ -245,6 +251,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   assert.equal(storedAfterSeed.HTTP_ENABLED, undefined);
   assert.equal(storedAfterSeed.HTTP_PORT, undefined);
   assert.equal(storedAfterSeed.LINE_SERVICE_URL, undefined);
+  assert.equal(storedAfterSeed.LINE_SERVICE_SEND_SECRET, undefined);
   assert.equal(storedAfterSeed.LINE_SERVICE_ADMIN_SECRET, undefined);
   assert.equal(storedAfterSeed.OCR_SERVICE_URL, undefined);
   assert.equal(storedAfterSeed.LINE_SERVICE_REQUEST_TIMEOUT_MS, undefined);
@@ -263,6 +270,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
     HTTP_ENABLED: "true",
     HTTP_PORT: "9999",
     LINE_SERVICE_URL: "http://db-line-service:3003",
+    LINE_SERVICE_SEND_SECRET: "db-line-send-secret",
     LINE_SERVICE_ADMIN_SECRET: "db-line-admin-secret",
     OCR_SERVICE_URL: "http://db-ocr-service:3004",
     LINE_SERVICE_REQUEST_TIMEOUT_MS: "9999",
@@ -284,6 +292,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   assert.equal(process.env.HTTP_ENABLED, "false");
   assert.equal(process.env.HTTP_PORT, "4321");
   assert.equal(process.env.LINE_SERVICE_URL, "http://env-line-service:3003");
+  assert.equal(process.env.LINE_SERVICE_SEND_SECRET, "env-line-send-secret");
   assert.equal(process.env.LINE_SERVICE_ADMIN_SECRET, "env-line-admin-secret");
   assert.equal(process.env.OCR_SERVICE_URL, "http://env-ocr-service:3004");
   assert.equal(process.env.LINE_SERVICE_REQUEST_TIMEOUT_MS, "1234");
@@ -303,6 +312,7 @@ async function assertSettingsServiceUsesCatalogSettings(): Promise<void> {
   assert.equal(env.HTTP_ENABLED, false);
   assert.equal(env.HTTP_PORT, 4321);
   assert.equal(env.LINE_SERVICE_URL, "http://env-line-service:3003");
+  assert.equal(env.LINE_SERVICE_SEND_SECRET, "env-line-send-secret");
   assert.equal(env.LINE_SERVICE_ADMIN_SECRET, "env-line-admin-secret");
   assert.equal(env.OCR_SERVICE_URL, "http://env-ocr-service:3004");
   assert.equal(env.LINE_SERVICE_REQUEST_TIMEOUT_MS, 1234);

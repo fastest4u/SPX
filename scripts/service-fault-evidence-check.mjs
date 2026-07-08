@@ -49,6 +49,7 @@ const UNSAFE_EVIDENCE_VALUE_PATTERNS = [
   /\bAuthorization\s*:\s*(?:Bearer|Basic)\s+\S+/i,
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/i,
   /\b(?:secret|token|password|cookie|credential|pincode)\s*[=:]\s*\S+/i,
+  /\b[A-Za-z0-9_.-]*(?:secret|token|password|cookie|credential|pincode|api[_-]?key)[A-Za-z0-9_.-]*\s*=\s*\S+/i,
 ];
 const DIRECTORY_METADATA_FILE = "drill-metadata.json";
 const DIRECTORY_EVIDENCE_FILES = {
@@ -321,18 +322,20 @@ function isOutboxVisible(value, publishEvidence, drillId) {
   );
 }
 
-function isOutboxSent(value, publishEvidence, drillId) {
+function isOutboxSent(value, publishEvidence, drillId, expectedFailedAttempt = false) {
   const outboxSummary = summary(value);
+  const retriedRows = numberAt(outboxSummary, "retriedRows");
   return (
     isOutboxVisible(value, publishEvidence, drillId) &&
     hasOutboxExpectations(value, {
       minTotal: 1,
       expectSent: true,
-      expectFailedAttempt: false,
+      expectFailedAttempt: expectedFailedAttempt,
       maxPending: 0,
     }) &&
     numberAt(outboxSummary, "sent") >= 1 &&
-    numberAt(outboxSummary, "pending") === 0
+    numberAt(outboxSummary, "pending") === 0 &&
+    (expectedFailedAttempt ? retriedRows >= 1 : retriedRows === 0)
   );
 }
 
@@ -346,7 +349,7 @@ function hasFailedAttempt(value, publishEvidence, drillId) {
       expectFailedAttempt: true,
       maxPending: null,
     }) &&
-    numberAt(outboxSummary, "failedAttempts") >= 1 &&
+    numberAt(outboxSummary, "retriedRows") >= 1 &&
     numberAt(outboxSummary, "pending") >= 1
   );
 }
@@ -524,7 +527,7 @@ const checks = [
     name: "lineRecoveryOutboxSent",
     description: "The outage notification drained after line-service recovered.",
     verify: (evidence) =>
-      isOutboxSent(evidence.lineRecoveryOutbox, evidence.lineDownPublish, evidence.drillId),
+      isOutboxSent(evidence.lineRecoveryOutbox, evidence.lineDownPublish, evidence.drillId, true),
   },
   {
     name: "ocrDownProbe",
@@ -673,10 +676,10 @@ function evidenceTemplate() {
       {
         minTotal: 1,
         expectSent: true,
-        expectFailedAttempt: false,
+        expectFailedAttempt: true,
         maxPending: 0,
       },
-      "paste post-recovery service-fault-outbox-check.mjs output using --since-minutes=30 --min-total=1 --expect-sent --max-pending=0",
+      "paste post-recovery service-fault-outbox-check.mjs output using --since-minutes=30 --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0",
     ),
     ocrDownProbe: probeEvidenceTemplate(
       "ocr-service",

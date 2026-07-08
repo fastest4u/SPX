@@ -71,6 +71,7 @@ async function testSendsSignedLineRequest(): Promise<void> {
   );
   assert.equal(capturedHeaders?.get("x-spx-node-id"), nodeId);
   assert.equal(capturedHeaders?.get("content-type"), "application/json");
+  assert.equal(capturedHeaders?.get("idempotency-key"), "trace-1");
   assert.equal(signalSeen, true);
 
   const timestamp = capturedHeaders?.get("x-spx-timestamp");
@@ -83,6 +84,7 @@ async function testSendsSignedLineRequest(): Promise<void> {
       path: LINE_INTERNAL_SEND_PATH,
       secret: sharedSecret,
       signature: signature ?? "",
+      eventKey: "trace-1",
       now: new Date(timestamp ?? ""),
     }),
     { ok: true },

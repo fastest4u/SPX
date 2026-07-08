@@ -172,6 +172,7 @@ export const env = {
   NOTIFIER_LOCAL_SPOOL_PATH:
     process.env.NOTIFIER_LOCAL_SPOOL_PATH || "data/notification-spool.jsonl",
   LINE_SERVICE_URL: process.env.LINE_SERVICE_URL || "",
+  LINE_SERVICE_SEND_SECRET: process.env.LINE_SERVICE_SEND_SECRET || "",
   LINE_SERVICE_ADMIN_SECRET: process.env.LINE_SERVICE_ADMIN_SECRET || "",
   LINE_SERVICE_REQUEST_TIMEOUT_MS: readIntegerEnv("LINE_SERVICE_REQUEST_TIMEOUT_MS", 1500),
   OCR_SERVICE_URL: process.env.OCR_SERVICE_URL || "",
@@ -287,6 +288,11 @@ export function validateRuntimeConfig(): void {
   if (runtimeRole === "worker" && !env.NOTIFIER_API_URL) missing.push("NOTIFIER_API_URL");
   if (runtimeRole === "notification-service" && !env.LINE_SERVICE_URL.trim())
     missing.push("LINE_SERVICE_URL");
+  if (
+    (runtimeRole === "notification-service" || runtimeRole === "line-service") &&
+    !env.LINE_SERVICE_SEND_SECRET.trim()
+  )
+    missing.push("LINE_SERVICE_SEND_SECRET");
   if (
     (runtimeRole === "line-service" || (runsWebApiHttp && env.LINE_SERVICE_URL.trim())) &&
     !env.LINE_SERVICE_ADMIN_SECRET.trim()

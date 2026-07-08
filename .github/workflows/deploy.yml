@@ -118,6 +118,10 @@ jobs:
             if [ "${DEPLOY_TOPOLOGY}" = "split" ] && [ -z "${LINE_SERVICE_ADMIN_SECRET:-}" ]; then
               LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
             fi
+            if [ "${DEPLOY_TOPOLOGY}" = "split" ] && [ -z "${LINE_SERVICE_SEND_SECRET:-}" ]; then
+              LINE_SERVICE_SEND_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
+            fi
+            export LINE_SERVICE_SEND_SECRET
             export LINE_SERVICE_ADMIN_SECRET
 
             compose_build() {

@@ -5,10 +5,10 @@
 // services. It does not send notifications, mutate DB state, or print secrets.
 
 const DEFAULT_TIMEOUT_MS = 2_000;
-const SECRET_KEY_PATTERN = /secret|token|password|cookie|authorization|credential|pincode/i;
+const SECRET_KEY_PATTERN = /secret|token|password|cookie|authorization|credential|pincode|api[_-]?key/i;
 const AUTH_PAIR_PATTERN = /\b(authorization)=(Bearer|Basic)\s+\S+/gi;
 const SECRET_PAIR_PATTERN =
-  /\b(secret|token|password|cookie|authorization|credential|pincode)=\S+/gi;
+  /\b([A-Za-z0-9_.-]*(?:secret|token|password|cookie|authorization|credential|pincode|api[_-]?key)[A-Za-z0-9_.-]*)\s*=\s*\S+/gi;
 const AUTH_HEADER_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
 
 function argValue(name) {

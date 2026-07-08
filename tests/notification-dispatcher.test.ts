@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { closePool } from "../src/db/client.js";
+import { eq } from "drizzle-orm";
+import { closePool, getDb } from "../src/db/client.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
+import { notificationOutbox } from "../src/db/schema.js";
 import { createNotificationEventAndOutbox, claimNotificationOutboxBatch } from "../src/repositories/notification-repository.js";
 import { runNotificationDispatchOnce } from "../src/services/notification-dispatcher.js";
 
@@ -108,6 +110,25 @@ async function testThrownSendMarksRetryable() {
   assert.equal(retry[0].lastError, "line exploded");
 }
 
+async function testPermanentSendResultIsNotRetried() {
+  await resetAndCreateOutbox("permanent-result");
+
+  const result = await dispatchWith(async () => ({ ok: false, error: "bad line-service config", retryable: false }));
+
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1 });
+  const retry = await claimRetryableLater();
+  assert.equal(retry.length, 0);
+
+  const db = await getDb();
+  const [row] = await db
+    .select()
+    .from(notificationOutbox)
+    .where(eq(notificationOutbox.eventKey, buildEvent("permanent-result").eventKey));
+  assert.equal(row?.status, "failed_terminal");
+  assert.equal(row?.attempts, 1);
+  assert.equal(row?.lastError, "bad line-service config");
+}
+
 async function testStaleDeliveredMarkIsNotCounted() {
   await resetAndCreateOutbox("stale-delivered");
   let reclaimed = 0;
@@ -170,6 +191,7 @@ async function main() {
     ["successful delivery marks sent once", testSuccessfulDeliveryMarksSentOnce],
     ["failed send result marks retryable", testFailedSendResultMarksRetryable],
     ["thrown send marks retryable", testThrownSendMarksRetryable],
+    ["permanent send result is not retried", testPermanentSendResultIsNotRetried],
     ["stale delivered mark is not counted", testStaleDeliveredMarkIsNotCounted],
     ["blank nodeId throws", testBlankNodeIdThrows],
     ["batchSize non-positive returns zeros", testBatchSizeNonPositiveReturnsZeros],

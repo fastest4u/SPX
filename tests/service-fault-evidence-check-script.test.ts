@@ -149,6 +149,7 @@ function outbox(
       total: 1,
       pending: 0,
       failedAttempts: 0,
+      retriedRows: 0,
       sent: 1,
       ...overrides,
     },
@@ -183,6 +184,7 @@ function validEvidence() {
       "2026-07-07T10:05:00.000Z",
       {
         failedAttempts: 1,
+        retriedRows: 1,
         sent: 0,
         pending: 1,
       },
@@ -199,10 +201,22 @@ function validEvidence() {
       evidenceType: "worker-alive",
       note: "docker compose ps showed the split worker stayed alive during line-service outage",
     },
-    lineRecoveryOutbox: outbox(lineDownEventKey, "2026-07-07T10:07:00.000Z", {
-      sent: 1,
-      pending: 0,
-    }),
+    lineRecoveryOutbox: outbox(
+      lineDownEventKey,
+      "2026-07-07T10:07:00.000Z",
+      {
+        failedAttempts: 0,
+        retriedRows: 1,
+        sent: 1,
+        pending: 0,
+      },
+      {
+        minTotal: 1,
+        expectSent: true,
+        expectFailedAttempt: true,
+        maxPending: 0,
+      },
+    ),
     ocrDownProbe: expectedDownProbe("ocr-service"),
     ocrFailureObserved: {
       ok: true,
@@ -321,7 +335,7 @@ async function main() {
     };
     unsafeValueVariantEvidence.ocrRecoveryObserved = {
       ...unsafeValueVariantEvidence.ocrRecoveryObserved,
-      note: "password=plain-text-secret",
+      note: "password=plain-text-secret DB_PASSWORD=db-secret OPENAI_API_KEY=api-secret accessToken=inline-token",
     };
     const unsafeValueVariant = await runScript([
       `--fixture-json=${JSON.stringify(unsafeValueVariantEvidence)}`,
@@ -331,7 +345,7 @@ async function main() {
     assert.deepEqual(unsafeValueVariantOutput.failedChecks, ["sanitizedEvidence"]);
     assert.doesNotMatch(
       unsafeValueVariant.stdout,
-      /secret-token-value|plain-text-secret/,
+      /secret-token-value|plain-text-secret|db-secret|api-secret|inline-token/,
     );
 
     const missingDrillMetadataEvidence = validEvidence();
@@ -591,7 +605,7 @@ async function main() {
     differentPublishTeamEvidence.lineDownOutbox = outbox(
       differentPublishTeamEvidence.lineDownPublish.eventKey,
       "2026-07-07T10:05:00.000Z",
-      { failedAttempts: 1, sent: 0, pending: 1 },
+      { failedAttempts: 1, retriedRows: 1, sent: 0, pending: 1 },
       {
         minTotal: 1,
         expectSent: false,
@@ -602,7 +616,13 @@ async function main() {
     differentPublishTeamEvidence.lineRecoveryOutbox = outbox(
       differentPublishTeamEvidence.lineDownPublish.eventKey,
       "2026-07-07T10:07:00.000Z",
-      { sent: 1, pending: 0 },
+      { failedAttempts: 0, retriedRows: 1, sent: 1, pending: 0 },
+      {
+        minTotal: 1,
+        expectSent: true,
+        expectFailedAttempt: true,
+        maxPending: 0,
+      },
     );
     const differentPublishTeam = await runScript([
       `--fixture-json=${JSON.stringify(differentPublishTeamEvidence)}`,
@@ -720,7 +740,7 @@ async function main() {
     lineDownOutboxNotPendingEvidence.lineDownOutbox = outbox(
       lineDownOutboxNotPendingEvidence.lineDownPublish.eventKey,
       "2026-07-07T10:05:00.000Z",
-      { failedAttempts: 1, sent: 0, pending: 0 },
+      { failedAttempts: 1, retriedRows: 1, sent: 0, pending: 0 },
       {
         minTotal: 1,
         expectSent: false,
@@ -763,7 +783,7 @@ async function main() {
     duplicatePublishEvidence.lineDownOutbox = outbox(
       duplicatePublishEvidence.baselinePublish.eventKey,
       "2026-07-07T10:05:00.000Z",
-      { failedAttempts: 1, sent: 0, pending: 1 },
+      { failedAttempts: 1, retriedRows: 1, sent: 0, pending: 1 },
       {
         minTotal: 1,
         expectSent: false,
@@ -774,7 +794,13 @@ async function main() {
     duplicatePublishEvidence.lineRecoveryOutbox = outbox(
       duplicatePublishEvidence.baselinePublish.eventKey,
       "2026-07-07T10:07:00.000Z",
-      { sent: 1, pending: 0 },
+      { failedAttempts: 0, retriedRows: 1, sent: 1, pending: 0 },
+      {
+        minTotal: 1,
+        expectSent: true,
+        expectFailedAttempt: true,
+        maxPending: 0,
+      },
     );
     const duplicatePublish = await runScript([
       `--fixture-json=${JSON.stringify(duplicatePublishEvidence)}`,
@@ -818,7 +844,7 @@ async function main() {
     outOfOrderEvidence.lineDownOutbox = outbox(
       outOfOrderEvidence.lineDownPublish.eventKey,
       "2026-07-07T09:59:00.000Z",
-      { failedAttempts: 1, sent: 0, pending: 1 },
+      { failedAttempts: 1, retriedRows: 1, sent: 0, pending: 1 },
       {
         minTotal: 1,
         expectSent: false,
@@ -1154,7 +1180,7 @@ async function main() {
     assert.deepEqual(templateOutput.lineRecoveryOutbox.expectations, {
       minTotal: 1,
       expectSent: true,
-      expectFailedAttempt: false,
+      expectFailedAttempt: true,
       maxPending: 0,
     });
 

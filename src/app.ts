@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       intervalMs: 1_000,
       sendLineMessage: createNotificationLineSender({
         lineServiceUrl: env.LINE_SERVICE_URL,
-        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        sharedSecret: env.LINE_SERVICE_SEND_SECRET || env.NOTIFIER_SHARED_SECRET,
         nodeId: notifierNodeId,
         requestTimeoutMs: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
         allowLocalFallback: env.SPX_ROLE === "notifier" || env.SPX_ROLE === "combined",

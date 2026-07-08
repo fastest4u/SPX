@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import Fastify from "fastify";
+import { closePool } from "../src/db/client.js";
+import { resetMemoryDb } from "../src/db/client-memory.js";
+import { claimNotificationOutboxBatch, createNotificationEventAndOutbox } from "../src/repositories/notification-repository.js";
 import {
   internalLineController,
   type InternalLineControllerOptions,
@@ -15,6 +18,37 @@ const sharedSecret = "super-secret-value";
 const adminSharedSecret = "admin-secret-value";
 const notificationNodeId = "notification-service-01";
 const webApiNodeId = "prod-web-api-1";
+
+function buildNotificationEvent(eventKey: string) {
+  return {
+    eventKey,
+    schemaVersion: 1 as const,
+    eventType: "auto_accept_result" as const,
+    severity: "success" as const,
+    teamId: 2,
+    workerNodeId: "worker-01",
+    traceId: "trace-1",
+    subjectType: "booking",
+    subjectId: "2791810",
+    payload: {
+      schemaVersion: 1 as const,
+      eventType: "auto_accept_result" as const,
+      severity: "success" as const,
+      teamId: 2,
+      teamName: "PTWL",
+      bookingId: "2791810",
+      requestIds: ["40288114"],
+      status: "owned" as const,
+      message: "accepted",
+      occurredAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function resetDb(): Promise<void> {
+  await closePool();
+  resetMemoryDb();
+}
 
 function signedHeaders(input: {
   path: string;
@@ -445,6 +479,53 @@ async function testRepeatedOutboxIdDoesNotSendTwice(): Promise<void> {
   );
 }
 
+async function testSentOutboxIdDedupesAfterControllerRestart(): Promise<void> {
+  await resetDb();
+  const eventKey = "auto_accept_owned:team:2:booking:2791810:req:durable-line-dedupe";
+  const created = await createNotificationEventAndOutbox(buildNotificationEvent(eventKey), {
+    targetType: "line_group",
+    targetId: "C123456789-secret-target",
+    title: "success",
+    message: "accepted",
+  });
+  const [claimed] = await claimNotificationOutboxBatch(notificationNodeId, 5, 30_000);
+  assert.equal(claimed?.id, created.outboxId);
+
+  let sendCount = 0;
+  const body: LineServiceSendRequest = {
+    targetId: "C123456789-secret-target",
+    text: "hello once durably",
+    traceId: eventKey,
+    outboxId: created.outboxId,
+  };
+  const rawBody = JSON.stringify(body);
+  const line = {
+    isEnabled: () => true,
+    getStatus: () => ({ enabled: true, authenticated: true, message: "connected" }),
+    sendMessage: async () => {
+      sendCount += 1;
+      return { ok: true };
+    },
+  };
+
+  for (let i = 0; i < 2; i += 1) {
+    await withController(
+      { line },
+      async (app) => {
+        const response = await app.inject({
+          method: "POST",
+          url: LINE_INTERNAL_SEND_PATH,
+          headers: signedHeaders({ path: LINE_INTERNAL_SEND_PATH, body: rawBody, eventKey }),
+          payload: rawBody,
+        });
+        assert.equal(response.statusCode, 200);
+      },
+    );
+  }
+
+  assert.equal(sendCount, 1);
+}
+
 async function main(): Promise<void> {
   await testSignedSendSucceeds();
   await testAuthFailureReturns401();
@@ -455,6 +536,7 @@ async function main(): Promise<void> {
   await testSignedAdminRoutes();
   await testAdminRoutesRejectSharedSecretSpoofingWebApiNode();
   await testRepeatedOutboxIdDoesNotSendTwice();
+  await testSentOutboxIdDedupesAfterControllerRestart();
 }
 
 main().catch((error) => {

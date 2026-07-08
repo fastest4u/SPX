@@ -63,6 +63,7 @@ async function signedLineServicePost<TBody, TData>(
   options: LineServiceClientOptions,
   path: string,
   body: TBody,
+  eventKey?: string,
 ): Promise<
   { ok: true; data: TData; retryable: false } | { ok: false; error: string; retryable: boolean }
 > {
@@ -82,6 +83,7 @@ async function signedLineServicePost<TBody, TData>(
     sharedSecret: options.sharedSecret,
     nodeId: options.nodeId,
     body,
+    eventKey,
     fetchImpl: options.fetchImpl,
     requestTimeoutMs: options.requestTimeoutMs,
   });
@@ -109,6 +111,7 @@ export async function sendLineServiceMessage(
     options,
     LINE_INTERNAL_SEND_PATH,
     request,
+    request.traceId,
   );
 
   if (!result.ok) {

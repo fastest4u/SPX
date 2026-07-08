@@ -84,11 +84,12 @@ Workers call the notifier over Docker networking. Notification events use `/inte
 
 ### Split-Service Topology (Optional)
 
-`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide a per-cutover `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
+`docker-compose.yml` also defines optional `profile: split` services for the service-decomposition migration. CI deploys the split topology by default after PR merge. For a manual cutover, stop legacy services first, provide per-cutover `LINE_SERVICE_SEND_SECRET` only to `notification-service` and `line-service`, provide `LINE_SERVICE_ADMIN_SECRET` only to `web-api` and `line-service`, then start split services by naming them explicitly so the legacy `notifier`, `worker-ifn`, and `worker-ptwl` services do not start alongside the split workers:
 
 ```bash
 docker compose stop notifier worker-ifn worker-ptwl
 export LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
+export LINE_SERVICE_SEND_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
 docker compose --profile split up --build -d \
   web-api notification-service line-service ocr-service \
   worker-ifn-split worker-ptwl-split
@@ -107,7 +108,7 @@ Target single-host topology:
 
 Only `web-api` should be published through nginx/public ports. Keep `notification-service`, `line-service`, and `ocr-service` on internal Docker network ports unless an operator intentionally exposes them for a private admin network.
 
-`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested. `LINE_SERVICE_ADMIN_SECRET` is process-local split topology credential material for web-api-to-line-service admin/status routes; do not store it in DB-backed `app_settings` or expose it to worker/notification-service containers.
+`SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping by default; do not run two workers for the same team unless lease/failover behavior is being deliberately tested. `LINE_SERVICE_SEND_SECRET` is process-local credential material for notification-service-to-line-service send routes; do not expose it to workers or web-api. `LINE_SERVICE_ADMIN_SECRET` is process-local credential material for web-api-to-line-service admin/status routes; do not store either split secret in DB-backed `app_settings`.
 
 Rollback path:
 
@@ -210,7 +211,7 @@ Manual drill:
    '
    ```
 
-   `--help` prints the read-only outbox evidence contract without reading DB env or querying MySQL. The outbox dry run validates DB env presence, the 30-minute window, expectation flags, and event-key hash binding without querying MySQL; it refuses dry-run/live checks that omit `--event-key-contains`, and it is not final evidence because final evidence must use `mode: "mysql"`. The real outbox checker does not echo the raw event key filter. It performs an exact `event_key` lookup, emits `filters.eventKeyContainsSha256`, and the evidence checker compares that hash with the publisher `eventKey` so the outbox proof is tied to the same drill event. Keep the outbox command flags exactly as shown; all outbox evidence must use `--since-minutes=30`, and baseline and recovery evidence must include `--min-total=1 --expect-sent --max-pending=0`. If dispatch is still pending, wait a bounded interval and re-run the same read-only outbox command instead of republishing the notification.
+   `--help` prints the read-only outbox evidence contract without reading DB env or querying MySQL. The outbox dry run validates DB env presence, the 30-minute window, expectation flags, and event-key hash binding without querying MySQL; it refuses dry-run/live checks that omit `--event-key-contains`, and it is not final evidence because final evidence must use `mode: "mysql"`. The real outbox checker does not echo the raw event key filter. It performs an exact `event_key` lookup, emits `filters.eventKeyContainsSha256`, and the evidence checker compares that hash with the publisher `eventKey` so the outbox proof is tied to the same drill event. Keep the outbox command flags exactly as shown; all outbox evidence must use `--since-minutes=30`, baseline sent evidence must include `--min-total=1 --expect-sent --max-pending=0`, and recovery sent evidence must include `--min-total=1 --expect-sent --expect-failed-attempt --max-pending=0`. If dispatch is still pending, wait a bounded interval and re-run the same read-only outbox command instead of republishing the notification.
 
 6. Stop line-service: `docker compose --profile split stop line-service`.
 7. Confirm web API still returns success: `curl -s http://127.0.0.1:3000/health`.
@@ -276,14 +277,14 @@ Manual drill:
     ```bash
     docker compose --profile split exec -T notification-service sh -lc '
       EVENT_KEY="<eventKey from outage publish step>" \
-      node scripts/service-fault-outbox-check.mjs --dry-run --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
+      node scripts/service-fault-outbox-check.mjs --dry-run --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
     '
     ```
 
     ```bash
     docker compose --profile split exec -T notification-service sh -lc '
       EVENT_KEY="<eventKey from outage publish step>" \
-      node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
+      node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
     '
     ```
 
@@ -319,7 +320,7 @@ Set top-level rollout metadata before pasting step evidence: `drillId` must be a
 
 For `baselineProbe`, use the initial `--require=...` command without `--allow-down`, `--allow-degraded`, or `--expect-down`. For `lineDownProbe` and `ocrDownProbe`, keep the full sanitized `services` list including each row's internal Docker URL: `http://web-api:3000/`, `http://notification-service:3002/`, `http://line-service:3003/`, and `http://ocr-service:3004/`. The evidence checker rejects probes when option arrays differ from the runbook command, when `missingRequiredServices` is non-empty, when the expected-down service row is absent, when any service that should remain healthy is missing from the service rows, or when a service row points at a host/port outside the split-service Docker network.
 
-For outbox evidence, keep the command flags exactly as shown. `baselineOutbox`, `lineDownOutbox`, and `lineRecoveryOutbox` must all include `sinceMinutes: 30` from the runbook `--since-minutes=30` lookup window and must be bound to the matching publisher output with `--event-key-contains=<eventKey>`, which performs an exact `event_key` lookup while hashing the filter in the output. `baselineOutbox` and `lineRecoveryOutbox` must prove `--min-total=1 --expect-sent --max-pending=0`, while `lineDownOutbox` must prove `--min-total=1 --expect-failed-attempt` and still show at least one pending retryable row before line-service is restarted. All outbox evidence must have `mode: "mysql"` plus empty `missingDbEnv` and `expectationFailures` arrays; fixture-mode outbox output is useful for script tests only and is rejected by the final evidence checker.
+For outbox evidence, keep the command flags exactly as shown. `baselineOutbox`, `lineDownOutbox`, and `lineRecoveryOutbox` must all include `sinceMinutes: 30` from the runbook `--since-minutes=30` lookup window and must be bound to the matching publisher output with `--event-key-contains=<eventKey>`, which performs an exact `event_key` lookup while hashing the filter in the output. `baselineOutbox` must prove `--min-total=1 --expect-sent --max-pending=0` with no retried rows. `lineDownOutbox` must prove `--min-total=1 --expect-failed-attempt` and still show at least one pending retryable row before line-service is restarted. `lineRecoveryOutbox` must prove `--min-total=1 --expect-sent --expect-failed-attempt --max-pending=0` so recovery evidence is tied to the same previously failed outage notification after it drains. All outbox evidence must have `mode: "mysql"` plus empty `missingDbEnv` and `expectationFailures` arrays; fixture-mode outbox output is useful for script tests only and is rejected by the final evidence checker.
 
 For publish evidence, keep the full sanitized publisher output. Both `baselinePublish` and `lineDownPublish` must show `url: "http://notification-service:3002/internal/notification-events"`, the same positive `teamId`, the same non-empty `nodeId`, a concrete non-placeholder `eventKey` beginning with `fault_drill:notifier_health:team:<teamId>:drill:<drillId>:`, `duplicate: false`, a positive `outboxId`, and a non-empty `outboxStatus`; replayed duplicate publish output, scaffold event keys, cross-team publish output, event keys from a different drill id, or legacy notifier/web-api publish output is rejected.
 
