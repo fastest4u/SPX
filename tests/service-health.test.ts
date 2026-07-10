@@ -6,6 +6,48 @@ import {
   createServiceHealthSnapshot,
   probeHttpServiceHealth,
 } from "../src/services/service-health.js";
+import { httpSurfaceForRole } from "../src/services/runtime-role.js";
+
+function waitForAbort(signal: AbortSignal | null | undefined): Promise<Response> {
+  assert.ok(signal, "expected readiness probes to carry an abort signal");
+  return new Promise((_resolve, reject) => {
+    const safetyTimer = setTimeout(() => reject(new Error("probe signal did not abort")), 2500);
+    const abort = () => {
+      clearTimeout(safetyTimer);
+      reject(new Error("OCR service unavailable"));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function completeBeforeAbort<T>(
+  signal: AbortSignal | null | undefined,
+  operation: Promise<T>,
+): Promise<T> {
+  assert.ok(signal, "expected readiness probes to carry an abort signal");
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new Error("LINE readiness probe timed out"));
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
 
 async function testSecretRedaction(): Promise<void> {
   const snapshot = createServiceHealthSnapshot({
@@ -173,12 +215,84 @@ async function testReadinessRules(): Promise<void> {
   assert.equal(webApiWithDownstreamDown.data.dependencies[0]?.state, "down");
 }
 
+async function testNestedOptionalOcrTimeoutDoesNotCascadeReadiness(): Promise<void> {
+  let observedLineReadiness: Awaited<ReturnType<typeof buildServiceReadiness>> | undefined;
+  const fetchImpl = async (url: string, init: RequestInit): Promise<Response> => {
+    const endpoint = new URL(url);
+    if (endpoint.hostname === "ocr.internal.example") {
+      return waitForAbort(init.signal);
+    }
+    if (endpoint.hostname === "line.internal.example" && endpoint.pathname === "/ready") {
+      return completeBeforeAbort(
+        init.signal,
+        (async () => {
+          observedLineReadiness = await buildServiceReadiness({
+            surface: "line-service",
+            role: "line-service",
+            nodeId: "line-01",
+            ocrServiceUrl: "https://ocr.internal.example",
+            ocrServiceRequestTimeoutMs: 10_000,
+            checkedAt: "2026-07-07T00:00:00.000Z",
+            lineStatus: {
+              enabled: true,
+              authenticated: true,
+              message: "LINE Bot is connected",
+            },
+            lineImageListenerActive: true,
+            fetchImpl,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return new Response(JSON.stringify(observedLineReadiness.data), {
+            status: observedLineReadiness.statusCode,
+          });
+        })(),
+      );
+    }
+    throw new Error(`Unexpected readiness endpoint: ${url}`);
+  };
+
+  const notificationReadiness = await buildServiceReadiness({
+    surface: "notification-service",
+    role: "notification-service",
+    nodeId: "notification-01",
+    lineServiceUrl: "https://line.internal.example",
+    lineServiceRequestTimeoutMs: 10_000,
+    checkedAt: "2026-07-07T00:00:00.000Z",
+    fetchImpl,
+  });
+
+  assert.equal(notificationReadiness.statusCode, 200);
+  assert.equal(notificationReadiness.data.ready, true);
+  assert.equal(observedLineReadiness?.statusCode, 200);
+  assert.equal(observedLineReadiness?.data.ready, true);
+  assert.equal(observedLineReadiness?.data.state, "down");
+  assert.equal(observedLineReadiness?.data.dependencies[1]?.service, "ocr-service");
+  assert.equal(observedLineReadiness?.data.dependencies[1]?.state, "down");
+
+  const webReadiness = await buildServiceReadiness({
+    surface: "web-api",
+    role: "api",
+    nodeId: "web-01",
+    databaseReady: true,
+    ocrServiceUrl: "https://ocr.internal.example",
+    ocrServiceRequestTimeoutMs: 25,
+    checkedAt: "2026-07-07T00:00:00.000Z",
+    fetchImpl: async () => {
+      throw new Error("OCR service unavailable");
+    },
+  });
+  assert.equal(webReadiness.statusCode, 200);
+  assert.equal(webReadiness.data.ready, true);
+  assert.equal(httpSurfaceForRole("worker"), null);
+}
+
 async function main(): Promise<void> {
   await testSecretRedaction();
   await testLineStatusClassificationDoesNotLeakQr();
   await testOcrStatusClassificationDoesNotExposeTokens();
   await testProbeHttpHealth();
   await testReadinessRules();
+  await testNestedOptionalOcrTimeoutDoesNotCascadeReadiness();
 }
 
 main().catch((error) => {

@@ -44,6 +44,7 @@ export interface BuildServiceReadinessInput {
 }
 
 const DEFAULT_HEALTH_PROBE_TIMEOUT_MS = 1500;
+const OPTIONAL_DOWNSTREAM_HEALTH_PROBE_TIMEOUT_MS = 500;
 const REDACTED_VALUE = "[redacted]";
 const SENSITIVE_DETAIL_KEY = /(secret|token|password|cookie|authorization|credential|pincode)/i;
 const SENSITIVE_TEXT_FRAGMENT =
@@ -58,6 +59,13 @@ function timeoutSignal(timeoutMs: number | undefined): AbortSignal | undefined {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), boundedTimeoutMs).unref?.();
   return controller.signal;
+}
+
+function optionalDownstreamProbeTimeoutMs(timeoutMs: number | undefined): number {
+  return Math.min(
+    timeoutMs && timeoutMs > 0 ? timeoutMs : OPTIONAL_DOWNSTREAM_HEALTH_PROBE_TIMEOUT_MS,
+    OPTIONAL_DOWNSTREAM_HEALTH_PROBE_TIMEOUT_MS,
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -360,7 +368,9 @@ export async function buildServiceReadiness(
         role: input.role,
         nodeId: input.nodeId,
         ocrServiceUrl: input.ocrServiceUrl,
-        ocrServiceRequestTimeoutMs: input.ocrServiceRequestTimeoutMs,
+        ocrServiceRequestTimeoutMs: optionalDownstreamProbeTimeoutMs(
+          input.ocrServiceRequestTimeoutMs,
+        ),
         fetchImpl: input.fetchImpl,
         checkedAt,
       })),
