@@ -222,6 +222,8 @@ export class Poller {
   private fastAcceptAllAttemptedKeys = new Set<string>();
   /** When > 0 the next tick is deferred by this amount instead of the normal poll interval (SPX rate-limit backoff). */
   private rateLimitBackoffMs = 0;
+  /** Epoch ms until which all detail fetches and new polling ticks must pause for SPX rate-limit recovery. */
+  private rateLimitPausedUntil = 0;
   private static readonly RATE_LIMIT_BACKOFF_MS = 2_000;
 
   constructor(intervalSec?: number, context?: TeamPollerContext) {
@@ -452,11 +454,14 @@ export class Poller {
       // SPX rate-limit backoff: pause before the next tick so the
       // upstream window resets (empirically measured at 1.8–2.0 s).
       if (classified.category === "rate_limited") {
-        this.rateLimitBackoffMs = classified.retryAfterMs ?? Poller.RATE_LIMIT_BACKOFF_MS;
+        const backoffMs = classified.retryAfterMs ?? Poller.RATE_LIMIT_BACKOFF_MS;
+        this.rateLimitBackoffMs = backoffMs;
+        this.rateLimitPausedUntil = Date.now() + backoffMs + 500;
         logger.warn("poll-rate-limited", {
           teamId: this.teamId,
           retcode: classified.retcode,
           backoffMs: this.rateLimitBackoffMs,
+          pausedUntilMs: this.rateLimitPausedUntil,
         });
         await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs, "ดึงรายการงานหลัก (Bidding List)");
       }
@@ -505,6 +510,16 @@ export class Poller {
    */
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
+
+    // Pause detail scheduling if we are currently inside an active SPX rate-limit backoff window
+    const now = Date.now();
+    if (now < this.rateLimitPausedUntil) {
+      logger.info("booking-details-paused-for-rate-limit", {
+        teamId: this.teamId,
+        remainingMs: this.rateLimitPausedUntil - now,
+      });
+      return;
+    }
 
     // New tick window for the long-lived budget: availability re-seeds from
     // this tick's rule snapshot minus claims still in flight from earlier
@@ -680,6 +695,11 @@ export class Poller {
       }
       launched++;
 
+      // Stagger launching concurrent detail tasks by 15ms to prevent sub-millisecond network burst
+      if (launched > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+
       // Fire-and-forget: each booking is independent
       void this.processOneBooking(booking)
         .then((cooldownEligible) => {
@@ -755,6 +775,12 @@ export class Poller {
    * booking is retried on the next tick instead of waiting out the cooldown.
    */
   private async processOneBooking(booking: Booking): Promise<boolean> {
+    // Pause execution if we are in an active rate-limit recovery window
+    const remainingPauseMs = this.rateLimitPausedUntil - Date.now();
+    if (remainingPauseMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingPauseMs));
+    }
+
     const startedAt = Date.now();
     const listAgeMs = typeof booking.ctime === "number" && booking.ctime > 0
       ? Math.max(0, startedAt - booking.ctime * 1000)
