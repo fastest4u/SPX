@@ -130,8 +130,8 @@ export interface TeamPollerContext {
   manageProcessSignals?: boolean;
   closeSharedResourcesOnStop?: boolean;
   exitOnStop?: boolean;
-  realtimePublisher?: any;
-  realtimeSource?: any;
+  realtimePublisher?: unknown;
+  realtimeSource?: unknown;
 }
 
 function collectAutoAcceptMatchedTrips(
