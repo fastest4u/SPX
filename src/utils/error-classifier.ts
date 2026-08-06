@@ -1,5 +1,14 @@
 /** Structured error classification for polling and API errors */
 
+/**
+ * SPX API rate-limit retcode: the upstream returns HTTP 200 with
+ * `retcode: 130008001` (not HTTP 429) when the caller exceeds the
+ * request-frequency cap. Empirical measurement on the live server
+ * (2026-08-06) shows a recovery window of 1.8–2.0 s.
+ */
+const SPX_RATE_LIMIT_RETCODE = 130008001;
+const SPX_RATE_LIMIT_BACKOFF_MS = 2_000;
+
 export type ErrorCategory =
   | "session_expired"
   | "network"
@@ -96,6 +105,18 @@ export function classifyPollingError(
       return { category: "api_error", message: error || `API error (retcode=${retcode})`, retryable: false, httpStatus, retcode };
     }
     return { category: "validation", message: error || `Client error (HTTP ${httpStatus})`, retryable: false, httpStatus };
+  }
+
+  // SPX API-level rate limiting (HTTP 200, retcode 130008001)
+  if (retcode === SPX_RATE_LIMIT_RETCODE) {
+    return {
+      category: "rate_limited",
+      message: error || `SPX rate limited (retcode=${retcode})`,
+      retryable: true,
+      httpStatus,
+      retcode,
+      retryAfterMs: retryAfterMs ?? SPX_RATE_LIMIT_BACKOFF_MS,
+    };
   }
 
   // API-level errors
