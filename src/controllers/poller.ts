@@ -418,7 +418,7 @@ export class Poller {
           // window has reset.
           waitMs = this.rateLimitBackoffMs;
           logger.info("rate-limit-backoff", { teamId: this.teamId, waitMs });
-          void this.sendRateLimitAlert("recovered", undefined, waitMs);
+          void this.sendRateLimitAlert("recovered", undefined, waitMs, "ดึงรายการงานหลัก (Bidding List)");
           this.rateLimitBackoffMs = 0;
         } else if (isTeamPaused(this.teamId)) {
           waitMs = 1000;
@@ -458,7 +458,7 @@ export class Poller {
           retcode: classified.retcode,
           backoffMs: this.rateLimitBackoffMs,
         });
-        await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs);
+        await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs, "ดึงรายการงานหลัก (Bidding List)");
       }
 
       // Alert on session expiry — send notification once
@@ -1728,7 +1728,7 @@ export class Poller {
   }
 
   /** Send rate limit alert via LINE — throttled to once per 3 minutes for "hit", "recovered" only when previously alerted */
-  private async sendRateLimitAlert(type: "hit" | "recovered", retcode?: number, backoffMs = Poller.RATE_LIMIT_BACKOFF_MS): Promise<void> {
+  private async sendRateLimitAlert(type: "hit" | "recovered", retcode?: number, backoffMs = Poller.RATE_LIMIT_BACKOFF_MS, endpoint?: string): Promise<void> {
     const now = Date.now();
 
     if (type === "hit") {
@@ -1753,18 +1753,20 @@ export class Poller {
       data: {
         retcode,
         backoffMs,
+        endpoint,
         timestamp: new Date(now).toISOString(),
       },
     });
 
     try {
-      const result = await sendRateLimitNotification(type, { teamId: this.teamId, retcode, backoffMs }, this.notificationContext);
+      const result = await sendRateLimitNotification(type, { teamId: this.teamId, retcode, backoffMs, endpoint }, this.notificationContext);
       if (result.sent) {
         logger.info(`rate-limit-${type}-alert-sent`, {
           channels: result.results.filter((ch) => ch.ok).map((ch) => ch.channel),
           teamId: this.teamId,
           retcode,
           backoffMs,
+          endpoint,
         });
         return;
       }
