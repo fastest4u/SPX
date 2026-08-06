@@ -1924,10 +1924,12 @@ export async function sendSessionExpiryNotification(
 /** Send a LINE alert when SPX rate limit is hit or recovered */
 export async function sendRateLimitNotification(
   type: "hit" | "recovered",
-  details: { teamId: number; retcode?: number; backoffMs: number },
+  details: { teamId: number; retcode?: number; backoffMs: number; endpoint?: string },
   context?: TeamNotificationContext
 ): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
   const teamName = context?.teamName ?? `Team ${details.teamId}`;
+  const endpointInfo = details.endpoint ? `\nจุดที่ติด: ${details.endpoint}` : "";
+  const recoveryEndpointInfo = details.endpoint ? `\nจุดที่คลาย: ${details.endpoint}` : "";
 
   const title = type === "hit"
     ? "⚠️ SPX Rate Limit"
@@ -1936,11 +1938,13 @@ export async function sendRateLimitNotification(
   const message = type === "hit"
     ? [
         `Team: ${teamName}`,
-        `ระบบตรวจพบ SPX Rate Limit (retcode: ${details.retcode ?? "N/A"})`,
+        `จุดที่พบ: ${details.endpoint || "ดึงรายการงานหลัก (Bidding List)"}`,
+        `Retcode: ${details.retcode ?? "130008001"}`,
         `ชะลอการดึงงานชั่วคราว ${(details.backoffMs / 1000).toFixed(1)} วินาที...`,
       ].join("\n")
     : [
         `Team: ${teamName}`,
+        `จุดที่คลาย: ${details.endpoint || "ดึงรายการงานหลัก (Bidding List)"}`,
         "ระบบเริ่มทำงานรอบใหม่ปกติแล้ว",
       ].join("\n");
 
