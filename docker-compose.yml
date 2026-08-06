@@ -1,13 +1,35 @@
+x-spx-image: &spx-image
+  image: ${SPX_IMAGE:?SPX_IMAGE is required}
+
 x-spx-common: &spx-common
-  build: .
-  image: spx-app:latest
-  # .env is bootstrap-only. Runtime/operator settings are loaded from app_settings.
-  env_file:
-    - .env
-  volumes:
-    - ./.env:/app/.env
-    - ./notify-rules.json:/app/notify-rules.json
-    - ./data:/app/data
+  <<: *spx-image
+  labels:
+    com.spx.environment: ${SPX_RUNTIME_ENVIRONMENT:-production}
+    com.spx.release-sha: ${SPX_RELEASE_SHA:?SPX_RELEASE_SHA is required}
+    com.spx.target-descriptor-sha256: ${SPX_TARGET_DESCRIPTOR_SHA256:?SPX_TARGET_DESCRIPTOR_SHA256 is required}
+    com.spx.operator-bundle-sha256: ${SPX_OPERATOR_BUNDLE_SHA256:?SPX_OPERATOR_BUNDLE_SHA256 is required}
+    com.spx.staging-run-id: ${SPX_STAGING_RUN_ID:-not-staging}
+  configs:
+    - source: spx_release_manifest
+      target: /run/secrets/spx-release-manifest
+      mode: 0444
+    - source: spx_target_descriptor
+      target: /run/secrets/spx-target-descriptor
+      mode: 0444
+    - source: spx_deployment_context
+      target: /run/secrets/spx-deployment-context
+      mode: 0444
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 256
+  mem_limit: 1g
+  cpus: "1.0"
+  init: true
   restart: unless-stopped
   stop_grace_period: 120s
   logging:
@@ -16,7 +38,23 @@ x-spx-common: &spx-common
       max-size: "50m"
       max-file: "5"
 
+x-spx-db-environment: &spx-db-environment
+  DB_MODE: mysql
+  DB_HOST: ${SPX_DB_HOST:?SPX_DB_HOST is required}
+  DB_PORT: "${SPX_DB_PORT:-3306}"
+  DB_NAME: ${SPX_DB_NAME:?SPX_DB_NAME is required}
+  DB_SSL_MODE: verify-identity
+  DB_SSL_CA_FILE: /run/config/db-ca.pem
+  DB_SSL_SERVERNAME: ${SPX_DB_SSL_SERVERNAME:?SPX_DB_SSL_SERVERNAME is required}
+
 x-spx-worker-healthcheck: &spx-worker-healthcheck
+  test: ["CMD", "node", "scripts/worker-healthcheck.mjs", "--max-age-ms=45000"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+x-spx-process-healthcheck: &spx-process-healthcheck
   test: ["CMD-SHELL", "ps | grep -q '[n]ode dist/app.js'"]
   interval: 30s
   timeout: 5s
@@ -31,49 +69,189 @@ x-spx-http-healthcheck: &spx-http-healthcheck
       "-e",
       "const port=process.env.HTTP_PORT||3000; fetch('http://127.0.0.1:'+port+'/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
     ]
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 90s
+
+x-spx-tcp-proxy-healthcheck: &spx-tcp-proxy-healthcheck
+  test:
+    [
+      "CMD",
+      "node",
+      "-e",
+      "const net=require('node:net');const s=net.connect(3306,'127.0.0.1');s.once('connect',()=>{s.destroy();process.exit(0)});s.once('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1500).unref()",
+    ]
   interval: 30s
   timeout: 5s
   retries: 3
-  start_period: 20s
+  start_period: 10s
 
 services:
+  migrator:
+    <<: *spx-common
+    profiles: ["migration"]
+    restart: "no"
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: migrator
+      HTTP_ENABLED: "false"
+      DB_USERNAME: ${SPX_DB_USERNAME_MIGRATOR:?SPX_DB_USERNAME_MIGRATOR is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+    secrets:
+      - source: db_password_migrator
+        target: db_password
+        mode: 0444
+    command: ["node", "dist/scripts/db-migrate.js"]
+
+  # Rollback-only legacy topology. Current production releases are split-only;
+  # production notifier startup also requires a remote, provider-fenced LINE service.
   notifier:
     <<: *spx-common
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: notifier
       SPX_NODE_ID: prod-notifier-1
       HTTP_ENABLED: "true"
       HTTP_PORT: "3000"
-    # The notifier owns HTTP, central LINE delivery, and the one production
-    # migration run. Workers only start after this service is healthy.
-    command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
+      DB_USERNAME: ${SPX_DB_USERNAME_NOTIFIER:?SPX_DB_USERNAME_NOTIFIER is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      COOKIE_SECRET_FILE: /run/secrets/cookie_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      NOTIFICATION_NODE_SECRETS_FILE: /run/secrets/notification_node_secrets
+      OCR_NODE_SECRET_FILE: /run/secrets/ocr_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
+      NOTIFICATION_ALLOWED_NODE_TEAMS: ${SPX_NOTIFICATION_ALLOWED_NODE_TEAMS:?SPX_NOTIFICATION_ALLOWED_NODE_TEAMS is required}
+      ADMIN_USERNAME: ${SPX_ADMIN_USERNAME:?SPX_ADMIN_USERNAME is required}
+      ADMIN_ROLE: admin
+      OCR_SERVICE_URL: ${SPX_NOTIFIER_OCR_SERVICE_URL:?SPX_NOTIFIER_OCR_SERVICE_URL is required}
+      LINEJS_TEST_STORAGE_PATH: /app/data/line-state/linejs-storage.json
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_NOTIFIER_URL:-}
+      REALTIME_ALLOWED_NODE_TEAMS: ${SPX_REALTIME_ALLOWED_NODE_TEAMS_NOTIFIER:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: line-state-legacy
+        target: /app/data/line-state
+      - type: volume
+        source: line-images-legacy
+        target: /app/data/line-images
+    secrets:
+      - source: db_password_notifier
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: jwt_secret
+        target: jwt_secret
+        mode: 0444
+      - source: cookie_secret
+        target: cookie_secret
+        mode: 0444
+      - source: admin_password
+        target: admin_password
+        mode: 0444
+      - source: notification_node_secrets
+        target: notification_node_secrets
+        mode: 0444
+      - source: ocr_node_secret_notifier
+        target: ocr_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_notifier
+        target: realtime_shared_secret
+        mode: 0444
+      - source: realtime_node_secrets_notifier
+        target: realtime_node_secrets
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
 
-  # Optional split-service topology. Stop legacy services first, then start split services explicitly with:
+  # Optional split-service topology. Stop legacy services before starting the explicitly named split services:
   #   docker compose stop notifier worker-ifn worker-ptwl
-  #   export LINE_SERVICE_SEND_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
-  #   export LINE_SERVICE_ADMIN_SECRET="$(cat /proc/sys/kernel/random/uuid)$(cat /proc/sys/kernel/random/uuid)"
-  #   docker compose --profile split up --build \
+  #   docker compose --profile split up --detach \
   #     web-api notification-service line-service ocr-service \
   #     worker-ifn-split worker-ptwl-split
-  # Keep `notifier` above as the legacy compatibility service until split-service
-  # fault-injection has passed in production.
   web-api:
     <<: *spx-common
     profiles: ["split"]
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: api
       SPX_NODE_ID: prod-web-api-1
       HTTP_ENABLED: "true"
       HTTP_PORT: "3000"
+      DB_USERNAME: ${SPX_DB_USERNAME_WEB_API:?SPX_DB_USERNAME_WEB_API is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      COOKIE_SECRET_FILE: /run/secrets/cookie_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      LINE_SERVICE_ADMIN_SECRET_FILE: /run/secrets/line_service_admin_secret
+      OCR_NODE_SECRET_FILE: /run/secrets/ocr_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
+      ADMIN_USERNAME: ${SPX_ADMIN_USERNAME:?SPX_ADMIN_USERNAME is required}
+      ADMIN_ROLE: admin
       LINE_SERVICE_URL: http://line-service:3003
-      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
-      LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
-    command: ["sh", "-c", "node dist/scripts/db-migrate.js && exec node dist/app.js"]
+      OCR_SERVICE_URL: http://ocr-service:3004
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_WEB_API_URL:-}
+      REALTIME_ALLOWED_NODE_TEAMS: ${SPX_REALTIME_ALLOWED_NODE_TEAMS_WEB_API:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: line-images-split
+        target: /app/data/line-images
+        read_only: true
+    secrets:
+      - source: db_password_web_api
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: jwt_secret
+        target: jwt_secret
+        mode: 0444
+      - source: cookie_secret
+        target: cookie_secret
+        mode: 0444
+      - source: admin_password
+        target: admin_password
+        mode: 0444
+      - source: line_service_admin_secret
+        target: line_service_admin_secret
+        mode: 0444
+      - source: ocr_node_secret_web_api
+        target: ocr_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_web_api
+        target: realtime_shared_secret
+        mode: 0444
+      - source: realtime_node_secrets_web_api
+        target: realtime_node_secrets
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
 
   notification-service:
@@ -81,19 +259,49 @@ services:
     profiles: ["split"]
     expose:
       - "3002"
-    depends_on:
-      web-api:
-        condition: service_healthy
-      line-service:
-        condition: service_started
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: notification-service
       SPX_NODE_ID: prod-notification-service-1
       HTTP_ENABLED: "true"
       HTTP_PORT: "3002"
+      DB_USERNAME: ${SPX_DB_USERNAME_NOTIFICATION_SERVICE:?SPX_DB_USERNAME_NOTIFICATION_SERVICE is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      LINE_SERVICE_SEND_SECRET_FILE: /run/secrets/line_service_send_secret
+      NOTIFICATION_NODE_SECRETS_FILE: /run/secrets/notification_node_secrets
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
+      NOTIFICATION_ALLOWED_NODE_TEAMS: ${SPX_NOTIFICATION_ALLOWED_NODE_TEAMS:?SPX_NOTIFICATION_ALLOWED_NODE_TEAMS is required}
       LINE_SERVICE_URL: http://line-service:3003
-      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
-    command: ["sh", "-c", "exec node dist/app.js"]
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_NOTIFICATION_SERVICE_URL:-}
+      REALTIME_ALLOWED_NODE_TEAMS: ${SPX_REALTIME_ALLOWED_NODE_TEAMS_NOTIFICATION_SERVICE:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+    secrets:
+      - source: db_password_notification_service
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: line_service_send_secret_notification_service
+        target: line_service_send_secret
+        mode: 0444
+      - source: notification_node_secrets
+        target: notification_node_secrets
+        mode: 0444
+      - source: realtime_shared_secret_notification_service
+        target: realtime_shared_secret
+        mode: 0444
+      - source: realtime_node_secrets_notification_service
+        target: realtime_node_secrets
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
 
   line-service:
@@ -101,38 +309,108 @@ services:
     profiles: ["split"]
     expose:
       - "3003"
-    depends_on:
-      web-api:
-        condition: service_healthy
-      ocr-service:
-        condition: service_started
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: line-service
       SPX_NODE_ID: prod-line-service-1
       HTTP_ENABLED: "true"
       HTTP_PORT: "3003"
+      DB_USERNAME: ${SPX_DB_USERNAME_LINE_SERVICE:?SPX_DB_USERNAME_LINE_SERVICE is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      LINE_SERVICE_SEND_NODE_SECRETS_FILE: /run/secrets/line_service_send_node_secrets
+      LINE_SERVICE_ADMIN_SECRET_FILE: /run/secrets/line_service_admin_secret
+      OCR_NODE_SECRET_FILE: /run/secrets/ocr_node_secret
+      LINE_SEND_ALLOWED_NODE_IDS: ${SPX_LINE_SEND_ALLOWED_NODE_IDS:?SPX_LINE_SEND_ALLOWED_NODE_IDS is required}
+      LINE_ADMIN_ALLOWED_NODE_IDS: ${SPX_LINE_ADMIN_ALLOWED_NODE_IDS:?SPX_LINE_ADMIN_ALLOWED_NODE_IDS is required}
       LINEJS_TEST_ENABLED: "true"
-      LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
-      LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
+      LINEJS_TEST_STORAGE_PATH: /app/data/line-state/linejs-storage.json
       OCR_SERVICE_URL: http://ocr-service:3004
-    command: ["sh", "-c", "exec node dist/app.js"]
+      GATE6_CONTROL_NODE_SECRET_FILE: /run/secrets/gate6_control_node_secret
+      GATE6_LINE_PERMIT_KEY_ID: ${SPX_GATE6_LINE_PERMIT_KEY_ID:?SPX_GATE6_LINE_PERMIT_KEY_ID is required}
+      GATE6_LINE_PERMIT_PUBLIC_KEY_FILE: /run/secrets/gate6_line_permit_public_key
+      GATE6_CONTROL_REQUEST_TIMEOUT_MS: "${SPX_GATE6_CONTROL_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: line-state-split
+        target: /app/data/line-state
+      - type: volume
+        source: line-images-split
+        target: /app/data/line-images
+    secrets:
+      - source: db_password_line_service
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: line_service_send_node_secrets
+        target: line_service_send_node_secrets
+        mode: 0444
+      - source: line_service_admin_secret
+        target: line_service_admin_secret
+        mode: 0444
+      - source: ocr_node_secret_line_service
+        target: ocr_node_secret
+        mode: 0444
+      - source: gate6_control_node_secret_line
+        target: gate6_control_node_secret
+        mode: 0444
+      - source: gate6_line_permit_public_key
+        target: gate6_line_permit_public_key
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
+    networks:
+      default:
+      gate6-control-internal:
 
   ocr-service:
     <<: *spx-common
     profiles: ["split"]
     expose:
       - "3004"
-    depends_on:
-      web-api:
-        condition: service_healthy
     environment:
       SPX_ROLE: ocr-service
       SPX_NODE_ID: prod-ocr-service-1
       HTTP_ENABLED: "true"
       HTTP_PORT: "3004"
-    command: ["sh", "-c", "exec node dist/app.js"]
+      OCR_NODE_SECRETS_FILE: /run/secrets/ocr_node_secrets
+      OCR_ALLOWED_LINE_NODE_IDS: ${SPX_OCR_ALLOWED_LINE_NODE_IDS:?SPX_OCR_ALLOWED_LINE_NODE_IDS is required}
+      OCR_ADMIN_NODE_IDS: ${SPX_OCR_ADMIN_NODE_IDS:?SPX_OCR_ADMIN_NODE_IDS is required}
+      OCR_REPLAY_LEDGER_DIR: /app/data/internal-replay
+      CODEX_IMAGE_PROVIDER: codex-device
+      GATE6_CONTROL_NODE_SECRET_FILE: /run/secrets/gate6_control_node_secret
+      GATE6_OCR_PERMIT_KEY_ID: ${SPX_GATE6_OCR_PERMIT_KEY_ID:?SPX_GATE6_OCR_PERMIT_KEY_ID is required}
+      GATE6_OCR_PERMIT_PUBLIC_KEY_FILE: /run/secrets/gate6_ocr_permit_public_key
+      GATE6_CONTROL_REQUEST_TIMEOUT_MS: "${SPX_GATE6_CONTROL_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: volume
+        source: ocr-auth
+        target: /app/data
+      - type: volume
+        source: line-images-split
+        target: /app/data/line-images
+        read_only: true
+    secrets:
+      - source: ocr_node_secrets
+        target: ocr_node_secrets
+        mode: 0444
+      - source: gate6_control_node_secret_ocr
+        target: gate6_control_node_secret
+        mode: 0444
+      - source: gate6_ocr_permit_public_key
+        target: gate6_ocr_permit_public_key
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
+    networks:
+      default:
+      gate6-control-internal:
 
   worker-ifn-split:
     <<: *spx-common
@@ -141,13 +419,42 @@ services:
       notification-service:
         condition: service_healthy
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ifn-split-1
       HTTP_ENABLED: "false"
       RUN_TEAM_IDS: "2"
+      DB_USERNAME: ${SPX_DB_USERNAME_WORKER_IFN_SPLIT:?SPX_DB_USERNAME_WORKER_IFN_SPLIT is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
       NOTIFIER_API_URL: http://notification-service:3002/internal/notification-events
-      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn-split.jsonl
-    command: ["sh", "-c", "exec node dist/app.js"]
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_WORKER_IFN_SPLIT_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-worker-ifn-split
+        target: /app/spool
+    secrets:
+      - source: db_password_worker_ifn_split
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_worker_ifn_split
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_worker_ifn_split
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-worker-healthcheck
 
   worker-ptwl-split:
@@ -157,13 +464,42 @@ services:
       notification-service:
         condition: service_healthy
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ptwl-split-1
       HTTP_ENABLED: "false"
       RUN_TEAM_IDS: "1"
+      DB_USERNAME: ${SPX_DB_USERNAME_WORKER_PTWL_SPLIT:?SPX_DB_USERNAME_WORKER_PTWL_SPLIT is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
       NOTIFIER_API_URL: http://notification-service:3002/internal/notification-events
-      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl-split.jsonl
-    command: ["sh", "-c", "exec node dist/app.js"]
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_WORKER_PTWL_SPLIT_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-worker-ptwl-split
+        target: /app/spool
+    secrets:
+      - source: db_password_worker_ptwl_split
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_worker_ptwl_split
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_worker_ptwl_split
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-worker-healthcheck
 
   worker-ifn:
@@ -172,13 +508,42 @@ services:
       notifier:
         condition: service_healthy
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ifn-1
       HTTP_ENABLED: "false"
       RUN_TEAM_IDS: "2"
+      DB_USERNAME: ${SPX_DB_USERNAME_WORKER_IFN:?SPX_DB_USERNAME_WORKER_IFN is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
-      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ifn.jsonl
-    command: ["sh", "-c", "exec node dist/app.js"]
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_WORKER_IFN_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-worker-ifn
+        target: /app/spool
+    secrets:
+      - source: db_password_worker_ifn
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_worker_ifn
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_worker_ifn
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-worker-healthcheck
 
   worker-ptwl:
@@ -187,11 +552,587 @@ services:
       notifier:
         condition: service_healthy
     environment:
+      <<: *spx-db-environment
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ptwl-1
       HTTP_ENABLED: "false"
       RUN_TEAM_IDS: "1"
+      DB_USERNAME: ${SPX_DB_USERNAME_WORKER_PTWL:?SPX_DB_USERNAME_WORKER_PTWL is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
-      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl.jsonl
-    command: ["sh", "-c", "exec node dist/app.js"]
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_WORKER_PTWL_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-worker-ptwl
+        target: /app/spool
+    secrets:
+      - source: db_password_worker_ptwl
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_worker_ptwl
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_worker_ptwl
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
     healthcheck: *spx-worker-healthcheck
+
+  # Phase 3 services are default-off and must never overlap the legacy worker
+  # for the same team during a supervised cutover.
+  poller-ifn-phase3:
+    <<: *spx-common
+    profiles: ["phase3"]
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: poller-service
+      SPX_NODE_ID: prod-poller-ifn-phase3-1
+      AUTO_ACCEPT_JOB_CUTOVER_EPOCH: ${SPX_AUTO_ACCEPT_JOB_CUTOVER_EPOCH_IFN:?SPX_AUTO_ACCEPT_JOB_CUTOVER_EPOCH_IFN is required}
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "2"
+      DB_USERNAME: ${SPX_DB_USERNAME_POLLER_IFN_PHASE3:?SPX_DB_USERNAME_POLLER_IFN_PHASE3 is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      NOTIFIER_API_URL: ${SPX_PHASE3_NOTIFIER_API_URL:-http://notification-service:3002/internal/notification-events}
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      AUTO_ACCEPT_JOB_SHADOW_ENABLED: "false"
+      AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS: ""
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS: ""
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_POLLER_IFN_PHASE3_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-poller-ifn-phase3
+        target: /app/spool
+    secrets:
+      - source: db_password_poller_ifn_phase3
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_poller_ifn_phase3
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_poller_ifn_phase3
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
+
+  auto-accept-ifn-phase3:
+    <<: *spx-common
+    profiles: ["phase3"]
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: auto-accept-service
+      SPX_NODE_ID: prod-auto-accept-ifn-phase3-1
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "2"
+      DB_USERNAME: ${SPX_DB_USERNAME_AUTO_ACCEPT_IFN_PHASE3:?SPX_DB_USERNAME_AUTO_ACCEPT_IFN_PHASE3 is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      NOTIFIER_API_URL: ${SPX_PHASE3_NOTIFIER_API_URL:-http://notification-service:3002/internal/notification-events}
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      AUTO_ACCEPT_JOB_SHADOW_ENABLED: "false"
+      AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS: ""
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS: ""
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_AUTO_ACCEPT_IFN_PHASE3_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-auto-accept-ifn-phase3
+        target: /app/spool
+    secrets:
+      - source: db_password_auto_accept_ifn_phase3
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_auto_accept_ifn_phase3
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_auto_accept_ifn_phase3
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-process-healthcheck
+
+  poller-ptwl-phase3:
+    <<: *spx-common
+    profiles: ["phase3"]
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: poller-service
+      SPX_NODE_ID: prod-poller-ptwl-phase3-1
+      AUTO_ACCEPT_JOB_CUTOVER_EPOCH: ${SPX_AUTO_ACCEPT_JOB_CUTOVER_EPOCH_PTWL:?SPX_AUTO_ACCEPT_JOB_CUTOVER_EPOCH_PTWL is required}
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "1"
+      DB_USERNAME: ${SPX_DB_USERNAME_POLLER_PTWL_PHASE3:?SPX_DB_USERNAME_POLLER_PTWL_PHASE3 is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      NOTIFIER_API_URL: ${SPX_PHASE3_NOTIFIER_API_URL:-http://notification-service:3002/internal/notification-events}
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      AUTO_ACCEPT_JOB_SHADOW_ENABLED: "false"
+      AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS: ""
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS: ""
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_POLLER_PTWL_PHASE3_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-poller-ptwl-phase3
+        target: /app/spool
+    secrets:
+      - source: db_password_poller_ptwl_phase3
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_poller_ptwl_phase3
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_poller_ptwl_phase3
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
+
+  auto-accept-ptwl-phase3:
+    <<: *spx-common
+    profiles: ["phase3"]
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: auto-accept-service
+      SPX_NODE_ID: prod-auto-accept-ptwl-phase3-1
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "1"
+      DB_USERNAME: ${SPX_DB_USERNAME_AUTO_ACCEPT_PTWL_PHASE3:?SPX_DB_USERNAME_AUTO_ACCEPT_PTWL_PHASE3 is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      NOTIFICATION_NODE_SECRET_FILE: /run/secrets/notification_node_secret
+      REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
+      NOTIFIER_API_URL: ${SPX_PHASE3_NOTIFIER_API_URL:-http://notification-service:3002/internal/notification-events}
+      NOTIFIER_LOCAL_SPOOL_PATH: /app/spool/notification-spool.jsonl
+      AUTO_ACCEPT_JOB_SHADOW_ENABLED: "false"
+      AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS: ""
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED: "false"
+      AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS: ""
+      REALTIME_SERVICE_URL: ${SPX_REALTIME_AUTO_ACCEPT_PTWL_PHASE3_URL:-}
+      REALTIME_REQUEST_TIMEOUT_MS: "${SPX_REALTIME_REQUEST_TIMEOUT_MS:-1500}"
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: volume
+        source: spool-auto-accept-ptwl-phase3
+        target: /app/spool
+    secrets:
+      - source: db_password_auto_accept_ptwl_phase3
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: notification_node_secret_auto_accept_ptwl_phase3
+        target: notification_node_secret
+        mode: 0444
+      - source: realtime_shared_secret_auto_accept_ptwl_phase3
+        target: realtime_shared_secret
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-process-healthcheck
+
+  # Realtime remains default-off and is never a health dependency of web or workers.
+  realtime-service:
+    <<: *spx-common
+    profiles: ["realtime"]
+    expose:
+      - "3005"
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: realtime-service
+      SPX_NODE_ID: prod-realtime-service-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3005"
+      DB_USERNAME: ${SPX_DB_USERNAME_REALTIME_SERVICE:?SPX_DB_USERNAME_REALTIME_SERVICE is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SECRETS_KEY_FILE: /run/secrets/secrets_key
+      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
+      REALTIME_SERVICE_URL: ""
+      REALTIME_TRUSTED_NODE_IDS: ${SPX_REALTIME_TRUSTED_NODE_IDS:?SPX_REALTIME_TRUSTED_NODE_IDS is required}
+      REALTIME_ADMIN_NODE_IDS: ${SPX_REALTIME_ADMIN_NODE_IDS:?SPX_REALTIME_ADMIN_NODE_IDS is required}
+      REALTIME_ALLOWED_NODE_TEAMS: ${SPX_REALTIME_ALLOWED_NODE_TEAMS:?SPX_REALTIME_ALLOWED_NODE_TEAMS is required}
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+    secrets:
+      - source: db_password_realtime_service
+        target: db_password
+        mode: 0444
+      - source: secrets_key
+        target: secrets_key
+        mode: 0444
+      - source: realtime_node_secrets_realtime_service
+        target: realtime_node_secrets
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+    deploy:
+      replicas: 1
+
+  gate6-control:
+    <<: *spx-common
+    profiles: ["gate6"]
+    expose:
+      - "3006"
+    environment:
+      <<: *spx-db-environment
+      SPX_ROLE: gate6-control
+      SPX_NODE_ID: prod-gate6-control-1
+      HTTP_ENABLED: "true"
+      HTTP_PORT: "3006"
+      DB_HOST: gate6-db-proxy
+      DB_PORT: "3306"
+      DB_NAME: spx
+      DB_USERNAME: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      GATE6_REPOSITORY: ${SPX_GATE6_REPOSITORY:?SPX_GATE6_REPOSITORY is required}
+      GATE6_LINE_NODE_SECRETS_FILE: /run/secrets/gate6_line_node_secrets
+      GATE6_OCR_NODE_SECRETS_FILE: /run/secrets/gate6_ocr_node_secrets
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+    secrets:
+      - source: db_password_gate6_control
+        target: db_password
+        mode: 0444
+      - source: gate6_line_node_secrets
+        target: gate6_line_node_secrets
+        mode: 0444
+      - source: gate6_ocr_node_secrets
+        target: gate6_ocr_node_secrets
+        mode: 0444
+    command: ["node", "dist/app.js"]
+    healthcheck: *spx-http-healthcheck
+    depends_on:
+      gate6-db-proxy:
+        condition: service_healthy
+    networks:
+      gate6-control-internal:
+
+  gate6-task9-controller:
+    <<: *spx-common
+    profiles: ["gate6"]
+    restart: "no"
+    environment:
+      <<: *spx-db-environment
+      DB_HOST: gate6-db-proxy
+      DB_PORT: "3306"
+      DB_NAME: spx
+      DB_USERNAME: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
+      SPX_DB_USERNAME_GATE6_CONTROL: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      SPX_GATE6_DB_PASSWORD_SHA256: ${SPX_GATE6_DB_PASSWORD_SHA256:?SPX_GATE6_DB_PASSWORD_SHA256 is required}
+      SPX_GATE6_DB_CA_SHA256: ${SPX_GATE6_DB_CA_SHA256:?SPX_GATE6_DB_CA_SHA256 is required}
+      SPX_GATE6_PRODUCTION_KEYRING_PATH: /run/config/gate6-production-keyring.json
+      SPX_GATE6_TASK9_REQUEST_CONFIG_PATH: /run/config/gate6-task9-requests.json
+      GATE6_TASK9_LINE_CALLER_SECRET_FILE: /run/secrets/gate6_task9_line_caller_secret
+      GATE6_TASK9_OCR_CALLER_SECRET_FILE: /run/secrets/gate6_task9_ocr_caller_secret
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+      - type: bind
+        source: ${SPX_GATE6_PRODUCTION_KEYRING_PATH:?SPX_GATE6_PRODUCTION_KEYRING_PATH is required}
+        target: /run/config/gate6-production-keyring.json
+        read_only: true
+      - type: bind
+        source: ${SPX_GATE6_TASK9_REQUEST_CONFIG_PATH:?SPX_GATE6_TASK9_REQUEST_CONFIG_PATH is required}
+        target: /run/config/gate6-task9-requests.json
+        read_only: true
+      - type: bind
+        source: /var/lib/spx-gate6/artifacts
+        target: /run/gate6/artifacts
+        read_only: true
+      - type: bind
+        source: /var/lib/spx-gate6/actions
+        target: /run/gate6/actions
+        read_only: true
+      - type: bind
+        source: /var/lib/spx-gate6/permits
+        target: /run/gate6/permits
+        read_only: true
+    secrets:
+      - source: db_password_gate6_control
+        target: db_password
+        mode: 0444
+      - source: gate6_task9_line_caller_secret
+        target: gate6_task9_line_caller_secret
+        mode: 0444
+      - source: gate6_task9_ocr_caller_secret
+        target: gate6_task9_ocr_caller_secret
+        mode: 0444
+    command: ["node", "scripts/production-task9-controller.mjs"]
+    depends_on:
+      gate6-db-proxy:
+        condition: service_healthy
+    networks:
+      default:
+      gate6-control-internal:
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: "0.25"
+
+  gate6-db-proxy:
+    <<: *spx-common
+    profiles: ["gate6"]
+    expose:
+      - "3306"
+    environment:
+      STAGING_DB_PROXY_LISTEN_HOST: 0.0.0.0
+      STAGING_DB_PROXY_LISTEN_PORT: "3306"
+      STAGING_DB_UPSTREAM_HOST: ${SPX_DB_HOST:?SPX_DB_HOST is required}
+      STAGING_DB_UPSTREAM_PORT: "${SPX_DB_PORT:-3306}"
+      STAGING_DB_PROXY_MAX_CONNECTIONS: "16"
+    command: ["node", "scripts/staging-db-proxy.mjs"]
+    healthcheck: *spx-tcp-proxy-healthcheck
+    networks:
+      gate6-control-internal:
+      gate6-db-egress:
+
+  gate6-monitor-probe:
+    <<: *spx-common
+    profiles: ["gate6"]
+    restart: "no"
+    environment:
+      <<: *spx-db-environment
+      DB_HOST: gate6-db-proxy
+      DB_PORT: "3306"
+      DB_NAME: spx
+      DB_USERNAME: ${SPX_DB_USERNAME_GATE6_MONITOR:?SPX_DB_USERNAME_GATE6_MONITOR is required}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    volumes:
+      - type: bind
+        source: ${SPX_DB_CA_PATH:?SPX_DB_CA_PATH is required}
+        target: /run/config/db-ca.pem
+        read_only: true
+    secrets:
+      - source: db_password_gate6_monitor
+        target: db_password
+        mode: 0444
+    command: ["node", "scripts/gate6-production-monitor-probe.mjs"]
+    depends_on:
+      gate6-db-proxy:
+        condition: service_healthy
+    networks:
+      default:
+      gate6-control-internal:
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: "0.25"
+
+configs:
+  spx_release_manifest:
+    file: ${SPX_RELEASE_MANIFEST_PATH:?SPX_RELEASE_MANIFEST_PATH is required}
+  spx_target_descriptor:
+    file: ${SPX_TARGET_DESCRIPTOR_PATH:?SPX_TARGET_DESCRIPTOR_PATH is required}
+  spx_deployment_context:
+    file: ${SPX_DEPLOYMENT_CONTEXT_PATH:?SPX_DEPLOYMENT_CONTEXT_PATH is required}
+
+secrets:
+  db_password_migrator:
+    file: ${SPX_DB_PASSWORD_MIGRATOR_FILE:?SPX_DB_PASSWORD_MIGRATOR_FILE is required}
+  db_password_notifier:
+    file: ${SPX_DB_PASSWORD_NOTIFIER_FILE:?SPX_DB_PASSWORD_NOTIFIER_FILE is required}
+  db_password_web_api:
+    file: ${SPX_DB_PASSWORD_WEB_API_FILE:?SPX_DB_PASSWORD_WEB_API_FILE is required}
+  db_password_notification_service:
+    file: ${SPX_DB_PASSWORD_NOTIFICATION_SERVICE_FILE:?SPX_DB_PASSWORD_NOTIFICATION_SERVICE_FILE is required}
+  db_password_line_service:
+    file: ${SPX_DB_PASSWORD_LINE_SERVICE_FILE:?SPX_DB_PASSWORD_LINE_SERVICE_FILE is required}
+  db_password_worker_ifn_split:
+    file: ${SPX_DB_PASSWORD_WORKER_IFN_SPLIT_FILE:?SPX_DB_PASSWORD_WORKER_IFN_SPLIT_FILE is required}
+  db_password_worker_ptwl_split:
+    file: ${SPX_DB_PASSWORD_WORKER_PTWL_SPLIT_FILE:?SPX_DB_PASSWORD_WORKER_PTWL_SPLIT_FILE is required}
+  db_password_worker_ifn:
+    file: ${SPX_DB_PASSWORD_WORKER_IFN_FILE:?SPX_DB_PASSWORD_WORKER_IFN_FILE is required}
+  db_password_worker_ptwl:
+    file: ${SPX_DB_PASSWORD_WORKER_PTWL_FILE:?SPX_DB_PASSWORD_WORKER_PTWL_FILE is required}
+  db_password_poller_ifn_phase3:
+    file: ${SPX_DB_PASSWORD_POLLER_IFN_PHASE3_FILE:?SPX_DB_PASSWORD_POLLER_IFN_PHASE3_FILE is required}
+  db_password_auto_accept_ifn_phase3:
+    file: ${SPX_DB_PASSWORD_AUTO_ACCEPT_IFN_PHASE3_FILE:?SPX_DB_PASSWORD_AUTO_ACCEPT_IFN_PHASE3_FILE is required}
+  db_password_poller_ptwl_phase3:
+    file: ${SPX_DB_PASSWORD_POLLER_PTWL_PHASE3_FILE:?SPX_DB_PASSWORD_POLLER_PTWL_PHASE3_FILE is required}
+  db_password_auto_accept_ptwl_phase3:
+    file: ${SPX_DB_PASSWORD_AUTO_ACCEPT_PTWL_PHASE3_FILE:?SPX_DB_PASSWORD_AUTO_ACCEPT_PTWL_PHASE3_FILE is required}
+  db_password_realtime_service:
+    file: ${SPX_DB_PASSWORD_REALTIME_SERVICE_FILE:?SPX_DB_PASSWORD_REALTIME_SERVICE_FILE is required}
+  db_password_gate6_control:
+    file: ${SPX_DB_PASSWORD_GATE6_CONTROL_FILE:?SPX_DB_PASSWORD_GATE6_CONTROL_FILE is required}
+  db_password_gate6_monitor:
+    file: ${SPX_DB_PASSWORD_GATE6_MONITOR_FILE:?SPX_DB_PASSWORD_GATE6_MONITOR_FILE is required}
+  gate6_task9_line_caller_secret:
+    file: ${SPX_GATE6_TASK9_LINE_CALLER_SECRET_FILE:?SPX_GATE6_TASK9_LINE_CALLER_SECRET_FILE is required}
+  gate6_task9_ocr_caller_secret:
+    file: ${SPX_GATE6_TASK9_OCR_CALLER_SECRET_FILE:?SPX_GATE6_TASK9_OCR_CALLER_SECRET_FILE is required}
+  secrets_key:
+    file: ${SPX_SECRETS_KEY_FILE:?SPX_SECRETS_KEY_FILE is required}
+  jwt_secret:
+    file: ${SPX_JWT_SECRET_FILE:?SPX_JWT_SECRET_FILE is required}
+  cookie_secret:
+    file: ${SPX_COOKIE_SECRET_FILE:?SPX_COOKIE_SECRET_FILE is required}
+  admin_password:
+    file: ${SPX_ADMIN_PASSWORD_FILE:?SPX_ADMIN_PASSWORD_FILE is required}
+  notification_node_secrets:
+    file: ${SPX_NOTIFICATION_NODE_SECRETS_FILE:?SPX_NOTIFICATION_NODE_SECRETS_FILE is required}
+  notification_node_secret_worker_ifn_split:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_WORKER_IFN_SPLIT_FILE:?SPX_NOTIFICATION_NODE_SECRET_WORKER_IFN_SPLIT_FILE is required}
+  notification_node_secret_worker_ptwl_split:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_WORKER_PTWL_SPLIT_FILE:?SPX_NOTIFICATION_NODE_SECRET_WORKER_PTWL_SPLIT_FILE is required}
+  notification_node_secret_worker_ifn:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_WORKER_IFN_FILE:?SPX_NOTIFICATION_NODE_SECRET_WORKER_IFN_FILE is required}
+  notification_node_secret_worker_ptwl:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_WORKER_PTWL_FILE:?SPX_NOTIFICATION_NODE_SECRET_WORKER_PTWL_FILE is required}
+  notification_node_secret_poller_ifn_phase3:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_POLLER_IFN_PHASE3_FILE:?SPX_NOTIFICATION_NODE_SECRET_POLLER_IFN_PHASE3_FILE is required}
+  notification_node_secret_auto_accept_ifn_phase3:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_AUTO_ACCEPT_IFN_PHASE3_FILE:?SPX_NOTIFICATION_NODE_SECRET_AUTO_ACCEPT_IFN_PHASE3_FILE is required}
+  notification_node_secret_poller_ptwl_phase3:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_POLLER_PTWL_PHASE3_FILE:?SPX_NOTIFICATION_NODE_SECRET_POLLER_PTWL_PHASE3_FILE is required}
+  notification_node_secret_auto_accept_ptwl_phase3:
+    file: ${SPX_NOTIFICATION_NODE_SECRET_AUTO_ACCEPT_PTWL_PHASE3_FILE:?SPX_NOTIFICATION_NODE_SECRET_AUTO_ACCEPT_PTWL_PHASE3_FILE is required}
+  line_service_send_secret_notification_service:
+    file: ${SPX_LINE_SERVICE_SEND_SECRET_NOTIFICATION_SERVICE_FILE:?SPX_LINE_SERVICE_SEND_SECRET_NOTIFICATION_SERVICE_FILE is required}
+  line_service_send_node_secrets:
+    file: ${SPX_LINE_SERVICE_SEND_NODE_SECRETS_FILE:?SPX_LINE_SERVICE_SEND_NODE_SECRETS_FILE is required}
+  line_service_admin_secret:
+    file: ${SPX_LINE_SERVICE_ADMIN_SECRET_FILE:?SPX_LINE_SERVICE_ADMIN_SECRET_FILE is required}
+  ocr_node_secrets:
+    file: ${SPX_OCR_NODE_SECRETS_FILE:?SPX_OCR_NODE_SECRETS_FILE is required}
+  ocr_node_secret_web_api:
+    file: ${SPX_OCR_NODE_SECRET_WEB_API_FILE:?SPX_OCR_NODE_SECRET_WEB_API_FILE is required}
+  ocr_node_secret_line_service:
+    file: ${SPX_OCR_NODE_SECRET_LINE_SERVICE_FILE:?SPX_OCR_NODE_SECRET_LINE_SERVICE_FILE is required}
+  ocr_node_secret_notifier:
+    file: ${SPX_OCR_NODE_SECRET_NOTIFIER_FILE:?SPX_OCR_NODE_SECRET_NOTIFIER_FILE is required}
+  gate6_control_node_secret_line:
+    file: ${SPX_GATE6_CONTROL_NODE_SECRET_LINE_FILE:?SPX_GATE6_CONTROL_NODE_SECRET_LINE_FILE is required}
+  gate6_control_node_secret_ocr:
+    file: ${SPX_GATE6_CONTROL_NODE_SECRET_OCR_FILE:?SPX_GATE6_CONTROL_NODE_SECRET_OCR_FILE is required}
+  gate6_line_node_secrets:
+    file: ${SPX_GATE6_LINE_NODE_SECRETS_FILE:?SPX_GATE6_LINE_NODE_SECRETS_FILE is required}
+  gate6_ocr_node_secrets:
+    file: ${SPX_GATE6_OCR_NODE_SECRETS_FILE:?SPX_GATE6_OCR_NODE_SECRETS_FILE is required}
+  gate6_line_permit_public_key:
+    file: ${SPX_GATE6_LINE_PERMIT_PUBLIC_KEY_FILE:?SPX_GATE6_LINE_PERMIT_PUBLIC_KEY_FILE is required}
+  gate6_ocr_permit_public_key:
+    file: ${SPX_GATE6_OCR_PERMIT_PUBLIC_KEY_FILE:?SPX_GATE6_OCR_PERMIT_PUBLIC_KEY_FILE is required}
+  realtime_node_secrets_notifier:
+    file: ${SPX_REALTIME_NODE_SECRETS_NOTIFIER_FILE:?SPX_REALTIME_NODE_SECRETS_NOTIFIER_FILE is required}
+  realtime_node_secrets_web_api:
+    file: ${SPX_REALTIME_NODE_SECRETS_WEB_API_FILE:?SPX_REALTIME_NODE_SECRETS_WEB_API_FILE is required}
+  realtime_node_secrets_notification_service:
+    file: ${SPX_REALTIME_NODE_SECRETS_NOTIFICATION_SERVICE_FILE:?SPX_REALTIME_NODE_SECRETS_NOTIFICATION_SERVICE_FILE is required}
+  realtime_node_secrets_realtime_service:
+    file: ${SPX_REALTIME_NODE_SECRETS_REALTIME_SERVICE_FILE:?SPX_REALTIME_NODE_SECRETS_REALTIME_SERVICE_FILE is required}
+  realtime_shared_secret_notifier:
+    file: ${SPX_REALTIME_SHARED_SECRET_NOTIFIER_FILE:?SPX_REALTIME_SHARED_SECRET_NOTIFIER_FILE is required}
+  realtime_shared_secret_web_api:
+    file: ${SPX_REALTIME_SHARED_SECRET_WEB_API_FILE:?SPX_REALTIME_SHARED_SECRET_WEB_API_FILE is required}
+  realtime_shared_secret_notification_service:
+    file: ${SPX_REALTIME_SHARED_SECRET_NOTIFICATION_SERVICE_FILE:?SPX_REALTIME_SHARED_SECRET_NOTIFICATION_SERVICE_FILE is required}
+  realtime_shared_secret_worker_ifn_split:
+    file: ${SPX_REALTIME_SHARED_SECRET_WORKER_IFN_SPLIT_FILE:?SPX_REALTIME_SHARED_SECRET_WORKER_IFN_SPLIT_FILE is required}
+  realtime_shared_secret_worker_ptwl_split:
+    file: ${SPX_REALTIME_SHARED_SECRET_WORKER_PTWL_SPLIT_FILE:?SPX_REALTIME_SHARED_SECRET_WORKER_PTWL_SPLIT_FILE is required}
+  realtime_shared_secret_worker_ifn:
+    file: ${SPX_REALTIME_SHARED_SECRET_WORKER_IFN_FILE:?SPX_REALTIME_SHARED_SECRET_WORKER_IFN_FILE is required}
+  realtime_shared_secret_worker_ptwl:
+    file: ${SPX_REALTIME_SHARED_SECRET_WORKER_PTWL_FILE:?SPX_REALTIME_SHARED_SECRET_WORKER_PTWL_FILE is required}
+  realtime_shared_secret_poller_ifn_phase3:
+    file: ${SPX_REALTIME_SHARED_SECRET_POLLER_IFN_PHASE3_FILE:?SPX_REALTIME_SHARED_SECRET_POLLER_IFN_PHASE3_FILE is required}
+  realtime_shared_secret_auto_accept_ifn_phase3:
+    file: ${SPX_REALTIME_SHARED_SECRET_AUTO_ACCEPT_IFN_PHASE3_FILE:?SPX_REALTIME_SHARED_SECRET_AUTO_ACCEPT_IFN_PHASE3_FILE is required}
+  realtime_shared_secret_poller_ptwl_phase3:
+    file: ${SPX_REALTIME_SHARED_SECRET_POLLER_PTWL_PHASE3_FILE:?SPX_REALTIME_SHARED_SECRET_POLLER_PTWL_PHASE3_FILE is required}
+  realtime_shared_secret_auto_accept_ptwl_phase3:
+    file: ${SPX_REALTIME_SHARED_SECRET_AUTO_ACCEPT_PTWL_PHASE3_FILE:?SPX_REALTIME_SHARED_SECRET_AUTO_ACCEPT_PTWL_PHASE3_FILE is required}
+
+volumes:
+  line-state-legacy:
+  line-images-legacy:
+  line-state-split:
+  line-images-split:
+  ocr-auth:
+  spool-worker-ifn-split:
+  spool-worker-ptwl-split:
+  spool-worker-ifn:
+  spool-worker-ptwl:
+  spool-poller-ifn-phase3:
+  spool-auto-accept-ifn-phase3:
+  spool-poller-ptwl-phase3:
+  spool-auto-accept-ptwl-phase3:
+
+networks:
+  default:
+  gate6-control-internal:
+    internal: true
+  gate6-db-egress:
