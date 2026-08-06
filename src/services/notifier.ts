@@ -1921,6 +1921,59 @@ export async function sendSessionExpiryNotification(
   return sendNotificationMessage(title, message, context);
 }
 
+/** Send a LINE alert when SPX rate limit is hit or recovered */
+export async function sendRateLimitNotification(
+  type: "hit" | "recovered",
+  details: { teamId: number; retcode?: number; backoffMs: number },
+  context?: TeamNotificationContext
+): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
+  const teamName = context?.teamName ?? `Team ${details.teamId}`;
+
+  const title = type === "hit"
+    ? "⚠️ SPX Rate Limit"
+    : "✅ SPX Rate Limit คลายแล้ว";
+
+  const message = type === "hit"
+    ? [
+        `Team: ${teamName}`,
+        `ระบบตรวจพบ SPX Rate Limit (retcode: ${details.retcode ?? "N/A"})`,
+        `ชะลอการดึงงานชั่วคราว ${(details.backoffMs / 1000).toFixed(1)} วินาที...`,
+      ].join("\n")
+    : [
+        `Team: ${teamName}`,
+        "ระบบเริ่มทำงานรอบใหม่ปกติแล้ว",
+      ].join("\n");
+
+  if (env.SPX_ROLE === "worker") {
+    const result = await getWorkerNotificationPublisher().publish({
+      eventKey: `rate_limit_${type}:team:${details.teamId}:${Date.now()}`,
+      event: {
+        schemaVersion: 1,
+        eventType: `rate_limit_${type}`,
+        severity: type === "hit" ? "warning" : "info",
+        teamId: details.teamId,
+        teamName,
+        message: `${title}\n${message}`,
+        occurredAt: new Date().toISOString(),
+        evidence: { retcode: details.retcode, backoffMs: details.backoffMs },
+      },
+    });
+    return {
+      sent: result.ok,
+      results: [{ channel: "central_notifier", ok: result.ok, error: result.error }],
+    };
+  }
+
+  if (!hasNotificationTarget(context)) {
+    if (context) {
+      logger.warn(`rate-limit-${type}-notification-line-target-missing`, { teamId: context.teamId, teamName: context.teamName });
+    }
+    return { sent: false, skipped: true, results: [] };
+  }
+
+  return sendNotificationMessage(title, message, context);
+}
+
 let lineQuotaCache: { totalUsage: number; limit: number; type: string; fetchedAt: number } | null = null;
 const LINE_QUOTA_CACHE_MS = 60_000;
 

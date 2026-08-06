@@ -3,7 +3,7 @@ import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
-import { acceptAndNotifyMatchedRules, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type ClaimToken, type TeamNotificationContext } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, sendRateLimitNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type ClaimToken, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -164,6 +164,9 @@ export class Poller {
   private runtimeMetricsPublishInFlight = false;
   private lastRuntimeMetricsPublishAt = 0;
   private lastSessionAlertTime = 0;
+  private lastRateLimitAlertTime = 0;
+  private rateLimitAlertState: "idle" | "alerted" = "idle";
+  private static readonly RATE_LIMIT_ALERT_THROTTLE_MS = 3 * 60_000; // 3 minutes
   private activeDetailBookingIds = new Set<number>();
   /**
    * bookingId → epoch ms stamp driving the re-process cooldown
@@ -415,6 +418,7 @@ export class Poller {
           // window has reset.
           waitMs = this.rateLimitBackoffMs;
           logger.info("rate-limit-backoff", { teamId: this.teamId, waitMs });
+          void this.sendRateLimitAlert("recovered", undefined, waitMs);
           this.rateLimitBackoffMs = 0;
         } else if (isTeamPaused(this.teamId)) {
           waitMs = 1000;
@@ -454,6 +458,7 @@ export class Poller {
           retcode: classified.retcode,
           backoffMs: this.rateLimitBackoffMs,
         });
+        await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs);
       }
 
       // Alert on session expiry — send notification once
@@ -1719,6 +1724,58 @@ export class Poller {
       }
     } catch (err) {
       logger.warn("metrics-persist-failed", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** Send rate limit alert via LINE — throttled to once per 3 minutes for "hit", "recovered" only when previously alerted */
+  private async sendRateLimitAlert(type: "hit" | "recovered", retcode?: number, backoffMs = Poller.RATE_LIMIT_BACKOFF_MS): Promise<void> {
+    const now = Date.now();
+
+    if (type === "hit") {
+      // Throttle: don't spam LINE within 3 minutes
+      if (now - this.lastRateLimitAlertTime < Poller.RATE_LIMIT_ALERT_THROTTLE_MS) {
+        return;
+      }
+      this.lastRateLimitAlertTime = now;
+      this.rateLimitAlertState = "alerted";
+    } else {
+      // Only send recovery if we previously sent a "hit" alert
+      if (this.rateLimitAlertState !== "alerted") {
+        return;
+      }
+      this.rateLimitAlertState = "idle";
+    }
+
+    // Always broadcast to SSE (no throttle — dashboard benefits from real-time)
+    sseBroadcaster.broadcast({
+      event: type === "hit" ? "rate-limit-hit" : "rate-limit-recovered",
+      teamId: this.teamId,
+      data: {
+        retcode,
+        backoffMs,
+        timestamp: new Date(now).toISOString(),
+      },
+    });
+
+    try {
+      const result = await sendRateLimitNotification(type, { teamId: this.teamId, retcode, backoffMs }, this.notificationContext);
+      if (result.sent) {
+        logger.info(`rate-limit-${type}-alert-sent`, {
+          channels: result.results.filter((ch) => ch.ok).map((ch) => ch.channel),
+          teamId: this.teamId,
+          retcode,
+          backoffMs,
+        });
+        return;
+      }
+
+      logger.warn(`rate-limit-${type}-alert-not-sent`, {
+        reason: result.skipped ? "no-notification-target" : "all-notification-channels-failed",
+        channels: result.results,
+        teamId: this.teamId,
+      });
+    } catch (err) {
+      logger.error(`rate-limit-${type}-alert-failed`, err instanceof Error ? err : new Error(String(err)));
     }
   }
 

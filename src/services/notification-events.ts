@@ -3,6 +3,8 @@ export type NotificationEventType =
   | "auto_accept_partial_result"
   | "auto_accept_failure"
   | "session_expired"
+  | "rate_limit_hit"
+  | "rate_limit_recovered"
   | "team_worker_status"
   | "notifier_health";
 
@@ -14,6 +16,8 @@ const notificationEventTypes: readonly NotificationEventType[] = [
   "auto_accept_partial_result",
   "auto_accept_failure",
   "session_expired",
+  "rate_limit_hit",
+  "rate_limit_recovered",
   "team_worker_status",
   "notifier_health",
 ];
