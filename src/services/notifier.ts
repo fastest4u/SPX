@@ -1928,8 +1928,6 @@ export async function sendRateLimitNotification(
   context?: TeamNotificationContext
 ): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
   const teamName = context?.teamName ?? `Team ${details.teamId}`;
-  const endpointInfo = details.endpoint ? `\nจุดที่ติด: ${details.endpoint}` : "";
-  const recoveryEndpointInfo = details.endpoint ? `\nจุดที่คลาย: ${details.endpoint}` : "";
 
   const title = type === "hit"
     ? "⚠️ SPX Rate Limit"
