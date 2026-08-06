@@ -202,6 +202,13 @@ async function fetchWithRetry(
 /** Retcodes that indicate session/auth expiry */
 const SESSION_EXPIRED_CODES = new Set([401, 403, -1, 10001, 10002]);
 
+/**
+ * SPX API rate-limit retcode: HTTP 200 + retcode 130008001.
+ * Must surface as a failure so the poller's error classifier can
+ * schedule a backoff instead of proceeding with an empty/stale list.
+ */
+const SPX_RATE_LIMITED_RETCODE = 130008001;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -425,6 +432,19 @@ export class ApiClient {
           httpStatus: response.status,
           retcode,
           error: `Session expired (retcode=${retcode}): ${getMessage(data)}`,
+          timestamp: new Date(),
+          requestNumber,
+        };
+      }
+
+      // SPX API rate-limit: HTTP 200 + retcode 130008001
+      if (retcode === SPX_RATE_LIMITED_RETCODE) {
+        return {
+          success: false,
+          latencyMs,
+          httpStatus: response.status,
+          retcode,
+          error: `SPX rate limited (retcode=${retcode}): ${getMessage(data)}`,
           timestamp: new Date(),
           requestNumber,
         };
