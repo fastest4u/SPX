@@ -183,7 +183,7 @@ services:
 
   # Optional split-service topology. Stop legacy services before starting the explicitly named split services:
   #   docker compose stop notifier worker-ifn worker-ptwl
-  #   docker compose --profile split up --detach \
+  #   docker compose --profile split up --build \
   #     web-api notification-service line-service ocr-service \
   #     worker-ifn-split worker-ptwl-split
   web-api:
