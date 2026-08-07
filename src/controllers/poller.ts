@@ -166,7 +166,7 @@ export class Poller {
   private lastSessionAlertTime = 0;
   private lastRateLimitAlertTime = 0;
   private rateLimitAlertState: "idle" | "alerted" = "idle";
-  private static readonly RATE_LIMIT_ALERT_THROTTLE_MS = 3 * 60_000; // 3 minutes
+  private static readonly RATE_LIMIT_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   private activeDetailBookingIds = new Set<number>();
   /**
    * bookingId → epoch ms stamp driving the re-process cooldown
@@ -1753,12 +1753,12 @@ export class Poller {
     }
   }
 
-  /** Send rate limit alert via LINE — throttled to once per 3 minutes for "hit", "recovered" only when previously alerted */
+  /** Send rate limit alert via LINE — throttled to once per 10 minutes for "hit", "recovered" only when previously alerted */
   private async sendRateLimitAlert(type: "hit" | "recovered", retcode?: number, backoffMs = Poller.RATE_LIMIT_BACKOFF_MS, endpoint?: string): Promise<void> {
     const now = Date.now();
 
     if (type === "hit") {
-      // Throttle: don't spam LINE within 3 minutes
+      // Throttle: don't spam LINE within 10 minutes
       if (now - this.lastRateLimitAlertTime < Poller.RATE_LIMIT_ALERT_THROTTLE_MS) {
         return;
       }
