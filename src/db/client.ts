@@ -4,14 +4,6 @@ import type { Pool } from "mysql2/promise";
 import { env } from "../config/env.js";
 import * as schema from "./schema.js";
 import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
-import { runtimeSchemaMutationsAllowed, verifyRuntimeSchemaReady } from "./runtime-schema-readiness.js";
-
-async function ensureReleasedRuntimeSchema(): Promise<void> {
-  const pool = getPool();
-  if (pool) {
-    await verifyRuntimeSchemaReady(pool);
-  }
-}
 
 // Use any for DB type to allow both MySQL and SQLite Drizzle instances
 // This is acceptable since both have the same API surface (select, insert, update, delete)
@@ -166,13 +158,6 @@ export async function ensureSpxBookingHistoryTable(): Promise<void> {
     return;
   }
 
-  const pool = getPool();
-  if (pool && !runtimeSchemaMutationsAllowed()) {
-    await ensureReleasedRuntimeSchema();
-    initialized = true;
-    return;
-  }
-
   initializationPromise = createSpxBookingHistoryTable();
 
   try {
@@ -195,13 +180,6 @@ export async function ensureDashboardTables(): Promise<void> {
     return;
   }
 
-  const pool = getPool();
-  if (pool && !runtimeSchemaMutationsAllowed()) {
-    await ensureReleasedRuntimeSchema();
-    dashboardTablesInitialized = true;
-    return;
-  }
-
   dashboardTablesInitializationPromise = createDashboardTables();
 
   try {
@@ -217,10 +195,6 @@ export async function ensureDashboardTables(): Promise<void> {
 async function createSpxBookingHistoryTable(): Promise<void> {
   const pool = getPool();
   if (!pool) return; // Skip in memory mode
-  if (!runtimeSchemaMutationsAllowed()) {
-    await ensureReleasedRuntimeSchema();
-    return;
-  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS spx_booking_history (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -255,10 +229,6 @@ async function createSpxBookingHistoryTable(): Promise<void> {
 async function createDashboardTables(): Promise<void> {
   const pool = getPool();
   if (!pool) return; // Skip in memory mode
-  if (!runtimeSchemaMutationsAllowed()) {
-    await ensureReleasedRuntimeSchema();
-    return;
-  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS teams (
@@ -642,74 +612,6 @@ async function createDashboardTables(): Promise<void> {
       setting_value VARCHAR(4000) NOT NULL DEFAULT '',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS metrics_snapshots (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-      team_id INT NOT NULL DEFAULT 1,
-      uptime INT NOT NULL,
-      total_requests INT NOT NULL DEFAULT 0,
-      success_count INT NOT NULL DEFAULT 0,
-      error_count INT NOT NULL DEFAULT 0,
-      success_rate VARCHAR(10) NOT NULL DEFAULT '0',
-      latency_avg INT NOT NULL DEFAULT 0,
-      latency_p95 INT NOT NULL DEFAULT 0,
-      latency_p99 INT NOT NULL DEFAULT 0,
-      total_records_seen INT NOT NULL DEFAULT 0,
-      changes_detected INT NOT NULL DEFAULT 0,
-      trips_inserted INT NOT NULL DEFAULT 0,
-      trips_skipped INT NOT NULL DEFAULT 0,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      KEY metrics_created_at_idx (created_at),
-      KEY metrics_team_created_at_idx (team_id, created_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS realtime_events (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-      event_id VARCHAR(255) NOT NULL,
-      idempotency_key VARCHAR(512) NULL,
-      event_type VARCHAR(64) NOT NULL,
-      payload_version INT NOT NULL,
-      envelope_version INT NOT NULL,
-      scope_kind VARCHAR(16) NOT NULL,
-      team_id INT NULL,
-      subject_type VARCHAR(64) NULL,
-      subject_id VARCHAR(160) NULL,
-      source_service VARCHAR(64) NOT NULL,
-      source_node_id VARCHAR(120) NOT NULL,
-      source_role VARCHAR(64) NOT NULL,
-      trace_id VARCHAR(160) NULL,
-      replayable INT NOT NULL DEFAULT 0,
-      payload_json TEXT NOT NULL,
-      envelope_json TEXT NOT NULL,
-      emitted_at DATETIME NOT NULL,
-      received_at DATETIME NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY realtime_events_event_id_uidx (event_id),
-      UNIQUE KEY realtime_events_idempotency_key_uidx (idempotency_key),
-      KEY realtime_events_scope_team_id_idx (scope_kind, team_id, id),
-      KEY realtime_events_type_received_idx (event_type, received_at),
-      KEY realtime_events_source_node_received_idx (source_node_id, received_at),
-      KEY realtime_events_replayable_id_idx (replayable, id),
-      KEY realtime_events_replay_scope_id_idx (replayable, scope_kind, team_id, id),
-      KEY realtime_events_replay_created_id_idx (replayable, created_at, id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS realtime_metrics_read_models (
-      team_id INT NOT NULL,
-      source_node_id VARCHAR(120) NOT NULL,
-      snapshot_json JSON NOT NULL,
-      emitted_at DATETIME(3) NOT NULL,
-      received_at DATETIME(3) NOT NULL,
-      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-      PRIMARY KEY (team_id),
-      KEY realtime_metrics_read_models_received_team_idx (received_at, team_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
 }

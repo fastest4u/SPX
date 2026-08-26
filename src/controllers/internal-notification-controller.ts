@@ -5,14 +5,12 @@ import { verifyInternalSignature } from "../services/internal-auth.js";
 import { metrics, type MetricsSnapshot } from "../services/metrics.js";
 import { normalizeNotificationEvent, type NormalizedNotificationEvent, type NotificationEventInput } from "../services/notification-events.js";
 import { recordRuntimeMetricsSnapshot, runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
-import { createInProcessRealtimePublisher, type LegacyRealtimeEvent } from "../services/realtime-publisher.js";
-import type { RealtimePublisher } from "../services/realtime-contract.js";
+import { sseBroadcaster } from "../services/sse.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 
 export interface InternalNotificationControllerOptions {
   sharedSecret: string;
   allowedNodes?: Map<string, Set<number>>;
-  realtimePublisher?: RealtimePublisher;
 }
 
 const notificationEventsPath = "/internal/notification-events";
@@ -65,16 +63,6 @@ function parseMetricsSnapshot(rawBody: string): MetricsSnapshot {
 }
 
 export const internalNotificationController: FastifyPluginAsync<InternalNotificationControllerOptions> = async (app, options) => {
-  const realtimePublisher = options.realtimePublisher ?? createInProcessRealtimePublisher();
-  const publishLegacy = (event: LegacyRealtimeEvent): void => {
-    try {
-      (realtimePublisher as RealtimePublisher & {
-        publishLegacy?: (event: LegacyRealtimeEvent) => void;
-      }).publishLegacy?.(event);
-    } catch {
-      // Legacy fan-out is best-effort; durable state was already recorded.
-    }
-  };
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
     done(null, body);
@@ -178,8 +166,8 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
     }
 
     const record = recordRuntimeMetricsSnapshot({ nodeId, snapshot });
-    publishLegacy({ event: "metrics", teamId: snapshot.teamId as number, data: snapshot });
-    publishLegacy({
+    sseBroadcaster.broadcast({ event: "metrics", teamId: snapshot.teamId as number, data: snapshot });
+    sseBroadcaster.broadcastAdmin({
       event: "metrics",
       data: runtimeMetricsSnapshotFor(metrics.snapshot(), null),
     });
