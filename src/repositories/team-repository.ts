@@ -21,6 +21,7 @@ export interface TeamInput {
   lineGroupId?: string;
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
+  rateLimitNotifyEnabled?: boolean;
 }
 
 export interface TeamPatch {
@@ -31,6 +32,7 @@ export interface TeamPatch {
   lineGroupId?: string;
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
+  rateLimitNotifyEnabled?: boolean;
 }
 
 export interface RedactedTeam {
@@ -42,6 +44,7 @@ export interface RedactedTeam {
   hasLineGroupId: boolean;
   hasAutoAcceptSuccessLineGroupId: boolean;
   hasAutoAcceptFailureLineGroupId: boolean;
+  rateLimitNotifyEnabled: boolean;
   spxCookiePreview: string;
   spxDeviceIdPreview: string;
   lineGroupIdPreview: string;
@@ -60,6 +63,7 @@ export interface TeamRuntimeConfig {
   lineGroupId: string;
   autoAcceptSuccessLineGroupId: string;
   autoAcceptFailureLineGroupId: string;
+  rateLimitNotifyEnabled: boolean;
 }
 
 type TeamRow = typeof teams.$inferSelect;
@@ -102,6 +106,7 @@ function toRedactedTeam(row: TeamRow): RedactedTeam {
     hasLineGroupId: lineGroupId.length > 0,
     hasAutoAcceptSuccessLineGroupId: autoAcceptSuccessLineGroupId.length > 0,
     hasAutoAcceptFailureLineGroupId: autoAcceptFailureLineGroupId.length > 0,
+    rateLimitNotifyEnabled: row.rateLimitNotifyEnabled === 1,
     spxCookiePreview: previewSecret(spxCookie),
     spxDeviceIdPreview: previewSecret(spxDeviceId),
     lineGroupIdPreview: previewSecret(lineGroupId),
@@ -122,6 +127,7 @@ function toRuntimeConfig(row: TeamRow): TeamRuntimeConfig {
     lineGroupId: decodeSecret(row.lineGroupId),
     autoAcceptSuccessLineGroupId: decodeSecret(row.autoAcceptSuccessLineGroupId),
     autoAcceptFailureLineGroupId: decodeSecret(row.autoAcceptFailureLineGroupId),
+    rateLimitNotifyEnabled: row.rateLimitNotifyEnabled === 1,
   };
 }
 
@@ -175,6 +181,7 @@ export async function createTeam(input: TeamInput): Promise<RedactedTeam> {
     lineGroupId: encodeSecret(input.lineGroupId),
     autoAcceptSuccessLineGroupId: encodeSecret(input.autoAcceptSuccessLineGroupId || input.lineGroupId),
     autoAcceptFailureLineGroupId: encodeSecret(input.autoAcceptFailureLineGroupId || input.lineGroupId),
+    rateLimitNotifyEnabled: input.rateLimitNotifyEnabled ? 1 : 0,
   });
 
   const [row] = await db.select().from(teams).orderBy(desc(teams.id)).limit(1);
@@ -188,6 +195,7 @@ export async function updateTeam(id: number, patch: TeamPatch): Promise<Redacted
   const next: Partial<typeof teams.$inferInsert> = { updatedAt: new Date() };
   if (typeof patch.name === "string") next.name = patch.name.trim();
   if (typeof patch.enabled === "boolean") next.enabled = patch.enabled ? 1 : 0;
+  if (typeof patch.rateLimitNotifyEnabled === "boolean") next.rateLimitNotifyEnabled = patch.rateLimitNotifyEnabled ? 1 : 0;
   if (patch.spxCookie !== undefined && !isRedactedPlaceholder(patch.spxCookie)) next.spxCookie = encodeSecret(patch.spxCookie);
   if (patch.spxDeviceId !== undefined && !isRedactedPlaceholder(patch.spxDeviceId)) next.spxDeviceId = encodeSecret(patch.spxDeviceId);
   if (patch.lineGroupId !== undefined && !isRedactedPlaceholder(patch.lineGroupId)) next.lineGroupId = encodeSecret(patch.lineGroupId);
@@ -243,6 +251,7 @@ export async function ensureDefaultTeamFromLegacySettings(): Promise<RedactedTea
     lineGroupId: encodeSecret(legacy.LINE_USER_ID),
     autoAcceptSuccessLineGroupId: encodeSecret(legacy.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_SUCCESS || legacy.LINE_USER_ID),
     autoAcceptFailureLineGroupId: encodeSecret(legacy.LINEJS_TEST_TARGET_ID_AUTO_ACCEPT_FAILURE || legacy.LINE_USER_ID),
+    rateLimitNotifyEnabled: 0,
   });
   const created = await getTeamById(1);
   if (!created) throw new Error("Failed to create Default Team");

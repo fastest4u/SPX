@@ -251,6 +251,7 @@ export interface Team {
   lineGroupIdPreview: string;
   autoAcceptSuccessLineGroupIdPreview: string;
   autoAcceptFailureLineGroupIdPreview: string;
+  rateLimitNotifyEnabled?: boolean;
   runtimeStatus?: 'stopped' | 'running' | 'paused' | 'misconfigured' | 'session_expired' | 'error';
   usersCount?: number;
   createdAt: string;
@@ -265,6 +266,7 @@ export interface TeamInput {
   lineGroupId?: string;
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
+  rateLimitNotifyEnabled?: boolean;
 }
 
 // Settings Types

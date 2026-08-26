@@ -97,6 +97,10 @@ export function toTeamPatch(body: Record<string, unknown>): TeamPatch {
   if (autoAcceptSuccessLineGroupId !== undefined) patch.autoAcceptSuccessLineGroupId = autoAcceptSuccessLineGroupId;
   const autoAcceptFailureLineGroupId = optionalString(body.autoAcceptFailureLineGroupId, "autoAcceptFailureLineGroupId");
   if (autoAcceptFailureLineGroupId !== undefined) patch.autoAcceptFailureLineGroupId = autoAcceptFailureLineGroupId;
+  if ("rateLimitNotifyEnabled" in body) {
+    if (typeof body.rateLimitNotifyEnabled !== "boolean") throw new Error("rateLimitNotifyEnabled must be a boolean");
+    patch.rateLimitNotifyEnabled = body.rateLimitNotifyEnabled;
+  }
 
   return patch;
 }
@@ -112,6 +116,7 @@ function toTeamInput(body: Record<string, unknown>): TeamInput {
     lineGroupId: patch.lineGroupId,
     autoAcceptSuccessLineGroupId: patch.autoAcceptSuccessLineGroupId,
     autoAcceptFailureLineGroupId: patch.autoAcceptFailureLineGroupId,
+    rateLimitNotifyEnabled: patch.rateLimitNotifyEnabled,
   };
 }
 

@@ -29,6 +29,7 @@ export interface TeamNotificationContext {
   teamId: number;
   teamName: string;
   lineGroupId: string;
+  rateLimitNotifyEnabled?: boolean;
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
@@ -1921,12 +1922,17 @@ export async function sendSessionExpiryNotification(
   return sendNotificationMessage(title, message, context);
 }
 
-/** Send a LINE alert when SPX rate limit is hit or recovered */
+/** Send a LINE alert when SPX rate limit is hit or recovered (respects team rateLimitNotifyEnabled setting) */
 export async function sendRateLimitNotification(
   type: "hit" | "recovered",
   details: { teamId: number; retcode?: number; backoffMs: number; endpoint?: string },
   context?: TeamNotificationContext
 ): Promise<{ sent: boolean; skipped?: boolean; results: NotificationSendResult[] }> {
+  // If rate limit notification is not explicitly enabled for this team, skip sending
+  if (!context?.rateLimitNotifyEnabled) {
+    return { sent: false, skipped: true, results: [] };
+  }
+
   const teamName = context?.teamName ?? `Team ${details.teamId}`;
 
   const title = type === "hit"
