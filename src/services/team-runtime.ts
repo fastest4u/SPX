@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { Poller } from "../controllers/poller.js";
 import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
+import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
 
 export type TeamRuntimeStatusValue = "stopped" | "running" | "paused" | "misconfigured" | "session_expired" | "error";
@@ -26,6 +27,8 @@ export interface TeamRuntimeHandle {
 
 export interface TeamRuntimeOptions {
   intervalSec?: number;
+  realtimePublisher?: RealtimePublisher;
+  realtimeSource?: RealtimeSource;
 }
 
 export class TeamRuntime implements TeamRuntimeHandle {
@@ -33,6 +36,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private readonly teamName: string;
   private readonly config: TeamRuntimeConfig;
   private readonly intervalSec: number | undefined;
+  private readonly realtimePublisher: RealtimePublisher | undefined;
+  private readonly realtimeSource: RealtimeSource | undefined;
   private poller: Poller | null = null;
   private statusValue: TeamRuntimeStatusValue = "stopped";
   private lastPollAt: string | null = null;
@@ -43,6 +48,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
     this.teamId = config.id;
     this.teamName = config.name;
     this.intervalSec = options.intervalSec;
+    this.realtimePublisher = options.realtimePublisher;
+    this.realtimeSource = options.realtimeSource;
   }
 
   async start(): Promise<void> {
@@ -66,10 +73,13 @@ export class TeamRuntime implements TeamRuntimeHandle {
         teamName: this.config.name,
         apiClient,
         lineGroupId: this.config.lineGroupId,
+        rateLimitNotifyEnabled: this.config.rateLimitNotifyEnabled,
         manageHttpServer: false,
         manageProcessSignals: false,
         closeSharedResourcesOnStop: false,
         exitOnStop: false,
+        realtimePublisher: this.realtimePublisher,
+        realtimeSource: this.realtimeSource,
       };
       this.poller = new Poller(this.intervalSec, context);
       await this.poller.start();

@@ -66,6 +66,7 @@ const teamWithNotificationTargets: Team = {
   lineGroupIdPreview: "********base",
   autoAcceptSuccessLineGroupIdPreview: "********good",
   autoAcceptFailureLineGroupIdPreview: "********fail",
+  rateLimitNotifyEnabled: true,
   runtimeStatus: "running",
   usersCount: 1,
   createdAt: "2026-06-30T00:00:00.000Z",
@@ -74,16 +75,19 @@ const teamWithNotificationTargets: Team = {
 
 assert.equal(teamWithNotificationTargets.hasAutoAcceptSuccessLineGroupId, true);
 assert.equal(teamWithNotificationTargets.autoAcceptFailureLineGroupIdPreview, "********fail");
+assert.equal(teamWithNotificationTargets.rateLimitNotifyEnabled, true);
 
 const teamInputWithNotificationTargets: TeamInput = {
   name: "IFN",
   lineGroupId: "C-default-line-group",
   autoAcceptSuccessLineGroupId: "C-success-line-group",
   autoAcceptFailureLineGroupId: "C-failure-line-group",
+  rateLimitNotifyEnabled: true,
 };
 
 assert.equal(teamInputWithNotificationTargets.autoAcceptSuccessLineGroupId, "C-success-line-group");
 assert.equal(teamInputWithNotificationTargets.autoAcceptFailureLineGroupId, "C-failure-line-group");
+assert.equal(teamInputWithNotificationTargets.rateLimitNotifyEnabled, true);
 
 assert.equal(
   getNextLinkedLineTarget({
