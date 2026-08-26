@@ -22,6 +22,7 @@ import {
   Search,
   Smartphone,
   Users,
+  X,
 } from 'lucide-react'
 import { lineBotApi, teamsApi } from '../lib/api'
 import { Button } from '../components/ui/button'
@@ -274,10 +275,20 @@ function TeamsComponent() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="h-10 rounded-[8px] bg-white/[0.03] pl-9"
+            className="h-10 rounded-[8px] bg-white/[0.03] pl-9 pr-9"
             placeholder="ค้นหาชื่อทีม, id, credential preview"
             aria-label="ค้นหาทีม"
           />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="ล้างคำค้นหา"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-1 lg:shrink-0 lg:flex-nowrap" role="group" aria-label="ตัวกรองทีม">
           {teamFilters.map((item) => (

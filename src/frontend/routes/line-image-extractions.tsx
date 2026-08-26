@@ -8,6 +8,7 @@ import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
+import { FilterChip } from '../components/ui/filter-chip'
 import { SkeletonTable } from '../components/ui/skeleton'
 import { formatDateTime, safeBrowserUrl } from '../lib/utils'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -195,7 +196,23 @@ function LineImageExtractionsComponent() {
           </div>
 
           {showFilters && (
-            <FilterPanel className="mb-4 bg-white/[0.02]">
+            <FilterPanel className="mb-4 space-y-3 animate-in">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-foreground">Filter panel</div>
+                    <div className="text-xs text-muted-foreground">
+                      กรองตาม Agency, Trip Number, Route, วันที่ และข้อมูลอื่นๆ
+                    </div>
+                  </div>
+                </div>
+                <Button type="button" size="sm" variant="ghost" className="self-start text-xs text-muted-foreground sm:self-auto" onClick={resetFilters}>
+                  ล้างทั้งหมด
+                </Button>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <FilterInput label="Agency" value={agency} placeholder="LH-PWL" onChange={setAgency} onPageReset={() => setPage(1)} />
                 <FilterInput label="Trip number" value={tripNumber} placeholder="LT0Q5L2657AJ2" onChange={setTripNumber} onPageReset={() => setPage(1)} />
@@ -215,13 +232,44 @@ function LineImageExtractionsComponent() {
                   <Input id="lie-to" type="date" value={createdTo} onChange={(event) => { setCreatedTo(event.target.value); setPage(1) }} />
                 </div>
               </div>
-              <div className="mt-3 flex justify-end">
-                <Button type="button" size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={resetFilters}>
-                  Clear filters
-                </Button>
-              </div>
             </FilterPanel>
           )}
+
+          {/* Active Filter Chips */}
+          {hasFilters ? (
+            <div className="mb-4 flex flex-wrap items-center gap-1.5">
+              {searchInput ? (
+                <FilterChip label="ค้นหา" value={searchInput} onClear={() => { setSearchInput(''); setPage(1) }} />
+              ) : null}
+              {agency ? (
+                <FilterChip label="Agency" value={agency} onClear={() => { setAgency(''); setPage(1) }} />
+              ) : null}
+              {tripNumber ? (
+                <FilterChip label="Trip" value={tripNumber} onClear={() => { setTripNumber(''); setPage(1) }} />
+              ) : null}
+              {route ? (
+                <FilterChip label="Route" value={route} onClear={() => { setRoute(''); setPage(1) }} />
+              ) : null}
+              {vehicleType ? (
+                <FilterChip label="Vehicle" value={vehicleType} onClear={() => { setVehicleType(''); setPage(1) }} />
+              ) : null}
+              {driver ? (
+                <FilterChip label="Driver" value={driver} onClear={() => { setDriver(''); setPage(1) }} />
+              ) : null}
+              {month ? (
+                <FilterChip label="Month" value={month} onClear={() => { setMonth(''); setPage(1) }} />
+              ) : null}
+              {createdFrom ? (
+                <FilterChip label="From" value={createdFrom} onClear={() => { setCreatedFrom(''); setPage(1) }} />
+              ) : null}
+              {createdTo ? (
+                <FilterChip label="To" value={createdTo} onClear={() => { setCreatedTo(''); setPage(1) }} />
+              ) : null}
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={resetFilters}>
+                ล้างทั้งหมด
+              </Button>
+            </div>
+          ) : null}
 
           <DataTable
             columns={COLUMNS}

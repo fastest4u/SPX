@@ -1,14 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { teamsApi, usersApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { ContentSection, EmptyPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
+import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
+import { FilterChip } from '../components/ui/filter-chip'
 import { ErrorState } from '../components/ui/error-state'
 import {
   Dialog,
@@ -20,7 +21,7 @@ import {
 } from '../components/ui/dialog'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
-import { AlertTriangle, Loader2, Lock, Plus, Trash2, UserCog, Users as UsersIcon } from 'lucide-react'
+import { AlertTriangle, Loader2, Lock, Plus, Search, SlidersHorizontal, Trash2, UserCog, Users as UsersIcon, X } from 'lucide-react'
 import type { Team, User } from '../types'
 import { useAuth } from '../hooks/useAuth'
 
@@ -48,6 +49,10 @@ export const Route = createFileRoute('/users')({
 
 function UsersComponent() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [teamFilter, setTeamFilter] = useState<string>('all')
   const { user: currentUser } = useAuth()
   const { data: teams = [] } = useQuery({
     queryKey: ['teams'],
@@ -59,6 +64,27 @@ function UsersComponent() {
     queryFn: usersApi.list,
     staleTime: 5 * 60 * 1000,
   })
+
+  const hasFilters = Boolean(search || roleFilter !== 'all' || teamFilter !== 'all')
+
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return users.filter((user) => {
+      if (query && !user.username.toLowerCase().includes(query)) return false
+      if (roleFilter !== 'all' && user.role !== roleFilter) return false
+      if (teamFilter !== 'all') {
+        const userTeamVal = user.teamId == null ? 'none' : String(user.teamId)
+        if (userTeamVal !== teamFilter) return false
+      }
+      return true
+    })
+  }, [users, search, roleFilter, teamFilter])
+
+  const handleReset = () => {
+    setSearch('')
+    setRoleFilter('all')
+    setTeamFilter('all')
+  }
 
   if (isLoading) {
     return (
@@ -128,20 +154,137 @@ function UsersComponent() {
             <EmptyPanel icon={<UsersIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />}>ไม่พบผู้ใช้งาน</EmptyPanel>
           ) : (
             <>
-              <div className="hidden md:block">
-                <DataTable
-                  columns={userColumns}
-                  data={users}
-                  keyField={(user) => user.id}
-                  densityKey="users"
-                  minWidth="820px"
-                />
+              {/* Search Bar & Filter Toggle */}
+              <div className="mb-4 flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="ค้นหาชื่อผู้ใช้..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="h-11 pl-10 pr-10 text-base"
+                  />
+                  {search ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info' : ''}`}
+                  onClick={() => setShowFilters((value) => !value)}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </Button>
               </div>
-              <div className="grid gap-3 md:hidden">
-                {users.map((user) => (
-                  <UserMobileCard key={user.id} user={user} teams={teams} currentUserId={currentUser?.id} />
-                ))}
-              </div>
+
+              {/* Expandable Filters */}
+              {showFilters ? (
+                <FilterPanel className="mb-4 space-y-3 animate-in">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-foreground">Filter panel</div>
+                        <div className="text-xs text-muted-foreground">
+                          กรองตาม Role และทีมที่สังกัด
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" className="self-start text-xs text-muted-foreground sm:self-auto" onClick={handleReset}>
+                      ล้างทั้งหมด
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label htmlFor="user-role-filter" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">Role</label>
+                      <select
+                        id="user-role-filter"
+                        value={roleFilter}
+                        onChange={(e) => setRoleFilter(e.target.value)}
+                        className="flex h-10 w-full rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25"
+                      >
+                        <option value="all" className="bg-popover text-popover-foreground">ทั้งหมด</option>
+                        <option value="admin" className="bg-popover text-popover-foreground">Admin</option>
+                        <option value="user" className="bg-popover text-popover-foreground">User</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="user-team-filter" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">ทีม</label>
+                      <select
+                        id="user-team-filter"
+                        value={teamFilter}
+                        onChange={(e) => setTeamFilter(e.target.value)}
+                        className="flex h-10 w-full rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25"
+                      >
+                        <option value="all" className="bg-popover text-popover-foreground">ทุกทีม</option>
+                        <option value="none" className="bg-popover text-popover-foreground">ไม่ระบุทีม</option>
+                        {teams.map((t) => (
+                          <option key={t.id} value={String(t.id)} className="bg-popover text-popover-foreground">
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </FilterPanel>
+              ) : null}
+
+              {/* Active Filter Chips */}
+              {hasFilters ? (
+                <div className="mb-4 flex flex-wrap items-center gap-1.5">
+                  {search ? (
+                    <FilterChip label="ค้นหา" value={search} onClear={() => setSearch('')} />
+                  ) : null}
+                  {roleFilter !== 'all' ? (
+                    <FilterChip label="Role" value={roleFilter} onClear={() => setRoleFilter('all')} />
+                  ) : null}
+                  {teamFilter !== 'all' ? (
+                    <FilterChip
+                      label="ทีม"
+                      value={teamFilter === 'none' ? 'ไม่ระบุทีม' : (teams.find((t) => String(t.id) === teamFilter)?.name ?? teamFilter)}
+                      onClear={() => setTeamFilter('all')}
+                    />
+                  ) : null}
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={handleReset}>
+                    ล้างทั้งหมด
+                  </Button>
+                </div>
+              ) : null}
+
+              {filteredUsers.length === 0 ? (
+                <div className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.03] py-12 text-center text-muted-foreground">
+                  <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm font-medium text-foreground">ไม่พบผู้ใช้งานที่ตรงกับตัวกรอง</p>
+                  <p className="mt-1 text-xs">ลองล้างคำค้นหาหรือเลือกตัวกรองอื่น</p>
+                </div>
+              ) : (
+                <>
+                  <div className="hidden md:block">
+                    <DataTable
+                      columns={userColumns}
+                      data={filteredUsers}
+                      keyField={(user) => user.id}
+                      densityKey="users"
+                      minWidth="820px"
+                    />
+                  </div>
+                  <div className="grid gap-3 md:hidden">
+                    {filteredUsers.map((user) => (
+                      <UserMobileCard key={user.id} user={user} teams={teams} currentUserId={currentUser?.id} />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
       </ContentSection>
