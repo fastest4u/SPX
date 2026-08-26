@@ -33,16 +33,8 @@ import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
+import { sseBroadcaster } from "../services/sse.js";
 import { buildAutoAcceptTraceId } from "../services/auto-accept-diagnostics.js";
-import {
-  closeInProcessRealtimeClients,
-  createInProcessRealtimePublisher,
-  type LegacyRealtimeEvent,
-} from "../services/realtime-publisher.js";
-import type {
-  RealtimePublisher,
-  RealtimeSource,
-} from "../services/realtime-contract.js";
 import {
   publishRuntimeMetricsSnapshot,
   runtimeMetricsUrlFromNotificationUrl,
@@ -139,12 +131,8 @@ export interface TeamPollerContext {
   manageProcessSignals?: boolean;
   closeSharedResourcesOnStop?: boolean;
   exitOnStop?: boolean;
-  realtimePublisher?: RealtimePublisher;
-  realtimeSource?: RealtimeSource;
-  sessionExpiryNotifier?: (
-    message: string,
-    context: TeamNotificationContext,
-  ) => Promise<{ sent: boolean; skipped?: boolean; results: unknown[] }>;
+  realtimePublisher?: unknown;
+  realtimeSource?: unknown;
 }
 
 function collectAutoAcceptMatchedTrips(
@@ -284,82 +272,6 @@ export class Poller {
       errorCount: 0,
       startTime: new Date(),
     };
-    this.realtimePublisher = context?.realtimePublisher ?? createInProcessRealtimePublisher();
-    this.realtimeSource = context?.realtimeSource ?? this.defaultRealtimeSource();
-    this.sessionExpiryNotifier = context?.sessionExpiryNotifier
-      ?? ((message, notificationContext) => sendSessionExpiryNotification(message, notificationContext));
-  }
-
-  private readonly realtimePublisher: RealtimePublisher;
-  private readonly realtimeSource: RealtimeSource;
-  private readonly sessionExpiryNotifier: (
-    message: string,
-    context: TeamNotificationContext,
-  ) => Promise<{ sent: boolean; skipped?: boolean; results: unknown[] }>;
-
-  /**
-   * Canonical realtime identity for this poller. Poller-capable roles report
-   * themselves as workers; anything else falls back to the web-api identity
-   * with the node name or a team-unique fallback so every emitted envelope
-   * still carries a stable, attributable source.
-   */
-  private defaultRealtimeSource(): RealtimeSource {
-    const role = env.SPX_ROLE || "web-api";
-    const service = role === "worker" || role === "poller-service" || role === "combined"
-      ? (role === "combined" ? "worker" : role)
-      : "web-api";
-    const nodeId = env.SPX_NODE_ID || env.SPX_NODE_NAME || `poller-team-${this.teamId}`;
-    return { service, nodeId, role } as RealtimeSource;
-  }
-
-  /**
-   * Publishes a canonical non-replayable team envelope first, then the legacy
-   * SSE event. A canonical publisher failure is logged without details and
-   * suppresses the legacy event so consumers never see a partial dual
-   * emission; the business path itself always continues.
-   */
-  private async publishCanonicalWithLegacy(
-    type: "metrics.snapshot" | "session.expired",
-    payload: unknown,
-    legacyEvent: LegacyRealtimeEvent,
-  ): Promise<void> {
-    try {
-      await this.realtimePublisher.publish({
-        type,
-        payloadVersion: 1,
-        payload,
-        source: this.realtimeSource,
-        scope: { kind: "team", teamId: this.teamId },
-        subject: { type: "team", id: String(this.teamId), teamId: this.teamId },
-        replayable: false,
-      });
-      const legacyPublisher = this.realtimePublisher as RealtimePublisher & {
-        publishLegacy?: (event: LegacyRealtimeEvent) => Promise<void> | void;
-      };
-      await legacyPublisher.publishLegacy?.(legacyEvent);
-    } catch (error) {
-      logger.warn("poller-realtime-publish-failed", {
-        teamId: this.teamId,
-        type,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /**
-   * Legacy-only fan-out for events without a canonical envelope type yet.
-   * Routed through the realtime boundary so producers never touch the SSE
-   * transport directly; remote boundaries without legacy support drop it.
-   */
-  private publishLegacyOnly(legacyEvent: LegacyRealtimeEvent): void {
-    try {
-      const legacyPublisher = this.realtimePublisher as RealtimePublisher & {
-        publishLegacy?: (event: LegacyRealtimeEvent) => Promise<void> | void;
-      };
-      void legacyPublisher.publishLegacy?.(legacyEvent);
-    } catch {
-      // Legacy fan-out is best-effort; the canonical path carries the truth.
-    }
   }
 
   private getIntervalMs(): number {
@@ -447,7 +359,7 @@ export class Poller {
   }
 
   private publishRuntimeMetrics(snapshot: MetricsSnapshot): void {
-    if (env.SPX_ROLE !== "worker" && env.SPX_ROLE !== "poller-service" && env.SPX_ROLE !== "combined") return;
+    if (env.SPX_ROLE !== "worker") return;
     if (!env.NOTIFIER_API_URL || !env.NOTIFIER_SHARED_SECRET || !env.SPX_NODE_ID) return;
 
     const now = Date.now();
@@ -537,11 +449,7 @@ export class Poller {
       const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
       metrics.recordPoll(result.latencyMs, false, classified.category, null);
       const snapshot = this.metricsSnapshot();
-      await this.publishCanonicalWithLegacy("metrics.snapshot", snapshot, {
-        event: "metrics",
-        teamId: this.teamId,
-        data: snapshot,
-      });
+      sseBroadcaster.broadcast({ event: "metrics", teamId: this.teamId, data: snapshot });
       this.publishRuntimeMetrics(snapshot);
       logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
 
@@ -581,7 +489,7 @@ export class Poller {
 
     // Broadcast live metrics to SSE clients
     const snapshot = this.metricsSnapshot();
-    await this.publishCanonicalWithLegacy("metrics.snapshot", snapshot, {
+    sseBroadcaster.broadcast({
       event: "metrics",
       teamId: this.teamId,
       data: snapshot,
@@ -1811,7 +1719,7 @@ export class Poller {
     formatFooter(this.stats);
 
     if (this.closeSharedResourcesOnStop) {
-      closeInProcessRealtimeClients();
+      sseBroadcaster.closeAll();
     }
 
     if (this.manageHttpServer) {
@@ -1866,8 +1774,8 @@ export class Poller {
       this.rateLimitAlertState = "idle";
     }
 
-    // Always fan out to realtime clients (no throttle — dashboard benefits from real-time)
-    this.publishLegacyOnly({
+    // Always broadcast to SSE (no throttle — dashboard benefits from real-time)
+    sseBroadcaster.broadcast({
       event: type === "hit" ? "rate-limit-hit" : "rate-limit-recovered",
       teamId: this.teamId,
       data: {
@@ -1911,10 +1819,7 @@ export class Poller {
     }
     this.lastSessionAlertTime = now;
 
-    await this.publishCanonicalWithLegacy("session.expired", {
-      message: errorMessage,
-      timestamp: new Date(now).toISOString(),
-    }, {
+    sseBroadcaster.broadcast({
       event: "session-expired",
       teamId: this.teamId,
       data: {
@@ -1924,12 +1829,10 @@ export class Poller {
     });
 
     try {
-      const result = await this.sessionExpiryNotifier(errorMessage, this.notificationContext);
+      const result = await sendSessionExpiryNotification(errorMessage, this.notificationContext);
       if (result.sent) {
         logger.warn("session-expiry-alert-sent", {
-          channels: (result.results as Array<{ ok?: boolean; channel?: string }>)
-            .filter((channel) => channel.ok)
-            .map((channel) => channel.channel),
+          channels: result.results.filter((channel) => channel.ok).map((channel) => channel.channel),
           errorMessage,
         });
         return;
