@@ -1,11 +1,11 @@
-﻿process.env.DB_MODE = "memory";
+process.env.DB_MODE = "memory";
 process.env.SECRETS_KEY = "team-rate-limit-notification-test-key";
 
 import assert from "node:assert/strict";
 
 async function main(): Promise<void> {
   const { resetMemoryDb } = await import("../src/db/client-memory.js");
-  const { createTeam, getTeamById, getTeamRuntimeConfig, updateTeam } = await import("../src/repositories/team-repository.js");
+  const { createTeam, getTeamRuntimeConfig, updateTeam } = await import("../src/repositories/team-repository.js");
   const { toTeamPatch } = await import("../src/controllers/teams-controller.js");
   const { sendRateLimitNotification } = await import("../src/services/notifier.js");
 
