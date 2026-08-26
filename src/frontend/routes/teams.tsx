@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import {
   AlertTriangle,
   Bell,
+  BellOff,
   Building2,
   CheckCircle2,
   Cookie,
@@ -366,7 +367,7 @@ function TeamsComponent() {
                             <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
                             <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
                             <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
-                            <SecretState icon={Bell} label="Rate Limit" ok={Boolean(team.rateLimitNotifyEnabled)} preview={team.rateLimitNotifyEnabled ? 'เปิดแจ้งเตือน' : 'ปิด'} />
+                            <RateLimitState enabled={team.rateLimitNotifyEnabled} />
                           </div>
                         </td>
                         <td className="text-muted-foreground">{formatDateTime(team.updatedAt)}</td>
@@ -497,6 +498,22 @@ function SecretState({
   )
 }
 
+function RateLimitState({ enabled }: { enabled?: boolean }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+      {enabled ? (
+        <Bell className="h-3.5 w-3.5 shrink-0 text-success" />
+      ) : (
+        <BellOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+      )}
+      <span className="shrink-0 font-medium text-foreground">Rate Limit</span>
+      <span className={`min-w-0 flex-1 truncate ${enabled ? 'text-success font-medium' : 'text-muted-foreground/70'}`}>
+        {enabled ? 'เปิดแจ้งเตือน' : 'ปิด'}
+      </span>
+    </div>
+  )
+}
+
 function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
   return (
     <article className="min-w-0 max-w-full overflow-hidden rounded-[8px] border border-white/[0.06] bg-white/[0.025] p-4">
@@ -517,7 +534,7 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
         <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
-        <SecretState icon={Bell} label="Rate Limit" ok={Boolean(team.rateLimitNotifyEnabled)} preview={team.rateLimitNotifyEnabled ? 'เปิดแจ้งเตือน' : 'ปิด'} />
+        <RateLimitState enabled={team.rateLimitNotifyEnabled} />
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
