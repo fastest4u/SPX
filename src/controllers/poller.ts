@@ -24,7 +24,7 @@ import {
   formatRequestLine,
   formatStatus,
 } from "../utils/logger.js";
-import { bookingMatchesOriginFilters, orderBookingsByOriginHint } from "../utils/booking-priority.js";
+import { orderBookingsByOriginHint } from "../utils/booking-priority.js";
 import {
   fastLaneReserveForConcurrency,
   partitionBookingsByFastLane,
@@ -880,15 +880,9 @@ export class Poller {
         // This prioritizes network bandwidth/sockets for the accept POST call.
         nonPendingFetchOk = true;
       } else {
-        const originFilters = getAutoAcceptOriginFilters(this.tickAutoAcceptRules);
-        const matchesOrigin = originFilters.length === 0 || bookingMatchesOriginFilters(booking, originFilters);
-        if (!env.FETCH_DETAILS && !matchesOrigin) {
-          // Skip non-pending scan for bookings outside our rule origins when not explicitly requesting all details
-          nonPendingFetchOk = true;
-        } else {
-          const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
-            tabPendingConfirmation: false,
-          });
+        const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+          tabPendingConfirmation: false,
+        });
       if (nonPendingRequestList) {
         const nonPendingExtractedTrips = extractAllRequestListTrips(nonPendingRequestList.data, context);
         const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
@@ -1024,7 +1018,6 @@ export class Poller {
       }
     }
   }
-}
 
     if (totalSkipped > 0) {
       logger.warn("booking-detail-vehicle-type-filtered", {
