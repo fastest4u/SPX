@@ -17,7 +17,7 @@ import type {
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
-const REQUEST_LIST_PAGE_CONCURRENCY = 5;
+const REQUEST_LIST_PAGE_CONCURRENCY = 2;
 const FETCH_TIMEOUT_MS = 15_000;
 const ACCEPT_TIMEOUT_MS = 10_000;
 // Upper bound on how many *extra* list pages we will fan out to fetch. The page

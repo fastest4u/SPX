@@ -24,7 +24,7 @@ import {
   formatRequestLine,
   formatStatus,
 } from "../utils/logger.js";
-import { orderBookingsByOriginHint } from "../utils/booking-priority.js";
+import { bookingMatchesOriginFilters, orderBookingsByOriginHint } from "../utils/booking-priority.js";
 import {
   fastLaneReserveForConcurrency,
   partitionBookingsByFastLane,
@@ -823,6 +823,19 @@ export class Poller {
               }
               autoAcceptHandledByPage = true;
               autoAcceptTasks.push(this.runAutoAcceptForTrips(matchedPageTrips, booking.booking_id));
+
+              // Early-abort optimization: if matched trips on this page already satisfy the target need,
+              // abort fetching remaining pages to save SPX rate-limit quota.
+              const targetQuota = this.tickAutoAcceptRules.reduce((sum, r) => sum + (r.need || 0), 0);
+              if (targetQuota > 0 && matchedPageTrips.length >= targetQuota) {
+                logger.info("booking-request-list-early-abort-quota-met", {
+                  bookingId: booking.booking_id,
+                  pageNo: page.data.pageno,
+                  matchedCount: matchedPageTrips.length,
+                  targetQuota,
+                });
+                return false;
+              }
             }
             return true;
           }
@@ -867,9 +880,15 @@ export class Poller {
         // This prioritizes network bandwidth/sockets for the accept POST call.
         nonPendingFetchOk = true;
       } else {
-        const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
-          tabPendingConfirmation: false,
-        });
+        const originFilters = getAutoAcceptOriginFilters(this.tickAutoAcceptRules);
+        const matchesOrigin = originFilters.length === 0 || bookingMatchesOriginFilters(booking, originFilters);
+        if (!env.FETCH_DETAILS && !matchesOrigin) {
+          // Skip non-pending scan for bookings outside our rule origins when not explicitly requesting all details
+          nonPendingFetchOk = true;
+        } else {
+          const nonPendingRequestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+            tabPendingConfirmation: false,
+          });
       if (nonPendingRequestList) {
         const nonPendingExtractedTrips = extractAllRequestListTrips(nonPendingRequestList.data, context);
         const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
@@ -1005,6 +1024,7 @@ export class Poller {
       }
     }
   }
+}
 
     if (totalSkipped > 0) {
       logger.warn("booking-detail-vehicle-type-filtered", {
