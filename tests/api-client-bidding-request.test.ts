@@ -54,10 +54,9 @@ async function main(): Promise<void> {
     BIDDING_PAGE_COUNT: 100,
     REQUEST_TAB_PENDING_CONFIRMATION: true,
     REQUEST_CTIME_START: 1779469200,
-    BIDDING_VEHICLE_TYPE: 13,
   });
 
-  assert.deepEqual(buildBiddingListBody(2), {
+  assert.deepEqual(buildBiddingListBody(2, 13), {
     pageno: 2,
     count: 100,
     request_tab_pending_confirmation: true,
@@ -65,7 +64,6 @@ async function main(): Promise<void> {
     vehicle_type: 13,
   });
 
-  mutableEnv.BIDDING_VEHICLE_TYPE = undefined;
   assert.deepEqual(buildBiddingListBody(1), {
     pageno: 1,
     count: 100,

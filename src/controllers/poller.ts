@@ -133,7 +133,10 @@ export interface TeamPollerContext {
   exitOnStop?: boolean;
   realtimePublisher?: unknown;
   realtimeSource?: unknown;
+  /** Per-team vehicle type filter. null = no filter (poll all types). */
+  biddingVehicleType?: number | null;
 }
+
 
 function collectAutoAcceptMatchedTrips(
   trips: ExtractedTripInfo[],
@@ -194,6 +197,8 @@ export class Poller {
   private readonly manageProcessSignals: boolean;
   private readonly closeSharedResourcesOnStop: boolean;
   private readonly exitOnStop: boolean;
+  /** Per-team vehicle type filter. undefined = use env.BIDDING_VEHICLE_TYPE. null = no filter. */
+  private readonly teamBiddingVehicleType: number | null | undefined;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
   private static readonly STOP_TICK_DEADLINE_MS = 30_000;
@@ -235,6 +240,9 @@ export class Poller {
     this.manageProcessSignals = context?.manageProcessSignals ?? true;
     this.closeSharedResourcesOnStop = context?.closeSharedResourcesOnStop ?? true;
     this.exitOnStop = context?.exitOnStop ?? true;
+    this.teamBiddingVehicleType = context !== undefined && "biddingVehicleType" in context
+      ? context.biddingVehicleType
+      : undefined;
     this.notificationContext = {
       teamId: this.teamId,
       teamName: this.teamName,
@@ -276,6 +284,15 @@ export class Poller {
 
   private getIntervalMs(): number {
     return this.cliIntervalMs ?? env.POLL_INTERVAL_MS;
+  }
+
+  /**
+   * Resolved vehicle type filter for this team's poller.
+   * - When context included biddingVehicleType=N → N (per-team filter)
+   * - When context included biddingVehicleType=null/undefined → undefined (no filter — all types)
+   */
+  private get effectiveBiddingVehicleType(): number | undefined {
+    return typeof this.teamBiddingVehicleType === "number" ? this.teamBiddingVehicleType : undefined;
   }
 
   private recordDetailRuntime(): void {
@@ -810,7 +827,7 @@ export class Poller {
         ? (page) => {
             const pageTrips = filterTripsByBiddingVehicleType(
               extractAllRequestListTrips(page.data, context),
-              env.BIDDING_VEHICLE_TYPE
+              this.effectiveBiddingVehicleType
             ).trips;
             const matchedPageTrips = collectAutoAcceptMatchedTrips(pageTrips, this.tickAutoAcceptRules);
             if (matchedPageTrips.length > 0) {
@@ -852,7 +869,7 @@ export class Poller {
     }
 
     const extractedTrips = extractAllRequestListTrips(requestList.data, context);
-    const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, env.BIDDING_VEHICLE_TYPE);
+    const { trips, skipped } = filterTripsByBiddingVehicleType(extractedTrips, this.effectiveBiddingVehicleType);
 
     // Pending-tab trips take the normal accept path here. Non-pending-tab
     // trips are fetched below for history persistence AND — when they match an
@@ -869,7 +886,7 @@ export class Poller {
     let totalSkipped = skipped;
     const skippedVehicleTypes = new Set(
       extractedTrips
-        .filter((trip) => trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE)
+        .filter((trip) => trip.vehicle_type_id !== this.effectiveBiddingVehicleType)
         .map((trip) => trip.ประเภทรถ)
         .filter(Boolean)
     );
@@ -885,7 +902,7 @@ export class Poller {
         });
       if (nonPendingRequestList) {
         const nonPendingExtractedTrips = extractAllRequestListTrips(nonPendingRequestList.data, context);
-        const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, env.BIDDING_VEHICLE_TYPE);
+        const filtered = filterTripsByBiddingVehicleType(nonPendingExtractedTrips, this.effectiveBiddingVehicleType);
         for (const trip of filtered.trips) {
           historyTrips.set(trip.request_id, trip);
         }
@@ -1006,7 +1023,7 @@ export class Poller {
         }
         totalSkipped += filtered.skipped;
         for (const trip of nonPendingExtractedTrips) {
-          if (trip.vehicle_type_id !== env.BIDDING_VEHICLE_TYPE && trip.ประเภทรถ) {
+          if (trip.vehicle_type_id !== this.effectiveBiddingVehicleType && trip.ประเภทรถ) {
             skippedVehicleTypes.add(trip.ประเภทรถ);
           }
         }
@@ -1022,7 +1039,7 @@ export class Poller {
     if (totalSkipped > 0) {
       logger.warn("booking-detail-vehicle-type-filtered", {
         bookingId: booking.booking_id,
-        configuredVehicleType: env.BIDDING_VEHICLE_TYPE,
+        configuredVehicleType: this.effectiveBiddingVehicleType,
         kept: historyTrips.size,
         skipped: totalSkipped,
         skippedVehicleTypes: [...skippedVehicleTypes].slice(0, 10),

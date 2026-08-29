@@ -11,12 +11,14 @@ export const teams = mysqlTable("teams", {
   autoAcceptSuccessLineGroupId: varchar("auto_accept_success_line_group_id", { length: 255 }).notNull().default(""),
   autoAcceptFailureLineGroupId: varchar("auto_accept_failure_line_group_id", { length: 255 }).notNull().default(""),
   rateLimitNotifyEnabled: int("rate_limit_notify_enabled").notNull().default(0),
+  biddingVehicleType: int("bidding_vehicle_type"),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
   enabledIdx: index("teams_enabled_idx").on(table.enabled),
   nameIdx: index("teams_name_idx").on(table.name),
 }));
+
 
 export const spxBookingHistory = mysqlTable("spx_booking_history", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),

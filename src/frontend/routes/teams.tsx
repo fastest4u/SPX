@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Search,
   Smartphone,
+  Truck,
   Users,
   X,
 } from 'lucide-react'
@@ -67,6 +68,12 @@ const teamFilters: Array<{ key: TeamFilter; label: string }> = [
   { key: 'issues', label: 'มีปัญหา' },
   { key: 'disabled', label: 'ปิดอยู่' },
 ]
+
+export const VEHICLE_TYPE_OPTIONS = [
+  { value: '', label: 'ทั้งหมด (ไม่กรอง)' },
+  { value: '13', label: '6WH-6ล้อ [7.2m]' },
+  { value: '2', label: '4WH-4ล้อ' },
+] as const
 
 const formSelectClassName = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -371,6 +378,7 @@ function TeamsComponent() {
                           <div className="grid gap-2 text-xs">
                             <SecretState icon={Cookie} label="Cookie" ok={team.hasSpxCookie} preview={team.spxCookiePreview} />
                             <SecretState icon={Smartphone} label="Device" ok={team.hasSpxDeviceId} preview={team.spxDeviceIdPreview} />
+                            <VehicleTypeState vehicleType={team.biddingVehicleType} />
                           </div>
                         </td>
                         <td>
@@ -525,6 +533,28 @@ function RateLimitState({ enabled }: { enabled?: boolean }) {
   )
 }
 
+function getVehicleTypeLabel(vehicleType?: number | null): string {
+  if (vehicleType === 13) return '6WH-6ล้อ [7.2m]'
+  if (vehicleType === 2) return '4WH-4ล้อ'
+  if (typeof vehicleType === 'number') return `Type ${vehicleType}`
+  return 'ทั้งหมด (ไม่กรอง)'
+}
+
+function VehicleTypeState({ vehicleType }: { vehicleType?: number | null }) {
+  const label = getVehicleTypeLabel(vehicleType)
+  const isFiltered = typeof vehicleType === 'number'
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+      <Truck className={`h-3.5 w-3.5 shrink-0 ${isFiltered ? 'text-primary' : 'text-muted-foreground/60'}`} />
+      <span className="shrink-0 font-medium text-foreground">รถ ADHOC</span>
+      <span className={`min-w-0 flex-1 truncate ${isFiltered ? 'text-primary font-medium' : 'text-muted-foreground/70'}`}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+
 function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
   return (
     <article className="min-w-0 max-w-full overflow-hidden rounded-[8px] border border-white/[0.06] bg-white/[0.025] p-4">
@@ -542,6 +572,7 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
       <div className="mt-4 grid gap-2 rounded-[8px] border border-white/[0.06] bg-black/10 p-3 text-xs">
         <SecretState icon={Cookie} label="Cookie" ok={team.hasSpxCookie} preview={team.spxCookiePreview} />
         <SecretState icon={Smartphone} label="Device" ok={team.hasSpxDeviceId} preview={team.spxDeviceIdPreview} />
+        <VehicleTypeState vehicleType={team.biddingVehicleType} />
         <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
@@ -705,6 +736,7 @@ function TeamFormDialog({
   const [autoAcceptSuccessLineGroupId, setAutoAcceptSuccessLineGroupId] = useState('')
   const [autoAcceptFailureLineGroupId, setAutoAcceptFailureLineGroupId] = useState('')
   const [rateLimitNotifyEnabled, setRateLimitNotifyEnabled] = useState(false)
+  const [biddingVehicleType, setBiddingVehicleType] = useState<number | null>(null)
 
   const lineStatusQuery = useQuery({
     queryKey: ['line-bot-status'],
@@ -755,9 +787,11 @@ function TeamFormDialog({
     setAutoAcceptSuccessLineGroupId(team?.autoAcceptSuccessLineGroupIdPreview ?? '')
     setAutoAcceptFailureLineGroupId(team?.autoAcceptFailureLineGroupIdPreview ?? '')
     setRateLimitNotifyEnabled(team?.rateLimitNotifyEnabled ?? false)
+    setBiddingVehicleType(team?.biddingVehicleType ?? null)
   }, [
     team?.autoAcceptFailureLineGroupIdPreview,
     team?.autoAcceptSuccessLineGroupIdPreview,
+    team?.biddingVehicleType,
     team?.enabled,
     team?.lineGroupIdPreview,
     team?.name,
@@ -781,6 +815,7 @@ function TeamFormDialog({
         autoAcceptSuccessLineGroupId,
         autoAcceptFailureLineGroupId,
         rateLimitNotifyEnabled,
+        biddingVehicleType,
       }
       return team ? teamsApi.update(team.id, input) : teamsApi.create(input)
     },
@@ -849,6 +884,26 @@ function TeamFormDialog({
                 <p className="mt-0.5 text-xs text-muted-foreground">ส่งการแจ้งเตือนเข้ากลุ่ม LINE เมื่อติด Rate Limit หรือเมื่อคลาย Rate Limit</p>
               </div>
               <Switch checked={rateLimitNotifyEnabled} onCheckedChange={setRateLimitNotifyEnabled} />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="team-vehicle-type">ประเภทรถ ADHOC (Vehicle Type)</Label>
+              <select
+                id="team-vehicle-type"
+                value={biddingVehicleType ?? ''}
+                onChange={(event) => {
+                  const val = event.target.value
+                  setBiddingVehicleType(val === '' ? null : Number(val))
+                }}
+                className={formSelectClassName}
+              >
+                {VEHICLE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">กำหนดโดย Admin — ควบคุมว่า poller ของทีมนี้จะดึงเฉพาะ ADHOC ประเภทรถไหน</p>
             </div>
 
             <div className="grid gap-2">

@@ -237,9 +237,9 @@ const REQUEST_WINDOW_FIELDS = [
     },
     {
         key: 'BIDDING_VEHICLE_TYPE',
-        label: 'Bidding vehicle type',
-        helper: 'vehicle_type สำหรับ booking/bidding/list; เว้นว่างเพื่อดึงทุกประเภทรถ',
-        placeholder: '13',
+        label: 'Bidding vehicle type (ย้ายไปตั้งค่าต่อทีมแล้ว)',
+        helper: 'ยกเลิกการใช้ค่ากลางแล้ว — กรุณาไปตั้งค่าประเภทรถแยกแต่ละทีมในหน้า "จัดการทีม" แทน',
+        placeholder: 'ตั้งค่าในหน้าจัดการทีม',
         kind: 'number',
         inputMode: 'numeric',
     },

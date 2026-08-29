@@ -252,6 +252,7 @@ export interface Team {
   autoAcceptSuccessLineGroupIdPreview: string;
   autoAcceptFailureLineGroupIdPreview: string;
   rateLimitNotifyEnabled?: boolean;
+  biddingVehicleType?: number | null;
   runtimeStatus?: 'stopped' | 'running' | 'paused' | 'misconfigured' | 'session_expired' | 'error';
   usersCount?: number;
   createdAt: string;
@@ -267,7 +268,9 @@ export interface TeamInput {
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
   rateLimitNotifyEnabled?: boolean;
+  biddingVehicleType?: number | null;
 }
+
 
 // Settings Types
 export interface EnvSettings {

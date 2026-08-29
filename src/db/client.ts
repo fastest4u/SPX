@@ -241,6 +241,7 @@ async function createDashboardTables(): Promise<void> {
       auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
       auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
       rate_limit_notify_enabled INT NOT NULL DEFAULT 0,
+      bidding_vehicle_type INT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       KEY teams_enabled_idx (enabled),
@@ -250,6 +251,7 @@ async function createDashboardTables(): Promise<void> {
   await ensureMysqlColumn(pool, "teams", "auto_accept_success_line_group_id", "ALTER TABLE teams ADD COLUMN auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '' AFTER line_group_id");
   await ensureMysqlColumn(pool, "teams", "auto_accept_failure_line_group_id", "ALTER TABLE teams ADD COLUMN auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '' AFTER auto_accept_success_line_group_id");
   await ensureMysqlColumn(pool, "teams", "rate_limit_notify_enabled", "ALTER TABLE teams ADD COLUMN rate_limit_notify_enabled INT NOT NULL DEFAULT 0 AFTER auto_accept_failure_line_group_id");
+  await ensureMysqlColumn(pool, "teams", "bidding_vehicle_type", "ALTER TABLE teams ADD COLUMN bidding_vehicle_type INT NULL AFTER rate_limit_notify_enabled");
   await pool.query(`
     UPDATE teams
     SET

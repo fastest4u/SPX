@@ -79,6 +79,8 @@ export interface ApiClientOptions {
   credentials?: ApiClientCredentials;
   credentialsProvider?: () => ApiClientCredentials;
   pollIntervalMsProvider?: () => number;
+  /** Per-team vehicle type filter. Overrides env.BIDDING_VEHICLE_TYPE. null = no filter. */
+  biddingVehicleType?: number | null;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -335,7 +337,7 @@ export function buildHeadersForRequest(credentials: ApiClientCredentials): Recor
   };
 }
 
-export function buildBiddingListBody(pageNo: number): BiddingRequest {
+export function buildBiddingListBody(pageNo: number, vehicleType?: number): BiddingRequest {
   const body: BiddingRequest = {
     pageno: pageNo,
     count: env.BIDDING_PAGE_COUNT,
@@ -343,8 +345,8 @@ export function buildBiddingListBody(pageNo: number): BiddingRequest {
     request_ctime_start: env.REQUEST_CTIME_START,
   };
 
-  if (env.BIDDING_VEHICLE_TYPE !== undefined) {
-    body.vehicle_type = env.BIDDING_VEHICLE_TYPE;
+  if (typeof vehicleType === "number") {
+    body.vehicle_type = vehicleType;
   }
 
   return body;
@@ -358,12 +360,18 @@ export class ApiClient {
    */
   private readonly pollIntervalMsProvider: () => number;
   private readonly credentialsProvider: () => ApiClientCredentials;
+  /**
+   * Per-team vehicle type filter.
+   * number = filter by vehicle type. null/undefined = no filter (all types).
+   */
+  private readonly teamBiddingVehicleType: number | null | undefined;
 
   constructor(optionsOrPollIntervalMsProvider: ApiClientOptions | (() => number) = {}) {
     if (typeof optionsOrPollIntervalMsProvider === "function") {
       // Legacy constructor shape used by Poller tests.
       this.pollIntervalMsProvider = optionsOrPollIntervalMsProvider;
       this.credentialsProvider = envCredentials;
+      this.teamBiddingVehicleType = undefined;
       return;
     }
 
@@ -373,15 +381,21 @@ export class ApiClient {
         ?? (optionsOrPollIntervalMsProvider.credentials
           ? () => optionsOrPollIntervalMsProvider.credentials as ApiClientCredentials
           : envCredentials);
+    this.teamBiddingVehicleType = "biddingVehicleType" in optionsOrPollIntervalMsProvider
+      ? optionsOrPollIntervalMsProvider.biddingVehicleType
+      : undefined;
   }
 
   private get headers(): Record<string, string> {
     return buildHeadersForRequest(this.credentialsProvider());
   }
 
-  private get body(): BiddingRequest {
-    return buildBiddingListBody(env.BIDDING_PAGE_NO);
+  private buildBody(): BiddingRequest {
+    const vehicleType = typeof this.teamBiddingVehicleType === "number" ? this.teamBiddingVehicleType : undefined;
+    return buildBiddingListBody(env.BIDDING_PAGE_NO, vehicleType);
   }
+
+
 
   private get overviewBaseUrl(): string {
     return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/booking_overview");
@@ -398,7 +412,7 @@ export class ApiClient {
   async fetch(requestNumber: number): Promise<PollingResult> {
     const startTime = Date.now();
     try {
-      const response = await this.fetchBiddingListPage(this.body.pageno);
+      const response = await this.fetchBiddingListPage(this.buildBody().pageno);
 
       const latencyMs = Date.now() - startTime;
 
@@ -515,7 +529,7 @@ export class ApiClient {
     return fetchWithRetry(env.API_URL, {
       method: "POST",
       headers: this.headers,
-      body: JSON.stringify({ ...this.body, pageno: pageNo }),
+      body: JSON.stringify({ ...this.buildBody(), pageno: pageNo }),
     }, `bidding-list:${pageNo}`, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs));
   }
 
@@ -526,7 +540,7 @@ export class ApiClient {
       return firstPage;
     }
 
-    const pageSize = Math.max(1, firstPage.data.count || firstList.length || this.body.count);
+    const pageSize = Math.max(1, firstPage.data.count || firstList.length || env.BIDDING_PAGE_COUNT);
     const requestedPages = Math.ceil(total / pageSize);
     const totalPages = Math.min(requestedPages, firstPage.data.pageno + MAX_EXTRA_LIST_PAGES);
     if (requestedPages > totalPages) {

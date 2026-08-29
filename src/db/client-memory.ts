@@ -64,6 +64,7 @@ function initSchema(db: Database.Database): void {
       auto_accept_success_line_group_id TEXT NOT NULL DEFAULT '',
       auto_accept_failure_line_group_id TEXT NOT NULL DEFAULT '',
       rate_limit_notify_enabled INTEGER NOT NULL DEFAULT 0,
+      bidding_vehicle_type INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

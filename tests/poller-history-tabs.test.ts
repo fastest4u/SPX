@@ -61,7 +61,13 @@ async function main(): Promise<void> {
     SAVE_TO_DB: true,
   });
 
-  const poller = new Poller();
+  const poller = new Poller(undefined, {
+    teamId: 1,
+    teamName: "Default Team",
+    apiClient: null as never,
+    lineGroupId: "",
+    biddingVehicleType: 13,
+  });
   const fetchTabs: Array<boolean | undefined> = [];
   const enqueuedTrips: ExtractedTripInfo[][] = [];
 

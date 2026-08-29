@@ -101,9 +101,20 @@ export function toTeamPatch(body: Record<string, unknown>): TeamPatch {
     if (typeof body.rateLimitNotifyEnabled !== "boolean") throw new Error("rateLimitNotifyEnabled must be a boolean");
     patch.rateLimitNotifyEnabled = body.rateLimitNotifyEnabled;
   }
+  if ("biddingVehicleType" in body) {
+    const raw = body.biddingVehicleType;
+    if (raw === null || raw === undefined || raw === "") {
+      patch.biddingVehicleType = null;
+    } else {
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("biddingVehicleType must be a positive integer or null");
+      patch.biddingVehicleType = parsed;
+    }
+  }
 
   return patch;
 }
+
 
 function toTeamInput(body: Record<string, unknown>): TeamInput {
   const patch = toTeamPatch(body);
@@ -117,8 +128,10 @@ function toTeamInput(body: Record<string, unknown>): TeamInput {
     autoAcceptSuccessLineGroupId: patch.autoAcceptSuccessLineGroupId,
     autoAcceptFailureLineGroupId: patch.autoAcceptFailureLineGroupId,
     rateLimitNotifyEnabled: patch.rateLimitNotifyEnabled,
+    biddingVehicleType: patch.biddingVehicleType,
   };
 }
+
 
 async function runRuntimeAction(action: RuntimeTeamAction | undefined, teamId: number): Promise<boolean> {
   if (!action) return false;
@@ -210,7 +223,8 @@ export function patchTouchesRuntime(patch: TeamPatch): boolean {
     || patch.spxDeviceId !== undefined
     || patch.lineGroupId !== undefined
     || patch.autoAcceptSuccessLineGroupId !== undefined
-    || patch.autoAcceptFailureLineGroupId !== undefined;
+    || patch.autoAcceptFailureLineGroupId !== undefined
+    || patch.biddingVehicleType !== undefined;
 }
 
 async function listTeamsWithRuntimeStatus() {

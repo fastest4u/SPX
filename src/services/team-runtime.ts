@@ -60,6 +60,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
           spxDeviceId: this.config.spxDeviceId,
         },
         pollIntervalMsProvider: () => this.intervalSec !== undefined ? this.intervalSec * 1000 : env.POLL_INTERVAL_MS,
+        biddingVehicleType: this.config.biddingVehicleType,
       });
       const context: TeamPollerContext = {
         teamId: this.config.id,
@@ -71,6 +72,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
         manageProcessSignals: false,
         closeSharedResourcesOnStop: false,
         exitOnStop: false,
+        biddingVehicleType: this.config.biddingVehicleType,
       };
       this.poller = new Poller(this.intervalSec, context);
       await this.poller.start();

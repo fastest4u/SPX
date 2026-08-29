@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS teams (
   line_group_id VARCHAR(255) NOT NULL DEFAULT '',
   auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
   auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+  rate_limit_notify_enabled INT NOT NULL DEFAULT 0,
+  bidding_vehicle_type INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY teams_enabled_idx (enabled),
@@ -301,4 +303,166 @@ CREATE TABLE IF NOT EXISTS app_settings (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const realtimeEventsMigrationSql = `
+CREATE TABLE IF NOT EXISTS realtime_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_id VARCHAR(255) NOT NULL,
+  idempotency_key VARCHAR(512) NULL,
+  event_type VARCHAR(64) NOT NULL,
+  payload_version INT NOT NULL,
+  envelope_version INT NOT NULL,
+  scope_kind VARCHAR(16) NOT NULL,
+  team_id INT NULL,
+  subject_type VARCHAR(64) NULL,
+  subject_id VARCHAR(160) NULL,
+  source_service VARCHAR(64) NOT NULL,
+  source_node_id VARCHAR(120) NOT NULL,
+  source_role VARCHAR(64) NOT NULL,
+  trace_id VARCHAR(160) NULL,
+  replayable INT NOT NULL DEFAULT 0,
+  payload_json TEXT NOT NULL,
+  envelope_json TEXT NOT NULL,
+  emitted_at DATETIME NOT NULL,
+  received_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY realtime_events_event_id_uidx (event_id),
+  UNIQUE KEY realtime_events_idempotency_key_uidx (idempotency_key),
+  KEY realtime_events_scope_team_id_idx (scope_kind, team_id, id),
+  KEY realtime_events_type_received_idx (event_type, received_at),
+  KEY realtime_events_source_node_received_idx (source_node_id, received_at),
+  KEY realtime_events_replayable_id_idx (replayable, id),
+  KEY realtime_events_replay_scope_id_idx (replayable, scope_kind, team_id, id),
+  KEY realtime_events_replay_created_id_idx (replayable, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const realtimeMetricsReadModelsMigrationSql = `
+CREATE TABLE IF NOT EXISTS realtime_metrics_read_models (
+  team_id INT NOT NULL,
+  source_node_id VARCHAR(120) NOT NULL,
+  snapshot_json JSON NOT NULL,
+  emitted_at DATETIME(3) NOT NULL,
+  received_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (team_id),
+  KEY realtime_metrics_read_models_received_team_idx (received_at, team_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const gate6ControlPlaneMigrationSql = `
+CREATE TABLE IF NOT EXISTS gate6_environment_slots (
+  environment VARCHAR(32) NOT NULL,
+  owner_type VARCHAR(32) NOT NULL,
+  owner_id VARCHAR(128) NOT NULL,
+  operation_id VARCHAR(128) NOT NULL,
+  transfer_token_sha256 CHAR(64) NULL,
+  state VARCHAR(40) NOT NULL,
+  version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  uncompensated_work TINYINT(1) NOT NULL DEFAULT 0,
+  protected_install_evidence_sha256 CHAR(64) NOT NULL,
+  release_sha CHAR(40) NOT NULL,
+  target_descriptor_sha256 CHAR(64) NOT NULL,
+  operator_bundle_sha256 CHAR(64) NOT NULL,
+  installed_migration_set_sha256 CHAR(64) NOT NULL,
+  installed_schema_version INT UNSIGNED NOT NULL,
+  heartbeat_at DATETIME(3) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (environment),
+  UNIQUE KEY gate6_slot_owner_uq (owner_type, owner_id),
+  KEY gate6_slot_state_expiry_idx (state, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;
+
+CREATE TABLE IF NOT EXISTS gate6_runs (
+  gate6_id VARCHAR(128) NOT NULL,
+  gate6_nonce VARCHAR(128) NOT NULL,
+  envelope_sha256 CHAR(64) NOT NULL,
+  envelope_core_sha256 CHAR(64) NOT NULL,
+  release_environment VARCHAR(32) NOT NULL,
+  runtime_environment VARCHAR(32) NOT NULL,
+  drill_mode VARCHAR(40) NOT NULL,
+  compose_project VARCHAR(64) NOT NULL,
+  candidate_sha CHAR(40) NOT NULL,
+  candidate_image_digest VARCHAR(80) NOT NULL,
+  rollback_sha CHAR(40) NOT NULL,
+  rollback_image_digest VARCHAR(80) NOT NULL,
+  production_target_descriptor_sha256 CHAR(64) NOT NULL,
+  operator_bundle_sha256 CHAR(64) NOT NULL,
+  protected_install_evidence_sha256 CHAR(64) NOT NULL,
+  installed_migration_set_sha256 CHAR(64) NOT NULL,
+  installed_schema_version INT UNSIGNED NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  current_stage VARCHAR(64) NOT NULL,
+  stage_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+  accepted_checker_name VARCHAR(128) NULL,
+  accepted_checker_sha256 CHAR(64) NULL,
+  revocation_reason_code VARCHAR(80) NULL,
+  monitor_status VARCHAR(16) NOT NULL,
+  monitor_lease_expires_at DATETIME(3) NOT NULL,
+  supervisor_status VARCHAR(16) NOT NULL,
+  supervisor_lease_expires_at DATETIME(3) NOT NULL,
+  emergency_supervisor_lease_expires_at DATETIME(3) NOT NULL,
+  terminal_evidence_sha256 CHAR(64) NULL,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (gate6_id),
+  UNIQUE KEY gate6_runs_envelope_uq (envelope_sha256),
+  UNIQUE KEY gate6_runs_nonce_uq (gate6_nonce),
+  KEY gate6_runs_status_expiry_idx (status, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;
+
+CREATE TABLE IF NOT EXISTS gate6_actions (
+  gate6_id VARCHAR(128) NOT NULL,
+  scope VARCHAR(128) NOT NULL,
+  action_id VARCHAR(128) NOT NULL,
+  approval_sha256 CHAR(64) NOT NULL,
+  allowed_mutation_sha256 CHAR(64) NOT NULL,
+  kind VARCHAR(24) NOT NULL,
+  paired_action_id VARCHAR(128) NULL,
+  predecessor_action_ids_json JSON NOT NULL,
+  required_stage VARCHAR(64) NOT NULL,
+  required_checker_sha256 CHAR(64) NULL,
+  status VARCHAR(24) NOT NULL,
+  before_evidence_sha256 CHAR(64) NULL,
+  after_evidence_sha256 CHAR(64) NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3) NULL,
+  completed_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (gate6_id, scope, action_id),
+  UNIQUE KEY gate6_actions_id_uq (gate6_id, action_id),
+  KEY gate6_actions_status_expiry_idx (gate6_id, status, expires_at),
+  CONSTRAINT gate6_actions_run_fk FOREIGN KEY (gate6_id) REFERENCES gate6_runs (gate6_id)
+) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;
+
+CREATE TABLE IF NOT EXISTS gate6_fault_permits (
+  permit_id VARCHAR(128) NOT NULL,
+  gate6_id VARCHAR(128) NOT NULL,
+  scope VARCHAR(128) NOT NULL,
+  action_id VARCHAR(128) NOT NULL,
+  service VARCHAR(32) NOT NULL,
+  kind VARCHAR(64) NOT NULL,
+  team_id INT UNSIGNED NOT NULL,
+  drill_sha256 CHAR(64) NOT NULL,
+  target_sha256 CHAR(64) NULL,
+  fixture_sha256 CHAR(64) NULL,
+  signed_permit_sha256 CHAR(64) NOT NULL,
+  verification_key_id VARCHAR(128) NOT NULL,
+  status VARCHAR(24) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3) NULL,
+  disarmed_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (permit_id),
+  UNIQUE KEY gate6_permit_action_uq (gate6_id, scope, action_id),
+  KEY gate6_permit_status_expiry_idx (gate6_id, status, expires_at),
+  CONSTRAINT gate6_permit_action_fk FOREIGN KEY (gate6_id, scope, action_id)
+    REFERENCES gate6_actions (gate6_id, scope, action_id)
+) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin;
 `;

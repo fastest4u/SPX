@@ -22,7 +22,9 @@ export interface TeamInput {
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
   rateLimitNotifyEnabled?: boolean;
+  biddingVehicleType?: number | null;
 }
+
 
 export interface TeamPatch {
   name?: string;
@@ -33,7 +35,9 @@ export interface TeamPatch {
   autoAcceptSuccessLineGroupId?: string;
   autoAcceptFailureLineGroupId?: string;
   rateLimitNotifyEnabled?: boolean;
+  biddingVehicleType?: number | null;
 }
+
 
 export interface RedactedTeam {
   id: number;
@@ -45,6 +49,7 @@ export interface RedactedTeam {
   hasAutoAcceptSuccessLineGroupId: boolean;
   hasAutoAcceptFailureLineGroupId: boolean;
   rateLimitNotifyEnabled: boolean;
+  biddingVehicleType: number | null;
   spxCookiePreview: string;
   spxDeviceIdPreview: string;
   lineGroupIdPreview: string;
@@ -64,7 +69,9 @@ export interface TeamRuntimeConfig {
   autoAcceptSuccessLineGroupId: string;
   autoAcceptFailureLineGroupId: string;
   rateLimitNotifyEnabled: boolean;
+  biddingVehicleType: number | null;
 }
+
 
 type TeamRow = typeof teams.$inferSelect;
 
@@ -107,6 +114,7 @@ function toRedactedTeam(row: TeamRow): RedactedTeam {
     hasAutoAcceptSuccessLineGroupId: autoAcceptSuccessLineGroupId.length > 0,
     hasAutoAcceptFailureLineGroupId: autoAcceptFailureLineGroupId.length > 0,
     rateLimitNotifyEnabled: row.rateLimitNotifyEnabled === 1,
+    biddingVehicleType: row.biddingVehicleType ?? null,
     spxCookiePreview: previewSecret(spxCookie),
     spxDeviceIdPreview: previewSecret(spxDeviceId),
     lineGroupIdPreview: previewSecret(lineGroupId),
@@ -128,8 +136,10 @@ function toRuntimeConfig(row: TeamRow): TeamRuntimeConfig {
     autoAcceptSuccessLineGroupId: decodeSecret(row.autoAcceptSuccessLineGroupId),
     autoAcceptFailureLineGroupId: decodeSecret(row.autoAcceptFailureLineGroupId),
     rateLimitNotifyEnabled: row.rateLimitNotifyEnabled === 1,
+    biddingVehicleType: row.biddingVehicleType ?? null,
   };
 }
+
 
 function shouldBackfillLegacyTarget(
   currentTarget: string,
@@ -182,6 +192,7 @@ export async function createTeam(input: TeamInput): Promise<RedactedTeam> {
     autoAcceptSuccessLineGroupId: encodeSecret(input.autoAcceptSuccessLineGroupId || input.lineGroupId),
     autoAcceptFailureLineGroupId: encodeSecret(input.autoAcceptFailureLineGroupId || input.lineGroupId),
     rateLimitNotifyEnabled: input.rateLimitNotifyEnabled ? 1 : 0,
+    biddingVehicleType: input.biddingVehicleType ?? null,
   });
 
   const [row] = await db.select().from(teams).orderBy(desc(teams.id)).limit(1);
@@ -204,6 +215,9 @@ export async function updateTeam(id: number, patch: TeamPatch): Promise<Redacted
   }
   if (patch.autoAcceptFailureLineGroupId !== undefined && !isRedactedPlaceholder(patch.autoAcceptFailureLineGroupId)) {
     next.autoAcceptFailureLineGroupId = encodeSecret(patch.autoAcceptFailureLineGroupId);
+  }
+  if ("biddingVehicleType" in patch) {
+    next.biddingVehicleType = patch.biddingVehicleType ?? null;
   }
 
   const db = getDb();
