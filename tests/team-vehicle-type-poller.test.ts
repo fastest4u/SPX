@@ -1,3 +1,6 @@
+process.env.DB_MODE = "memory";
+process.env.SECRETS_KEY = "test-secret-key-16-bytes";
+
 import assert from "node:assert/strict";
 import { ApiClient, buildBiddingListBody } from "../src/services/api-client.js";
 import { Poller } from "../src/controllers/poller.js";
