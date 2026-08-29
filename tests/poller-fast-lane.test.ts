@@ -19,7 +19,7 @@ const original = {
 function booking(bookingId: number): Booking {
   return {
     booking_id: bookingId,
-    booking_name: `booking-${bookingId}`,
+    booking_name: `[ADHOC] booking-${bookingId}`,
     agency_name: "SPX",
   } as Booking;
 }

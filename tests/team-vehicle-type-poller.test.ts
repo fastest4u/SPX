@@ -7,6 +7,7 @@ import { Poller } from "../src/controllers/poller.js";
 import { toTeamPatch, patchTouchesRuntime } from "../src/controllers/teams-controller.js";
 import { createTeam, updateTeam, getTeamById } from "../src/repositories/team-repository.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
+import { isAdhocBookingName } from "../src/utils/booking-extractor.js";
 
 async function testApiClientVehicleType() {
   // Test buildBiddingListBody
@@ -155,11 +156,24 @@ function testPollerVehicleType() {
   );
 }
 
+function testIsAdhocBookingFilter() {
+  assert.strictEqual(isAdhocBookingName("[3270855] [ADHOC] UPC All-Mile Clear Backlo"), true);
+  assert.strictEqual(isAdhocBookingName("[ADHOC] Bangkok lanes"), true);
+  assert.strictEqual(isAdhocBookingName("ADHOC 6W"), true);
+  assert.strictEqual(isAdhocBookingName("adhoc small"), true);
+  assert.strictEqual(isAdhocBookingName("[3270299] (รถหลัก) F2 ASNAM >> FSOCE 4W"), false);
+  assert.strictEqual(isAdhocBookingName("(รถหลัก) Normal line"), false);
+  assert.strictEqual(isAdhocBookingName(""), false);
+  assert.strictEqual(isAdhocBookingName(null), false);
+  assert.strictEqual(isAdhocBookingName(undefined), false);
+}
+
 async function run() {
   await testApiClientVehicleType();
   testTeamsControllerParsing();
   await testTeamRepositoryCrud();
   testPollerVehicleType();
+  testIsAdhocBookingFilter();
   console.log("team-vehicle-type-poller: all assertions passed successfully!");
 }
 

@@ -30,7 +30,7 @@ import {
   partitionBookingsByFastLane,
 } from "../utils/booking-fast-lane.js";
 import { getSpxDispatcher } from "../utils/http-dispatcher.js";
-import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo } from "../utils/booking-extractor.js";
+import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo, isAdhocBookingName } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
 import { sseBroadcaster } from "../services/sse.js";
@@ -530,6 +530,10 @@ export class Poller {
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
     if (this.stopped || bookings.length === 0) return;
 
+    // Filter to only bookings whose booking_name contains "ADHOC"
+    const adhocBookings = bookings.filter((b) => isAdhocBookingName(b.booking_name));
+    if (adhocBookings.length === 0) return;
+
     // Pause detail scheduling if we are currently inside an active SPX rate-limit backoff window
     const now = Date.now();
     if (now < this.rateLimitPausedUntil) {
@@ -559,15 +563,15 @@ export class Poller {
     }
 
     // Priority sort: origin-matching bookings first
-    let sortedBookings = bookings;
+    let sortedBookings = adhocBookings;
     if (env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0) {
       const originFilters = getAutoAcceptOriginFilters(this.tickAutoAcceptRules);
       if (originFilters.length > 0) {
-        const prioritized = orderBookingsByOriginHint(bookings, originFilters);
+        const prioritized = orderBookingsByOriginHint(adhocBookings, originFilters);
         sortedBookings = prioritized.ordered;
         if (prioritized.prioritized.length > 0) {
           logger.info("booking-origin-prefilter", {
-            total: bookings.length,
+            total: adhocBookings.length,
             prioritized: prioritized.prioritized.length,
             deferred: prioritized.deferred.length,
             mode: "sort-only",
@@ -794,6 +798,10 @@ export class Poller {
    * booking is retried on the next tick instead of waiting out the cooldown.
    */
   private async processOneBooking(booking: Booking): Promise<boolean> {
+    if (!isAdhocBookingName(booking.booking_name)) {
+      return true;
+    }
+
     // Pause execution if we are in an active rate-limit recovery window
     const remainingPauseMs = this.rateLimitPausedUntil - Date.now();
     if (remainingPauseMs > 0) {

@@ -167,3 +167,10 @@ request_id: ${trip.request_id}
 -------------------
 `.trim();
 }
+
+export function isAdhocBookingName(bookingName?: string | null): boolean {
+  if (!bookingName) return false;
+  return bookingName.toUpperCase().includes("ADHOC");
+}
+
+
