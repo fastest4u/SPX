@@ -320,20 +320,20 @@ export function buildHeadersForRequest(credentials: ApiClientCredentials): Recor
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "th,en;q=0.9",
-    app: env.APP_NAME,
+    app: env.APP_NAME || "Agency Portal",
     "content-type": "application/json;charset=UTF-8",
     "device-id": credentials.spxDeviceId,
     priority: "u=1, i",
-    "sec-ch-ua": '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+    "sec-ch-ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
     "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"macOS"',
+    "sec-ch-ua-platform": '"Windows"',
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
     origin,
-    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
     cookie: credentials.spxCookie,
-    Referer: env.REFERER,
+    referer: env.REFERER || "https://logistics.myagencyservice.in.th/",
   };
 }
 

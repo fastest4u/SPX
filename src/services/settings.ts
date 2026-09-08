@@ -117,7 +117,12 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.BIDDING_PAGE_COUNT = readIntegerSetting("BIDDING_PAGE_COUNT", 100);
   mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION =
     process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false";
-  mutableEnv.REQUEST_CTIME_START = readIntegerSetting("REQUEST_CTIME_START", 1776358800);
+  mutableEnv.REQUEST_CTIME_START = readIntegerSetting("REQUEST_CTIME_START", 1788195600);
+  const rawStrategy = process.env.REQUEST_SELECTION_STRATEGY?.trim().toLowerCase();
+  mutableEnv.REQUEST_SELECTION_STRATEGY =
+    rawStrategy === "random" || rawStrategy === "last" || rawStrategy === "first"
+      ? rawStrategy
+      : "random";
   mutableEnv.NOTIFY_ENABLED = process.env.NOTIFY_ENABLED === "true";
   mutableEnv.NOTIFY_MODE = process.env.NOTIFY_MODE || "batch";
   mutableEnv.NOTIFY_ORIGINS = parseCommaSeparatedSetting(process.env.NOTIFY_ORIGINS);

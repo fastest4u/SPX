@@ -60,6 +60,16 @@ function readIntegerEnv(name: string, defaultValue: number): number {
   return Number.isInteger(value) ? value : Number.NaN;
 }
 
+export type RequestSelectionStrategy = "random" | "last" | "first";
+
+function readSelectionStrategyEnv(name: string, defaultValue: RequestSelectionStrategy = "random"): RequestSelectionStrategy {
+  const rawValue = process.env[name]?.trim().toLowerCase();
+  if (rawValue === "random" || rawValue === "last" || rawValue === "first") {
+    return rawValue;
+  }
+  return defaultValue;
+}
+
 function readOptionalIntegerEnv(name: string, defaultValue?: number): number | undefined {
   const rawValue = process.env[name];
   if (rawValue === undefined) {
@@ -198,8 +208,9 @@ export const env = {
   BIDDING_PAGE_NO: readIntegerEnv("BIDDING_PAGE_NO", 1),
   BIDDING_PAGE_COUNT: readIntegerEnv("BIDDING_PAGE_COUNT", 100),
   REQUEST_TAB_PENDING_CONFIRMATION: process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false",
-  REQUEST_CTIME_START: readIntegerEnv("REQUEST_CTIME_START", 1776358800),
+  REQUEST_CTIME_START: readIntegerEnv("REQUEST_CTIME_START", 1788195600),
   BIDDING_VEHICLE_TYPE: readOptionalIntegerEnv("BIDDING_VEHICLE_TYPE", 13),
+  REQUEST_SELECTION_STRATEGY: readSelectionStrategyEnv("REQUEST_SELECTION_STRATEGY", "random"),
   DB_MODE: (process.env.DB_MODE || "mysql") as "mysql" | "memory",
   DB_HOST: process.env.DB_HOST,
   DB_PORT: readIntegerEnv("DB_PORT", 3306),
@@ -359,6 +370,13 @@ export function validateRuntimeConfig(): void {
     invalid.push("REQUEST_CTIME_START must be a non-negative integer Unix timestamp");
   if (env.BIDDING_VEHICLE_TYPE !== undefined && !isPositiveInteger(env.BIDDING_VEHICLE_TYPE))
     invalid.push("BIDDING_VEHICLE_TYPE must be empty or a positive integer");
+  if (
+    process.env.REQUEST_SELECTION_STRATEGY !== undefined &&
+    process.env.REQUEST_SELECTION_STRATEGY.trim() !== "" &&
+    !["random", "last", "first"].includes(process.env.REQUEST_SELECTION_STRATEGY.trim().toLowerCase())
+  ) {
+    invalid.push("REQUEST_SELECTION_STRATEGY must be 'random', 'last', or 'first'");
+  }
   if (!isPositiveInteger(env.NOTIFY_MIN_TRIPS))
     invalid.push("NOTIFY_MIN_TRIPS must be a positive integer");
   if (!isBooleanString(process.env.DEBUG)) invalid.push("DEBUG must be true or false");
