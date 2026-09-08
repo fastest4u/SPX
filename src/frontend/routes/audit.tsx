@@ -5,7 +5,8 @@ import { auditApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
+import { PaginationControls } from '../components/PaginationControls'
+import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { FilterChip } from '../components/ui/filter-chip'
 import { formatDateTime } from '../lib/utils'
@@ -213,40 +214,98 @@ function AuditComponent() {
             </div>
           ) : null}
 
-          {/* Data Table */}
-          <DataTable
-            columns={AUDIT_COLUMNS}
-            data={logs}
-            keyField={(log) => log.id}
-            densityKey="audit"
-            emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-            emptyMessage={'ไม่พบประวัติการใช้งาน'}
-            pagination={
-              logs.length > 0
-                ? {
-                  page,
-                  pageSize,
-                  totalItems: total,
-                  totalPages,
-                  onPageChange: setPage,
-                  onPageSizeChange: (size) => {
+          {/* Mobile Card View */}
+          <div className="md:hidden">
+            {logs.length === 0 ? (
+              <EmptyPanel icon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}>
+                ไม่พบประวัติการใช้งาน
+              </EmptyPanel>
+            ) : (
+              <div className="space-y-3">
+                {logs.map((log) => (
+                  <AuditMobileCard key={log.id} log={log} />
+                ))}
+                <PaginationControls
+                  variant="mobile"
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={total}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
                     setPageSize(size)
                     setPage(1)
-                  },
-                }
-                : undefined
-            }
-            sorting={{
-              sortKey,
-              sortDir,
-              onSortChange: (nextSortKey, nextSortDir) => {
-                setSortKey((nextSortKey as AuditQuery['sortBy'] | null) ?? 'created_at')
-                setSortDir(nextSortDir ?? 'desc')
-                setPage(1)
-              },
-            }}
-          />
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Desktop Data Table */}
+          <div className="hidden md:block">
+            <DataTable
+              columns={AUDIT_COLUMNS}
+              data={logs}
+              keyField={(log) => log.id}
+              densityKey="audit"
+              emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
+              emptyMessage={'ไม่พบประวัติการใช้งาน'}
+              pagination={
+                logs.length > 0
+                  ? {
+                    page,
+                    pageSize,
+                    totalItems: total,
+                    totalPages,
+                    onPageChange: setPage,
+                    onPageSizeChange: (size) => {
+                      setPageSize(size)
+                      setPage(1)
+                    },
+                  }
+                  : undefined
+              }
+              sorting={{
+                sortKey,
+                sortDir,
+                onSortChange: (nextSortKey, nextSortDir) => {
+                  setSortKey((nextSortKey as AuditQuery['sortBy'] | null) ?? 'created_at')
+                  setSortDir(nextSortDir ?? 'desc')
+                  setPage(1)
+                },
+              }}
+            />
+          </div>
       </ContentSection>
     </PageShell>
+  )
+}
+
+function AuditMobileCard({ log }: { log: AuditLog }) {
+  return (
+    <MobileRecordCard>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <UserBadge username={log.username} />
+            <span className="font-mono text-xs text-muted-foreground">#{log.id}</span>
+          </div>
+          <div className="mt-1.5 text-xs font-semibold text-foreground tracking-wide">
+            {log.action}
+          </div>
+        </div>
+      </div>
+
+      {log.details ? (
+        <div className="mt-2.5 rounded-lg border border-white/[0.06] bg-black/20 p-2.5 text-xs text-muted-foreground leading-relaxed break-words">
+          {log.details}
+        </div>
+      ) : null}
+
+      <div className="mt-2.5 flex items-center justify-between text-[11px] text-muted-foreground border-t border-white/[0.04] pt-2">
+        <span>เวลา</span>
+        <span>{formatDateTime(log.createdAt)}</span>
+      </div>
+    </MobileRecordCard>
   )
 }

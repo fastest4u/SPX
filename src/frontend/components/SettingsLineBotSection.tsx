@@ -110,7 +110,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-foreground truncate">{profileQuery.data.displayName}</div>
-            <div className="text-[11px] text-slate-400 font-mono truncate">{profileQuery.data.mid}</div>
+            <div className="text-[11px] text-muted-foreground font-mono truncate">{profileQuery.data.mid}</div>
           </div>
           <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 rounded-[8px] px-2 text-danger hover:text-danger hover:bg-[color:var(--color-danger-soft)]" onClick={() => { if (window.confirm('ต้องการออกจากระบบ LINE Bot?')) logoutMut.mutate(false) }} disabled={logoutMut.isPending}>
             {logoutMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Logout'}
@@ -214,7 +214,7 @@ export function SettingsLineBotSection({ formData, setField, onSave, isSaving }:
             <div className="flex flex-col items-center gap-4 rounded-[8px] border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] p-5 text-center">
               <span className="font-medium text-foreground">สแกน QR Code เพื่อ Login</span>
               <div className="rounded-[8px] bg-white p-4 shadow-lg"><QRCodeSVG value={safeQrUrl} size={200} level="H" includeMargin /></div>
-              <p className="text-xs text-slate-400 break-all">(หรือเปิดลิงก์: <a href={safeQrUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">{safeQrUrl}</a>)</p>
+              <p className="text-xs text-muted-foreground break-all">(หรือเปิดลิงก์: <a href={safeQrUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">{safeQrUrl}</a>)</p>
               {pincode && (
                 <div className="text-sm text-foreground w-full pt-2 border-t border-white/10">
                   <p>กรอก PIN ในแอป LINE:</p>

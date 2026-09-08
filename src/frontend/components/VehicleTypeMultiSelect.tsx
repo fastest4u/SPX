@@ -37,7 +37,7 @@ export function VehicleTypeMultiSelect({ id, value, onChange }: VehicleTypeMulti
       </button>
 
       {open && (
-        <div className="absolute z-[60] mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
+        <div className="absolute z-[60] mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-popover backdrop-blur-md shadow-2xl shadow-black/40">
           {VEHICLE_TYPE_OPTIONS.map((option) => {
             const selected = selectedVehicleTypes.has(option)
             return (

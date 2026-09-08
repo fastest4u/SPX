@@ -6,7 +6,8 @@ import { historyApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
+import { PaginationControls } from '../components/PaginationControls'
+import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { StatCard } from '../components/ui/stat-card'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -330,42 +331,71 @@ function HistoryComponent() {
                 </div>
               ) : null}
 
-              {/* Data Table */}
-              <DataTable
-                columns={columns}
-                data={history}
-                keyField={(item) => item.id}
-                densityKey="history"
-                minWidth={isAdmin ? '780px' : '680px'}
-                emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-                emptyMessage={'ไม่พบประวัติงาน'}
-                pagination={
-                  history.length > 0
-                    ? {
-                      page,
-                      pageSize,
-                      totalItems: total,
-                      totalPages,
-                      onPageChange: setPage,
-                      onPageSizeChange: (size) => {
+              {/* Mobile Card View */}
+              <div className="md:hidden">
+                {history.length === 0 ? (
+                  <EmptyPanel icon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}>
+                    ไม่พบประวัติงาน
+                  </EmptyPanel>
+                ) : (
+                  <div className="space-y-3">
+                    {history.map((item) => (
+                      <HistoryMobileCard key={item.id} item={item} showTeam={isAdmin} />
+                    ))}
+                    <PaginationControls
+                      variant="mobile"
+                      page={page}
+                      pageSize={pageSize}
+                      totalItems={total}
+                      totalPages={totalPages}
+                      onPageChange={setPage}
+                      onPageSizeChange={(size) => {
                         updateView({ pageSize: size })
                         setPage(1)
-                      },
-                    }
-                    : undefined
-                }
-                sorting={{
-                  sortKey: sortKey ?? null,
-                  sortDir,
-                  onSortChange: (nextSortKey, nextSortDir) => {
-                    updateView({
-                      sortKey: (nextSortKey as HistoryFilterQuery['sortBy'] | null) ?? 'created_at',
-                      sortDir: nextSortDir ?? 'desc',
-                    })
-                    setPage(1)
-                  },
-                }}
-              />
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Desktop Data Table */}
+              <div className="hidden md:block">
+                <DataTable
+                  columns={columns}
+                  data={history}
+                  keyField={(item) => item.id}
+                  densityKey="history"
+                  minWidth={isAdmin ? '780px' : '680px'}
+                  emptyIcon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}
+                  emptyMessage={'ไม่พบประวัติงาน'}
+                  pagination={
+                    history.length > 0
+                      ? {
+                        page,
+                        pageSize,
+                        totalItems: total,
+                        totalPages,
+                        onPageChange: setPage,
+                        onPageSizeChange: (size) => {
+                          updateView({ pageSize: size })
+                          setPage(1)
+                        },
+                      }
+                      : undefined
+                  }
+                  sorting={{
+                    sortKey: sortKey ?? null,
+                    sortDir,
+                    onSortChange: (nextSortKey, nextSortDir) => {
+                      updateView({
+                        sortKey: (nextSortKey as HistoryFilterQuery['sortBy'] | null) ?? 'created_at',
+                        sortDir: nextSortDir ?? 'desc',
+                      })
+                      setPage(1)
+                    },
+                  }}
+                />
+              </div>
             </>
           )}
       </ContentSection>
@@ -402,5 +432,50 @@ function HistoryFilterSelect({
         ))}
       </select>
     </label>
+  )
+}
+
+function HistoryMobileCard({ item, showTeam }: { item: BookingHistory; showTeam: boolean }) {
+  return (
+    <MobileRecordCard>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs font-semibold text-info">
+              {item.requestId}
+            </span>
+            {item.bookingId ? (
+              <span className="font-mono text-[11px] text-muted-foreground">
+                #{item.bookingId}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 text-sm font-medium text-foreground">
+            {item.origin} &rarr; {item.destination}
+          </div>
+        </div>
+        {showTeam && (item.teamName || item.teamId) ? (
+          <Badge variant="neutral" className="shrink-0 text-[10px]">
+            {item.teamName || `Team #${item.teamId}`}
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <span className="status-pill border-white/10 bg-white/[0.04]">
+          {item.vehicleType || '—'}
+        </span>
+        {item.standbyDateTime ? (
+          <span className="status-pill border-white/10 bg-white/[0.04]">
+            สแตนบาย: {formatDateTime(item.standbyDateTime)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-2.5 flex items-center justify-between text-[11px] text-muted-foreground border-t border-white/[0.04] pt-2">
+        <span>บันทึกเมื่อ</span>
+        <span>{formatDateTime(item.createdAt)}</span>
+      </div>
+    </MobileRecordCard>
   )
 }

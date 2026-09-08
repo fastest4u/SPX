@@ -10,6 +10,7 @@ import { SkeletonCard } from '../components/ui/skeleton'
 import { MessageCircle, QrCode, Send, CheckCircle2, XCircle, RefreshCw, Loader2 } from 'lucide-react'
 import type { LineBotStatus } from '../types'
 import { safeBrowserUrl } from '../lib/utils'
+import { QRCodeSVG } from 'qrcode.react'
 
 function useLineBotGroups(enabled: boolean) {
   return useQuery({
@@ -163,34 +164,38 @@ function LineBotComponent() {
 
               {/* QR URL display */}
               {safeQrUrl && (
-                <div className="rounded-2xl border border-[#06C755]/30 bg-[#06C755]/10 p-5 space-y-3">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col items-center gap-4 rounded-2xl border border-[#06C755]/30 bg-[#06C755]/10 p-5 text-center">
+                  <div className="flex items-center gap-2 text-foreground font-medium">
                     <QrCode className="h-5 w-5 text-[#06C755]" />
-                    <span className="font-medium text-foreground">สแกน QR Code</span>
+                    <span>สแกน QR Code เพื่อ Login เข้าสู่ระบบ LINE</span>
                   </div>
 
-                  <div className="text-sm text-foreground space-y-2">
-                    <p>1. เปิดลิงก์ด้านล่างใน browser มือถือ หรือสแกนด้วยแอป LINE</p>
+                  <div className="rounded-xl bg-white p-4 shadow-xl">
+                    <QRCodeSVG value={safeQrUrl} size={200} level="H" includeMargin />
+                  </div>
+
+                  <div className="text-xs text-muted-foreground space-y-1 max-w-md">
+                    <p>สแกนด้วยแอป LINE บนมือถือ หรือเปิดลิงก์:</p>
                     <a
                       href={safeQrUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="block break-all rounded-lg bg-white/10 px-3 py-2 text-info underline underline-offset-4 hover:text-info transition-colors"
+                      className="block break-all rounded-lg bg-white/10 px-3 py-1.5 text-info underline underline-offset-4 hover:text-info transition-colors"
                     >
                       {safeQrUrl}
                     </a>
                   </div>
 
                   {pincode && (
-                    <div className="text-sm text-foreground">
-                      <p>2. กรอก PIN ในแอป LINE:</p>
-                      <div className="mt-1 inline-block rounded-lg bg-white/10 px-4 py-2 font-mono text-2xl font-bold text-foreground tracking-[0.3em]">
+                    <div className="w-full pt-3 border-t border-white/10 text-sm text-foreground">
+                      <p className="text-muted-foreground text-xs">กรอก PIN ยืนยันในแอป LINE:</p>
+                      <div className="mt-2 inline-block rounded-xl bg-white/10 px-5 py-2.5 font-mono text-3xl font-bold text-foreground tracking-[0.4em] shadow-inner">
                         {pincode}
                       </div>
                     </div>
                   )}
 
-                  <p className="text-xs text-[#06C755]/70">
+                  <p className="text-xs text-[#06C755]/80">
                     หลังจากสแกนและกรอก PIN แล้ว ระบบจะเชื่อมต่ออัตโนมัติ (auto-refresh ทุก 5 วินาที)
                   </p>
                 </div>
@@ -237,7 +242,7 @@ function LineBotComponent() {
                           <span className="mr-2 truncate text-foreground font-medium group-hover:text-success">
                             {chat.chatName || 'ไม่ทราบชื่อ'}
                           </span>
-                          <span className="shrink-0 font-mono text-[10px] text-slate-500 group-hover:text-success">
+                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground group-hover:text-success">
                             {chat.chatMid}
                           </span>
                         </button>
@@ -246,7 +251,7 @@ function LineBotComponent() {
                   </div>
                 )}
                 {isAuthenticated && groupsQuery.isLoading && (
-                  <div className="mt-1 flex items-center text-xs text-slate-400">
+                  <div className="mt-1 flex items-center text-xs text-muted-foreground">
                     <Loader2 className="mr-1 h-3 w-3 animate-spin" /> กำลังโหลดรายชื่อกลุ่ม...
                   </div>
                 )}
