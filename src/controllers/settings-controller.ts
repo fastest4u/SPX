@@ -56,6 +56,7 @@ const settingsSchema = {
     CODEX_IMAGE_PROVIDER: { type: "string", enum: ["auto", "codex-cli", "codex-device"] },
     CODEX_IMAGE_TIMEOUT_MS: { type: "string" },
     CODEX_IMAGE_MAX_BYTES: { type: "string" },
+    REQUEST_SELECTION_STRATEGY: { type: "string", enum: ["random", "last", "first"] },
   },
 } as const;
 

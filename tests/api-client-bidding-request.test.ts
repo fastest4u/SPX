@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     // request without a user-agent (proven by live A/B test 2026-06-11). These
     // must always be present.
     assert.equal(firstPageHeaders?.origin, "https://spx.example.test");
-    assert.match(firstPageHeaders?.["user-agent"] ?? "", /Chrome\/147\.0\.0\.0/);
+    assert.match(firstPageHeaders?.["user-agent"] ?? "", /Chrome\/152\.0\.0\.0/);
 
     const completedBeforeSecondPage = await Promise.race([
       fullResult.then(() => true),

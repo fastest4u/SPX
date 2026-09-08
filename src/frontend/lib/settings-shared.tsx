@@ -41,8 +41,9 @@ export const INITIAL_SETTINGS_FORM = {
     BIDDING_PAGE_NO: '1',
     BIDDING_PAGE_COUNT: '100',
     REQUEST_TAB_PENDING_CONFIRMATION: 'true',
-    REQUEST_CTIME_START: '1776358800',
+    REQUEST_CTIME_START: '1788195600',
     BIDDING_VEHICLE_TYPE: '13',
+    REQUEST_SELECTION_STRATEGY: 'random',
     NOTIFY_ENABLED: 'true',
     NOTIFY_MODE: 'batch',
     NOTIFY_ORIGINS: '',
@@ -231,7 +232,7 @@ const REQUEST_WINDOW_FIELDS = [
         key: 'REQUEST_CTIME_START',
         label: 'Request ctime start',
         helper: 'Unix timestamp เริ่มต้นสำหรับกรอง request',
-        placeholder: '1776358800',
+        placeholder: '1788195600',
         kind: 'number',
         inputMode: 'numeric',
     },
@@ -242,6 +243,17 @@ const REQUEST_WINDOW_FIELDS = [
         placeholder: 'ตั้งค่าในหน้าจัดการทีม',
         kind: 'number',
         inputMode: 'numeric',
+    },
+    {
+        key: 'REQUEST_SELECTION_STRATEGY',
+        label: 'Request selection strategy',
+        helper: 'กลยุทธ์การเลือกงานย่อยตาม NEED เพื่อหลบการชนกับบอทอื่น',
+        kind: 'select',
+        options: [
+            { value: 'random', label: 'random (สุ่มหยิบตาม NEED - แนะนำ ลดการชน 80%)' },
+            { value: 'last', label: 'last (เลือกจากล่างขึ้นบน / ย้อนศร)' },
+            { value: 'first', label: 'first (เลือกจากบนลงล่าง / แบบเดิม)' },
+        ],
     },
 ] as const satisfies readonly SettingFieldDescriptor[]
 

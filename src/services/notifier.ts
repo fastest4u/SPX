@@ -1,4 +1,4 @@
-import { env } from "../config/env.js";
+import { env, type RequestSelectionStrategy } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, applyAutoAcceptProgress, type NotifyRule, type RuleTripMatch, type TripLike } from "./notify-rules.js";
@@ -312,6 +312,7 @@ interface AutoAcceptOptions {
   needBudget?: NeedBudget;
   autoAcceptRules?: NotifyRule[];
   verificationMode?: "inline" | "detached";
+  selectionStrategy?: RequestSelectionStrategy;
 }
 
 /**
@@ -1221,6 +1222,23 @@ async function finalizeAutoAcceptVerificationOutcome(input: {
   return { accepted, failed, deferredRequests: indeterminateRequests.length };
 }
 
+export function applyRequestSelectionStrategy<T>(items: T[], strategy: RequestSelectionStrategy = "random"): T[] {
+  if (items.length <= 1) return items;
+  if (strategy === "last") {
+    return items.reverse();
+  }
+  if (strategy === "random") {
+    for (let i = items.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = items[i]!;
+      items[i] = items[j]!;
+      items[j] = temp;
+    }
+    return items;
+  }
+  return items;
+}
+
 function selectAutoAcceptRequests(
   match: RuleTripMatch,
   options: AutoAcceptOptions
@@ -1239,6 +1257,9 @@ function selectAutoAcceptRequests(
     if (acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId))) continue;
     candidates.push({ trip, bookingId, requestId });
   }
+
+  const strategy = options.selectionStrategy ?? env.REQUEST_SELECTION_STRATEGY;
+  applyRequestSelectionStrategy(candidates, strategy);
 
   const { granted: limit, token: claimToken } = options.needBudget
     ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
@@ -1270,6 +1291,7 @@ function selectAutoAcceptRequests(
       matchedCount: match.matchedCount,
       selectedCount: selected.length,
       limit,
+      selectionStrategy: strategy,
     });
   }
 
@@ -1281,11 +1303,13 @@ async function acceptAutoAcceptMatch(
   apiClient: ApiClient,
   options: AutoAcceptOptions
 ): Promise<AutoAcceptRuleRunResult> {
+  const strategy = options.selectionStrategy ?? env.REQUEST_SELECTION_STRATEGY;
   logger.info("auto-accept-rule-matched", {
     ruleId: match.ruleId,
     ruleName: match.ruleName,
     matchedCount: match.matchedCount,
     acceptAll: match.acceptAll,
+    selectionStrategy: strategy,
   });
 
   const { selected, claimToken } = selectAutoAcceptRequests(match, options);

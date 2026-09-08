@@ -285,6 +285,7 @@ export interface EnvSettings {
   BOOKING_DETAIL_CONCURRENCY?: string;
   BOOKING_REPROCESS_COOLDOWN_MS?: string;
   BIDDING_VEHICLE_TYPE?: string;
+  REQUEST_SELECTION_STRATEGY?: string;
   CODEX_IMAGE_PROVIDER?: string;
 }
 
