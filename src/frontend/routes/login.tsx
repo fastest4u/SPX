@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import { Activity, BellRing, Loader2, ShieldCheck } from 'lucide-react'
+import { Activity, BellRing, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 
 export const Route = createFileRoute('/login')({
   component: LoginComponent,
@@ -13,6 +13,7 @@ export const Route = createFileRoute('/login')({
 function LoginComponent() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const { login, isLoggingIn } = useAuth({ enabled: false })
 
@@ -47,7 +48,7 @@ function LoginComponent() {
             Logistics command center
           </div>
           <h1 className="mx-auto max-w-2xl text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:mx-0 lg:text-6xl">
-            SPX Control Center
+            BOT Control Center
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg lg:mx-0">
             จัดการ rule ค้นหางาน ติดตาม polling แบบ real-time ตรวจสอบประวัติ และควบคุมการแจ้งเตือนจากหน้าจอเดียว
@@ -103,14 +104,29 @@ function LoginComponent() {
 
               <div className="space-y-2">
                 <label htmlFor="login-password" className="text-sm font-semibold text-foreground">Password</label>
-                <Input
-                  id="login-password"
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
+                <div className="relative">
+                  <Input
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                    aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <Button

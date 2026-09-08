@@ -1039,7 +1039,7 @@ function CodexAuthSection() {
             <div className="space-y-4">
                 <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-3.5">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-slate-900 border border-white/[0.08] text-white">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] bg-card border border-white/[0.08] text-white">
                             <OpenAILogo className="h-5 w-5" />
                         </div>
                         <div className="min-w-0">
@@ -1090,7 +1090,7 @@ function CodexAuthSection() {
             </div>
 
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="max-w-md rounded-[8px] border border-white/[0.08] bg-slate-950 p-0 text-foreground shadow-2xl overflow-hidden">
+                <DialogContent className="max-w-md rounded-[8px] border border-white/[0.08] bg-popover p-0 text-foreground shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
                         <div className="flex items-center gap-2">

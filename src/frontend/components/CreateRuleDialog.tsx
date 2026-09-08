@@ -137,7 +137,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 value={formData.name}
                 onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="เช่น สุวรรณภูมิ 4ล้อ"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/[0.03] border-white/10"
                 autoFocus
               />
             </div>
@@ -152,7 +152,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                   value={selectedTeamId}
                   onChange={e => setSelectedTeamId(e.target.value ? Number(e.target.value) : '')}
                   disabled={teamsLoading || createMutation.isPending}
-                  className="flex h-11 w-full rounded-xl border border-white/10 bg-slate-900/50 px-3.5 py-2 text-base text-foreground transition-all duration-200 hover:border-white/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                  className="flex h-11 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2 text-base text-foreground transition-all duration-200 hover:border-white/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
                 >
                   <option value="">เลือกทีม</option>
                   {teams.map(team => (
@@ -173,7 +173,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 value={originsText}
                 onChange={e => setOriginsText(e.target.value)}
                 placeholder="เช่น NERC-C, สุวรรณภูมิ"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/[0.03] border-white/10"
               />
             </div>
 
@@ -185,7 +185,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 value={destinationsText}
                 onChange={e => setDestinationsText(e.target.value)}
                 placeholder="เช่น สุวรรณภูมิ, ดอนเมือง"
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/[0.03] border-white/10"
               />
             </div>
 
@@ -208,7 +208,7 @@ export function CreateRuleDialog({ open, onOpenChange }: CreateRuleDialogProps) 
                 min={1}
                 value={formData.need}
                 onChange={e => setFormData(prev => ({ ...prev, need: parseInt(e.target.value) || 1 }))}
-                className="bg-slate-900/50 border-white/10"
+                className="bg-white/[0.03] border-white/10"
               />
             </div>
 

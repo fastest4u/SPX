@@ -9,10 +9,10 @@ import {
 import { Button } from '../ui/button'
 import { Avatar } from '../ui/avatar'
 import { Breadcrumb } from '../Breadcrumb'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNotificationCount } from '../../hooks/useNotificationCount'
 import { useSseStream } from '../../hooks/useSseContext'
-import { resetCoachmark } from '../ui/coachmark'
+import { triggerCoachmark } from '../ui/coachmark'
 
 interface AppLayoutProps {
   user: AuthUser | null
@@ -106,6 +106,8 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const notificationCount = useNotificationCount()
@@ -116,6 +118,14 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
     ? flattenNav([...navItems, ...adminNavItems])
     : flattenNav(navItems)
   const pageLabel = pageLabels[currentPath] || currentPath
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return allItems
+    return allItems.filter(item =>
+      item.label.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
+    )
+  }, [allItems, searchQuery])
 
   const handleLogout = async () => {
     await onLogout()
@@ -129,6 +139,8 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
+        setSearchQuery('')
+        setSelectedSearchIndex(0)
         setSearchOpen(true)
       }
       if (e.key === 'Escape') {
@@ -290,7 +302,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
         )}>
           <Link to="/" className="flex items-center gap-2.5 font-bold">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground text-xs font-black shadow-lg shadow-primary/20">
-              SPX
+              BOT
             </span>
             {(!collapsed || mobileOpen) && (
               <span className="text-foreground text-sm tracking-tight">Control Center</span>
@@ -348,10 +360,11 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden text-muted-foreground hover:text-white h-8 w-8"
+            className="lg:hidden text-muted-foreground hover:text-white h-9 w-9 min-h-[40px] min-w-[40px]"
             onClick={() => setMobileOpen(true)}
+            aria-label="เปิดเมนูหลัก"
           >
-            <Menu className="h-4.5 w-4.5" />
+            <Menu className="h-5 w-5" />
           </Button>
 
           {/* Desktop collapse button */}
@@ -372,11 +385,16 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
 
           {/* Quick search trigger */}
           <button
-            onClick={() => setSearchOpen(!searchOpen)}
+            onClick={() => {
+              setSearchQuery('')
+              setSelectedSearchIndex(0)
+              setSearchOpen(!searchOpen)
+            }}
             className="hidden sm:flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-muted-foreground hover:border-white/[0.15] hover:text-white transition-all"
+            aria-label="ค้นหาหน้าจอ (Cmd+K)"
           >
             <Search className="h-3.5 w-3.5" />
-            <span className="max-w-[160px] truncate">Quick search...</span>
+            <span className="max-w-[160px] truncate">ค้นหาหน้าจอ...</span>
             <kbd className="inline-flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[0.6rem] text-muted-foreground/60 leading-none">
               <Command className="h-2.5 w-2.5" />K
             </kbd>
@@ -460,9 +478,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
                       type="button"
                       onClick={() => {
                         setUserMenuOpen(false)
-                        resetCoachmark()
-                        // Trigger Coachmark by navigating to "/" (root re-evaluates dismissed flag).
-                        window.location.reload()
+                        triggerCoachmark()
                       }}
                       className="flex w-full items-center justify-between rounded-md px-1 py-0.5 text-[0.65rem] text-muted-foreground/70 hover:text-foreground"
                     >
@@ -481,21 +497,41 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
         {/* Quick search modal */}
         {searchOpen && (
           <>
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setSearchOpen(false)} />
-            <div className="fixed inset-x-4 top-[20%] z-50 mx-auto max-w-lg animate-in fade-in zoom-in-95 duration-200">
+            <div
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+              onClick={() => setSearchOpen(false)}
+              aria-hidden="true"
+            />
+            <div
+              className="fixed inset-x-4 top-[20%] z-50 mx-auto max-w-lg animate-in fade-in zoom-in-95 duration-200"
+              role="dialog"
+              aria-modal="true"
+              aria-label="ค้นหาหน้าจอ"
+            >
               <div className="rounded-2xl border border-white/[0.08] bg-popover shadow-2xl overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
                   <Search className="h-4 w-4 text-muted-foreground" />
                   <input
                     autoFocus
-                    placeholder="Search pages..."
-                    className="flex-1 bg-transparent text-sm text-white placeholder:text-muted-foreground focus:outline-none"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setSelectedSearchIndex(0)
+                    }}
+                    placeholder="ค้นหาหน้าจอหรือเมนู..."
+                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') setSearchOpen(false)
-                      if (e.key === 'Enter') {
-                        const match = allItems.find(i =>
-                          i.label.toLowerCase().includes((e.target as HTMLInputElement).value.toLowerCase())
-                        )
+                      if (e.key === 'Escape') {
+                        setSearchOpen(false)
+                      } else if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setSelectedSearchIndex((prev) => (filteredItems.length > 0 ? (prev + 1) % filteredItems.length : 0))
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setSelectedSearchIndex((prev) => (filteredItems.length > 0 ? (prev - 1 + filteredItems.length) % filteredItems.length : 0))
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const match = filteredItems[selectedSearchIndex] || filteredItems[0]
                         if (match) {
                           setSearchOpen(false)
                           void navigate({ to: match.path })
@@ -508,21 +544,34 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
                   </kbd>
                 </div>
                 <div className="max-h-64 overflow-y-auto p-1.5">
-                  {allItems.map(item => {
-                    const Icon = item.icon
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        onClick={() => setSearchOpen(false)}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:text-white hover:bg-white/[0.05] transition-colors"
-                      >
-                        <Icon className="h-4 w-4 shrink-0 opacity-60" />
-                        <span className="flex-1">{item.label}</span>
-                        <span className="text-[0.65rem] text-muted-foreground/40">{item.path}</span>
-                      </Link>
-                    )
-                  })}
+                  {filteredItems.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-muted-foreground">
+                      ไม่พบหน้าที่ค้นหา &quot;{searchQuery}&quot;
+                    </div>
+                  ) : (
+                    filteredItems.map((item, index) => {
+                      const Icon = item.icon
+                      const isSelected = index === selectedSearchIndex
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => setSearchOpen(false)}
+                          onMouseEnter={() => setSelectedSearchIndex(index)}
+                          className={cn(
+                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                            isSelected
+                              ? 'bg-white/10 text-white font-medium'
+                              : 'text-muted-foreground hover:text-white hover:bg-white/[0.05]'
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0 opacity-70" />
+                          <span className="flex-1 truncate">{item.label}</span>
+                          <span className="text-[0.65rem] text-muted-foreground/50 font-mono">{item.path}</span>
+                        </Link>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             </div>

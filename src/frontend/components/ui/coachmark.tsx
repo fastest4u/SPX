@@ -16,7 +16,7 @@ export interface CoachmarkStep {
 
 const DEFAULT_STEPS: CoachmarkStep[] = [
     {
-        title: 'ยินดีต้อนรับสู่ SPX Control Center',
+        title: 'ยินดีต้อนรับสู่ BOT Control Center',
         body: 'จัดการ rule การ bid, ดู metrics real-time, และตั้งค่า notification ได้จากที่เดียว ปรับ density ตารางและคีย์ลัดได้ตามถนัด',
     },
     {
@@ -74,6 +74,15 @@ export function Coachmark({
     React.useEffect(() => {
         if (force) setOpen(true)
     }, [force])
+
+    React.useEffect(() => {
+        const handleOpenCoachmark = () => {
+            setStep(0)
+            setOpen(true)
+        }
+        window.addEventListener('spx:open-coachmark', handleOpenCoachmark)
+        return () => window.removeEventListener('spx:open-coachmark', handleOpenCoachmark)
+    }, [])
 
     if (!open || steps.length === 0) return null
     const current = steps[Math.min(step, steps.length - 1)]
@@ -167,5 +176,12 @@ export function resetCoachmark() {
         window.localStorage.removeItem(STORAGE_KEY)
     } catch {
         // ignore
+    }
+}
+
+export function triggerCoachmark() {
+    resetCoachmark()
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('spx:open-coachmark'))
     }
 }

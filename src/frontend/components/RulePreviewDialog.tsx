@@ -98,7 +98,7 @@ export function RulePreviewDialog({ rule, open, onOpenChange }: RulePreviewDialo
                   {preview.trips.map((trip, index) => (
                     <div key={`${trip.request_id ?? index}-${index}`} className="rounded-xl border border-white/[0.07] bg-white/[0.04] p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-slate-100">{formatTripLabel(trip)}</div>
+                        <div className="text-sm font-semibold text-foreground">{formatTripLabel(trip)}</div>
                         <Badge variant="slate">#{trip.request_id ?? 'n/a'}</Badge>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">

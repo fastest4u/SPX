@@ -10,7 +10,7 @@ import { Input } from '../components/ui/input'
 import { SkeletonCard } from '../components/ui/skeleton'
 import { EmptyState } from '../components/EmptyState'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { FilterPanel, PageShell } from '../components/layout/Page'
+import { FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { Sparkline } from '../components/Sparkline'
 import {
@@ -497,13 +497,30 @@ function DashboardComponent() {
                 />
               ) : (
                 <div className="px-4 py-4 sm:px-5">
-                  <DataTable
-                    columns={ruleColumns}
-                    data={filteredRules}
-                    keyField={(rule) => rule.id}
-                    densityKey="notify-rules"
-                    minWidth={isAdmin ? '1120px' : '960px'}
-                  />
+                  {/* Mobile View */}
+                  <div className="md:hidden space-y-3">
+                    {filteredRules.map((rule) => (
+                      <RuleMobileCard
+                        key={rule.id}
+                        rule={rule}
+                        isAdmin={isAdmin}
+                        onEdit={() => handleEditRule(rule)}
+                        onDelete={() => handleDeleteRule(rule)}
+                        onPreview={() => handlePreviewRule(rule)}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Desktop View */}
+                  <div className="hidden md:block">
+                    <DataTable
+                      columns={ruleColumns}
+                      data={filteredRules}
+                      keyField={(rule) => rule.id}
+                      densityKey="notify-rules"
+                      minWidth={isAdmin ? '1120px' : '960px'}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -826,5 +843,61 @@ function RuleActions({ onEdit, onDelete, onPreview }: { onEdit: () => void; onDe
         ลบ
       </Button>
     </div>
+  )
+}
+
+function RuleMobileCard({
+  rule,
+  isAdmin,
+  onEdit,
+  onDelete,
+  onPreview,
+}: {
+  rule: NotifyRule
+  isAdmin: boolean
+  onEdit: () => void
+  onDelete: () => void
+  onPreview: () => void
+}) {
+  return (
+    <MobileRecordCard>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {getStatusBadge(rule)}
+            {isAdmin && (rule.teamName || rule.teamId) ? (
+              <Badge variant="neutral" className="text-[10px]">
+                {rule.teamName || `Team #${rule.teamId}`}
+              </Badge>
+            ) : null}
+            {rule.accept_all ? <Badge variant="warning">accept_all</Badge> : null}
+          </div>
+          <h3 className="mt-1.5 text-sm font-bold text-foreground break-words">{rule.name}</h3>
+        </div>
+        <div className="shrink-0 text-right">
+          <span className="font-data text-base font-black text-foreground">{rule.need}</span>
+          <span className="ml-1 text-xs text-muted-foreground">คัน</span>
+        </div>
+      </div>
+
+      <div className="mt-2.5 rounded-lg border border-white/[0.06] bg-black/20 p-2.5 text-xs space-y-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted-foreground shrink-0 text-[10px] uppercase font-bold tracking-wider">ต้นทาง</span>
+          <span className="text-foreground text-right truncate">{rule.origins.join(', ') || '—'}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted-foreground shrink-0 text-[10px] uppercase font-bold tracking-wider">ปลายทาง</span>
+          <span className="text-foreground text-right truncate">{rule.destinations.join(', ') || '—'}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted-foreground shrink-0 text-[10px] uppercase font-bold tracking-wider">ประเภทรถ</span>
+          <span className="text-foreground text-right truncate">{rule.vehicle_types.join(', ') || '—'}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-end gap-1 border-t border-white/[0.04] pt-2">
+        <RuleActions onEdit={onEdit} onDelete={onDelete} onPreview={onPreview} />
+      </div>
+    </MobileRecordCard>
   )
 }
