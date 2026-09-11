@@ -65,14 +65,90 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  deploy:
-    name: Deploy Production
+  worker-preflight:
+    name: Preflight TEAM ${{ matrix.team_id }} on ${{ matrix.host }}
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main'
     environment: production
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix: &remote_workers
+        include:
+          - team_id: 2
+            host: 147.50.240.44
+            port: 22
+            user: root
+            service: worker-ifn
+            node_id: prod-worker-ifn-node2
+            key_secret: SPX_TEAM2_SSH_KEY
+            known_hosts_var: SPX_TEAM2_KNOWN_HOSTS
+            bootstrap_sha_var: SPX_TEAM2_OVERRIDE_SHA256
+    env: &remote_worker_environment
+      WORKER_HOST: ${{ matrix.host }}
+      WORKER_PORT: ${{ matrix.port }}
+      WORKER_USER: ${{ matrix.user }}
+      WORKER_TEAM: ${{ matrix.team_id }}
+      WORKER_SERVICE: ${{ matrix.service }}
+      WORKER_NODE: ${{ matrix.node_id }}
+      WORKER_SSH_KEY: ${{ secrets[matrix.key_secret] }}
+      WORKER_KNOWN_HOSTS: ${{ vars[matrix.known_hosts_var] }}
+      WORKER_BOOTSTRAP_SHA: ${{ vars[matrix.bootstrap_sha_var] }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_TOPOLOGY: ${{ github.event.inputs.deploy_topology || 'legacy' }}
+          PRIMARY_HOST: ${{ secrets.SPX_HOST }}
+          PRIMARY_KNOWN_HOSTS: ${{ vars.SPX_PRIMARY_KNOWN_HOSTS }}
+          PRIMARY_FINGERPRINT: ${{ vars.SPX_PRIMARY_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_TOPOLOGY" != legacy ]; then
+            echo 'Multi-host deployment requires the legacy API topology; split needs a separate remote notification-routing rollout.'
+            exit 1
+          fi
+          test "$PRIMARY_HOST" = 45.83.207.139
+          test -n "$PRIMARY_KNOWN_HOSTS"
+          test -n "$PRIMARY_FINGERPRINT"
+          test -n "$WORKER_SSH_KEY"
+          test -n "$WORKER_KNOWN_HOSTS"
+      - name: Prepare worker SSH
+        run: &prepare_worker_ssh |
+          set -euo pipefail
+          [[ "$WORKER_BOOTSTRAP_SHA" == absent || "$WORKER_BOOTSTRAP_SHA" =~ ^[a-fA-F0-9]{64}$ ]] || {
+            echo 'Worker bootstrap checksum must be absent or exactly 64 hexadecimal characters.'
+            exit 1
+          }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$WORKER_SSH_KEY" > ~/.ssh/spx_worker_key
+          printf '%s\n' "$WORKER_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Verify existing worker identity and configuration
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_worker_key -p "$WORKER_PORT" "$WORKER_USER@$WORKER_HOST" \
+            "python3 - --root /root/SPX --team-id '$WORKER_TEAM' --service '$WORKER_SERVICE' \
+            --node-id '$WORKER_NODE' --commit '$GITHUB_SHA' \
+            --bootstrap-override-sha256 '$WORKER_BOOTSTRAP_SHA' --preflight-only" < scripts/ci-deploy-worker.py
+
+  deploy:
+    name: Deploy API and TEAM 1 on primary host
+    runs-on: ubuntu-latest
+    needs: [build, worker-preflight]
+    if: github.ref == 'refs/heads/main'
+    environment: production
 
     steps:
+      - name: Checkout deployment helpers
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Download build artifact
         uses: actions/download-artifact@v8
         with:
@@ -80,11 +156,13 @@ jobs:
           path: dist
 
       - name: Package build artifact
+        id: bundle
         run: |
           set -euo pipefail
           test -f dist/app.js
           test -f dist/scripts/db-migrate.js
           tar -czf spx-dist.tar.gz dist
+          echo "sha256=$(sha256sum dist/app.js | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact to server
         env:
@@ -92,13 +170,15 @@ jobs:
           SPX_PORT: ${{ secrets.SPX_PORT || 22 }}
           SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
           SPX_USER: ${{ secrets.SPX_USER }}
+          SPX_KNOWN_HOSTS: ${{ vars.SPX_PRIMARY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
           printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_deploy_key
           chmod 600 ~/.ssh/spx_deploy_key
-          ssh-keyscan -p "${SPX_PORT}" "${SPX_HOST}" >> ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
           scp -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key spx-dist.tar.gz "${SPX_USER}@${SPX_HOST}:/tmp/spx-dist-${GITHUB_SHA}.tar.gz"
+          scp -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key scripts/ci-worker-readiness.mjs "${SPX_USER}@${SPX_HOST}:/tmp/spx-worker-readiness-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.mjs"
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -107,12 +187,14 @@ jobs:
           username: ${{ secrets.SPX_USER }}
           key: ${{ secrets.SPX_SSH_KEY }}
           port: ${{ secrets.SPX_PORT || 22 }}
+          fingerprint: ${{ vars.SPX_PRIMARY_HOST_FINGERPRINT }}
           script: |
             set -euo pipefail
 
             cd /root/SPX
             DIST_ARTIFACT="/tmp/spx-dist-${{ github.sha }}.tar.gz"
             ROLLBACK_DIST="/tmp/spx-dist-rollback-${{ github.run_id }}.tar.gz"
+            PRIMARY_READINESS_SCRIPT="/tmp/spx-worker-readiness-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}.mjs"
 
             # Capture rollback target before fetching new code so we can restore
             # the exact commit if the new build or readiness check fails.
@@ -123,6 +205,7 @@ jobs:
               echo "Missing build artifact at ${DIST_ARTIFACT}"
               exit 1
             fi
+            test -s "${PRIMARY_READINESS_SCRIPT}"
 
             DEPLOY_TOPOLOGY="${{ github.event.inputs.deploy_topology || 'legacy' }}"
             if [ "${DEPLOY_TOPOLOGY}" != "legacy" ] && [ "${DEPLOY_TOPOLOGY}" != "split" ]; then
@@ -143,7 +226,7 @@ jobs:
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 docker compose --profile split build
               else
-                docker compose build
+                docker compose build notifier worker-ptwl
               fi
             }
 
@@ -158,7 +241,7 @@ jobs:
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 compose_up_split
               else
-                docker compose up -d --remove-orphans --force-recreate
+                docker compose up -d --force-recreate notifier worker-ptwl
               fi
             }
 
@@ -177,7 +260,7 @@ jobs:
                   web-api notification-service line-service ocr-service \
                   worker-ifn-split worker-ptwl-split || true
               fi
-              docker compose up -d --remove-orphans --force-recreate
+              docker compose up -d --force-recreate notifier worker-ptwl
             }
 
             rollback_runtime() {
@@ -249,6 +332,31 @@ jobs:
 
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 wait_split_services_ready
+              else
+                worker_deadline=$((SECONDS + 90))
+                worker_probe() {
+                  local probe_remaining=$((worker_deadline - SECONDS))
+                  [ "$probe_remaining" -gt 0 ] || return 1
+                  timeout "${probe_remaining}s" "$@"
+                }
+                while [ "$SECONDS" -lt "$worker_deadline" ]; do
+                  worker_container=$(worker_probe docker compose ps -q worker-ptwl 2>/dev/null) || worker_container=''
+                  if [ -n "$worker_container" ] \
+                    && worker_running=$(worker_probe docker inspect --format '{{.State.Running}}' "$worker_container" 2>/dev/null) \
+                    && [ "$worker_running" = true ] \
+                    && worker_started_at=$(worker_probe docker inspect --format '{{.State.StartedAt}}' "$worker_container" 2>/dev/null); then
+                    worker_remaining=$((worker_deadline - SECONDS))
+                    worker_probe_timeout=$((worker_remaining < 10 ? worker_remaining : 10))
+                    if [ "$worker_probe_timeout" -gt 0 ] \
+                      && timeout "${worker_probe_timeout}s" docker exec -i "$worker_container" node --input-type=module - 1 prod-worker-ptwl-1 "$worker_started_at" < "$PRIMARY_READINESS_SCRIPT"; then
+                      return 0
+                    fi
+                  fi
+                  if [ "$((SECONDS + 3))" -ge "$worker_deadline" ]; then break; fi
+                  sleep 3
+                done
+                echo 'TEAM 1 lease readiness failed within 90 seconds'
+                return 1
               fi
             }
 
@@ -261,8 +369,8 @@ jobs:
             ROLLBACK_TOPOLOGY="$(detect_rollback_topology)"
             echo "Rollback topology: ${ROLLBACK_TOPOLOGY}"
 
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin "${{ github.sha }}"
+            git reset --hard "${{ github.sha }}"
             NEW_COMMIT=$(git rev-parse HEAD)
             echo "New commit: ${NEW_COMMIT}"
 
@@ -307,7 +415,7 @@ jobs:
               rm -rf dist
               if [ -f "${ROLLBACK_DIST}" ]; then
                 tar -xzf "${ROLLBACK_DIST}" -C .
-                if ! docker compose build; then
+                if ! docker compose build notifier worker-ptwl; then
                   echo "Rollback rebuild failed; restoring tagged rollback image"
                   docker tag spx-app:rollback spx-app:latest
                 fi
@@ -315,7 +423,15 @@ jobs:
                 echo "No previous dist snapshot; restoring tagged rollback image"
                 docker tag spx-app:rollback spx-app:latest
               fi
-              rollback_runtime
+              if ! rollback_runtime; then
+                echo "Rollback restart failed: ${PREVIOUS_COMMIT}"
+                exit 1
+              fi
+              if ! wait_current_readiness; then
+                echo "Rollback readiness failed: ${PREVIOUS_COMMIT}"
+                exit 1
+              fi
+              echo "Rollback readiness verified: ${PREVIOUS_COMMIT}"
               exit 1
             fi
 
@@ -332,7 +448,7 @@ jobs:
               rm -rf dist
               if [ -f "${ROLLBACK_DIST}" ]; then
                 tar -xzf "${ROLLBACK_DIST}" -C .
-                if ! docker compose build; then
+                if ! docker compose build notifier worker-ptwl; then
                   echo "Rollback rebuild failed; restoring tagged rollback image"
                   docker tag spx-app:rollback spx-app:latest
                 fi
@@ -340,12 +456,91 @@ jobs:
                 echo "No previous dist snapshot; restoring tagged rollback image"
                 docker tag spx-app:rollback spx-app:latest
               fi
-              rollback_runtime
+              if ! rollback_runtime; then
+                echo "Rollback restart failed: ${PREVIOUS_COMMIT}"
+                exit 1
+              fi
+              if ! wait_current_readiness; then
+                echo "Rollback readiness failed: ${PREVIOUS_COMMIT}"
+                exit 1
+              fi
+              echo "Rollback readiness verified: ${PREVIOUS_COMMIT}"
               exit 1
             fi
 
             rm -f "${ROLLBACK_DIST}"
             echo "Deploy succeeded: ${NEW_COMMIT} (${DEPLOY_TOPOLOGY})"
+
+      - name: Export the verified primary image for remote workers
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT || 22 }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          EXPECTED_BUNDLE_SHA: ${{ steps.bundle.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p worker-release
+          export IMAGE_ID
+          IMAGE_ID=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_deploy_key -p "$SPX_PORT" "$SPX_USER@$SPX_HOST" \
+            bash -s -- "$GITHUB_SHA" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$EXPECTED_BUNDLE_SHA" <<'REMOTE'
+          set -euo pipefail
+          commit="$1"
+          run="$2"
+          expected_bundle="$3"
+          cd /root/SPX
+          test "$(git rev-parse HEAD)" = "$commit"
+          container=$(docker compose ps -q notifier)
+          test -n "$container"
+          actual_bundle=$(docker exec "$container" sha256sum /app/dist/app.js | cut -d ' ' -f 1)
+          test "$actual_bundle" = "$expected_bundle"
+          image=$(docker inspect --format '{{.Image}}' "$container")
+          image_archive="/tmp/spx-worker-image-$commit-$run.tar.gz"
+          trap 'rm -f -- "$image_archive"' EXIT
+          docker image save "$image" | gzip -1 > "$image_archive"
+          trap - EXIT
+          printf '%s\n' "$image"
+          REMOTE
+          )
+          [[ "$IMAGE_ID" =~ ^sha256:[a-f0-9]{64}$ ]]
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -P "$SPX_PORT" -i ~/.ssh/spx_deploy_key \
+            "$SPX_USER@$SPX_HOST:/tmp/spx-worker-image-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz" \
+            worker-release/image.tar.gz
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          archive = Path('worker-release/image.tar.gz')
+          with archive.open('rb') as stream:
+              digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+          manifest = dict(commit=os.environ['GITHUB_SHA'], imageId=os.environ['IMAGE_ID'],
+                          bundleSha256=os.environ['EXPECTED_BUNDLE_SHA'], archiveSha256=digest)
+          Path('worker-release/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+          cp scripts/ci-deploy-worker.py scripts/ci-worker-readiness.mjs worker-release/
+
+      - name: Upload exact worker image and release manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: spx-worker-release
+          path: worker-release/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Clean up primary release staging files
+        if: always()
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT || 22 }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          test -f ~/.ssh/spx_deploy_key || exit 0
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_deploy_key -p "$SPX_PORT" "$SPX_USER@$SPX_HOST" \
+            "rm -f -- '/tmp/spx-worker-image-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz' \
+            '/tmp/spx-worker-readiness-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.mjs'" \
+            || echo '::warning::Could not clean up this run primary staging files.'
 
       # Notify on failure. DISCORD_WEBHOOK_URL must be configured as a GitHub
       # Actions secret for this step to post; if unset the step is a no-op.
@@ -363,3 +558,61 @@ jobs:
           curl -fsS -H "Content-Type: application/json" \
             -d "{\"content\": \"❌ SPX production deploy failed on \`${GITHUB_REF_NAME}\` (${GITHUB_SHA}). Run: ${RUN_URL}\"}" \
             "${DISCORD_WEBHOOK_URL}" >/dev/null
+
+  deploy-workers:
+    name: Deploy TEAM ${{ matrix.team_id }} on ${{ matrix.host }}
+    runs-on: ubuntu-latest
+    needs: [deploy, worker-preflight]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: *remote_workers
+    env: *remote_worker_environment
+    steps:
+      - name: Download verified worker release
+        uses: actions/download-artifact@v8
+        with:
+          name: spx-worker-release
+          path: worker-release
+      - name: Prepare worker SSH
+        run: *prepare_worker_ssh
+      - name: Transfer exact release to designated host
+        run: |
+          set -euo pipefail
+          release_dir="/root/SPX/releases/ci-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_worker_key -p "$WORKER_PORT" "$WORKER_USER@$WORKER_HOST" \
+            "mkdir -p '$release_dir'"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -P "$WORKER_PORT" -i ~/.ssh/spx_worker_key \
+            worker-release/image.tar.gz worker-release/manifest.json \
+            worker-release/ci-deploy-worker.py worker-release/ci-worker-readiness.mjs \
+            "$WORKER_USER@$WORKER_HOST:$release_dir/"
+      - name: Deploy and verify worker with scoped rollback
+        run: |
+          set -euo pipefail
+          release_dir="/root/SPX/releases/ci-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_worker_key -p "$WORKER_PORT" "$WORKER_USER@$WORKER_HOST" \
+            "python3 '$release_dir/ci-deploy-worker.py' --root /root/SPX --release-dir '$release_dir' \
+            --team-id '$WORKER_TEAM' --service '$WORKER_SERVICE' --node-id '$WORKER_NODE' \
+            --commit '$GITHUB_SHA' --bootstrap-override-sha256 '$WORKER_BOOTSTRAP_SHA'" \
+            | tee worker-deployment.json
+      - name: Upload worker deployment result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-deployment-team-${{ matrix.team_id }}
+          path: worker-deployment.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Clean up worker release archive
+        if: always()
+        run: |
+          set -euo pipefail
+          test -f ~/.ssh/spx_worker_key || exit 0
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/spx_worker_key -p "$WORKER_PORT" "$WORKER_USER@$WORKER_HOST" \
+            "rm -f -- '/root/SPX/releases/ci-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/image.tar.gz'" \
+            || echo '::warning::Could not clean up this run worker image archive.'

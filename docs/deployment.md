@@ -12,6 +12,14 @@ aliases:
 
 # Deployment
 
+## Current production deployment
+
+Production uses GitHub Actions with separate team hosts: API and TEAM 1 on
+`45.83.207.139`, TEAM 2 on `147.50.240.44`. Follow the
+[per-team CI deployment runbook](runbooks/worker-ci-deploy.md) for release order,
+GitHub configuration, verification, and rollback. The single-host and split-topology
+examples below are development/reference procedures, not the current production rollout.
+
 ## Local Run
 
 ```bash
