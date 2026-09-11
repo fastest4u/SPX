@@ -37,6 +37,10 @@ import { internalNotificationController } from "../controllers/internal-notifica
 import { internalLineController } from "../controllers/internal-line-controller.js";
 import { internalOcrController } from "../controllers/internal-ocr-controller.js";
 import { runtimeStatusController } from "../controllers/runtime-status-controller.js";
+import {
+  createAdminProviderAuthController,
+  createOwnTeamProviderAuthController,
+} from "../controllers/provider-auth-controller.js";
 
 let app: FastifyInstance | null = null;
 
@@ -515,6 +519,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
         });
         await userScope.register(rulesController, { prefix: "/rules" });
         await userScope.register(currentTeamController, { prefix: "/team" });
+        await userScope.register(createOwnTeamProviderAuthController(), { prefix: "/team/provider-auth" });
         await userScope.register(notifyController, { prefix: "/notifications" });
         await userScope.register(biddingController, { prefix: "/bidding" });
         await userScope.register(lineBotController, { prefix: "/line-bot" });
@@ -534,6 +539,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
           }
         });
         await adminScope.register(teamsController, { prefix: "/teams" });
+        await adminScope.register(createAdminProviderAuthController(), { prefix: "/teams" });
         await adminScope.register(usersController, { prefix: "/users" });
         await adminScope.register(settingsController, { prefix: "/settings" });
         await adminScope.register(auditController, { prefix: "/audit-logs" });

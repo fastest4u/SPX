@@ -135,6 +135,10 @@ export interface TeamPollerContext {
   realtimeSource?: unknown;
   /** Per-team vehicle type filter. null = no filter (poll all types). */
   biddingVehicleType?: number | null;
+  /** Returns false when a provider session cannot safely be used for this list poll. */
+  beforePoll?: () => Promise<boolean>;
+  /** Handles a candidate rejected list session; the failed request is never replayed. */
+  onSessionRejected?: () => Promise<boolean>;
 }
 
 
@@ -199,6 +203,8 @@ export class Poller {
   private readonly exitOnStop: boolean;
   /** Per-team vehicle type filter. undefined = use env.BIDDING_VEHICLE_TYPE. null = no filter. */
   private readonly teamBiddingVehicleType: number | null | undefined;
+  private readonly beforePoll: (() => Promise<boolean>) | undefined;
+  private readonly onSessionRejected: (() => Promise<boolean>) | undefined;
   private static readonly SESSION_ALERT_THROTTLE_MS = 10 * 60_000; // 10 minutes
   /** Max time stop() waits for the in-flight tick before proceeding with shutdown. */
   private static readonly STOP_TICK_DEADLINE_MS = 30_000;
@@ -243,6 +249,8 @@ export class Poller {
     this.teamBiddingVehicleType = context !== undefined && "biddingVehicleType" in context
       ? context.biddingVehicleType
       : undefined;
+    this.beforePoll = context?.beforePoll;
+    this.onSessionRejected = context?.onSessionRejected;
     this.notificationContext = {
       teamId: this.teamId,
       teamName: this.teamName,
@@ -453,6 +461,11 @@ export class Poller {
   }
 
   private async tick(): Promise<void> {
+    if (this.beforePoll && !(await this.beforePoll())) return;
+    // A paused/stopped intent may win while the provider-auth hook is awaiting
+    // a lease or identity check. Do not start the list request after that race.
+    if (this.stopped || isTeamPaused(this.teamId)) return;
+
     this.requestCount++;
     const reqNum = this.requestCount;
     this.stats.totalRequests++;
@@ -487,6 +500,16 @@ export class Poller {
 
       // Alert on session expiry — send notification once
       if (classified.category === "session_expired") {
+        if (!this.stopped && !isTeamPaused(this.teamId)) {
+          try {
+            await this.onSessionRejected?.();
+          } catch (error) {
+            logger.warn("provider-session-recovery-failed", {
+              teamId: this.teamId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
         metrics.recordSessionWarning();
         await this.sendSessionExpiryAlert(classified.message);
       }

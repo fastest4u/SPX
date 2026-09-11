@@ -4,6 +4,7 @@ import { Poller } from "../controllers/poller.js";
 import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
+import { createTeamRuntimeSession, type TeamRuntimeSession } from "./provider-auth/runtime-session.js";
 
 export type TeamRuntimeStatusValue = "stopped" | "running" | "paused" | "misconfigured" | "session_expired" | "error";
 
@@ -34,6 +35,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private readonly config: TeamRuntimeConfig;
   private readonly intervalSec: number | undefined;
   private poller: Poller | null = null;
+  private providerSession: TeamRuntimeSession | null = null;
   private statusValue: TeamRuntimeStatusValue = "stopped";
   private lastPollAt: string | null = null;
   private lastError: string | null = null;
@@ -54,11 +56,12 @@ export class TeamRuntime implements TeamRuntimeHandle {
     }
 
     try {
+      this.providerSession = createTeamRuntimeSession(this.config.id, {
+        spxCookie: this.config.spxCookie,
+        spxDeviceId: this.config.spxDeviceId,
+      });
       const apiClient = new ApiClient({
-        credentials: {
-          spxCookie: this.config.spxCookie,
-          spxDeviceId: this.config.spxDeviceId,
-        },
+        credentialsProvider: this.providerSession.credentials,
         pollIntervalMsProvider: () => this.intervalSec !== undefined ? this.intervalSec * 1000 : env.POLL_INTERVAL_MS,
         biddingVehicleType: this.config.biddingVehicleType,
       });
@@ -73,6 +76,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
         closeSharedResourcesOnStop: false,
         exitOnStop: false,
         biddingVehicleType: this.config.biddingVehicleType,
+        beforePoll: this.providerSession.beforePoll,
+        onSessionRejected: this.providerSession.recover,
       };
       this.poller = new Poller(this.intervalSec, context);
       await this.poller.start();
@@ -80,6 +85,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
       this.lastPollAt = new Date().toISOString();
       this.lastError = null;
     } catch (error) {
+      this.providerSession?.dispose();
+      this.providerSession = null;
       this.statusValue = "error";
       this.lastError = error instanceof Error ? error.message : String(error);
       throw error;
@@ -87,6 +94,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
   }
 
   async stop(): Promise<void> {
+    this.providerSession?.dispose();
+    this.providerSession = null;
     if (this.poller) {
       await this.poller.stop(0);
       this.poller = null;

@@ -6,6 +6,8 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Switch } from '../components/ui/switch'
+import { ErrorState } from '../components/ui/error-state'
+import { PageShell } from '../components/layout/Page'
 import { toast } from 'sonner'
 import {
     Bell,
@@ -90,6 +92,8 @@ export interface SettingsFormContextValue {
     isSaving: boolean
     isDirty: boolean
     fieldErrors: SettingsFieldErrors
+    readError: Error | null
+    retryRead: () => void
 }
 
 type SettingFieldKind = 'text' | 'secret' | 'number' | 'switch' | 'select'
@@ -524,6 +528,47 @@ function formFromSettings(settings: SettingsResponse): SettingsForm {
     return form
 }
 
+export interface SettingsDraft {
+    formData: SettingsForm
+    confirmed: SettingsResponse | null
+    isDirty: boolean
+}
+
+type SettingsDraftAction =
+    | { type: 'loaded'; settings: SettingsResponse }
+    | { type: 'reset'; settings: SettingsResponse }
+    | { type: 'change'; key: keyof SettingsForm; value: string }
+    | { type: 'normalized'; formData: SettingsForm }
+    | { type: 'saved'; submitted: SettingsForm }
+
+export function createSettingsDraft(settings?: SettingsResponse): SettingsDraft {
+    return {
+        formData: settings ? formFromSettings(settings) : { ...INITIAL_SETTINGS_FORM },
+        confirmed: settings ?? null,
+        isDirty: false,
+    }
+}
+
+/** Keep editable values tied to a confirmed baseline across reads and saves. */
+export function settingsDraftReducer(state: SettingsDraft, action: SettingsDraftAction): SettingsDraft {
+    if (action.type === 'loaded') {
+        if (state.isDirty || state.confirmed === action.settings) return state
+        return createSettingsDraft(action.settings)
+    }
+    if (action.type === 'reset') return createSettingsDraft(action.settings)
+    if (!state.confirmed) return state
+    if (action.type === 'change') {
+        return { ...state, formData: { ...state.formData, [action.key]: action.value }, isDirty: true }
+    }
+    if (action.type === 'normalized') return { ...state, formData: action.formData }
+    return {
+        ...state,
+        confirmed: { ...state.confirmed, values: { ...state.confirmed.values, ...action.submitted } },
+        isDirty: (Object.keys(INITIAL_SETTINGS_FORM) as Array<keyof SettingsForm>)
+            .some((key) => state.formData[key] !== action.submitted[key]),
+    }
+}
+
 function changedReloadBehaviors(
     saved: SettingsForm,
     currentSettings: SettingsResponse | undefined,
@@ -564,21 +609,18 @@ function settingsSavedMessage(
  */
 export function SettingsFormProvider({ children }: { children: React.ReactNode }) {
     const queryClient = useQueryClient()
-    const [formData, setFormData] = React.useState<SettingsForm>(INITIAL_SETTINGS_FORM)
-    const [isDirty, setIsDirty] = React.useState(false)
     const [fieldErrors, setFieldErrors] = React.useState<SettingsFieldErrors>({})
 
-    const { data: settings } = useQuery({
+    const { data: settings, isError, error, refetch } = useQuery({
         queryKey: ['settings'],
         queryFn: settingsApi.getDetailed,
         staleTime: 5 * 60 * 1000,
     })
+    const [draft, dispatchDraft] = React.useReducer(settingsDraftReducer, settings, createSettingsDraft)
+    const { formData, isDirty, confirmed } = draft
 
     React.useEffect(() => {
-        if (!settings) return
-        setFormData(formFromSettings(settings))
-        setFieldErrors({})
-        setIsDirty(false)
+        if (settings) dispatchDraft({ type: 'loaded', settings })
     }, [settings])
 
     const updateMutation = useMutation({
@@ -587,23 +629,23 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
             toast.success(settingsSavedMessage(saved as SettingsForm, settings))
             queryClient.invalidateQueries({ queryKey: ['settings'] })
             queryClient.invalidateQueries({ queryKey: ['line-bot-status'] })
-            setIsDirty(false)
+            dispatchDraft({ type: 'saved', submitted: saved as SettingsForm })
         },
         onError: (error) => toast.error('เกิดข้อผิดพลาด: ' + error.message),
     })
 
     const setField = React.useCallback((key: keyof SettingsForm, value: string) => {
-        setFormData((prev) => ({ ...prev, [key]: value }))
+        dispatchDraft({ type: 'change', key, value })
         setFieldErrors((prev) => {
             if (!(key in prev)) return prev
             const next = { ...prev }
             delete next[key]
             return next
         })
-        setIsDirty(true)
     }, [])
 
     const save = React.useCallback(() => {
+        if (!confirmed || updateMutation.isPending) return
         const { errors, sanitized } = validateNumericFields(formData)
         if (Object.keys(errors).length > 0) {
             setFieldErrors(errors)
@@ -612,16 +654,15 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
         }
         setFieldErrors({})
         // Reflect any clamping back into the form so the user sees the saved value.
-        setFormData(sanitized)
+        dispatchDraft({ type: 'normalized', formData: sanitized })
         updateMutation.mutate(sanitized)
-    }, [updateMutation, formData])
+    }, [confirmed, updateMutation, formData])
 
     const reset = React.useCallback(() => {
         if (settings) {
-            setFormData(formFromSettings(settings))
+            dispatchDraft({ type: 'reset', settings })
             setFieldErrors({})
             queryClient.invalidateQueries({ queryKey: ['settings'] })
-            setIsDirty(false)
         }
     }, [settings, queryClient])
 
@@ -634,6 +675,25 @@ export function SettingsFormProvider({ children }: { children: React.ReactNode }
         isSaving: updateMutation.isPending,
         isDirty,
         fieldErrors,
+        readError: isError ? error : null,
+        retryRead: () => { void refetch() },
+    }
+
+    if (!confirmed) {
+        return (
+            <PageShell>
+                {isError ? (
+                    <ErrorState
+                        title="โหลดการตั้งค่าไม่สำเร็จ"
+                        description="ยังเปิดแบบฟอร์มแก้ไขไม่ได้ กรุณาโหลดการตั้งค่าจริงก่อน"
+                        error={error}
+                        onRetry={() => void refetch()}
+                    />
+                ) : (
+                    <p role="status" className="p-8 text-center text-sm text-muted-foreground">กำลังโหลดการตั้งค่า…</p>
+                )}
+            </PageShell>
+        )
     }
 
     return (

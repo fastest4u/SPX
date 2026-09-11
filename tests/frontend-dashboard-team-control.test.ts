@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { getDashboardTeamControlState } from "../src/frontend/routes/index.tsx";
+import { getDashboardSessionRecovery, getDashboardTeamControlState } from "../src/frontend/routes/index.tsx";
 import type { AuthUser, Team } from "../src/frontend/types/index.ts";
 
 const team: Team = {
@@ -36,6 +36,36 @@ const admin: AuthUser = {
   role: "admin",
   teamId: null,
 };
+
+assert.deepEqual(
+  getDashboardSessionRecovery(user),
+  {
+    title: 'SPX session หมดอายุ — เชื่อมต่อบัญชีผู้ให้บริการด้านล่าง',
+    actionLabel: 'ไปยังบัญชีผู้ให้บริการ',
+    href: '#provider-auth-panel',
+  },
+  'own-team session recovery must target the self-service provider account panel, not legacy Cookie settings',
+);
+
+assert.deepEqual(
+  getDashboardSessionRecovery(admin),
+  {
+    title: 'SPX session หมดอายุ — เลือกทีมและจัดการบัญชีผู้ให้บริการในหน้า Teams',
+    actionLabel: 'ไปที่หน้า Teams',
+    href: '/teams',
+  },
+  'admin recovery must go to the Teams selection workflow because the own-team panel is absent',
+);
+
+assert.deepEqual(
+  getDashboardSessionRecovery({ ...user, teamId: null }),
+  {
+    title: 'SPX session หมดอายุ — กรุณาติดต่อผู้ดูแลระบบเพื่อเชื่อมต่อบัญชีของทีม',
+    actionLabel: null,
+    href: null,
+  },
+  'an unassigned user must not receive a dead recovery action for an unavailable team panel',
+);
 
 assert.deepEqual(
   getDashboardTeamControlState({

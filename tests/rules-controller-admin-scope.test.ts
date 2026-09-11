@@ -1,5 +1,6 @@
 process.env.DB_MODE = "memory";
 process.env.SECRETS_KEY = "rules-controller-admin-scope-test-key";
+process.env.JWT_SECRET = "rules-controller-admin-scope-synthetic-jwt-key";
 
 import assert from "node:assert/strict";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -53,6 +54,16 @@ async function main(): Promise<void> {
   await app.register(rulesController, { prefix: "/api/rules" });
   await app.ready();
 
+  async function reviewFor(rule: object, actor: string) {
+    const response = await app.inject({
+      method: "POST", url: "/api/rules/preview", headers: { "x-test-actor": actor }, payload: { rule },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    const token = parseBody<{ review: { token: string } }>(response).data?.review.token;
+    assert.equal(typeof token, "string");
+    return { token, acknowledgeWildcard: true, acknowledgeAcceptAll: true };
+  }
+
   try {
     const adminList = await app.inject({ method: "GET", url: "/api/rules", headers: { "x-test-actor": "admin" } });
     assert.equal(adminList.statusCode, 200);
@@ -70,11 +81,12 @@ async function main(): Promise<void> {
     assert.equal(missingTeam.statusCode, 400);
     assert.equal(parseBody(missingTeam).error_code, "TEAM_REQUIRED");
 
+    const adminCreateRule = { teamId: beta.id, name: "Admin beta route", origins: ["E"], destinations: ["F"], vehicle_types: ["10W"], need: 2, enabled: true, accept_all: true };
     const adminCreate = await app.inject({
       method: "POST",
       url: "/api/rules",
       headers: { "x-test-actor": "admin" },
-      payload: { teamId: beta.id, name: "Admin beta route", origins: ["E"], destinations: ["F"], vehicle_types: ["10W"], need: 2, enabled: true, accept_all: true },
+      payload: { ...adminCreateRule, activationReview: await reviewFor(adminCreateRule, "admin") },
     });
     assert.equal(adminCreate.statusCode, 201);
     const adminCreated = parseBody<{ name: string; teamId?: number; teamName?: string; accept_all?: boolean }>(adminCreate).data;
@@ -88,11 +100,12 @@ async function main(): Promise<void> {
     assert.deepEqual(userRules.map((rule) => rule.name), ["Alpha route"]);
     assert.deepEqual(new Set(userRules.map((rule) => rule.teamId)), new Set([alpha.id]));
 
+    const userCreateRule = { teamId: beta.id, name: "User cannot cross team", origins: ["X"], destinations: ["Y"], vehicle_types: ["4W"], need: 1, enabled: true, accept_all: true };
     const userCreate = await app.inject({
       method: "POST",
       url: "/api/rules",
       headers: { "x-test-actor": "user" },
-      payload: { teamId: beta.id, name: "User cannot cross team", origins: ["X"], destinations: ["Y"], vehicle_types: ["4W"], need: 1, enabled: true, accept_all: true },
+      payload: { ...userCreateRule, activationReview: await reviewFor(userCreateRule, "user") },
     });
     assert.equal(userCreate.statusCode, 201);
     const userCreated = parseBody<{ teamId?: number; teamName?: string; accept_all?: boolean }>(userCreate).data;

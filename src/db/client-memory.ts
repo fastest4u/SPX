@@ -65,6 +65,17 @@ function initSchema(db: Database.Database): void {
       auto_accept_failure_line_group_id TEXT NOT NULL DEFAULT '',
       rate_limit_notify_enabled INTEGER NOT NULL DEFAULT 0,
       bidding_vehicle_type INTEGER,
+      spx_email TEXT NOT NULL DEFAULT '',
+      spx_password TEXT,
+      spx_auth_status TEXT NOT NULL DEFAULT 'manual',
+      spx_auth_error TEXT,
+      spx_auth_retry_at TEXT,
+      spx_auth_failures INTEGER NOT NULL DEFAULT 0,
+      spx_session_expires_at TEXT,
+      spx_last_login_at TEXT,
+      spx_auth_epoch INTEGER NOT NULL DEFAULT 0,
+      spx_auth_lease_token TEXT,
+      spx_auth_lease_until TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

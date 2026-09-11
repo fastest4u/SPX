@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
-import { createRule, deleteRule, getRuleTeamId, previewRuleAgainstTrips, readRulesForScope, updateRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
+import { createRule, deleteRule, getRuleTeamId, previewRuleAgainstTrips, readRuleForReview, readRulesForScope, updateRule, type NotifyRule, type NotifyRuleInput, type NotifyRulePatch } from "../services/notify-rules.js";
+import { createRuleActivationReview, MAX_RULE_REVIEW_TOKEN_LENGTH, ruleActivationAuditSummary, verifyRuleActivationReview, type ActivationReviewInput } from "../services/rule-activation-review.js";
 import { getBookingHistory } from "../repositories/booking-history-repository.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { resolveScopedTeamId } from "../services/team-scope.js";
@@ -15,7 +16,7 @@ const MAX_FILTER_ENTRIES = 50;
 
 function clampStringArray(value: unknown): string[] {
   if (!isStringArray(value)) return [];
-  return value.slice(0, MAX_FILTER_ENTRIES);
+  return value.slice(0, MAX_FILTER_ENTRIES).filter((item) => item.trim().length > 0);
 }
 
 interface RuleParams {
@@ -59,16 +60,21 @@ async function existingRuleTeamScope(req: { user?: unknown; query?: unknown }, i
 }
 
 function toRuleInput(body: Partial<NotifyRuleInput>, allowAcceptAll: boolean): NotifyRuleInput {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) throw new AppError("Rule name must contain non-whitespace characters", 400, "VALIDATION_ERROR");
+  const need = typeof body.need === "number" && body.need >= 0 ? body.need : 1;
   return {
-    name: typeof body.name === "string" ? body.name.trim() : "",
+    name,
     origins: clampStringArray(body.origins),
     destinations: clampStringArray(body.destinations),
     vehicle_types: clampStringArray(body.vehicle_types),
-    need: typeof body.need === "number" && body.need >= 0 ? body.need : 1,
+    need,
     enabled: body.enabled ?? true,
-    fulfilled: body.fulfilled ?? false,
+    // DB reads derive completion from need; callers cannot hide an active rule
+    // behind a forged fulfilled flag to skip the activation gate.
+    fulfilled: need === 0,
     accept_all: allowAcceptAll && body.accept_all === true,
-    auto_accepted: body.auto_accepted ?? false,
+    auto_accepted: need === 0 && body.auto_accepted === true,
   };
 }
 
@@ -85,6 +91,14 @@ function toRulePatch(body: Partial<NotifyRuleInput>, allowAcceptAll: boolean): N
   if (typeof body.auto_accepted === "boolean") patch.auto_accepted = body.auto_accepted;
   return patch;
 }
+
+function effectiveRuleInput(body: Partial<NotifyRuleInput>, user: AuthUser, existing?: NotifyRule): NotifyRuleInput {
+  if (!existing) return toRuleInput(body, user.role === "admin");
+  // Permission-filter the patch first, then retain the existing admin-only mode.
+  return toRuleInput({ ...existing, ...toRulePatch(body, user.role === "admin") }, true);
+}
+
+type RuleWriteBody = Partial<NotifyRuleInput> & { teamId?: number; activationReview?: ActivationReviewInput };
 
 const ruleSchema = {
   type: "object",
@@ -103,6 +117,16 @@ const ruleSchema = {
     auto_accept: { type: "boolean" },
     accept_all: { type: "boolean" },
     auto_accepted: { type: "boolean" },
+    activationReview: {
+      type: "object",
+      additionalProperties: false,
+      required: ["token"],
+      properties: {
+        token: { type: "string", maxLength: MAX_RULE_REVIEW_TOKEN_LENGTH },
+        acknowledgeWildcard: { type: "boolean" },
+        acknowledgeAcceptAll: { type: "boolean" },
+      },
+    },
   },
 } as const;
 
@@ -120,6 +144,7 @@ const rulePreviewSchema = {
   required: ["rule"],
   properties: {
     rule: ruleSchema,
+    ruleId: { type: "string", minLength: 1, maxLength: 128 },
     limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
     sampleLimit: { type: "integer", minimum: 1, maximum: 20, default: 8 },
   },
@@ -127,6 +152,7 @@ const rulePreviewSchema = {
 
 type RulePreviewBody = {
   rule: NotifyRuleInput & { teamId?: number };
+  ruleId?: string;
   limit?: number;
   sampleLimit?: number;
 };
@@ -141,7 +167,14 @@ export const rulesController: FastifyPluginAsync = async (app) => {
   app.post<{ Body: RulePreviewBody }>("/preview", { schema: { body: rulePreviewSchema } }, async (req, reply) => {
     const limit = req.body.limit ?? 200;
     const sampleLimit = req.body.sampleLimit ?? 8;
-    const teamId = createTeamScope(req, bodyTeamId(req.body.rule));
+    const user = currentUser(req);
+    const teamId = req.body.ruleId
+      ? await existingRuleTeamScope(req, req.body.ruleId, bodyTeamId(req.body.rule))
+      : createTeamScope(req, bodyTeamId(req.body.rule));
+    if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const existing = req.body.ruleId ? await readRuleForReview(teamId, req.body.ruleId) : undefined;
+    if (req.body.ruleId && !existing) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const rule = effectiveRuleInput(req.body.rule, user, existing ?? undefined);
     const historyRows = await getBookingHistory(teamId, { limit, sortBy: "created_at", sortDir: "desc" });
     const trips = historyRows.map((row) => ({
       origin: row.origin ?? "",
@@ -153,28 +186,43 @@ export const rulesController: FastifyPluginAsync = async (app) => {
       created_at: row.createdAt,
     }));
 
-    const preview = previewRuleAgainstTrips(req.body.rule, trips, sampleLimit);
+    const preview = previewRuleAgainstTrips(rule, trips, sampleLimit);
     return sendSuccess(reply, {
       ...preview,
       scannedCount: historyRows.length,
+      review: createRuleActivationReview({ user, teamId, rule, existing: existing ?? undefined }),
     });
   });
 
-  app.post<{ Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
+  app.post<{ Body: RuleWriteBody }>("/", { schema: { body: ruleSchema } }, async (req, reply) => {
     const teamId = createTeamScope(req, bodyTeamId(req.body));
     const user = currentUser(req);
-    const newRule = await createRule(teamId, toRuleInput(req.body, user.role === "admin"));
-    await insertAuditLog(user.username, "Add Rule", `Added rule: ${newRule.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
+    const rule = effectiveRuleInput(req.body, user);
+    const reviewed = verifyRuleActivationReview({ user, teamId, rule }, req.body.activationReview);
+    const newRule = await createRule(teamId, rule);
+    await insertAuditLog(user.username, "Add Rule", `Added rule: ${newRule.name}; ${ruleActivationAuditSummary(rule, reviewed, req.body.activationReview)}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, newRule, "Rule created successfully", 201);
   });
 
-  app.put<{ Params: RuleParams; Body: Partial<NotifyRuleInput> & { teamId?: number } }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
+  app.put<{ Params: RuleParams; Body: RuleWriteBody }>("/:id", { schema: { params: { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } }, body: ruleSchema } }, async (req, reply) => {
     const teamId = await existingRuleTeamScope(req, req.params.id, bodyTeamId(req.body));
     if (teamId === null) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
     const user = currentUser(req);
-    const updated = await updateRule(teamId, req.params.id, toRulePatch(req.body, user.role === "admin"));
+    const existing = await readRuleForReview(teamId, req.params.id);
+    if (!existing) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
+    const rule = effectiveRuleInput(req.body, user, existing);
+    const reviewed = verifyRuleActivationReview({ user, teamId, rule, existing }, req.body.activationReview);
+    // Inactive writes retain partial-patch semantics. Guard their snapshot too:
+    // a completed/disabled rule could become active after the initial read.
+    const patch = reviewed ? rule : toRulePatch(req.body, user.role === "admin");
+    if (!reviewed && (patch.need !== undefined || patch.fulfilled !== undefined || patch.auto_accepted !== undefined)) {
+      patch.fulfilled = rule.fulfilled;
+      patch.auto_accepted = rule.auto_accepted;
+    }
+    // An explicit disable always remains available without a review or CAS gate.
+    const updated = await updateRule(teamId, req.params.id, patch, req.body.enabled === false ? undefined : existing);
     if (!updated) return sendError(reply, 404, "NOT_FOUND", "Rule not found");
-    await insertAuditLog(user.username, "Update Rule", `Updated rule: ${updated.name}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
+    await insertAuditLog(user.username, "Update Rule", `Updated rule: ${updated.name}; ${ruleActivationAuditSummary(updated, reviewed, req.body.activationReview)}`, { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId });
     return sendSuccess(reply, updated, "Rule updated successfully");
   });
 

@@ -33,6 +33,8 @@ import type {
   NotificationPreview,
   NotificationTestResult,
   PasswordInput,
+  ProviderAuthCredentials,
+  ProviderAuthStatus,
   ReadyResponse,
   RoleInput,
   RuleInput,
@@ -43,8 +45,13 @@ import type {
   TeamInput,
   User,
 } from '../types'
+import {
+  dashboardFrontendRuntimeConfig,
+  resolveDashboardRuntimeUrl,
+  type DashboardFrontendRuntimeConfig,
+} from './runtime-config'
 
-const API_BASE = '/api'
+const API_BASE = dashboardFrontendRuntimeConfig.apiBaseUrl
 
 /** Flag to prevent multiple simultaneous 401 redirects */
 let isRedirectingToLogin = false
@@ -55,12 +62,19 @@ let isRedirectingToLogin = false
  * `/login`) or recurse (`/refresh`). Matched against the parsed pathname so
  * query strings and host differences cannot fool the check.
  */
-const AUTH_EXEMPT_PATHS = ['/api/login', '/api/me', '/api/refresh']
+export function createAuthExemptPaths(apiBaseUrl: string): string[] {
+  return ['/login', '/me', '/refresh'].map((path) =>
+    pathnameOf(resolveDashboardRuntimeUrl(apiBaseUrl, path)),
+  )
+}
+
+const AUTH_EXEMPT_PATHS = createAuthExemptPaths(API_BASE)
 
 /** Parse the pathname from a same-origin or absolute URL, tolerating relatives. */
 function pathnameOf(url: string): string {
   try {
-    return new URL(url, window.location.origin).pathname
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://dashboard.invalid'
+    return new URL(url, origin).pathname
   } catch {
     // Fall back to stripping any query/hash from a raw string.
     return url.split('?')[0].split('#')[0]
@@ -313,9 +327,10 @@ export const rulesApi = {
       body: JSON.stringify(rule),
     }),
 
-  preview: (rule: RuleInput | NotifyRule, options?: { limit?: number; sampleLimit?: number }): Promise<RulePreviewResult> =>
+  preview: (rule: RuleInput | NotifyRule, options?: { ruleId?: string; limit?: number; sampleLimit?: number; signal?: AbortSignal }): Promise<RulePreviewResult> =>
     fetchJson<RulePreviewResult>(`${API_BASE}/rules/preview`, {
       method: 'POST',
+      signal: options?.signal,
       body: JSON.stringify({
         rule: {
           teamId: rule.teamId,
@@ -325,7 +340,11 @@ export const rulesApi = {
           vehicle_types: rule.vehicle_types,
           need: rule.need,
           enabled: rule.enabled,
+          accept_all: rule.accept_all,
+          fulfilled: rule.fulfilled,
+          auto_accepted: rule.auto_accepted,
         },
+        ruleId: options?.ruleId,
         limit: options?.limit ?? 200,
         sampleLimit: options?.sampleLimit ?? 8,
       }),
@@ -539,6 +558,91 @@ export const currentTeamApi = {
     }),
 }
 
+export class ProviderAuthRequestError extends Error {
+  readonly code: string
+  readonly retryAfterMs: number | null
+
+  constructor(code: string, retryAfterMs: number | null = null) {
+    super(code)
+    this.name = 'ProviderAuthRequestError'
+    this.code = code
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+/** A dashboard-session 401 must be recovered separately from a provider failure. */
+export class DashboardAuthExpiredError extends Error {
+  constructor() {
+    super('DASHBOARD_AUTH_REAUTH_REQUIRED')
+    this.name = 'DashboardAuthExpiredError'
+  }
+}
+
+function providerAuthPath(teamId?: number): string {
+  return typeof teamId === 'number'
+    ? `${API_BASE}/teams/${teamId}/provider-auth`
+    : `${API_BASE}/team/provider-auth`
+}
+
+function retryAfterMsFrom(response: Response, data: ApiErrorResponse | null): number | null {
+  const fromBody = data?.details && typeof data.details === 'object'
+    ? (data.details as { retryAfterMs?: unknown }).retryAfterMs
+    : undefined
+  if (typeof fromBody === 'number' && Number.isFinite(fromBody) && fromBody >= 0) return fromBody
+
+  const seconds = Number(response.headers.get('Retry-After'))
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds * 1_000) : null
+}
+
+/**
+ * Deliberately bypasses fetchRaw: credential-bearing PUT requests must never be
+ * refreshed and replayed by the dashboard 401 handler or an HTTP retry loop.
+ */
+async function providerAuthRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers)
+  if (options?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+
+  const response = await fetch(url, { ...options, credentials: 'include', headers })
+  const data = await response.json().catch(() => null) as ApiSuccessResponse<T> | ApiErrorResponse | null
+  if (response.status === 401) {
+    // Refreshing the dashboard session is safe, but this credential mutation is
+    // intentionally never replayed. The operator must submit it again.
+    const refreshed = await attemptSilentRefresh()
+    if (!refreshed && typeof window !== 'undefined' && !isRedirectingToLogin) {
+      isRedirectingToLogin = true
+      window.location.replace('/login')
+      setTimeout(() => { isRedirectingToLogin = false }, 1000)
+    }
+    throw new DashboardAuthExpiredError()
+  }
+  if (!response.ok || data?.status === 'error') {
+    const error = data && data.status === 'error' ? data : null
+    throw new ProviderAuthRequestError(
+      error?.error_code ?? 'PROVIDER_AUTH_UNAVAILABLE',
+      retryAfterMsFrom(response, error),
+    )
+  }
+  if (!data || data.status !== 'success') throw new ProviderAuthRequestError('PROVIDER_AUTH_UNAVAILABLE')
+  return data.data
+}
+
+export const providerAuthApi = {
+  // Status reads use the standard dashboard-auth recovery path and are safe to retry.
+  get: (teamId?: number, signal?: AbortSignal): Promise<ProviderAuthStatus> => fetchJson<ProviderAuthStatus>(providerAuthPath(teamId), { signal }),
+
+  connect: (credentials: ProviderAuthCredentials, teamId?: number): Promise<ProviderAuthStatus> =>
+    providerAuthRequest<ProviderAuthStatus>(providerAuthPath(teamId), {
+      method: 'PUT',
+      body: JSON.stringify({ email: credentials.email.trim(), password: credentials.password }),
+    }),
+
+  reconnect: (teamId?: number): Promise<ProviderAuthStatus> =>
+    providerAuthRequest<ProviderAuthStatus>(`${providerAuthPath(teamId)}/reconnect`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+}
+
 // Settings API
 function isSettingsResponse(
   response: Record<string, string> | SettingsResponse,
@@ -586,19 +690,26 @@ export const settingsApi = {
 }
 
 // Metrics API
-export const metricsApi = {
-  snapshot: (): Promise<MetricsSnapshot> =>
-    fetchPlain<MetricsSnapshot>('/metrics'),
+export function createMetricsApi(config: DashboardFrontendRuntimeConfig) {
+  const snapshotUrl = resolveDashboardRuntimeUrl(config.readModelBaseUrl, config.metricsPath)
+  const historyUrl = resolveDashboardRuntimeUrl(config.readModelBaseUrl, config.metricsHistoryPath)
 
-  history: (limit?: number): Promise<MetricsHistoryRow[]> =>
-    fetchPlain<MetricsHistoryRow[]>(`/metrics/history${limit ? `?limit=${limit}` : ''}`),
+  return {
+    snapshot: (): Promise<MetricsSnapshot> =>
+      fetchPlain<MetricsSnapshot>(snapshotUrl),
 
-  pause: (): Promise<{ paused: boolean }> =>
-    fetchPlain<{ paused: boolean }>('/system/pause', { method: 'POST' }),
+    history: (limit?: number): Promise<MetricsHistoryRow[]> =>
+      fetchPlain<MetricsHistoryRow[]>(`${historyUrl}${limit ? `?limit=${limit}` : ''}`),
 
-  resume: (): Promise<{ paused: boolean }> =>
-    fetchPlain<{ paused: boolean }>('/system/resume', { method: 'POST' }),
+    pause: (): Promise<{ paused: boolean }> =>
+      fetchPlain<{ paused: boolean }>('/system/pause', { method: 'POST' }),
+
+    resume: (): Promise<{ paused: boolean }> =>
+      fetchPlain<{ paused: boolean }>('/system/resume', { method: 'POST' }),
+  }
 }
+
+export const metricsApi = createMetricsApi(dashboardFrontendRuntimeConfig)
 
 export const lineApi = {
   quota: (): Promise<LineQuota | null> =>

@@ -1,5 +1,6 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { ErrorState } from '../components/ui/error-state'
 import { currentTeamApi, rulesApi, metricsApi } from '../lib/api'
 import { useSseStream } from '../hooks/useSseContext'
 import { useAuth } from '../hooks/useAuth'
@@ -34,6 +35,7 @@ import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
+import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -59,6 +61,32 @@ type DashboardTeamControlState = {
   title: string
   healthLabel: 'Healthy' | 'Degraded'
   healthTone: 'healthy' | 'degraded'
+}
+
+export function canShowOwnTeamProviderAuth(user: AuthUser | null): boolean {
+  return user?.role === 'user' && typeof user.teamId === 'number'
+}
+
+export function getDashboardSessionRecovery(user: AuthUser | null) {
+  if (canShowOwnTeamProviderAuth(user)) {
+    return {
+      title: 'SPX session หมดอายุ — เชื่อมต่อบัญชีผู้ให้บริการด้านล่าง',
+      actionLabel: 'ไปยังบัญชีผู้ให้บริการ',
+      href: '#provider-auth-panel',
+    } as const
+  }
+  if (user?.role === 'admin') {
+    return {
+      title: 'SPX session หมดอายุ — เลือกทีมและจัดการบัญชีผู้ให้บริการในหน้า Teams',
+      actionLabel: 'ไปที่หน้า Teams',
+      href: '/teams',
+    } as const
+  }
+  return {
+    title: 'SPX session หมดอายุ — กรุณาติดต่อผู้ดูแลระบบเพื่อเชื่อมต่อบัญชีของทีม',
+    actionLabel: null,
+    href: null,
+  } as const
 }
 
 export function getDashboardTeamControlState({
@@ -116,27 +144,27 @@ function DashboardComponent() {
   const handleDeleteRule = useCallback((rule: NotifyRule) => setDeletingRule(rule), [])
   const handlePreviewRule = useCallback((rule: NotifyRule) => setPreviewingRule(rule), [])
 
-  const { data: rules = [], isLoading: rulesLoading, isError: rulesIsError, error: rulesError } = useQuery({
+  const { data: rules = [], isLoading: rulesLoading, isError: rulesIsError, error: rulesError, refetch: refetchRules } = useQuery({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: initialMetrics } = useQuery({
+  const { data: initialMetrics, isError: metricsIsError, error: metricsError, refetch: refetchMetrics } = useQuery({
     queryKey: ['metrics'],
     queryFn: metricsApi.snapshot,
     staleTime: 5 * 1000,
   })
 
-  const { data: history = [] } = useQuery({
+  const { data: history = [], isError: historyIsError, refetch: refetchHistory } = useQuery({
     queryKey: ['metrics-history', 60],
     queryFn: () => metricsApi.history(60),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
 
-  const shouldLoadCurrentTeam = user?.role === 'user' && typeof user.teamId === 'number'
-  const { data: currentTeam } = useQuery({
+  const shouldLoadCurrentTeam = canShowOwnTeamProviderAuth(user)
+  const { data: currentTeam, isError: teamIsError, error: teamError, refetch: refetchTeam } = useQuery({
     queryKey: ['current-team'],
     queryFn: currentTeamApi.get,
     enabled: shouldLoadCurrentTeam,
@@ -145,6 +173,7 @@ function DashboardComponent() {
 
   const { data: sseMetrics, rules: sseRules, sessionAlert } = useSseStream()
   const metrics = sseMetrics || initialMetrics
+  const statusUnconfirmed = !metrics || (metricsIsError && !sseMetrics) || (shouldLoadCurrentTeam && (!currentTeam || teamIsError))
   const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
   const sessionAlertTimestamp = sessionAlert?.timestamp
 
@@ -300,7 +329,7 @@ function DashboardComponent() {
         id: 'need',
         header: 'ต้องการ',
         sortKey: 'need',
-        render: (rule) => <span className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></span>,
+        render: (rule) => <div><span className="font-data text-foreground">{rule.need} <span className="text-xs text-muted-foreground">คัน</span></span>{rule.accept_all && <p className="mt-1 max-w-40 whitespace-normal text-xs text-warning">เป้าหมาย · รับทั้ง booking อาจเกินได้</p>}</div>,
         sortValue: (rule) => rule.need,
       },
     )
@@ -310,7 +339,7 @@ function DashboardComponent() {
         id: 'mode',
         header: 'โหมด',
         sortKey: 'mode',
-        render: (rule) => rule.accept_all ? <Badge variant="warning">accept_all</Badge> : <Badge variant="neutral">request ID</Badge>,
+        render: (rule) => rule.accept_all ? <Badge variant="warning">รับทั้ง booking</Badge> : <Badge variant="neutral">ตามจำนวนคัน</Badge>,
         sortValue: (rule) => rule.accept_all ? 'accept_all' : 'request ID',
       })
     }
@@ -401,6 +430,7 @@ function DashboardComponent() {
       )}
     </div>
   )
+  const sessionRecovery = getDashboardSessionRecovery(user)
 
   return (
     <PageShell>
@@ -408,23 +438,42 @@ function DashboardComponent() {
         icon={LayoutDashboard}
         title="ภาพรวมระบบ"
         subtitle="Pipeline telemetry และ rule ที่กำลังทำงาน"
-        meta={statusGroup}
+        meta={statusUnconfirmed ? <span className="text-xs text-muted-foreground">ยังยืนยันสถานะระบบไม่ได้</span> : statusGroup}
       />
 
       {hasSessionExpired ? (
         <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] p-3 text-foreground sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />
-            <span className="text-sm font-bold">SPX session หมดอายุ — อัปเดต Cookie ใน Teams</span>
+            <span className="text-sm font-bold">{sessionRecovery.title}</span>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/settings">Settings</Link>
-          </Button>
+          {sessionRecovery.href && sessionRecovery.actionLabel ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={sessionRecovery.href}>{sessionRecovery.actionLabel}</a>
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
+      {shouldLoadCurrentTeam ? <ProviderAuthPanel /> : null}
+
+      {shouldLoadCurrentTeam && teamIsError ? (
+        <ErrorState title="โหลดสถานะทีมไม่สำเร็จ" error={teamError} onRetry={() => { void refetchTeam() }} />
+      ) : null}
+
       {/* Pipeline timeline — 4 stages as connected flow, not 4 lonely tiles. */}
-      <PipelineTimeline metrics={metrics} history={history} />
+      {metricsIsError && !sseMetrics ? (
+        <ErrorState title="โหลดสถานะการทำงานไม่สำเร็จ" error={metricsError} onRetry={() => { void refetchMetrics() }} />
+      ) : !metrics ? (
+        <SkeletonCard lines={3} />
+      ) : (
+        <>
+          {historyIsError ? (
+            <ErrorState className="py-4" title="โหลดกราฟย้อนหลังไม่สำเร็จ" description="สถานะล่าสุดยังแสดงอยู่ ลองโหลดกราฟย้อนหลังอีกครั้ง" onRetry={() => { void refetchHistory() }} />
+          ) : null}
+          <PipelineTimeline metrics={metrics} history={historyIsError ? [] : history} />
+        </>
+      )}
 
       {/* Rules table */}
       <Card className="bg-card border-white/10">
@@ -441,10 +490,10 @@ function DashboardComponent() {
         </div>
         <CardContent className="p-0">
           {rulesIsError ? (
-            <EmptyState
-              icon={AlertTriangle}
+            <ErrorState
               title="โหลดรายการค้นหาไม่สำเร็จ"
-              description={rulesError instanceof Error ? rulesError.message : 'ไม่สามารถโหลด rule ได้'}
+              error={rulesError}
+              onRetry={() => { void refetchRules() }}
               className="py-16"
             />
           ) : rules.length === 0 ? (
@@ -577,14 +626,14 @@ function PipelineTimeline({
 
   return (
     <Card className="bg-card border-white/10">
-      <div className="flex items-center justify-between gap-3 px-5 pt-4">
+      <div className="flex flex-col gap-3 px-5 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h2 className="section-title">Pipeline telemetry</h2>
           <p className="section-subtitle">
             จาก fetch → save → notify → accept · real-time
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {reuseRatio !== null ? (
             <Badge
               variant={reuseRatio >= 80 ? 'success' : reuseRatio >= 50 ? 'warning' : 'neutral'}
@@ -870,13 +919,14 @@ function RuleMobileCard({
                 {rule.teamName || `Team #${rule.teamId}`}
               </Badge>
             ) : null}
-            {rule.accept_all ? <Badge variant="warning">accept_all</Badge> : null}
+            {rule.accept_all ? <Badge variant="warning">รับทั้ง booking</Badge> : null}
           </div>
           <h3 className="mt-1.5 text-sm font-bold text-foreground break-words">{rule.name}</h3>
         </div>
         <div className="shrink-0 text-right">
           <span className="font-data text-base font-black text-foreground">{rule.need}</span>
           <span className="ml-1 text-xs text-muted-foreground">คัน</span>
+          {rule.accept_all && <p className="max-w-28 text-xs text-warning">เป้าหมาย · อาจเกินได้</p>}
         </div>
       </div>
 

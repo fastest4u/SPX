@@ -45,6 +45,7 @@ import {
 import { formatLineChatOptionLabel, getSelectableLineGroupChats, isRedactedSecretPreview, isSelectableLineGroupId } from '../lib/line-groups'
 import { formatDateTime } from '../lib/utils'
 import type { LineBotChat, Team, TeamInput } from '../types'
+import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 
 export const Route = createFileRoute('/teams')({
   component: TeamsComponent,
@@ -99,21 +100,27 @@ export function getNextLinkedLineTarget({
 
 function lineGroupPlaceholder({
   lineStatusLoading,
+  lineStatusError,
   lineEnabled,
   lineAuthenticated,
   lineGroupsLoading,
+  lineGroupsError,
   hasSelectableLineGroups,
 }: {
   lineStatusLoading: boolean
+  lineStatusError: boolean
   lineEnabled: boolean
   lineAuthenticated: boolean
   lineGroupsLoading: boolean
+  lineGroupsError: boolean
   hasSelectableLineGroups: boolean
 }) {
   if (lineStatusLoading) return 'Checking LINE JS...'
+  if (lineStatusError) return 'ยังยืนยันสถานะ LINE ไม่ได้'
   if (!lineEnabled) return 'LINE JS is not enabled'
   if (!lineAuthenticated) return 'LINE JS is not logged in'
   if (lineGroupsLoading) return 'Loading LINE groups...'
+  if (lineGroupsError) return 'ยังโหลดรายชื่อ LINE group ไม่สำเร็จ'
   return hasSelectableLineGroups ? 'Select LINE group' : 'No LINE groups found for this account'
 }
 
@@ -123,9 +130,11 @@ function LineGroupField({
   value,
   onChange,
   lineStatusLoading,
+  lineStatusError,
   lineEnabled,
   lineAuthenticated,
   lineGroupsLoading,
+  lineGroupsError,
   lineGroupsFetching,
   canLoadLineGroups,
   hasSelectableLineGroups,
@@ -137,9 +146,11 @@ function LineGroupField({
   value: string
   onChange: (value: string) => void
   lineStatusLoading: boolean
+  lineStatusError: boolean
   lineEnabled: boolean
   lineAuthenticated: boolean
   lineGroupsLoading: boolean
+  lineGroupsError: boolean
   lineGroupsFetching: boolean
   canLoadLineGroups: boolean
   hasSelectableLineGroups: boolean
@@ -167,9 +178,11 @@ function LineGroupField({
           <option value="">
             {lineGroupPlaceholder({
               lineStatusLoading,
+              lineStatusError,
               lineEnabled,
               lineAuthenticated,
               lineGroupsLoading,
+              lineGroupsError,
               hasSelectableLineGroups,
             })}
           </option>
@@ -408,7 +421,11 @@ function TeamsComponent() {
           )}
       </ContentSection>
 
-      <TeamFormDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+      <TeamFormDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onCreated={(team) => setEditingTeam(team)}
+      />
       <TeamFormDialog team={editingTeam} open={editingTeam !== null} onOpenChange={(open) => { if (!open) setEditingTeam(null) }} />
     </PageShell>
   )
@@ -721,10 +738,12 @@ function TeamFormDialog({
   team,
   open,
   onOpenChange,
+  onCreated,
 }: {
   team?: Team | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (team: Team) => void
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(team)
@@ -746,7 +765,7 @@ function TeamFormDialog({
     retry: false,
   })
   const lineStatus = lineStatusQuery.data
-  const canLoadLineGroups = open && lineStatus?.enabled === true && lineStatus.authenticated === true
+  const canLoadLineGroups = open && lineStatusQuery.isSuccess && lineStatus?.enabled === true && lineStatus.authenticated === true
   const lineGroupsQuery = useQuery({
     queryKey: ['line-bot-groups'],
     queryFn: lineBotApi.getGroups,
@@ -755,10 +774,10 @@ function TeamFormDialog({
     retry: false,
   })
   const lineGroups = getSelectableLineGroupChats(lineGroupsQuery.data?.chats ?? [])
-  const hasSelectableLineGroups = canLoadLineGroups && lineGroups.length > 0
+  const hasSelectableLineGroups = canLoadLineGroups && lineGroupsQuery.isSuccess && lineGroups.length > 0
   const isLineGroupValueValid = useCallback((value: string) => (
-    isRedactedSecretPreview(value) || isSelectableLineGroupId(value, lineGroups)
-  ), [lineGroups])
+    isRedactedSecretPreview(value) || (canLoadLineGroups && lineGroupsQuery.isSuccess && isSelectableLineGroupId(value, lineGroups))
+  ), [canLoadLineGroups, lineGroupsQuery.isSuccess, lineGroups])
   const areLineTargetsValid =
     isLineGroupValueValid(lineGroupId)
     && isLineGroupValueValid(autoAcceptSuccessLineGroupId)
@@ -809,8 +828,10 @@ function TeamFormDialog({
       const input: TeamInput = {
         name: name.trim(),
         enabled,
-        spxCookie,
-        spxDeviceId,
+        // The provider panel (or another operator) can replace this session while
+        // the settings snapshot is open. Only explicit legacy edits override it.
+        ...(!team || spxCookie !== (team.spxCookiePreview ?? '') ? { spxCookie } : {}),
+        ...(!team || spxDeviceId !== (team.spxDeviceIdPreview ?? '') ? { spxDeviceId } : {}),
         lineGroupId,
         autoAcceptSuccessLineGroupId,
         autoAcceptFailureLineGroupId,
@@ -819,9 +840,10 @@ function TeamFormDialog({
       }
       return team ? teamsApi.update(team.id, input) : teamsApi.create(input)
     },
-    onSuccess: () => {
+    onSuccess: (savedTeam) => {
       toast.success(isEdit ? 'บันทึกทีมแล้ว' : 'เพิ่มทีมแล้ว', { description: name.trim() })
       queryClient.invalidateQueries({ queryKey: ['teams'] })
+      if (!isEdit) onCreated?.(savedTeam)
       onOpenChange(false)
     },
     onError: (error: Error) => toast.error(isEdit ? 'บันทึกทีมไม่สำเร็จ' : 'เพิ่มทีมไม่สำเร็จ', { description: error.message }),
@@ -838,10 +860,6 @@ function TeamFormDialog({
       toast.error('กรุณากรอกชื่อทีม')
       return
     }
-    if (!isEdit && (!spxCookie.trim() || !spxDeviceId.trim())) {
-      toast.error('ทีมใหม่ต้องมี Cookie และ Device ID')
-      return
-    }
     if (!isLineGroupValueValid(lineGroupId)) {
       toast.error('กรุณาเลือก LINE group จาก dropdown')
       return
@@ -855,8 +873,8 @@ function TeamFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-[8px] sm:max-w-[640px]">
-        <form onSubmit={handleSubmit}>
+      <DialogContent closeLabel="ปิดหน้าต่าง" className="max-h-[90dvh] overflow-y-auto rounded-[8px] sm:max-w-[640px]">
+        <form onSubmit={handleSubmit} noValidate>
           <DialogHeader>
             <DialogTitle>{isEdit ? 'แก้ไขทีม' : 'เพิ่มทีมใหม่'}</DialogTitle>
             <DialogDescription>
@@ -906,21 +924,27 @@ function TeamFormDialog({
               <p className="text-xs text-muted-foreground">กำหนดโดย Admin — ควบคุมว่า poller ของทีมนี้จะดึงเฉพาะ ADHOC ประเภทรถไหน</p>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="team-cookie">SPX Cookie</Label>
-              <textarea
-                id="team-cookie"
-                value={spxCookie}
-                onChange={(event) => setSpxCookie(event.target.value)}
-                className="flex min-h-[6rem] w-full resize-y rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                placeholder="fms_user_id=...; session=..."
-              />
-            </div>
+            <details className="rounded-[8px] border border-white/10 bg-white/[0.02] p-3">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">การเชื่อมต่อแบบเดิม (ขั้นสูง)</summary>
+              <p className="mt-1 text-xs text-muted-foreground">ใช้ Cookie และ Device ID เดิมเมื่อจำเป็นเท่านั้น การเชื่อมต่อด้วยบัญชีอยู่ด้านล่างหลังบันทึกทีม</p>
+              <div className="mt-3 grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="team-cookie">SPX Cookie</Label>
+                  <textarea
+                    id="team-cookie"
+                    value={spxCookie}
+                    onChange={(event) => setSpxCookie(event.target.value)}
+                    className="flex min-h-[6rem] w-full resize-none rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    placeholder="fms_user_id=...; session=..."
+                  />
+                </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="team-device">Device ID</Label>
-              <Input id="team-device" value={spxDeviceId} onChange={(event) => setSpxDeviceId(event.target.value)} placeholder="device id จาก SPX browser" />
-            </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="team-device">Device ID</Label>
+                  <Input id="team-device" value={spxDeviceId} onChange={(event) => setSpxDeviceId(event.target.value)} placeholder="device id จาก SPX browser" />
+                </div>
+              </div>
+            </details>
 
             <div className="grid gap-2">
               <LineGroupField
@@ -929,9 +953,11 @@ function TeamFormDialog({
                 value={lineGroupId}
                 onChange={handleDefaultLineGroupChange}
                 lineStatusLoading={lineStatusQuery.isLoading}
+                lineStatusError={lineStatusQuery.isError}
                 lineEnabled={lineStatus?.enabled === true}
                 lineAuthenticated={lineStatus?.authenticated === true}
                 lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsError={lineGroupsQuery.isError}
                 lineGroupsFetching={lineGroupsQuery.isFetching}
                 canLoadLineGroups={canLoadLineGroups}
                 hasSelectableLineGroups={hasSelectableLineGroups}
@@ -944,9 +970,11 @@ function TeamFormDialog({
                 value={autoAcceptSuccessLineGroupId}
                 onChange={setAutoAcceptSuccessLineGroupId}
                 lineStatusLoading={lineStatusQuery.isLoading}
+                lineStatusError={lineStatusQuery.isError}
                 lineEnabled={lineStatus?.enabled === true}
                 lineAuthenticated={lineStatus?.authenticated === true}
                 lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsError={lineGroupsQuery.isError}
                 lineGroupsFetching={lineGroupsQuery.isFetching}
                 canLoadLineGroups={canLoadLineGroups}
                 hasSelectableLineGroups={hasSelectableLineGroups}
@@ -959,28 +987,40 @@ function TeamFormDialog({
                 value={autoAcceptFailureLineGroupId}
                 onChange={setAutoAcceptFailureLineGroupId}
                 lineStatusLoading={lineStatusQuery.isLoading}
+                lineStatusError={lineStatusQuery.isError}
                 lineEnabled={lineStatus?.enabled === true}
                 lineAuthenticated={lineStatus?.authenticated === true}
                 lineGroupsLoading={lineGroupsQuery.isLoading}
+                lineGroupsError={lineGroupsQuery.isError}
                 lineGroupsFetching={lineGroupsQuery.isFetching}
                 canLoadLineGroups={canLoadLineGroups}
                 hasSelectableLineGroups={hasSelectableLineGroups}
                 lineGroups={lineGroups}
                 onRefresh={() => lineGroupsQuery.refetch()}
               />
-              {lineGroupsQuery.isError ? (
-                <div className="flex items-center gap-2 text-xs text-warning">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>โหลดรายชื่อ LINE ไม่สำเร็จ กรุณา refresh หรือตรวจสอบ LINE JS</span>
-                </div>
+              {lineStatusQuery.isError ? (
+                <ErrorState
+                  title="โหลดสถานะ LINE ไม่สำเร็จ"
+                  description="ยังยืนยันการเชื่อมต่อ LINE ไม่ได้ ข้อมูลที่กำลังแก้ไขยังอยู่ กรุณาลองโหลดสถานะอีกครั้ง"
+                  error={lineStatusQuery.error}
+                  onRetry={() => lineStatusQuery.refetch()}
+                />
               ) : null}
-              {!canLoadLineGroups ? (
+              {canLoadLineGroups && lineGroupsQuery.isError ? (
+                <ErrorState
+                  title="โหลดรายชื่อ LINE group ไม่สำเร็จ"
+                  description="ยังเปลี่ยนปลายทาง LINE ไม่ได้ กรุณาลองโหลดรายชื่อกลุ่มอีกครั้ง"
+                  error={lineGroupsQuery.error}
+                  onRetry={() => lineGroupsQuery.refetch()}
+                />
+              ) : null}
+              {lineStatusQuery.isSuccess && !canLoadLineGroups ? (
                 <div className="flex items-center gap-2 text-xs text-warning">
                   <AlertTriangle className="h-3.5 w-3.5" />
                   <span>ต้องเปิด LINE JS และ login ก่อน จึงจะเลือก LINE group ได้</span>
                 </div>
               ) : null}
-              {canLoadLineGroups && !hasSelectableLineGroups ? (
+              {canLoadLineGroups && lineGroupsQuery.isSuccess && !hasSelectableLineGroups ? (
                 <div className="flex items-center gap-2 text-xs text-warning">
                   <AlertTriangle className="h-3.5 w-3.5" />
                   <span>บัญชี LINE ที่ login ยังไม่พบ group chat สำหรับเลือก</span>
@@ -1005,6 +1045,7 @@ function TeamFormDialog({
             </Button>
           </DialogFooter>
         </form>
+        {team ? <ProviderAuthPanel teamId={team.id} /> : null}
       </DialogContent>
     </Dialog>
   )

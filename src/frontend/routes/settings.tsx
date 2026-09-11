@@ -1,8 +1,10 @@
 import { Link, Outlet, createFileRoute, redirect, useRouterState } from '@tanstack/react-router'
+import { createPortal } from 'react-dom'
 import { BellRing, MessageCircle, RotateCcw, Save, Settings2, Wifi } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
+import { ErrorState } from '../components/ui/error-state'
 import { SettingsFormProvider, useSettingsForm } from '../lib/settings-shared'
 import { cn } from '../lib/utils'
 
@@ -26,6 +28,7 @@ function SettingsLayoutRoute() {
 }
 
 function SettingsLayoutContent() {
+  const { readError, retryRead } = useSettingsForm()
   const router = useRouterState()
   const path = router.location.pathname
   const subtitle = pathSubtitle(path)
@@ -38,6 +41,15 @@ function SettingsLayoutContent() {
         meta={<DirtyIndicator />}
         actions={<DesktopSaveButton />}
       />
+
+      {readError ? (
+        <ErrorState
+          title="อัปเดตการตั้งค่าล่าสุดไม่สำเร็จ"
+          description="ยังแสดงค่าที่โหลดสำเร็จและเก็บข้อมูลที่คุณกำลังแก้ไขไว้ ลองโหลดอีกครั้งได้"
+          error={readError}
+          onRetry={retryRead}
+        />
+      ) : null}
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-[16rem_minmax(0,1fr)]">
         <SettingsSectionRail path={path} />
@@ -177,8 +189,11 @@ function DesktopSaveButton() {
 
 function MobileSaveBar() {
   const { isDirty, isSaving, save, reset } = useSettingsForm()
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-popover/95 px-4 py-3 backdrop-blur-md sm:hidden pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+  if (typeof document === 'undefined') return null
+  // PageShell's entry transform creates a containing block for fixed children.
+  // Keep these controls in the viewport and above the mobile navigation.
+  return createPortal(
+    <div aria-label="บันทึกการตั้งค่า" className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-white/[0.08] bg-popover/95 px-4 py-3 backdrop-blur-md sm:hidden">
       <div className="flex items-center gap-2">
         <span className="inline-flex flex-1 items-center gap-1.5 text-xs">
           <span
@@ -212,6 +227,6 @@ function MobileSaveBar() {
           {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
         </Button>
       </div>
-    </div>
+    </div>, document.body
   )
 }

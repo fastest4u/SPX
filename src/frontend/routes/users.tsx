@@ -26,6 +26,11 @@ import type { Team, User } from '../types'
 import { useAuth } from '../hooks/useAuth'
 
 type UserRole = User['role']
+type TeamLookupState = {
+  ready: boolean
+  error: Error | null
+  retry: () => void
+}
 
 const MIN_PASSWORD_LENGTH = 12
 const roles: UserRole[] = ['user', 'admin']
@@ -54,11 +59,17 @@ function UsersComponent() {
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const { user: currentUser } = useAuth()
-  const { data: teams = [] } = useQuery({
+  const teamsQuery = useQuery({
     queryKey: ['teams'],
     queryFn: teamsApi.list,
     staleTime: 5 * 60 * 1000,
   })
+  const teams = teamsQuery.data ?? []
+  const teamLookup: TeamLookupState = {
+    ready: teamsQuery.isSuccess,
+    error: teamsQuery.isError ? teamsQuery.error : null,
+    retry: () => { void teamsQuery.refetch() },
+  }
   const { data: users = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['users'],
     queryFn: usersApi.list,
@@ -119,7 +130,7 @@ function UsersComponent() {
     },
     {
       header: 'จัดการ',
-      render: (user) => <UserActions user={user} teams={teams} currentUserId={currentUser?.id} />,
+      render: (user) => <UserActions user={user} teams={teams} teamLookup={teamLookup} currentUserId={currentUser?.id} />,
     },
   ]
 
@@ -138,6 +149,7 @@ function UsersComponent() {
       />
 
       <ContentSection>
+          {teamLookup.error ? <TeamLookupError teamLookup={teamLookup} /> : null}
           {isLoading ? (
             <div className="rounded-[8px] border border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
               <Loader2 className="h-10 w-10 mx-auto mb-4 animate-spin text-info" />
@@ -223,6 +235,7 @@ function UsersComponent() {
                       <select
                         id="user-team-filter"
                         value={teamFilter}
+                        disabled={!teamLookup.ready}
                         onChange={(e) => setTeamFilter(e.target.value)}
                         className="flex h-10 w-full rounded-[8px] border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25"
                       >
@@ -280,7 +293,7 @@ function UsersComponent() {
                   </div>
                   <div className="grid gap-3 md:hidden">
                     {filteredUsers.map((user) => (
-                      <UserMobileCard key={user.id} user={user} teams={teams} currentUserId={currentUser?.id} />
+                      <UserMobileCard key={user.id} user={user} teams={teams} teamLookup={teamLookup} currentUserId={currentUser?.id} />
                     ))}
                   </div>
                 </>
@@ -289,12 +302,12 @@ function UsersComponent() {
           )}
       </ContentSection>
 
-      <CreateUserDialog teams={teams} open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+      <CreateUserDialog teams={teams} teamLookup={teamLookup} open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
     </PageShell>
   )
 }
 
-function UserActions({ user, teams, currentUserId }: { user: User; teams: Team[]; currentUserId?: number }) {
+function UserActions({ user, teams, teamLookup, currentUserId }: { user: User; teams: Team[]; teamLookup: TeamLookupState; currentUserId?: number }) {
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -335,7 +348,7 @@ function UserActions({ user, teams, currentUserId }: { user: User; teams: Team[]
       </div>
 
       <PasswordDialog user={user} open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen} />
-      <RoleDialog user={user} teams={teams} open={roleDialogOpen} onOpenChange={setRoleDialogOpen} />
+      <RoleDialog user={user} teams={teams} teamLookup={teamLookup} open={roleDialogOpen} onOpenChange={setRoleDialogOpen} />
       <DeleteUserDialog user={user} open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} />
     </>
   )
@@ -352,14 +365,27 @@ function TeamBadge({ user }: { user: User }) {
   )
 }
 
+function TeamLookupError({ teamLookup }: { teamLookup: TeamLookupState }) {
+  return (
+    <ErrorState
+      title="โหลดรายชื่อทีมไม่สำเร็จ"
+      description="ยังเลือกหรือบันทึกทีมให้ผู้ใช้ไม่ได้ ข้อมูลที่กำลังแก้ไขยังอยู่ กรุณาลองโหลดอีกครั้ง"
+      error={teamLookup.error}
+      onRetry={teamLookup.retry}
+    />
+  )
+}
+
 function TeamSelect({
   id,
   teams,
+  teamLookup,
   value,
   onChange,
 }: {
   id: string
   teams: Team[]
+  teamLookup: TeamLookupState
   value: number | null
   onChange: (value: number | null) => void
 }) {
@@ -370,15 +396,24 @@ function TeamSelect({
         id={id}
         className={selectClassName}
         value={value ?? ''}
+        disabled={!teamLookup.ready}
         onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
       >
         <option value="">เลือกทีม</option>
+        {value !== null && !teams.some((team) => team.id === value) ? (
+          <option value={value} disabled>ทีม #{value} (ยังยืนยันไม่ได้)</option>
+        ) : null}
         {teams.map((team) => (
           <option key={team.id} value={team.id}>
             {team.name}
           </option>
         ))}
       </select>
+      {teamLookup.error ? <TeamLookupError teamLookup={teamLookup} /> : !teamLookup.ready ? (
+        <p role="status" className="text-xs text-muted-foreground">กำลังโหลดรายชื่อทีม…</p>
+      ) : teams.length === 0 ? (
+        <p className="text-xs text-muted-foreground">ยังไม่มีทีมสำหรับผู้ใช้ กรุณาเพิ่มทีมก่อน</p>
+      ) : null}
     </div>
   )
 }
@@ -396,7 +431,7 @@ function UserIdentity({ user, currentUserId }: { user: User; currentUserId?: num
   )
 }
 
-function UserMobileCard({ user, teams, currentUserId }: { user: User; teams: Team[]; currentUserId?: number }) {
+function UserMobileCard({ user, teams, teamLookup, currentUserId }: { user: User; teams: Team[]; teamLookup: TeamLookupState; currentUserId?: number }) {
   return (
     <MobileRecordCard>
       <div className="flex items-start justify-between gap-3">
@@ -421,7 +456,7 @@ function UserMobileCard({ user, teams, currentUserId }: { user: User; teams: Tea
       </div>
 
       <div className="mt-4">
-        <UserActions user={user} teams={teams} currentUserId={currentUserId} />
+        <UserActions user={user} teams={teams} teamLookup={teamLookup} currentUserId={currentUserId} />
       </div>
     </MobileRecordCard>
   )
@@ -429,10 +464,12 @@ function UserMobileCard({ user, teams, currentUserId }: { user: User; teams: Tea
 
 function CreateUserDialog({
   teams,
+  teamLookup,
   open,
   onOpenChange,
 }: {
   teams: Team[]
+  teamLookup: TeamLookupState
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -481,8 +518,8 @@ function CreateUserDialog({
       toast.error(`รหัสผ่านต้องมีอย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`)
       return
     }
-    if (role === 'user' && typeof teamId !== 'number') {
-      toast.error('ผู้ใช้ role user ต้องเลือกทีม')
+    if (role === 'user' && (!teamLookup.ready || !teams.some((team) => team.id === teamId))) {
+      toast.error('กรุณาโหลดรายชื่อทีมให้สำเร็จและเลือกทีมสำหรับผู้ใช้')
       return
     }
     createMutation.mutate()
@@ -546,6 +583,7 @@ function CreateUserDialog({
               <TeamSelect
                 id="create-user-team"
                 teams={teams}
+                teamLookup={teamLookup}
                 value={teamId}
                 onChange={setTeamId}
               />
@@ -565,7 +603,7 @@ function CreateUserDialog({
             <Button
               type="submit"
               className="w-full sm:w-auto"
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || (role === 'user' && (!teamLookup.ready || !teams.some((team) => team.id === teamId)))}
             >
               {createMutation.isPending ? (
                 <>
@@ -705,11 +743,13 @@ function PasswordDialog({
 function RoleDialog({
   user,
   teams,
+  teamLookup,
   open,
   onOpenChange,
 }: {
   user: User
   teams: Team[]
+  teamLookup: TeamLookupState
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -743,8 +783,8 @@ function RoleDialog({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (role === 'user' && typeof teamId !== 'number') {
-      toast.error('ผู้ใช้ role user ต้องเลือกทีม')
+    if (role === 'user' && (!teamLookup.ready || !teams.some((team) => team.id === teamId))) {
+      toast.error('กรุณาโหลดรายชื่อทีมให้สำเร็จและเลือกทีมสำหรับผู้ใช้')
       return
     }
     roleMutation.mutate()
@@ -782,7 +822,7 @@ function RoleDialog({
               ))}
             </select>
             {role === 'user' ? (
-              <TeamSelect id={`team-${user.id}`} teams={teams} value={teamId} onChange={setTeamId} />
+              <TeamSelect id={`team-${user.id}`} teams={teams} teamLookup={teamLookup} value={teamId} onChange={setTeamId} />
             ) : null}
           </div>
 
@@ -799,7 +839,7 @@ function RoleDialog({
             <Button
               type="submit"
               className="w-full sm:w-auto"
-              disabled={roleMutation.isPending || (role === user.role && (role === 'admin' || teamId === user.teamId))}
+              disabled={roleMutation.isPending || (role === 'user' && (!teamLookup.ready || !teams.some((team) => team.id === teamId))) || (role === user.role && (role === 'admin' || teamId === user.teamId))}
             >
               {roleMutation.isPending ? (
                 <>

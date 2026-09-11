@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { teams } from "../db/schema.js";
 import { decryptString, encryptString } from "../utils/crypto.js";
@@ -209,6 +209,24 @@ export async function updateTeam(id: number, patch: TeamPatch): Promise<Redacted
   if (typeof patch.rateLimitNotifyEnabled === "boolean") next.rateLimitNotifyEnabled = patch.rateLimitNotifyEnabled ? 1 : 0;
   if (patch.spxCookie !== undefined && !isRedactedPlaceholder(patch.spxCookie)) next.spxCookie = encodeSecret(patch.spxCookie);
   if (patch.spxDeviceId !== undefined && !isRedactedPlaceholder(patch.spxDeviceId)) next.spxDeviceId = encodeSecret(patch.spxDeviceId);
+  const replacesManualSession =
+    (patch.spxCookie !== undefined && !isRedactedPlaceholder(patch.spxCookie))
+    || (patch.spxDeviceId !== undefined && !isRedactedPlaceholder(patch.spxDeviceId));
+  if (replacesManualSession) {
+    Object.assign(next, {
+      spxEmail: "",
+      spxPassword: null,
+      spxAuthStatus: "manual",
+      spxAuthError: null,
+      spxAuthRetryAt: null,
+      spxAuthFailures: 0,
+      spxSessionExpiresAt: null,
+      spxLastLoginAt: null,
+      spxAuthEpoch: sql`${teams.spxAuthEpoch} + 1`,
+      spxAuthLeaseToken: null,
+      spxAuthLeaseUntil: null,
+    });
+  }
   if (patch.lineGroupId !== undefined && !isRedactedPlaceholder(patch.lineGroupId)) next.lineGroupId = encodeSecret(patch.lineGroupId);
   if (patch.autoAcceptSuccessLineGroupId !== undefined && !isRedactedPlaceholder(patch.autoAcceptSuccessLineGroupId)) {
     next.autoAcceptSuccessLineGroupId = encodeSecret(patch.autoAcceptSuccessLineGroupId);

@@ -4,7 +4,7 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { SseProvider } from '../hooks/useSseContext'
 import { Coachmark } from '../components/ui/coachmark'
 
-const ADMIN_ONLY_PATHS = new Set(['/users', '/teams', '/settings', '/audit'])
+const ADMIN_ONLY_PATHS = new Set(['/users', '/teams', '/settings', '/audit', '/line-image-extractions'])
 
 export const rootRoute = createRootRoute({
   component: RootComponent,
@@ -14,7 +14,8 @@ export const Route = rootRoute
 
 function RootComponent() {
   const routerState = useRouterState()
-  const currentPath = routerState.location.pathname
+  // Router matching is case-insensitive, so authorization must use the same casing.
+  const currentPath = routerState.location.pathname.toLowerCase()
   const shouldCheckAuth = currentPath !== '/login'
   const { isAuthenticated, isLoading, user, logout } = useAuth({ enabled: shouldCheckAuth })
 
