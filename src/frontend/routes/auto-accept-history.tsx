@@ -11,6 +11,7 @@ import { PageHeader } from '../components/ui/page-header'
 import { FilterChip } from '../components/ui/filter-chip'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
+import { ErrorState } from '../components/ui/error-state'
 import { Search, CheckCircle2, XCircle, Truck, Send, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useAuth } from '../hooks/useAuth'
@@ -143,12 +144,13 @@ function AutoAcceptHistoryComponent() {
 
   const hasFilters = Boolean(search || ruleName || status)
 
-  const { data: teams = [], isLoading: teamsLoading } = useQuery({
+  const teamsQuery = useQuery({
     queryKey: ['teams'],
     queryFn: teamsApi.list,
     enabled: isAdmin,
     staleTime: 60_000,
   })
+  const teams = teamsQuery.data ?? []
 
   const acceptAllMutation = useMutation({
     mutationFn: biddingApi.acceptAll,
@@ -161,7 +163,7 @@ function AutoAcceptHistoryComponent() {
     },
   })
 
-  const { data: result, isLoading } = useQuery({
+  const { data: result, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['autoAcceptHistory', { search: debouncedSearch, status, ruleName: debouncedRuleName, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       autoAcceptHistoryApi.paginated({
@@ -220,8 +222,8 @@ function AutoAcceptHistoryComponent() {
 
   const submitAcceptAll = () => {
     const bookingId = Number(acceptAllBookingId.trim())
-    if (typeof selectedTeamId !== 'number') {
-      toast.error('กรุณาเลือกทีม')
+    if (!teamsQuery.isSuccess || typeof selectedTeamId !== 'number' || !teams.some((team) => team.id === selectedTeamId)) {
+      toast.error('กรุณาโหลดรายชื่อทีมให้สำเร็จและเลือกทีม')
       return
     }
     if (!Number.isInteger(bookingId) || bookingId <= 0) {
@@ -244,10 +246,18 @@ function AutoAcceptHistoryComponent() {
       />
 
       <ContentSection>
+          {isAdmin && teamsQuery.isError ? (
+            <ErrorState
+              title="โหลดรายชื่อทีมไม่สำเร็จ"
+              description="ยังส่ง accept_all ไม่ได้ ข้อมูลที่กรอกไว้ยังอยู่ กรุณาลองโหลดรายชื่อทีมอีกครั้ง"
+              error={teamsQuery.error}
+              onRetry={() => teamsQuery.refetch()}
+            />
+          ) : null}
           {isAdmin ? (
             <AdminAcceptAllPanel
               teams={teams}
-              teamsLoading={teamsLoading}
+              teamsReady={teamsQuery.isSuccess}
               selectedTeamId={selectedTeamId}
               onTeamChange={setSelectedTeamId}
               bookingId={acceptAllBookingId}
@@ -367,6 +377,17 @@ function AutoAcceptHistoryComponent() {
             </div>
           ) : null}
 
+          {isError ? (
+            <ErrorState
+              title="โหลดประวัติการรับงานไม่สำเร็จ"
+              description={displayItems.length > 0 ? 'แสดงข้อมูลล่าสุดที่โหลดสำเร็จ ข้อมูลอาจยังไม่เป็นปัจจุบัน ลองโหลดอีกครั้งได้' : undefined}
+              error={error}
+              onRetry={() => void refetch()}
+              className="mb-4"
+            />
+          ) : null}
+
+          {(!isError || displayItems.length > 0) && <>
           <div className="md:hidden">
             {displayItems.length === 0 ? (
               <EmptyPanel icon={<Search className="h-12 w-12 mx-auto mb-4 opacity-50" />}>
@@ -428,6 +449,7 @@ function AutoAcceptHistoryComponent() {
               }}
             />
           </div>
+          </>}
       </ContentSection>
     </PageShell>
   )
@@ -435,7 +457,7 @@ function AutoAcceptHistoryComponent() {
 
 function AdminAcceptAllPanel({
   teams,
-  teamsLoading,
+  teamsReady,
   selectedTeamId,
   onTeamChange,
   bookingId,
@@ -447,7 +469,7 @@ function AdminAcceptAllPanel({
   onSubmit,
 }: {
   teams: Team[]
-  teamsLoading: boolean
+  teamsReady: boolean
   selectedTeamId: number | ''
   onTeamChange: (teamId: number | '') => void
   bookingId: string
@@ -460,7 +482,9 @@ function AdminAcceptAllPanel({
 }) {
   const bookingIdNumber = Number(bookingId.trim())
   const canSubmit =
-    typeof selectedTeamId === 'number'
+    teamsReady
+    && typeof selectedTeamId === 'number'
+    && teams.some((team) => team.id === selectedTeamId)
     && Number.isInteger(bookingIdNumber)
     && bookingIdNumber > 0
     && confirmed
@@ -475,10 +499,13 @@ function AdminAcceptAllPanel({
             id="accept-all-team"
             value={selectedTeamId}
             onChange={(event) => onTeamChange(event.target.value ? Number(event.target.value) : '')}
-            disabled={teamsLoading || isPending}
+            disabled={!teamsReady || isPending}
             className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="" className="bg-popover">เลือกทีม</option>
+            {selectedTeamId !== '' && !teams.some((team) => team.id === selectedTeamId) ? (
+              <option value={selectedTeamId} disabled>ทีม #{selectedTeamId} (ยังยืนยันไม่ได้)</option>
+            ) : null}
             {teams.map((team) => (
               <option key={team.id} value={team.id} className="bg-popover">
                 {team.name}

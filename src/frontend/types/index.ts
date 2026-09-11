@@ -76,6 +76,22 @@ export interface RuleInput {
   need: number;
   enabled?: boolean;
   accept_all?: boolean;
+  fulfilled?: boolean;
+  auto_accepted?: boolean;
+  activationReview?: RuleActivationConfirmation;
+}
+
+export interface RuleActivationConfirmation {
+  token: string;
+  acknowledgeWildcard?: boolean;
+  acknowledgeAcceptAll?: boolean;
+}
+
+export interface RuleActivationReview {
+  token: string;
+  expiresAt: string;
+  wildcardFields: Array<'origins' | 'destinations' | 'vehicle_types'>;
+  acceptAll: boolean;
 }
 
 export interface RulePatch {
@@ -89,6 +105,7 @@ export interface RulePatch {
   fulfilled?: boolean;
   accept_all?: boolean;
   auto_accepted?: boolean;
+  activationReview?: RuleActivationConfirmation;
 }
 
 export interface RulePreviewMatch {
@@ -111,6 +128,7 @@ export interface RulePreviewResult {
   scannedCount: number;
   wouldMatch: boolean;
   trips: RulePreviewMatch[];
+  review: RuleActivationReview;
 }
 
 // History/Booking Types
@@ -269,6 +287,37 @@ export interface TeamInput {
   autoAcceptFailureLineGroupId?: string;
   rateLimitNotifyEnabled?: boolean;
   biddingVehicleType?: number | null;
+}
+
+export type ProviderAuthState = 'manual' | 'connected' | 'connecting' | 'attention' | 'retry_wait';
+
+export type ProviderAuthErrorCode =
+  | 'busy'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'invalid_credentials'
+  | 'challenge_required'
+  | 'invalid_input'
+  | 'invalid_response'
+  | 'not_configured'
+  | 'session_expired'
+  | 'stale_operation';
+
+/** Public account/session metadata. It intentionally contains no password or session pair. */
+export interface ProviderAuthStatus {
+  teamId: number;
+  email: string;
+  hasPassword: boolean;
+  status: ProviderAuthState;
+  lastLoginAt: string | null;
+  expiresAt: string | null;
+  errorCode: ProviderAuthErrorCode | null;
+  retryAt: string | null;
+}
+
+export interface ProviderAuthCredentials {
+  email: string;
+  password: string;
 }
 
 

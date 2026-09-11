@@ -11,6 +11,7 @@ import { PageHeader } from '../components/ui/page-header'
 import { FilterChip } from '../components/ui/filter-chip'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
+import { ErrorState } from '../components/ui/error-state'
 import { FileText, Search, SlidersHorizontal, X } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { AuditLog, AuditQuery } from '../types'
@@ -71,7 +72,7 @@ function AuditComponent() {
 
   const hasFilters = Boolean(search || username || action)
 
-  const { data: result, isLoading } = useQuery({
+  const { data: result, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['audit', { search: debouncedSearch, username: debouncedUsername, action: debouncedAction, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       auditApi.paginated({
@@ -214,6 +215,17 @@ function AuditComponent() {
             </div>
           ) : null}
 
+          {isError ? (
+            <ErrorState
+              title="โหลดประวัติการใช้งานไม่สำเร็จ"
+              description={logs.length > 0 ? 'แสดงข้อมูลล่าสุดที่โหลดสำเร็จ ข้อมูลอาจยังไม่เป็นปัจจุบัน ลองโหลดอีกครั้งได้' : undefined}
+              error={error}
+              onRetry={() => void refetch()}
+              className="mb-4"
+            />
+          ) : null}
+
+          {(!isError || logs.length > 0) && <>
           {/* Mobile Card View */}
           <div className="md:hidden">
             {logs.length === 0 ? (
@@ -276,6 +288,7 @@ function AuditComponent() {
               }}
             />
           </div>
+          </>}
       </ContentSection>
     </PageShell>
   )

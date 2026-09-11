@@ -7,9 +7,10 @@ import {
   Search, Command, Menu, FileImage, Wifi, BellRing, Building2
 } from 'lucide-react'
 import { Button } from '../ui/button'
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { Avatar } from '../ui/avatar'
 import { Breadcrumb } from '../Breadcrumb'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useId, useMemo, useRef } from 'react'
 import { useNotificationCount } from '../../hooks/useNotificationCount'
 import { useSseStream } from '../../hooks/useSseContext'
 import { triggerCoachmark } from '../ui/coachmark'
@@ -39,11 +40,11 @@ const navItems: NavItem[] = [
   { path: '/history', label: 'ประวัติงาน', icon: History, shortcut: '2' },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell, shortcut: '3' },
   { path: '/line-bot', label: 'LINE Bot', icon: MessageCircle, shortcut: '4' },
-  { path: '/line-image-extractions', label: 'LINE Runsheets', icon: FileImage, shortcut: '5' },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart, shortcut: '6' },
 ]
 
 const adminNavItems: NavItem[] = [
+  { path: '/line-image-extractions', label: 'LINE Runsheets', icon: FileImage, shortcut: '5' },
   { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText, shortcut: '7' },
   { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '8' },
   { path: '/teams', label: 'จัดการทีม', icon: Building2, shortcut: '9' },
@@ -66,7 +67,6 @@ const mobileTabs = [
   { path: '/history', label: 'งาน', icon: History },
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell },
   { path: '/line-bot', label: 'LINE', icon: MessageCircle },
-  { path: '/line-image-extractions', label: 'Runsheets', icon: FileImage },
 ]
 
 const pageLabels: Record<string, string> = {
@@ -105,18 +105,23 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   const currentPath = routerState.location.pathname
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileNavRef = useRef<HTMLElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchReturnFocusRef = useRef<HTMLElement | null>(null)
+  const searchInputId = useId()
+  const searchListboxId = `${searchInputId}-results`
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const notificationCount = useNotificationCount()
   const { status: sseStatus, reconnect: reconnectSse } = useSseStream()
 
   const isAdmin = user?.role === 'admin'
-  const allItems = isAdmin
+  const allItems = useMemo(() => isAdmin
     ? flattenNav([...navItems, ...adminNavItems])
-    : flattenNav(navItems)
+    : flattenNav(navItems), [isAdmin])
   const pageLabel = pageLabels[currentPath] || currentPath
 
   const filteredItems = useMemo(() => {
@@ -126,6 +131,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
       item.label.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
     )
   }, [allItems, searchQuery])
+  const activeSearchIndex = Math.min(selectedSearchIndex, filteredItems.length - 1)
 
   const handleLogout = async () => {
     await onLogout()
@@ -136,9 +142,21 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   }, [currentPath])
 
   useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    const closeOnDesktop = () => { if (desktop.matches) setMobileOpen(false) }
+    desktop.addEventListener('change', closeOnDesktop)
+    return () => desktop.removeEventListener('change', closeOnDesktop)
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
+        if (!searchInputRef.current?.isConnected) {
+          searchReturnFocusRef.current = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null
+        }
         setSearchQuery('')
         setSelectedSearchIndex(0)
         setSearchOpen(true)
@@ -164,7 +182,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const sidebarContent = (
+  const renderSidebarContent = (isCollapsed: boolean) => (
     <div className="flex flex-col gap-0.5 px-2">
       {navItems.map((item) => {
         const Icon = item.icon
@@ -178,12 +196,12 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
               isActive
                 ? 'bg-primary/10 text-primary border border-primary/20 sidebar-active-glow'
                 : 'text-muted-foreground hover:text-white hover:bg-white/[0.04] border border-transparent',
-              collapsed && 'justify-center px-2'
+              isCollapsed && 'justify-center px-2'
             )}
-            title={collapsed ? item.label : undefined}
+            title={isCollapsed ? item.label : undefined}
           >
             <Icon className="h-[18px] w-[18px] shrink-0" />
-            {!collapsed && (
+            {!isCollapsed && (
               <>
                 <span className="flex-1 truncate">{item.label}</span>
                 <kbd className="hidden group-hover:inline-flex h-4.5 px-1.5 rounded text-[0.6rem] font-medium text-muted-foreground/50 bg-white/[0.04] border border-white/[0.06] leading-none items-center">
@@ -201,7 +219,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
       {isAdmin && (
         <>
           <div className="my-2 mx-2 border-t border-white/[0.06]" />
-          {!collapsed && (
+          {!isCollapsed && (
             <span className="px-3 pb-1 text-[0.6rem] font-bold uppercase tracking-[0.18em] text-muted-foreground/50">
               Administration
             </span>
@@ -211,7 +229,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
             const hasChildren = item.children && item.children.length > 0
             const isParentActive = currentPath === item.path || currentPath.startsWith(item.path + '/')
             const isExactActive = currentPath === item.path && !hasChildren
-            const expanded = hasChildren && isParentActive && !collapsed
+            const expanded = hasChildren && isParentActive && !isCollapsed
 
             return (
               <div key={item.path} className="flex flex-col">
@@ -222,12 +240,12 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
                     isExactActive || (hasChildren && isParentActive)
                       ? 'bg-accent/10 text-accent border border-accent/20 shadow-[0_0_18px_-8px_var(--color-accent)]'
                       : 'text-muted-foreground hover:text-white hover:bg-white/[0.04] border border-transparent',
-                    collapsed && 'justify-center px-2'
+                    isCollapsed && 'justify-center px-2'
                   )}
-                  title={collapsed ? item.label : undefined}
+                  title={isCollapsed ? item.label : undefined}
                 >
                   <Icon className="h-[18px] w-[18px] shrink-0" />
-                  {!collapsed && (
+                  {!isCollapsed && (
                     <>
                       <span className="flex-1 truncate">{item.label}</span>
                       {hasChildren ? (
@@ -276,23 +294,13 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
   )
 
   return (
+    <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
     <div className="flex h-screen overflow-hidden gradient-bg">
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
       {/* Sidebar — desktop */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/[0.06] bg-sidebar transition-all duration-300 ease-in-out lg:relative',
-          mobileOpen ? 'w-64 translate-x-0' : collapsed ? 'w-[68px]' : 'w-64',
-          !mobileOpen && collapsed && 'lg:w-[68px]',
-          'max-lg:-translate-x-full',
-          mobileOpen && 'max-lg:translate-x-0'
+          'relative z-40 hidden flex-col border-r border-white/[0.06] bg-sidebar transition-all duration-300 ease-in-out lg:flex',
+          collapsed ? 'w-[68px]' : 'w-64'
         )}
       >
         {/* Logo */}
@@ -312,7 +320,7 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
 
         {/* Nav items */}
         <div className="flex-1 overflow-y-auto py-4 scrollbar-thin">
-          {sidebarContent}
+          {renderSidebarContent(collapsed)}
         </div>
 
         {/* User section */}
@@ -352,20 +360,37 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
         </div>
       </aside>
 
+      <DialogContent
+        closeLabel="ปิดเมนูหลัก"
+        aria-describedby={undefined}
+        onOpenAutoFocus={event => {
+          const firstLink = mobileNavRef.current?.querySelector('a')
+          if (firstLink) { event.preventDefault(); firstLink.focus() }
+        }}
+        className="left-0 top-0 flex h-dvh w-64 max-w-[calc(100vw-2rem)] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-l-0 bg-sidebar p-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
+      >
+        <DialogTitle className="flex h-16 shrink-0 items-center border-b border-white/[0.06] px-4 pr-14 text-sm">เมนูหลัก</DialogTitle>
+        <nav ref={mobileNavRef} aria-label="เมนูหลัก" className="min-h-0 flex-1 overflow-y-auto py-4">{renderSidebarContent(false)}</nav>
+        <div className="flex shrink-0 items-center gap-3 border-t border-white/[0.06] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <Avatar name={user?.username} size="sm" />
+          <div className="min-w-0 flex-1"><p className="truncate text-sm">{user?.username}</p><p className="text-xs text-muted-foreground">{user?.role}</p></div>
+          <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="ออกจากระบบ" className="h-11 w-11"><LogOut className="h-4 w-4" /></Button>
+        </div>
+      </DialogContent>
+
       {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar */}
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-white/[0.06] glass px-3 lg:px-5">
           {/* Mobile menu button */}
-          <Button
+          <DialogTrigger asChild><Button
             variant="ghost"
             size="icon"
             className="lg:hidden text-muted-foreground hover:text-white h-9 w-9 min-h-[40px] min-w-[40px]"
-            onClick={() => setMobileOpen(true)}
             aria-label="เปิดเมนูหลัก"
           >
             <Menu className="h-5 w-5" />
-          </Button>
+          </Button></DialogTrigger>
 
           {/* Desktop collapse button */}
           <Button
@@ -384,21 +409,117 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
           <div className="flex-1" />
 
           {/* Quick search trigger */}
-          <button
-            onClick={() => {
-              setSearchQuery('')
-              setSelectedSearchIndex(0)
-              setSearchOpen(!searchOpen)
-            }}
-            className="hidden sm:flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-muted-foreground hover:border-white/[0.15] hover:text-white transition-all"
-            aria-label="ค้นหาหน้าจอ (Cmd+K)"
-          >
-            <Search className="h-3.5 w-3.5" />
-            <span className="max-w-[160px] truncate">ค้นหาหน้าจอ...</span>
-            <kbd className="inline-flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[0.6rem] text-muted-foreground/60 leading-none">
-              <Command className="h-2.5 w-2.5" />K
-            </kbd>
-          </button>
+          <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+            <DialogTrigger asChild>
+              <button
+                onClick={() => {
+                  searchReturnFocusRef.current = null
+                  setSearchQuery('')
+                  setSelectedSearchIndex(0)
+                }}
+                className="hidden sm:flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-muted-foreground hover:border-white/[0.15] hover:text-white transition-all"
+                aria-label="ค้นหาหน้าจอ (Cmd+K)"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span className="max-w-[160px] truncate">ค้นหาหน้าจอ...</span>
+                <kbd className="inline-flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[0.6rem] text-muted-foreground/60 leading-none">
+                  <Command className="h-2.5 w-2.5" />K
+                </kbd>
+              </button>
+            </DialogTrigger>
+            <DialogContent
+              closeLabel="ปิดการค้นหา"
+              aria-describedby={undefined}
+              onOpenAutoFocus={event => {
+                event.preventDefault()
+                searchInputRef.current?.focus()
+              }}
+              onCloseAutoFocus={event => {
+                const previousFocus = searchReturnFocusRef.current
+                searchReturnFocusRef.current = null
+                if (previousFocus?.isConnected && previousFocus.getClientRects().length > 0) {
+                  event.preventDefault()
+                  previousFocus.focus()
+                }
+              }}
+              className="top-[20%] w-[calc(100%-2rem)] translate-y-0 gap-0 overflow-hidden border-white/[0.08] bg-popover p-0"
+            >
+              <DialogTitle className="sr-only">ค้นหาหน้าจอ</DialogTitle>
+              <div className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 pr-14">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <label htmlFor={searchInputId} className="sr-only">ค้นหาหน้าจอหรือเมนู</label>
+                <input
+                  ref={searchInputRef}
+                  id={searchInputId}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={searchOpen}
+                  aria-controls={searchListboxId}
+                  aria-activedescendant={activeSearchIndex >= 0 ? `${searchListboxId}-${activeSearchIndex}` : undefined}
+                  value={searchQuery}
+                  onChange={event => {
+                    setSearchQuery(event.target.value)
+                    setSelectedSearchIndex(0)
+                  }}
+                  placeholder="ค้นหาหน้าจอหรือเมนู..."
+                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  onKeyDown={event => {
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault()
+                      setSelectedSearchIndex(previous => filteredItems.length > 0 ? (previous + 1) % filteredItems.length : 0)
+                    } else if (event.key === 'ArrowUp') {
+                      event.preventDefault()
+                      setSelectedSearchIndex(previous => filteredItems.length > 0 ? (previous - 1 + filteredItems.length) % filteredItems.length : 0)
+                    } else if (event.key === 'Enter') {
+                      event.preventDefault()
+                      const match = filteredItems[activeSearchIndex]
+                      if (match) {
+                        setSearchOpen(false)
+                        void navigate({ to: match.path })
+                      }
+                    }
+                  }}
+                />
+                <kbd className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[0.6rem] text-muted-foreground/60 leading-none" aria-hidden="true">esc</kbd>
+              </div>
+              <div className="max-h-64 overflow-y-auto p-1.5">
+                <div id={searchListboxId} role="listbox" aria-label="หน้าจอและเมนู">
+                  {filteredItems.map((item, index) => {
+                    const Icon = item.icon
+                    const isSelected = index === activeSearchIndex
+                    return (
+                      <Link
+                        key={item.path}
+                        id={`${searchListboxId}-${index}`}
+                        to={item.path}
+                        role="option"
+                        aria-selected={isSelected}
+                        tabIndex={-1}
+                        onClick={() => setSearchOpen(false)}
+                        onMouseDown={event => event.preventDefault()}
+                        onMouseEnter={() => setSelectedSearchIndex(index)}
+                        className={cn(
+                          'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                          isSelected
+                            ? 'bg-white/10 text-white font-medium'
+                            : 'text-muted-foreground hover:text-white hover:bg-white/[0.05]'
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        <span className="text-[0.65rem] text-muted-foreground/50 font-mono">{item.path}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+                {filteredItems.length === 0 && (
+                  <div role="status" className="py-8 text-center text-xs text-muted-foreground">
+                    ไม่พบหน้าที่ค้นหา &quot;{searchQuery}&quot;
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* SSE indicator */}
           <button
@@ -494,90 +615,6 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
           </div>
         </header>
 
-        {/* Quick search modal */}
-        {searchOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-              onClick={() => setSearchOpen(false)}
-              aria-hidden="true"
-            />
-            <div
-              className="fixed inset-x-4 top-[20%] z-50 mx-auto max-w-lg animate-in fade-in zoom-in-95 duration-200"
-              role="dialog"
-              aria-modal="true"
-              aria-label="ค้นหาหน้าจอ"
-            >
-              <div className="rounded-2xl border border-white/[0.08] bg-popover shadow-2xl overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <input
-                    autoFocus
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value)
-                      setSelectedSearchIndex(0)
-                    }}
-                    placeholder="ค้นหาหน้าจอหรือเมนู..."
-                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setSearchOpen(false)
-                      } else if (e.key === 'ArrowDown') {
-                        e.preventDefault()
-                        setSelectedSearchIndex((prev) => (filteredItems.length > 0 ? (prev + 1) % filteredItems.length : 0))
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault()
-                        setSelectedSearchIndex((prev) => (filteredItems.length > 0 ? (prev - 1 + filteredItems.length) % filteredItems.length : 0))
-                      } else if (e.key === 'Enter') {
-                        e.preventDefault()
-                        const match = filteredItems[selectedSearchIndex] || filteredItems[0]
-                        if (match) {
-                          setSearchOpen(false)
-                          void navigate({ to: match.path })
-                        }
-                      }
-                    }}
-                  />
-                  <kbd className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[0.6rem] text-muted-foreground/60 leading-none">
-                    esc
-                  </kbd>
-                </div>
-                <div className="max-h-64 overflow-y-auto p-1.5">
-                  {filteredItems.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-muted-foreground">
-                      ไม่พบหน้าที่ค้นหา &quot;{searchQuery}&quot;
-                    </div>
-                  ) : (
-                    filteredItems.map((item, index) => {
-                      const Icon = item.icon
-                      const isSelected = index === selectedSearchIndex
-                      return (
-                        <Link
-                          key={item.path}
-                          to={item.path}
-                          onClick={() => setSearchOpen(false)}
-                          onMouseEnter={() => setSelectedSearchIndex(index)}
-                          className={cn(
-                            'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-                            isSelected
-                              ? 'bg-white/10 text-white font-medium'
-                              : 'text-muted-foreground hover:text-white hover:bg-white/[0.05]'
-                          )}
-                        >
-                          <Icon className="h-4 w-4 shrink-0 opacity-70" />
-                          <span className="flex-1 truncate">{item.label}</span>
-                          <span className="text-[0.65rem] text-muted-foreground/50 font-mono">{item.path}</span>
-                        </Link>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
         {/* Page content */}
         <main
           id="main-content"
@@ -663,5 +700,6 @@ export function AppLayout({ user, onLogout, children }: AppLayoutProps) {
         </nav>
       </div>
     </div>
+    </Dialog>
   )
 }

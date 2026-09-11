@@ -10,6 +10,7 @@ import { ContentSection, FilterPanel, PageShell } from '../components/layout/Pag
 import { PageHeader } from '../components/ui/page-header'
 import { FilterChip } from '../components/ui/filter-chip'
 import { SkeletonTable } from '../components/ui/skeleton'
+import { ErrorState } from '../components/ui/error-state'
 import { formatDateTime, safeBrowserUrl } from '../lib/utils'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import type { LineImageExtraction, LineImageExtractionQuery } from '../types'
@@ -105,7 +106,7 @@ function LineImageExtractionsComponent() {
     pageSize,
   } satisfies LineImageExtractionQuery
 
-  const { data: result, isLoading } = useQuery({
+  const { data: result, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['line-image-extractions', query],
     queryFn: () => lineImageExtractionApi.paginated(query),
     placeholderData: keepPreviousData,
@@ -148,16 +149,16 @@ function LineImageExtractionsComponent() {
       <PageHeader
         icon={FileImage}
         title="LINE Runsheets"
-        subtitle={total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
+        subtitle={isError && !result ? 'ยังยืนยันข้อมูล LINE Runsheets ไม่ได้' : total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
       />
 
       <ContentSection>
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(!isError || !!result) && <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Metric label="Saved records" value={total} icon={FileImage} tone="info" />
             <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="primary" />
             <Metric label="Routes (page)" value={uniqueRoutes} icon={Map} tone="success" />
             <Metric label="Vehicles (page)" value={uniqueVehicles} icon={Car} tone="warning" />
-          </div>
+          </div>}
 
           <div className="mb-4 flex items-center gap-2">
             <div className="relative flex-1">
@@ -271,7 +272,17 @@ function LineImageExtractionsComponent() {
             </div>
           ) : null}
 
-          <DataTable
+          {isError ? (
+            <ErrorState
+              title="โหลด LINE Runsheets ไม่สำเร็จ"
+              description={rows.length > 0 ? 'แสดงข้อมูลล่าสุดที่โหลดสำเร็จ ข้อมูลอาจยังไม่เป็นปัจจุบัน ลองโหลดอีกครั้งได้' : undefined}
+              error={error}
+              onRetry={() => void refetch()}
+              className="mb-4"
+            />
+          ) : null}
+
+          {(!isError || rows.length > 0) && <DataTable
             columns={COLUMNS}
             data={rows}
             keyField={(item) => item.id}
@@ -299,7 +310,7 @@ function LineImageExtractionsComponent() {
                 setPage(1)
               },
             }}
-          />
+          />}
       </ContentSection>
     </PageShell>
   )

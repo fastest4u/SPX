@@ -7,6 +7,7 @@ import { notifyRules as notifyRulesTable, teams as teamsTable } from "../db/sche
 import { env } from "../config/env.js";
 import { sseBroadcaster } from "./sse.js";
 import { logger } from "../utils/logger.js";
+import { ruleReviewChanged, ruleReviewSnapshot } from "./rule-activation-review.js";
 
 export interface TripLike {
   origin?: string;
@@ -510,7 +511,27 @@ export async function createRule(teamId: number, input: NotifyRuleInput): Promis
   return withRuleTeam(normalized, 1);
 }
 
-export async function updateRule(teamId: number, id: string, patch: NotifyRulePatch): Promise<NotifyRule | null> {
+/** Fresh scoped snapshot for HTTP review; the poller's cached read stays unchanged. */
+export async function readRuleForReview(teamId: number, id: string): Promise<NotifyRule | null> {
+  if (!usesDb()) return readRulesFile().find((rule) => rule.id === id) ?? null;
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [row] = await db.select().from(notifyRulesTable)
+    .where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id))).limit(1);
+  return row ? dbRowToRule(row) : null;
+}
+
+function ruleUpdateAffectedRows(result: unknown): number | null {
+  if (Array.isArray(result)) return ruleUpdateAffectedRows(result[0]);
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  for (const key of ["affectedRows", "changes", "rowsAffected"]) {
+    if (typeof record[key] === "number") return record[key];
+  }
+  return null;
+}
+
+export async function updateRule(teamId: number, id: string, patch: NotifyRulePatch, expectedSnapshot?: NotifyRule): Promise<NotifyRule | null> {
   if (usesDb()) {
     await ensureDashboardTables();
     const db = await getDb();
@@ -518,17 +539,59 @@ export async function updateRule(teamId: number, id: string, patch: NotifyRulePa
     if (rows.length === 0) return null;
 
     const existing = dbRowToRule(rows[0]);
+    if (expectedSnapshot && ruleReviewSnapshot(existing) !== ruleReviewSnapshot(expectedSnapshot)) throw ruleReviewChanged();
     const updated = normalizeRules([{ ...existing, ...patch, id: existing.id }])[0];
-    await db.update(notifyRulesTable)
-      .set({ ...ruleToDbRow(teamId, updated), updatedAt: currentTimestamp })
-      .where(and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id)));
+    const scope = and(eq(notifyRulesTable.teamId, teamId), eq(notifyRulesTable.id, id));
+    const row = rows[0];
+    // Guard all persisted rule values from this fresh read. Binary comparison
+    // avoids MySQL's case-insensitive text collation missing a concurrent edit.
+    const binaryType = sql.raw(env.DB_MODE === "memory" ? "BLOB" : "BINARY");
+    const unchanged = expectedSnapshot ? and(
+      scope,
+      sql`CAST(${notifyRulesTable.name} AS ${binaryType}) = CAST(${row.name} AS ${binaryType})`,
+      sql`CAST(${notifyRulesTable.origins} AS ${binaryType}) = CAST(${row.origins} AS ${binaryType})`,
+      sql`CAST(${notifyRulesTable.destinations} AS ${binaryType}) = CAST(${row.destinations} AS ${binaryType})`,
+      sql`CAST(${notifyRulesTable.vehicleTypes} AS ${binaryType}) = CAST(${row.vehicleTypes} AS ${binaryType})`,
+      eq(notifyRulesTable.need, row.need),
+      eq(notifyRulesTable.enabled, row.enabled),
+      eq(notifyRulesTable.fulfilled, row.fulfilled),
+      eq(notifyRulesTable.autoAccept, row.autoAccept),
+      eq(notifyRulesTable.acceptAll, row.acceptAll),
+      eq(notifyRulesTable.autoAccepted, row.autoAccepted),
+    ) : scope;
+    const updatedRow = ruleToDbRow(teamId, updated);
+    // A disable is an unconditional safety action. Write only supplied fields
+    // so it cannot copy stale need/status over accepted progress.
+    const values = patch.enabled === false ? {
+      enabled: 0,
+      ...(patch.name !== undefined ? { name: updatedRow.name } : {}),
+      ...(patch.origins !== undefined ? { origins: updatedRow.origins } : {}),
+      ...(patch.destinations !== undefined ? { destinations: updatedRow.destinations } : {}),
+      ...(patch.vehicle_types !== undefined ? { vehicleTypes: updatedRow.vehicleTypes } : {}),
+      ...(patch.need !== undefined ? { need: updatedRow.need } : {}),
+      ...(patch.fulfilled !== undefined ? { fulfilled: updatedRow.fulfilled } : {}),
+      ...(patch.accept_all !== undefined ? { acceptAll: updatedRow.acceptAll } : {}),
+      ...(patch.auto_accepted !== undefined ? { autoAccepted: updatedRow.autoAccepted } : {}),
+    } : updatedRow;
+    const result = await db.update(notifyRulesTable)
+      .set({ ...values, updatedAt: currentTimestamp })
+      .where(unchanged);
+    if (expectedSnapshot && ruleUpdateAffectedRows(result) !== 1) throw ruleReviewChanged();
     await broadcastAllRules(teamId);
+    if (patch.enabled === false) {
+      const current = await readRuleForReview(teamId, id);
+      return current ? withRuleTeam(current, teamId, await getTeamName(teamId)) : null;
+    }
     return withRuleTeam(updated, teamId, await getTeamName(teamId));
   }
 
   const rules = readRulesFile();
   const index = rules.findIndex((rule) => rule.id === id);
   if (index === -1) return null;
+
+  // The file read/check/write branch has no await, so another in-process writer
+  // cannot interleave after the snapshot comparison.
+  if (expectedSnapshot && ruleReviewSnapshot(rules[index]) !== ruleReviewSnapshot(expectedSnapshot)) throw ruleReviewChanged();
 
   const updated = normalizeRules([{ ...rules[index], ...patch, id: rules[index].id }])[0];
   rules[index] = updated;

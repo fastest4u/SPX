@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button'
 import { PageHeader } from '../components/ui/page-header'
 import { toast } from 'sonner'
 import { SkeletonCard } from '../components/ui/skeleton'
+import { ErrorState } from '../components/ui/error-state'
 import { MessageCircle, QrCode, Send, CheckCircle2, XCircle, RefreshCw, Loader2 } from 'lucide-react'
 import type { LineBotStatus } from '../types'
 import { safeBrowserUrl } from '../lib/utils'
@@ -95,6 +96,20 @@ function LineBotComponent() {
         <ContentSection>
           <SkeletonCard />
         </ContentSection>
+      </PageShell>
+    )
+  }
+
+  if (statusQuery.isError) {
+    return (
+      <PageShell>
+        <PageHeader icon={MessageCircle} title="LINE Bot" subtitle="ตรวจสอบการเชื่อมต่อและส่งข้อความ" />
+        <ErrorState
+          title="ตรวจสอบสถานะ LINE Bot ไม่สำเร็จ"
+          description="ยังยืนยันสถานะการเชื่อมต่อไม่ได้ ลองโหลดสถานะอีกครั้งก่อนส่งข้อความ"
+          error={statusQuery.error}
+          onRetry={() => { void statusQuery.refetch() }}
+        />
       </PageShell>
     )
   }
@@ -254,6 +269,14 @@ function LineBotComponent() {
                   <div className="mt-1 flex items-center text-xs text-muted-foreground">
                     <Loader2 className="mr-1 h-3 w-3 animate-spin" /> กำลังโหลดรายชื่อกลุ่ม...
                   </div>
+                )}
+                {groupsQuery.isError && (
+                  <ErrorState
+                    className="mt-2 py-4"
+                    title="โหลดรายชื่อกลุ่มไม่สำเร็จ"
+                    description="ลองโหลดกลุ่มอีกครั้ง หรือกรอก Target MID ที่ต้องการส่งด้วยตนเอง"
+                    onRetry={() => { void groupsQuery.refetch() }}
+                  />
                 )}
               </div>
 

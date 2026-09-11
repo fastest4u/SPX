@@ -42,7 +42,6 @@ const PAGES_TO_VERIFY: { path: string; label: string; selector: string }[] = [
   { path: "/history",               label: "ประวัติงาน",              selector: "text=ประวัติงาน" },
   { path: "/notifications",         label: "แจ้งเตือน",              selector: "text=แจ้งเตือน" },
   { path: "/line-bot",              label: "LINE Bot",               selector: "text=LINE Bot" },
-  { path: "/line-image-extractions",label: "LINE Runsheets",         selector: "text=LINE Runsheets" },
   { path: "/reports",               label: "รายงาน",                 selector: "text=รายงาน" },
   { path: "/auto-accept-history",   label: "ประวัติรับงานอัตโนมัติ", selector: "text=ประวัติรับงาน" },
 ];

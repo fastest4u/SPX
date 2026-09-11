@@ -469,16 +469,17 @@ export function DataTable<T>({
                           ? 'none'
                           : undefined
                     }
-                    className={cn(
-                      col.className,
-                      isSortable && 'cursor-pointer select-none transition-colors hover:text-foreground'
-                    )}
-                    onClick={isSortable ? () => handleSort(columnSortKey) : undefined}
+                    className={col.className}
                   >
-                    <span className="inline-flex items-center gap-1">
-                      {col.header}
-                      {isSortable ? (
-                        <span className="inline-flex flex-col -space-y-1">
+                    {isSortable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(columnSortKey)}
+                        className="inline-flex w-full select-none items-center gap-1 rounded-sm text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        aria-label={`เรียงตาม ${col.header}`}
+                      >
+                        <span>{col.header}</span>
+                        <span className="inline-flex flex-col -space-y-1" aria-hidden="true">
                           <ArrowUp
                             className={cn(
                               'h-2.5 w-2.5',
@@ -492,8 +493,10 @@ export function DataTable<T>({
                             )}
                           />
                         </span>
-                      ) : null}
-                    </span>
+                      </button>
+                    ) : (
+                      <span>{col.header}</span>
+                    )}
                   </th>
                 )
               })}
@@ -509,7 +512,7 @@ export function DataTable<T>({
                     <td>
                       <input
                         type="checkbox"
-                        aria-label="เลือกแถวนี้"
+                        aria-label={`เลือกแถว ${itemKey}`}
                         checked={checked}
                         onChange={() => toggleRow(itemKey)}
                         className="h-4 w-4 rounded border-white/15 bg-white/10 text-primary focus:ring-primary focus:ring-offset-background"

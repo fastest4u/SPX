@@ -90,6 +90,21 @@ const HISTORY_DEFAULT_VIEW: HistoryView = {
 
 const filterSelectClassName = 'h-10 w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25'
 
+function preserveSelectedOption(
+  options: HistorySelectOption[],
+  selectedValue: string,
+  selectedLabel: string,
+) {
+  if (
+    selectedValue === ALL_HISTORY_FILTER_VALUE
+    || options.some((option) => option.value === selectedValue)
+  ) {
+    return options
+  }
+
+  return [...options, { value: selectedValue, label: selectedLabel }]
+}
+
 function HistoryComponent() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -121,7 +136,12 @@ function HistoryComponent() {
   const debouncedDestination = useDebouncedValue(destination.trim(), 300)
   const debouncedVehicleType = useDebouncedValue(selectedVehicleType ?? '', 300)
 
-  const { data: filterOptions } = useQuery({
+  const {
+    data: filterOptions,
+    isError: isFilterOptionsError,
+    isFetching: isFilterOptionsFetching,
+    refetch: refetchFilterOptions,
+  } = useQuery({
     queryKey: ['history-filter-options', { scope: historyScopeKey }],
     queryFn: () => historyApi.filterOptions({ teamId: selectedTeamId }),
     staleTime: 5 * 60 * 1000,
@@ -177,8 +197,16 @@ function HistoryComponent() {
   const uniqueOrigins = [...new Set(history.map((h) => h.origin).filter(Boolean))]
   const uniqueDests = [...new Set(history.map((h) => h.destination).filter(Boolean))]
   const uniqueVehicles = [...new Set(history.map((h) => h.vehicleType).filter(Boolean))]
-  const teamOptions = buildHistoryTeamOptions(filterOptions?.teams ?? [])
-  const vehicleOptions = buildHistoryVehicleOptions(filterOptions?.vehicleTypes ?? uniqueVehicles)
+  const teamOptions = preserveSelectedOption(
+    buildHistoryTeamOptions(filterOptions?.teams ?? []),
+    team,
+    `ทีม #${team}`,
+  )
+  const vehicleOptions = preserveSelectedOption(
+    buildHistoryVehicleOptions(filterOptions?.vehicleTypes ?? []),
+    vehicleType,
+    vehicleType,
+  )
   const selectedTeamLabel = teamOptions.find((option) => option.value === team)?.label
 
   const hasTeamFilter = isAdmin && team !== ALL_HISTORY_FILTER_VALUE
@@ -222,8 +250,13 @@ function HistoryComponent() {
               {/* Search Bar */}
               <div className="mb-4 flex items-center gap-2">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                   <Input
+                    type="search"
+                    name="history-search"
+                    aria-label="ค้นหาประวัติงาน"
+                    autoComplete="off"
+                    spellCheck={false}
                     placeholder={'ค้นหา Request ID, Booking ID, เส้นทาง, ประเภทรถ...'}
                     value={searchInput}
                     onChange={(e) => {
@@ -234,18 +267,23 @@ function HistoryComponent() {
                   />
                   {searchInput ? (
                     <button
+                      type="button"
                       onClick={() => { setSearchInput(''); setPage(1) }}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label="ล้างคำค้นหา"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   ) : null}
                 </div>
                 <Button
+                  type="button"
                   variant="outline"
                   size="icon"
                   className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info' : ''}`}
                   onClick={() => setShowFilters(!showFilters)}
+                  aria-label={showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'}
+                  aria-expanded={showFilters}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                 </Button>
@@ -268,6 +306,32 @@ function HistoryComponent() {
                     </div>
                     <Button size="sm" variant="ghost" className="self-start text-xs text-muted-foreground sm:self-auto" onClick={handleReset}>{'ล้างทั้งหมด'}</Button>
                   </div>
+                  {isFilterOptionsError ? (
+                    <div
+                      role="alert"
+                      className="flex flex-col gap-2 rounded-[8px] border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span>
+                        {filterOptions
+                          ? 'อัปเดตตัวเลือกตัวกรองไม่สำเร็จ ตัวเลือกเดิมยังใช้งานได้'
+                          : 'โหลดตัวเลือกตัวกรองไม่สำเร็จ กรุณาลองอีกครั้ง'}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="self-start sm:self-auto"
+                        disabled={isFilterOptionsFetching}
+                        onClick={() => { void refetchFilterOptions() }}
+                      >
+                        {isFilterOptionsFetching ? 'กำลังลองใหม่…' : 'ลองโหลดตัวเลือกอีกครั้ง'}
+                      </Button>
+                    </div>
+                  ) : isFilterOptionsFetching && !filterOptions ? (
+                    <p role="status" className="text-xs text-muted-foreground">
+                      กำลังโหลดตัวเลือกตัวกรอง…
+                    </p>
+                  ) : null}
                   <div className={`grid gap-3 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                     {isAdmin ? (
                       <HistoryFilterSelect
@@ -275,6 +339,7 @@ function HistoryComponent() {
                         label="ทีม"
                         value={team}
                         options={teamOptions}
+                        disabled={!filterOptions}
                         onChange={(nextTeam) => {
                           updateView({ team: nextTeam, vehicleType: ALL_HISTORY_FILTER_VALUE })
                           setPage(1)
@@ -304,6 +369,7 @@ function HistoryComponent() {
                       label="ประเภทรถ"
                       value={vehicleType}
                       options={vehicleOptions}
+                      disabled={!filterOptions}
                       onChange={(nextVehicleType) => {
                         updateView({ vehicleType: nextVehicleType })
                         setPage(1)
@@ -404,12 +470,14 @@ function HistoryComponent() {
 }
 
 function HistoryFilterSelect({
+  disabled,
   id,
   label,
   onChange,
   options,
   value,
 }: {
+  disabled?: boolean
   id: string
   label: string
   onChange: (value: string) => void
@@ -422,6 +490,7 @@ function HistoryFilterSelect({
       <select
         id={id}
         className={filterSelectClassName}
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >

@@ -1,6 +1,9 @@
 name: CI and Deploy
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -16,7 +19,7 @@ on:
           - split
 
 concurrency:
-  group: spx-production
+  group: spx-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
   cancel-in-progress: false
 
 jobs:
@@ -47,6 +50,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Install browser test dependencies
+        run: npx playwright install --with-deps chromium
 
       - name: Test
         run: npm test
