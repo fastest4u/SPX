@@ -81,7 +81,21 @@ def validate_next_identity(root, overlay, service, team_id, node_id, runner):
     services = model.get('services', {})
     environment = services.get(service, {}).get('environment', {})
     expected = {'SPX_ROLE': 'worker', 'RUN_TEAM_IDS': str(team_id), 'SPX_NODE_ID': node_id}
-    if set(services) != {service} or any(environment.get(key) != value for key, value in expected.items()):
+    # Compose versions may retain KEY=value arrays when interpolation is off.
+    # Extract only our literal identity fields; never resolve bootstrap values.
+    if isinstance(environment, list):
+        identity = {}
+        for entry in environment:
+            if not isinstance(entry, str):
+                continue
+            key, separator, value = entry.partition('=')
+            if key in expected:
+                if not separator or key in identity:
+                    raise DeploymentError('next worker identity contains duplicate or unbound keys')
+                identity[key] = value
+        environment = identity
+    if set(services) != {service} or not isinstance(environment, dict) or any(
+            environment.get(key) != value for key, value in expected.items()):
         raise DeploymentError('next worker identity does not match the designated team/node')
 
 

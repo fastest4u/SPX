@@ -51,6 +51,7 @@ class WorkerDeploymentTests(unittest.TestCase):
         self.bundle = BUNDLE
         self.configured_team = None
         self.drift_during_load = False
+        self.export_environment_list = False
 
     def compose_model(self, command):
         merged = {}
@@ -77,6 +78,9 @@ class WorkerDeploymentTests(unittest.TestCase):
                     model = self.compose_model(command)
                     if self.configured_team:
                         model['services']['worker-ifn']['environment']['RUN_TEAM_IDS'] = self.configured_team
+                    if self.export_environment_list:
+                        environment = model['services']['worker-ifn']['environment']
+                        model['services']['worker-ifn']['environment'] = [f'{key}={value}' for key, value in environment.items()]
                     return json.dumps(model)
                 return 'worker-ifn\n'
             if 'ps' in command:
@@ -206,6 +210,24 @@ class WorkerDeploymentTests(unittest.TestCase):
         self.commands.clear()
         self.assertEqual(self.deploy(), before)
         self.assert_no_restart()
+
+    def test_compose_environment_list_deploys_without_expanding_bootstrap(self):
+        # Compose 5.5 exports KEY=value arrays with --no-interpolate.
+        self.export_environment_list = True
+        self.assertEqual(self.deploy()['imageId'], NEW_IMAGE)
+        self.assertEqual((self.root / 'docker-compose.override.yml').read_bytes(), self.before)
+
+    def test_invalid_environment_exports_fail_closed(self):
+        identity = ['SPX_ROLE=worker', 'RUN_TEAM_IDS=2', 'SPX_NODE_ID=prod-worker-ifn-node2']
+        for environment in [None, 'invalid', identity + ['RUN_TEAM_IDS=1'],
+                            identity + ['RUN_TEAM_IDS=2'], identity + ['RUN_TEAM_IDS'], identity[:1] + identity[2:],
+                            ['SPX_ROLE=worker', 'RUN_TEAM_IDS', identity[2]]]:
+            with self.subTest(environment=environment):
+                model = {'services': {'worker-ifn': {'environment': environment}}}
+                with self.assertRaisesRegex(self.module.DeploymentError, 'identity'):
+                    self.module.validate_next_identity(self.root, self.release / 'candidate.json',
+                        'worker-ifn', 2, self.node, lambda _: json.dumps(model))
+                self.assert_no_restart()
 
     def test_managed_overlay_edit_is_not_overwritten(self):
         self.deploy()
