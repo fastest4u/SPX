@@ -43,4 +43,3 @@ Independent code review found the Escape capture ordering issue and retained sta
 Artifacts are under `output/verification/2026-09-11-rule-activation/`: real browser JPEGs, `canvas.html`, `request-evidence-before-restart.json`, `request-evidence-final.json`, compiler baseline comparison, strict audit JSON and exact source hashes. Request evidence records review presence/acknowledgements, not review tokens. The canvas includes ordered steps and before/after images.
 
 Remaining project work: other audit findings and responsive checks for untouched pages; resolve existing A3 compiler diagnostics before a production build/deployment. Production schema/transport/credentials were not changed in this batch.
-

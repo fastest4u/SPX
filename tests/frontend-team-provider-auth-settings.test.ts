@@ -23,13 +23,19 @@ async function main() {
     assert.ok(lease)
     assert.equal(await commitTeamProviderAuth(lease, { email: 'fixture@example.test', password: 'fixture-password' }, { cookie: 'spx_uk=fixture-cookie', deviceId: 'fixture-device', expiresAt: null }, now), true)
   }
-  const server = await createServer({ configFile: false, root: process.cwd(), plugins: [tailwindcss(), react()], server: { port: 0 } })
+  const server = await createServer({
+    configFile: false, envDir: false, root: process.cwd(),
+    cacheDir: 'node_modules/.vite-team-provider-auth-tests',
+    optimizeDeps: { entries: ['tests/team-provider-auth-settings-fixture.html'] },
+    plugins: [tailwindcss(), react()], server: { port: 0, watch: null },
+  })
   const browser = await chromium.launch({ headless: true })
   const payloads: Array<Record<string, unknown>> = []
   try {
     await server.listen()
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
     page.setDefaultTimeout(10_000)
+    page.setDefaultNavigationTimeout(30_000)
     await page.route('**/api/**', async (route) => {
       const request = route.request()
       const url = new URL(request.url()).pathname

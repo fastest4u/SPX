@@ -9,6 +9,7 @@ export function RuleReviewSummary({
   input: RuleInput
   preview: RulePreviewResult
 }) {
+  const acceptAll = preview.review.acceptAll
   return (
     <div className="min-w-0 space-y-4 text-sm">
       <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -27,12 +28,12 @@ export function RuleReviewSummary({
             <dd>{input.need} คัน</dd>
           </div>
         </dl>
-        <p className={input.accept_all ? 'font-semibold text-warning' : 'text-foreground'}>
-          {input.accept_all
+        <p className={acceptAll ? 'font-semibold text-warning' : 'text-foreground'}>
+          {acceptAll
             ? 'รับทั้ง booking — จำนวนคันอาจเกินเป้าหมาย'
             : 'รับเฉพาะรายการที่ตรงเงื่อนไข ตามจำนวนที่ยังต้องการ'}
         </p>
-        {input.accept_all && (
+        {acceptAll && (
           <p className="text-muted-foreground">
             เมื่อ booking ตรงเงื่อนไข ระบบรับทั้ง booking รวมรายการอื่นใน booking นั้นด้วย เช่น
             เป้าหมาย 1 คัน อาจรับได้หลายคัน

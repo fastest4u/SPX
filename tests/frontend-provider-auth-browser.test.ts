@@ -33,9 +33,12 @@ async function assertNoPasswordPersistence(page: import('playwright').Page, pass
 async function run() {
   const server = await createServer({
     configFile: false,
+    envDir: false,
     root: process.cwd(),
+    cacheDir: 'node_modules/.vite-provider-auth-tests',
+    optimizeDeps: { entries: ['tests/provider-auth-fixture.html'] },
     plugins: [tailwindcss(), react()],
-    server: { port: 0 },
+    server: { port: 0, watch: null },
   })
   const browser = await chromium.launch({ headless: true })
   try {
@@ -44,6 +47,7 @@ async function run() {
     assert.ok(baseUrl, 'fixture Vite server exposes a local URL')
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' })
     page.setDefaultTimeout(10_000)
+    page.setDefaultNavigationTimeout(30_000)
     await page.goto(`${baseUrl}tests/provider-auth-fixture.html`)
     await page.getByRole('heading', { name: 'บัญชีผู้ให้บริการ' }).waitFor()
 

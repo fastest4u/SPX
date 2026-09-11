@@ -109,8 +109,8 @@ function nextFailure(
     : Math.min(MAX_COOLDOWN_MS, Math.max(0, error.retryAfterMs));
   const delay = Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, exponential, retryAfter));
   const retainPreviousEligibility = candidateReplacement
-    && configured(record)
-    && (record.storedStatus === "connected" || record.storedStatus === "retry_wait")
+    && (record.storedStatus === "manual"
+      || (configured(record) && (record.storedStatus === "connected" || record.storedStatus === "retry_wait")))
     && record.cookie.length > 0
     && record.deviceId.length > 0;
   return {
@@ -134,6 +134,7 @@ export function createProviderAuthService(
   const client = dependencies.client ?? defaultClient;
   const clock = dependencies.clock ?? (() => new Date());
   const flights = new Map<number, Promise<boolean>>();
+  const recoveryFlights = new Map<number, Promise<boolean>>();
 
   async function authenticate(
     teamId: number,
@@ -246,6 +247,57 @@ export function createProviderAuthService(
     return repository.getTeamProviderAuth(teamId);
   }
 
+  async function recoverSession(teamId: number, rejectedEpoch: number): Promise<boolean> {
+    const current = await reload(teamId);
+    if (!current) return false;
+    if (current.epoch !== rejectedEpoch) return true;
+    if (!current.enabled || !configured(current) || current.storedStatus === "attention" || cooldownRemaining(current, clock()) > 0) return false;
+
+    // Share the database lease with password login so separate owners cannot
+    // multiply identity probes or overwrite a newer account's cooldown.
+    const lease = await repository.acquireTeamProviderAuthLease(teamId, clock());
+    if (!lease) return false;
+    try {
+      const owned = await reload(teamId);
+      if (!owned) return false;
+      if (owned.epoch !== rejectedEpoch) return true;
+      if (owned.epoch !== lease.epoch || !owned.enabled || !configured(owned)
+        || owned.storedStatus === "attention" || cooldownRemaining(owned, clock()) > 0) return false;
+
+      const checked = await client.check({
+        cookie: owned.cookie,
+        deviceId: owned.deviceId,
+        expiresAt: owned.expiresAt,
+      });
+      const afterCheck = await reload(teamId);
+      if (!afterCheck) return false;
+      if (afterCheck.epoch !== rejectedEpoch) return true;
+      if (!afterCheck.enabled || !configured(afterCheck) || afterCheck.storedStatus === "attention"
+        || cooldownRemaining(afterCheck, clock()) > 0) return false;
+      if (checked.status === "valid") return true;
+      if (checked.status === "unavailable") {
+        if (checked.errorCode === "provider_unavailable" || checked.errorCode === "rate_limited") {
+          const failureTime = clock();
+          await repository.failTeamProviderAuth(lease, nextFailure(
+            afterCheck,
+            new ProviderAuthError(checked.errorCode, checked.retryAfterMs),
+            failureTime,
+            false,
+          ), failureTime);
+        }
+        return false;
+      }
+    } finally {
+      await repository.releaseTeamProviderAuthLease(lease, clock());
+    }
+
+    // Only a confirmed expiry reaches login. Its existing lease/epoch checks
+    // revalidate the account after releasing the read-only probe's lease.
+    await authenticate(teamId, null, false, { expectedEpoch: rejectedEpoch, reason: "reactive" });
+    const recovered = await reload(teamId);
+    return Boolean(recovered && recovered.epoch !== rejectedEpoch);
+  }
+
   return {
     async connect(teamId, credentials) {
       const current = await reload(teamId);
@@ -273,27 +325,15 @@ export function createProviderAuthService(
     },
 
     async recover(teamId, rejectedEpoch) {
-      const current = await reload(teamId);
-      if (!current) return false;
-      if (current.epoch !== rejectedEpoch) return true;
-      if (!current.enabled || !configured(current) || current.storedStatus === "attention" || cooldownRemaining(current, clock()) > 0) return false;
-
-      const checked = await client.check({
-        cookie: current.cookie,
-        deviceId: current.deviceId,
-        expiresAt: current.expiresAt,
-      });
-      if (checked.status === "valid") return true;
-      if (checked.status !== "expired") return false;
-
-      const afterCheck = await reload(teamId);
-      if (!afterCheck) return false;
-      if (afterCheck.epoch !== rejectedEpoch) return true;
-      if (!afterCheck.enabled || !configured(afterCheck) || afterCheck.storedStatus === "attention" || cooldownRemaining(afterCheck, clock()) > 0) return false;
-
-      await authenticate(teamId, null, false, { expectedEpoch: rejectedEpoch, reason: "reactive" });
-      const recovered = await reload(teamId);
-      return Boolean(recovered && recovered.epoch !== rejectedEpoch);
+      const existing = recoveryFlights.get(teamId);
+      if (existing) return existing;
+      const operation = recoverSession(teamId, rejectedEpoch);
+      recoveryFlights.set(teamId, operation);
+      try {
+        return await operation;
+      } finally {
+        if (recoveryFlights.get(teamId) === operation) recoveryFlights.delete(teamId);
+      }
     },
   };
 }

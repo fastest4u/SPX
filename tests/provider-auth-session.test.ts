@@ -9,6 +9,7 @@ import type {
 } from "../src/models/provider-auth.js";
 import { ProviderAuthError } from "../src/services/provider-auth/client.js";
 import { createProviderAuthService } from "../src/services/provider-auth/session-service.js";
+import { createTeamRuntimeSession } from "../src/services/provider-auth/runtime-session.js";
 
 function record(overrides: Partial<ProviderAuthRecord> = {}): ProviderAuthRecord {
   return {
@@ -110,6 +111,43 @@ const nextSession: ProviderSession = {
 };
 
 async function main(): Promise<void> {
+for (const errorCode of ["invalid_credentials", "provider_unavailable"] as const) {
+  const previous = record({
+    status: "manual", storedStatus: "manual", email: "", password: "", hasPassword: false,
+    expiresAt: null, lastLoginAt: null,
+  });
+  const repository = createRepository(previous);
+  let time = now.getTime();
+  let loginCalls = 0;
+  const service = createProviderAuthService({
+    repository,
+    clock: () => new Date(time),
+    client: {
+      login: async () => { loginCalls += 1; throw new ProviderAuthError(errorCode); },
+      check: async () => { throw new Error("manual sessions must not be probed"); },
+    },
+  });
+  const holder = createTeamRuntimeSession(1, { spxCookie: previous.cookie, spxDeviceId: previous.deviceId }, {
+    service, load: repository.getTeamProviderAuth, clock: () => time,
+  });
+  assert.equal(await holder.beforePoll(), true);
+  await assert.rejects(service.connect(1, { email: "candidate@example.test", password: "candidate-password" }),
+    (error: unknown) => error instanceof ProviderAuthError && error.code === errorCode);
+  time += 5_000;
+  assert.equal(await holder.beforePoll(), true, `failed ${errorCode} replacement must preserve manual polling`);
+  const retained = await repository.getTeamProviderAuth();
+  assert.equal(retained?.storedStatus, "manual");
+  assert.equal(retained?.retryAt, "2030-09-11T08:00:30.000Z");
+  assert.equal(retained?.errorCode, errorCode);
+  assert.equal(retained?.hasPassword, false);
+  assert.equal(retained?.epoch, previous.epoch);
+  assert.deepEqual(holder.credentials(), { spxCookie: previous.cookie, spxDeviceId: previous.deviceId });
+  await assert.rejects(service.connect(1, { email: "candidate@example.test", password: "candidate-password" }),
+    (error: unknown) => error instanceof ProviderAuthError && error.code === "rate_limited");
+  assert.equal(loginCalls, 1);
+  holder.dispose();
+}
+
 {
   const repository = createRepository(record());
   const loginInputs: Array<{ credentials: ProviderCredentials; deviceId?: string }> = [];
@@ -400,21 +438,29 @@ for (const replacement of [
   });
   assert.equal(await service.recover(1, 4), true);
   assert.equal(loginCalls, 0, "a healthy identity probe must not trigger login");
+  assert.ok(await repository.acquireTeamProviderAuthLease(1), "a healthy probe must release its lease");
 }
 
 {
   const repository = createRepository(record());
   let loginCalls = 0;
+  let checkCalls = 0;
   const service = createProviderAuthService({
     repository,
     clock: () => now,
     client: {
       login: async () => { loginCalls += 1; return nextSession; },
-      check: async () => ({ status: "unavailable", errorCode: "provider_unavailable", retryAfterMs: null }),
+      check: async () => {
+        checkCalls += 1;
+        return { status: "unavailable", errorCode: "provider_unavailable", retryAfterMs: null };
+      },
     },
   });
   assert.equal(await service.recover(1, 4), false);
   assert.equal(loginCalls, 0, "gateway/network uncertainty must not trigger login");
+  assert.equal((await repository.getTeamProviderAuth())?.retryAt, "2030-09-11T08:00:30.000Z");
+  assert.equal(await service.recover(1, 4), false);
+  assert.equal(checkCalls, 1, "transient identity failures without Retry-After need the minimum cooldown");
 }
 
 {
@@ -563,6 +609,79 @@ for (const prior of [
       && error.code === "rate_limited"
       && error.retryAfterMs === 20_000,
   );
+}
+
+{
+  const repository = createRepository(record());
+  let time = now.getTime();
+  let checks = 0;
+  let logins = 0;
+  const client = {
+    login: async () => { logins += 1; return nextSession; },
+    check: async () => {
+      checks += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { status: "unavailable", errorCode: "rate_limited", retryAfterMs: 999_999 } as const;
+    },
+  };
+  const firstProcess = createProviderAuthService({ repository, client, clock: () => new Date(time) });
+  const secondProcess = createProviderAuthService({ repository, client, clock: () => new Date(time) });
+  assert.deepEqual(await Promise.all([
+    firstProcess.recover(1, 4), firstProcess.recover(1, 4), secondProcess.recover(1, 4),
+  ]), [false, false, false]);
+  assert.equal(checks, 1, "concurrent recoveries must coalesce the identity probe across owners");
+  assert.equal((await repository.getTeamProviderAuth())?.retryAt, "2030-09-11T08:05:00.000Z");
+  assert.equal((await repository.getTeamProviderAuth())?.storedStatus, "retry_wait");
+  time += 299_999;
+  assert.equal(await secondProcess.recover(1, 4), false);
+  assert.equal(checks, 1, "recovery must honor the persisted bounded identity Retry-After");
+  time += 1;
+  assert.equal(await secondProcess.recover(1, 4), false);
+  assert.equal(checks, 2, "identity checks may retry after the cooldown expires");
+  assert.equal(logins, 0, "rate-limited identity checks must never submit a password");
+}
+
+{
+  const repository = createRepository(record());
+  const replacement = record({
+    epoch: 5, storedStatus: "manual", status: "manual", email: "", password: "", hasPassword: false,
+    cookie: "spx_uk=manual-replacement", retryAt: null,
+  });
+  const service = createProviderAuthService({
+    repository, clock: () => now,
+    client: {
+      login: async () => { throw new Error("stale recovery must not login"); },
+      check: async () => {
+        repository.set(replacement);
+        return { status: "unavailable", errorCode: "rate_limited", retryAfterMs: 300_000 };
+      },
+    },
+  });
+  assert.equal(await service.recover(1, 4), true, "recovery must reload an epoch replaced during its probe");
+  assert.deepEqual(await repository.getTeamProviderAuth(), replacement);
+  assert.equal(repository.failures.length, 0, "a stale identity result must not write a cooldown over a manual replacement");
+}
+
+{
+  const base = createRepository(record());
+  const replacement = record({ epoch: 5, cookie: "spx_uk=newer-session", retryAt: null });
+  const repository = {
+    ...base,
+    async failTeamProviderAuth(...args: Parameters<typeof base.failTeamProviderAuth>) {
+      base.set(replacement);
+      return base.failTeamProviderAuth(...args);
+    },
+  };
+  const service = createProviderAuthService({
+    repository, clock: () => now,
+    client: {
+      login: async () => { throw new Error("an unavailable probe must not login"); },
+      check: async () => ({ status: "unavailable", errorCode: "rate_limited", retryAfterMs: 300_000 }),
+    },
+  });
+  assert.equal(await service.recover(1, 4), false);
+  assert.deepEqual(await base.getTeamProviderAuth(), replacement);
+  assert.equal(base.failures.length, 0, "the cooldown write must retain the original epoch fence after its final read");
 }
 
 console.log("provider-auth-session: all assertions passed");

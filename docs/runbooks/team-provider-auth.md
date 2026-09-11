@@ -42,7 +42,7 @@ An actual dashboard HTTP 401 follows SPX login recovery. Safe status reads may r
 
 After a provider operation fails, the panel reloads safe public status so the persisted attention/retry state and cooldown are visible. A displayed connecting state triggers bounded status checks; when that limit is reached, the panel offers an explicit status-check action. Status reads have a deadline and ignore responses from a closed panel or a previously selected team. These reads never resubmit provider credentials. For a provider challenge, complete the required verification with MyAgencyService, then reconnect.
 
-Known UI follow-up: if that automatic status read times out and a subsequent explicit read succeeds, the attention status updates but the earlier generic error message may still hide the specific challenge instructions. Reopen the panel to reload those instructions. This does not replay a login or change the saved credentials.
+After a successful status read, newly confirmed provider guidance replaces older request feedback. A cached challenge cannot mask a newer request failure; dashboard-session reauthentication remains the highest-priority recovery action. Retrying a status read never replays a login or changes saved credentials.
 
 ## Storage and rollout
 
@@ -56,4 +56,4 @@ The provider flow uses fixed Accounts/Logistics HTTPS destinations, CSRF initial
 
 Run `npm test -- provider-auth` for the storage, protocol, lifecycle, controller, runtime, and frontend feature checks. Run `npm run typecheck` for backend/frontend compatibility. The test runner sets `DB_MODE=memory`; no live MySQL migration is exercised. The implementation report records browser fixture coverage and any remaining validation limits.
 
-Local implementation verification covered 18 selected test files across the feature and existing team/runtime regressions, with affected tests rerun after fixes. Separate frontend and strict tracked-backend/feature TypeScript checks passed. The full workspace check still reports the same 68 pre-existing diagnostics in 19 unrelated untracked backend files; the final comparison found no changed diagnostic lines. A production build and live migration were not run.
+The scoped PR review ran in an isolated checkout without the unrelated A3 work. Full backend/frontend typecheck, production build, and lint passed. The complete test run passed 115 of 116 files; its browser startup timeout was fixed, and the affected provider browser suite then passed. The runner also includes the TSX accessibility test. See the [review report](../implementation/2026-09-11-spx-review/review.md) for findings, regression coverage, and CI evidence. Live MySQL migration and real-provider validation remain outside the synthetic test coverage.

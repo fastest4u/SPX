@@ -46,7 +46,7 @@ export function RuleEditorDialog(props: Props) {
 }
 
 function Editor({ rule: openingRule, onOpenChange, isAdmin }: Props & { isAdmin: boolean }) {
-  const [rule] = useState(openingRule)
+  const [rule, setRule] = useState(openingRule)
   const queryClient = useQueryClient()
   const [opener] = useState(() =>
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
@@ -173,8 +173,16 @@ function Editor({ rule: openingRule, onOpenChange, isAdmin }: Props & { isAdmin:
         signal: controller.signal,
       })
       if (disposed.current || controller.signal.aborted || request !== epoch.current) return
+      const acceptAll = result.review.acceptAll
+      if (!isAdmin && rule && rule.accept_all !== acceptAll) {
+        // Only the server-owned mode is refreshed; keep the operator's edits
+        // and the opening progress snapshot used by partial disabled saves.
+        setRule({ ...rule, accept_all: acceptAll })
+        setValues((current) => ({ ...current, acceptAll }))
+        initial.current = JSON.stringify({ ...initialRuleValues(rule), acceptAll })
+      }
       setPreview(result)
-      setReviewedInput(next)
+      setReviewedInput({ ...next, accept_all: acceptAll })
       setNow(Date.now())
       setView('review')
     } catch (cause) {

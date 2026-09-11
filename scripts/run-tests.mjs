@@ -12,31 +12,39 @@ process.env.DB_MODE = "memory";
 
 /**
  * Lightweight test runner for the standalone tsx test scripts in tests/.
- * Each *.test.ts file is a self-contained executable that exits 0 on success
+ * Each *.test.ts or *.test.tsx file is a self-contained executable that exits 0 on success
  * and non-zero on failure (via thrown assertions or process.exit(1)). We run
  * each in its own process so module singletons and process.chdir() calls in
- * one test cannot leak into another. Files that do not end in `.test.ts`
+ * one test cannot leak into another. Files that do not end in `.test.ts` or `.test.tsx`
  * (e.g. live smoke scripts) are intentionally skipped.
  */
 
 const onlyArg = process.argv[2];
 const DEFAULT_TEST_TIMEOUT_MS = 60_000;
-const testTimeoutMs = Number.isInteger(Number(process.env.TEST_TIMEOUT_MS))
+// Browser suites include a cold Vite compile, bounded polling scenarios and
+// browser/server cleanup. Keep ordinary test deadlines short.
+const browserTestTimeouts = new Map([
+  ["frontend-provider-auth-browser.test.ts", 180_000],
+  ["frontend-rule-review-browser.test.ts", 180_000],
+  ["frontend-team-provider-auth-settings.test.ts", 180_000],
+]);
+const configuredTestTimeoutMs = Number.isInteger(Number(process.env.TEST_TIMEOUT_MS))
   ? Number(process.env.TEST_TIMEOUT_MS)
-  : DEFAULT_TEST_TIMEOUT_MS;
+  : undefined;
 
 const testFiles = readdirSync(testsDir)
-  .filter((name) => name.endsWith(".test.ts"))
+  .filter((name) => /\.test\.tsx?$/.test(name))
   .filter((name) => (onlyArg ? name.includes(onlyArg) : true))
   .sort();
 
 if (testFiles.length === 0) {
-  console.error(onlyArg ? `No test files matched "${onlyArg}"` : "No *.test.ts files found in tests/");
+  console.error(onlyArg ? `No test files matched "${onlyArg}"` : "No *.test.ts or *.test.tsx files found in tests/");
   process.exit(1);
 }
 
 function runTest(file) {
   return new Promise((resolveRun) => {
+    const testTimeoutMs = configuredTestTimeoutMs ?? browserTestTimeouts.get(file) ?? DEFAULT_TEST_TIMEOUT_MS;
     const startedAt = Date.now();
     let settled = false;
     let exited = false;
@@ -60,6 +68,7 @@ function runTest(file) {
         signal: "TIMEOUT",
         durationMs: Date.now() - startedAt,
         timedOut: true,
+        timeoutMs: testTimeoutMs,
       });
     }, testTimeoutMs);
     timeout.unref();
@@ -92,7 +101,7 @@ for (const file of testFiles) {
     console.error(`  spawn error: ${result.error.message}`);
   }
   if (result.timedOut) {
-    console.error(`  timed out after ${testTimeoutMs}ms`);
+    console.error(`  timed out after ${result.timeoutMs}ms`);
   }
 }
 
