@@ -73,6 +73,8 @@ const teamFilters: Array<{ key: TeamFilter; label: string }> = [
 export const VEHICLE_TYPE_OPTIONS = [
   { value: '', label: 'ทั้งหมด (ไม่กรอง)' },
   { value: '13', label: '6WH-6ล้อ [7.2m]' },
+  { value: '12', label: '6WH-6ล้อ[5.5m]' },
+  { value: '8', label: 'Semi trailer-รถพ่วงแม่ลูก' },
   { value: '2', label: '4WH-4ล้อ' },
 ] as const
 
@@ -551,8 +553,8 @@ function RateLimitState({ enabled }: { enabled?: boolean }) {
 }
 
 function getVehicleTypeLabel(vehicleType?: number | null): string {
-  if (vehicleType === 13) return '6WH-6ล้อ [7.2m]'
-  if (vehicleType === 2) return '4WH-4ล้อ'
+  const option = VEHICLE_TYPE_OPTIONS.find((item) => item.value === String(vehicleType ?? ''))
+  if (option) return option.label
   if (typeof vehicleType === 'number') return `Type ${vehicleType}`
   return 'ทั้งหมด (ไม่กรอง)'
 }
