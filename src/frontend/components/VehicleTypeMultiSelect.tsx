@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '../lib/utils'
 
-const VEHICLE_TYPE_OPTIONS = ['6WH-6ล้อ[7.2m]', '4WH-4ล้อ', '4WJ-4ล้อจัมโบ้']
+const VEHICLE_TYPE_OPTIONS = [
+  '6WH-6ล้อ[7.2m]',
+  '6WH-6ล้อ[5.5m]',
+  'Semi trailer-รถพ่วงแม่ลูก',
+  '4WH-4ล้อ',
+  '4WJ-4ล้อจัมโบ้',
+]
 
 interface VehicleTypeMultiSelectProps {
   id: string
