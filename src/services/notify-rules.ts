@@ -444,6 +444,12 @@ async function broadcastAllRules(teamId: number): Promise<void> {
   sseBroadcaster.broadcast({ event: "rules", teamId, data: rules });
 }
 
+/** Refresh after verification commits rule progress inside its DB transaction. */
+export async function notifyAutoAcceptProgressCommitted(teamId: number): Promise<void> {
+  invalidateRulesCache();
+  await broadcastAllRules(teamId);
+}
+
 // ── Public API (dual mode) ───────────────────────────────────────────────
 
 export async function readRules(teamId: number): Promise<NotifyRule[]> {

@@ -1,4 +1,4 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { autoAcceptAttempts, autoAcceptResults } from "../db/schema.js";
 
@@ -215,4 +215,17 @@ export async function getAutoAcceptResult(
     ))
     .limit(1);
   return row ?? null;
+}
+
+/** One indexed read protects pending-tab candidates after worker restart. */
+export async function getOwnedAutoAcceptRequestKeys(
+  teamId: number, bookingIds: number[], requestIds: number[],
+): Promise<Set<string>> {
+  if (!bookingIds.length || !requestIds.length) return new Set();
+  await ensureDashboardTables();
+  const rows: Array<{ bookingId: number; requestId: number }> = await getDb().select({
+    bookingId: autoAcceptResults.bookingId, requestId: autoAcceptResults.requestId,
+  }).from(autoAcceptResults).where(and(eq(autoAcceptResults.teamId, teamId), eq(autoAcceptResults.status, "owned"),
+    inArray(autoAcceptResults.bookingId, [...new Set(bookingIds)]), inArray(autoAcceptResults.requestId, [...new Set(requestIds)])));
+  return new Set(rows.map(row => `${row.bookingId}:${row.requestId}`));
 }

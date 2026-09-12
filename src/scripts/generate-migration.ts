@@ -16,6 +16,7 @@ import {
   teamRuntimeDesiredStateMigrationSql,
   autoAcceptAttemptsMigrationSql,
   autoAcceptResultsMigrationSql,
+  autoAcceptVerificationJobsMigrationSql,
   appSettingsMigrationSql,
 } from "../db/migration-sql.js";
 
@@ -39,6 +40,7 @@ const allMigrations = [
   teamRuntimeDesiredStateMigrationSql,
   autoAcceptAttemptsMigrationSql,
   autoAcceptResultsMigrationSql,
+  autoAcceptVerificationJobsMigrationSql,
   appSettingsMigrationSql,
 ].join("\n\n");
 

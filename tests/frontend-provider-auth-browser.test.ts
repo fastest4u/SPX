@@ -4,6 +4,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { chromium } from 'playwright'
+import { browserFixtureServerOptions } from './browser-fixture-server.js'
 
 type FixtureControl = {
   setScenario(value: 'ready' | 'failure' | 'challenge' | 'rate-limit' | 'missing-account' | 'connecting' | 'connecting-stuck'): void
@@ -38,7 +39,7 @@ async function run() {
     cacheDir: 'node_modules/.vite-provider-auth-tests',
     optimizeDeps: { entries: ['tests/provider-auth-fixture.html'] },
     plugins: [tailwindcss(), react()],
-    server: { port: 0, watch: null },
+    server: await browserFixtureServerOptions(),
   })
   const browser = await chromium.launch({ headless: true })
   try {

@@ -3,6 +3,7 @@ import mysql from "mysql2/promise";
 import type { Pool } from "mysql2/promise";
 import { env } from "../config/env.js";
 import * as schema from "./schema.js";
+import { autoAcceptVerificationJobsMigrationSql } from "./migration-sql.js";
 import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
 
 // Use any for DB type to allow both MySQL and SQLite Drizzle instances
@@ -388,6 +389,7 @@ async function createDashboardTables(): Promise<void> {
       KEY aah_trace_id_idx (trace_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await pool.query(autoAcceptVerificationJobsMigrationSql);
   await ensureMysqlColumn(pool, "auto_accept_history", "team_id", "ALTER TABLE auto_accept_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
   await ensureMysqlColumn(pool, "auto_accept_history", "failure_reason", "ALTER TABLE auto_accept_history ADD COLUMN failure_reason VARCHAR(64) NULL AFTER error_message");
   await ensureMysqlColumn(pool, "auto_accept_history", "trace_id", "ALTER TABLE auto_accept_history ADD COLUMN trace_id VARCHAR(160) NULL AFTER failure_reason");

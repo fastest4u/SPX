@@ -4,6 +4,12 @@ import { logger } from "../utils/logger.js";
 import { metrics } from "./metrics.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 import { getSpxDispatcher } from "../utils/http-dispatcher.js";
+import {
+  ProviderReadAdmissionError,
+  ProviderReadScheduler,
+  type ProviderReadAdmissionGuard,
+  type ProviderReadPriority,
+} from "./provider-read-scheduler.js";
 import type {
   AcceptBookingRequest,
   AcceptBookingResponse,
@@ -30,6 +36,7 @@ const MAX_RETRY_AFTER_MS = 30_000;
 // Floor for the adaptive bidding-list poll timeout below. Keeps slow-but-
 // healthy responses viable even at very aggressive poll intervals.
 const LIST_TIMEOUT_FLOOR_MS = 5_000;
+const READ_CONCURRENCY = 2;
 
 /**
  * Fail-fast retry budget for the bidding-list poll. In-tick retries only pay
@@ -70,6 +77,10 @@ interface BookingRequestListOptions {
   onPage?: (page: BookingRequestListResponse) => boolean | void;
 }
 
+type ParsedReadResponse =
+  | { ok: true; value: unknown }
+  | { ok: false; error: unknown };
+
 export interface ApiClientCredentials {
   spxCookie: string;
   spxDeviceId: string;
@@ -104,10 +115,11 @@ function safeTotal(total: unknown): number {
 
 /**
  * Parse a Retry-After header (RFC 7231: either delta-seconds or an HTTP-date)
- * into a bounded backoff in milliseconds. Returns null when the header is
- * absent or unparseable so the caller falls back to its computed backoff.
+ * into milliseconds. Retry sleeps use the default safety cap; shared cooldown
+ * callers pass `null` to retain the provider's full valid deadline. Returns
+ * null when the header is absent or unparseable.
  */
-function parseRetryAfterMs(response: Response): number | null {
+function parseRetryAfterMs(response: Response, maxMs: number | null = MAX_RETRY_AFTER_MS): number | null {
   const header = response.headers.get("retry-after");
   if (!header) return null;
 
@@ -124,7 +136,7 @@ function parseRetryAfterMs(response: Response): number | null {
   }
 
   if (!Number.isFinite(ms) || ms <= 0) return null;
-  return Math.min(ms, MAX_RETRY_AFTER_MS);
+  return maxMs === null ? ms : Math.min(ms, maxMs);
 }
 
 async function fetchWithRetry(
@@ -134,24 +146,39 @@ async function fetchWithRetry(
   retries = MAX_RETRIES,
   timeoutMs = FETCH_TIMEOUT_MS,
   idempotent = true,
+  hooks: {
+    scheduleAttempt?: (read: () => Promise<Response>) => Promise<Response>;
+    observeResponse?: (response: Response) => void | Promise<void>;
+  } = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      // Route through the shared keep-alive pool so the list/request-list/accept
-      // hops reuse warm connections (DOM's RequestInit type omits `dispatcher`,
-      // which undici reads at runtime — hence the typed extension).
-      // Count every request sent so the connection-reuse ratio (vs new sockets) is measurable.
-      metrics.recordUpstreamRequest();
-      const init: RequestInit & { dispatcher?: Dispatcher } = {
-        ...options,
-        signal: controller.signal,
-        dispatcher: getSpxDispatcher(),
+      const performAttempt = async (): Promise<Response> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          // Route through the shared keep-alive pool so the list/request-list/accept
+          // hops reuse warm connections (DOM's RequestInit type omits `dispatcher`,
+          // which undici reads at runtime — hence the typed extension).
+          // Count every request sent so the connection-reuse ratio (vs new sockets) is measurable.
+          metrics.recordUpstreamRequest();
+          const init: RequestInit & { dispatcher?: Dispatcher } = {
+            ...options,
+            signal: controller.signal,
+            dispatcher: getSpxDispatcher(),
+          };
+          const response = await fetch(url, init);
+          await hooks.observeResponse?.(response);
+          return response;
+        } finally {
+          clearTimeout(timer);
+        }
       };
-      const response = await fetch(url, init);
+      const response = hooks.scheduleAttempt
+        ? await hooks.scheduleAttempt(performAttempt)
+        : await performAttempt();
       // Never retry a non-idempotent request (e.g. POST accept) on a response
       // error: the server may already have committed the side effect, so a retry
       // risks a duplicate. Return the response and let the caller reconcile.
@@ -175,6 +202,7 @@ async function fetchWithRetry(
       return response;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      if (lastError instanceof ProviderReadAdmissionError) throw lastError;
       const isAbort = lastError.name === "AbortError";
       // A thrown error (timeout/network) on a non-idempotent request is ambiguous
       // — the request may have been delivered and processed server-side. Surface
@@ -193,8 +221,6 @@ async function fetchWithRetry(
         });
         await sleep(delay);
       }
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -365,6 +391,10 @@ export class ApiClient {
    * number = filter by vehicle type. null/undefined = no filter (all types).
    */
   private readonly teamBiddingVehicleType: number | null | undefined;
+  private readonly readScheduler = new ProviderReadScheduler({ maxConcurrency: READ_CONCURRENCY });
+  private readonly parsedReadResponses = new WeakMap<Response, ParsedReadResponse>();
+  private verificationPriorityScopeDepth = 0;
+  private verificationAdmissionGuard: ProviderReadAdmissionGuard | undefined;
 
   constructor(optionsOrPollIntervalMsProvider: ApiClientOptions | (() => number) = {}) {
     if (typeof optionsOrPollIntervalMsProvider === "function") {
@@ -395,6 +425,84 @@ export class ApiClient {
     return buildBiddingListBody(env.BIDDING_PAGE_NO, vehicleType);
   }
 
+  getRateLimitRetryAt(): number {
+    return this.readScheduler.getRateLimitRetryAt();
+  }
+
+  withVerificationPriority<T>(
+    read: () => Promise<T>,
+    admissionGuard?: ProviderReadAdmissionGuard,
+  ): Promise<T> {
+    const previousAdmissionGuard = this.verificationAdmissionGuard;
+    this.verificationPriorityScopeDepth += 1;
+    this.verificationAdmissionGuard = admissionGuard;
+    try {
+      return read();
+    } finally {
+      this.verificationAdmissionGuard = previousAdmissionGuard;
+      this.verificationPriorityScopeDepth -= 1;
+    }
+  }
+
+  private captureReadPriority(): ProviderReadPriority {
+    return this.verificationPriorityScopeDepth > 0 ? "verification" : "normal";
+  }
+
+  private captureReadAdmissionGuard(): ProviderReadAdmissionGuard | undefined {
+    return this.verificationPriorityScopeDepth > 0 ? this.verificationAdmissionGuard : undefined;
+  }
+
+  private deferAfterRateLimit(response: Response): void {
+    const retryAfterMs = parseRetryAfterMs(response, null);
+    const delayMs = retryAfterMs ?? BASE_DELAY_MS + Math.random() * 500;
+    this.readScheduler.deferFor(delayMs);
+  }
+
+  private recordBusinessRateLimit(response: Response, data: unknown): void {
+    if (getRetcode(data) === SPX_RATE_LIMITED_RETCODE) {
+      this.deferAfterRateLimit(response);
+    }
+  }
+
+  private async inspectReadResponse(response: Response): Promise<void> {
+    if (response.status === 429) this.deferAfterRateLimit(response);
+    if (!response.ok) return;
+
+    try {
+      const data: unknown = await response.json();
+      this.parsedReadResponses.set(response, { ok: true, value: data });
+      this.recordBusinessRateLimit(response, data);
+    } catch (error) {
+      this.parsedReadResponses.set(response, { ok: false, error });
+    }
+  }
+
+  private readResponseJson(response: Response): Promise<unknown> {
+    const parsed = this.parsedReadResponses.get(response);
+    if (parsed?.ok) {
+      return Promise.resolve(parsed.value);
+    }
+    if (parsed) {
+      return Promise.reject(parsed.error);
+    }
+    return response.json() as Promise<unknown>;
+  }
+
+  private fetchReadWithRetry(
+    url: string,
+    options: RequestInit,
+    label: string,
+    priority: ProviderReadPriority,
+    retries = MAX_RETRIES,
+    timeoutMs = FETCH_TIMEOUT_MS,
+    admissionGuard?: ProviderReadAdmissionGuard,
+  ): Promise<Response> {
+    return fetchWithRetry(url, options, label, retries, timeoutMs, true, {
+      scheduleAttempt: (read) => this.readScheduler.schedule(read, priority, admissionGuard),
+      observeResponse: (response) => this.inspectReadResponse(response),
+    });
+  }
+
 
 
   private get overviewBaseUrl(): string {
@@ -410,9 +518,11 @@ export class ApiClient {
   }
 
   async fetch(requestNumber: number): Promise<PollingResult> {
+    const priority = this.captureReadPriority();
+    const admissionGuard = this.captureReadAdmissionGuard();
     const startTime = Date.now();
     try {
-      const response = await this.fetchBiddingListPage(this.buildBody().pageno);
+      const response = await this.fetchBiddingListPage(this.buildBody().pageno, priority, admissionGuard);
 
       const latencyMs = Date.now() - startTime;
 
@@ -435,7 +545,7 @@ export class ApiClient {
         };
       }
 
-      const data: unknown = await response.json();
+      const data = await this.readResponseJson(response);
       const apiResponse = normalizeApiResponse(data);
       const retcode = getRetcode(data);
 
@@ -488,7 +598,7 @@ export class ApiClient {
         };
       }
 
-      const allPagesResponse = await this.fetchRemainingBiddingListPages(apiResponse);
+      const allPagesResponse = await this.fetchRemainingBiddingListPages(apiResponse, priority, admissionGuard);
       if (!allPagesResponse) {
         return {
           success: false,
@@ -521,19 +631,27 @@ export class ApiClient {
     }
   }
 
-  private async fetchBiddingListPage(pageNo: number): Promise<Response> {
+  private async fetchBiddingListPage(
+    pageNo: number,
+    priority: ProviderReadPriority,
+    admissionGuard?: ProviderReadAdmissionGuard,
+  ): Promise<Response> {
     // Poll-path requests fail fast (see listPollRetries/listPollTimeoutMs):
     // the next tick re-fetches this list anyway, so recovery comes from
     // cadence, not from in-tick retries. Detail/accept hops keep full retries.
     const intervalMs = this.pollIntervalMsProvider();
-    return fetchWithRetry(env.API_URL, {
+    return this.fetchReadWithRetry(env.API_URL, {
       method: "POST",
       headers: this.headers,
       body: JSON.stringify({ ...this.buildBody(), pageno: pageNo }),
-    }, `bidding-list:${pageNo}`, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs));
+    }, `bidding-list:${pageNo}`, priority, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs), admissionGuard);
   }
 
-  private async fetchRemainingBiddingListPages(firstPage: ApiResponse): Promise<ApiResponse | null> {
+  private async fetchRemainingBiddingListPages(
+    firstPage: ApiResponse,
+    priority: ProviderReadPriority,
+    admissionGuard?: ProviderReadAdmissionGuard,
+  ): Promise<ApiResponse | null> {
     const firstList = firstPage.data.list;
     const total = safeTotal(firstPage.data.total);
     if (firstList.length >= total) {
@@ -573,13 +691,13 @@ export class ApiClient {
       REQUEST_LIST_PAGE_CONCURRENCY,
       async (pageNo) => {
         try {
-          const response = await this.fetchBiddingListPage(pageNo);
+          const response = await this.fetchBiddingListPage(pageNo, priority, admissionGuard);
           if (!response.ok) {
             logger.warn("bidding-list-page-failed", { pageNo, status: response.status });
             return null;
           }
 
-          const data: unknown = await response.json();
+          const data = await this.readResponseJson(response);
           const page = normalizeApiResponse(data);
           if (!page) {
             logger.warn("bidding-list-page-unexpected-shape", { pageNo });
@@ -618,11 +736,21 @@ export class ApiClient {
   }
 
   async fetchBookingOverview(bookingId: number): Promise<BookingOverviewResponse | null> {
+    const priority = this.captureReadPriority();
+    const admissionGuard = this.captureReadAdmissionGuard();
     const url = `${this.overviewBaseUrl}?id=${bookingId}`;
     try {
-      const response = await fetchWithRetry(url, { method: "GET", headers: this.headers }, "booking-overview");
+      const response = await this.fetchReadWithRetry(
+        url,
+        { method: "GET", headers: this.headers },
+        "booking-overview",
+        priority,
+        undefined,
+        undefined,
+        admissionGuard,
+      );
       if (!response.ok) return null;
-      const data: unknown = await response.json();
+      const data = await this.readResponseJson(response);
       return isBookingOverviewResponse(data) ? data : null;
     } catch (err) {
       logger.warn("booking-overview-failed", { bookingId, error: err instanceof Error ? err.message : String(err) });
@@ -634,8 +762,16 @@ export class ApiClient {
     bookingId: number,
     options: BookingRequestListOptions = {}
   ): Promise<BookingRequestListResponse | null> {
+    const priority = this.captureReadPriority();
+    const admissionGuard = this.captureReadAdmissionGuard();
     const tabPendingConfirmation = options.tabPendingConfirmation ?? env.REQUEST_TAB_PENDING_CONFIRMATION;
-    const firstPage = await this.fetchBookingRequestListPage(bookingId, 1, tabPendingConfirmation);
+    const firstPage = await this.fetchBookingRequestListPage(
+      bookingId,
+      1,
+      tabPendingConfirmation,
+      priority,
+      admissionGuard,
+    );
     if (!firstPage) {
       return null;
     }
@@ -676,7 +812,13 @@ export class ApiClient {
         REQUEST_LIST_PAGE_CONCURRENCY,
         async (p) => {
           if (aborted) return null;
-          const page = await this.fetchBookingRequestListPage(bookingId, p, tabPendingConfirmation);
+          const page = await this.fetchBookingRequestListPage(
+            bookingId,
+            p,
+            tabPendingConfirmation,
+            priority,
+            admissionGuard,
+          );
           if (page) {
             const cont = this.notifyBookingRequestListPage(bookingId, page, options.onPage);
             if (!cont) aborted = true;
@@ -758,6 +900,7 @@ export class ApiClient {
         headers: this.headers,
         body: JSON.stringify(body),
       }, `booking-accept:${body.booking_id}`, 0, ACCEPT_TIMEOUT_MS, false);
+      if (response.status === 429) this.deferAfterRateLimit(response);
       metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
       acceptRttRecorded = true;
 
@@ -772,6 +915,7 @@ export class ApiClient {
       }
 
       const retcode = getRetcode(parsed);
+      this.recordBusinessRateLimit(response, parsed);
       const message = getMessage(parsed);
       const normalized: AcceptBookingResponse | null = retcode === null
         ? null
@@ -813,7 +957,9 @@ export class ApiClient {
   private async fetchBookingRequestListPage(
     bookingId: number,
     pageNo: number,
-    tabPendingConfirmation: boolean = env.REQUEST_TAB_PENDING_CONFIRMATION
+    tabPendingConfirmation: boolean = env.REQUEST_TAB_PENDING_CONFIRMATION,
+    priority: ProviderReadPriority = "normal",
+    admissionGuard?: ProviderReadAdmissionGuard,
   ): Promise<BookingRequestListResponse | null> {
     const body: BookingRequestListRequest = {
       request_tab_pending_confirmation: tabPendingConfirmation,
@@ -823,14 +969,14 @@ export class ApiClient {
     };
 
     try {
-      const response = await fetchWithRetry(this.requestListUrl, {
+      const response = await this.fetchReadWithRetry(this.requestListUrl, {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-request-list:${bookingId}:${pageNo}`);
+      }, `booking-request-list:${bookingId}:${pageNo}`, priority, undefined, undefined, admissionGuard);
 
       if (!response.ok) return null;
-      const data: unknown = await response.json();
+      const data = await this.readResponseJson(response);
       const page = normalizeBookingRequestListResponse(data);
       if (!page) return null;
       if (page.retcode !== 0) {

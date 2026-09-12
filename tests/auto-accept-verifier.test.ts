@@ -44,6 +44,58 @@ function baseJob(overrides: Partial<AutoAcceptVerificationJob> = {}): AutoAccept
 
 async function main(): Promise<void> {
   {
+    const apiClient = { fetchBookingRequestList: async () => requestListResponse([
+      { request_id: 38659805, booking_id: 2706815, request_acceptance_status: 1 },
+    ]) } as unknown as ApiClient;
+    const outcome = await verifyAutoAcceptJob(apiClient, baseJob({ acceptAll: true,
+      reservationCount: 5, ambiguousAccept: true, acceptResult: { ok: false, httpStatus: 0 },
+      discovery: { bookingName: "A > B", expectedAcceptedCount: 1 } }), { skipAmbiguousRecheck: true });
+    assert.equal(outcome.discoveryPending, true,
+      "readable but unresolved accept_all must retain the entire unknown booking reservation");
+    assert.deepEqual(outcome.indeterminateRequestIds, [38659805]);
+  }
+  {
+    const apiClient = {
+      fetchBookingRequestList: async () => requestListResponse([
+        { request_id: 38659805, booking_id: 2706815, request_acceptance_status: 2 },
+      ]),
+    } as unknown as ApiClient;
+    const outcome = await verifyAutoAcceptJob(apiClient, baseJob({ requestIds: [], acceptAll: true,
+      discovery: { bookingName: "A > B", expectedAcceptedCount: 3 } }));
+    assert.equal(outcome.discoveryPending, true, "accept_all must keep discovering when only 1 of 3 acknowledged wins is visible");
+    assert.deepEqual(outcome.acceptedRequestIds, [38659805]);
+  }
+  // An unreadable tab is missing evidence, not a negative ownership result.
+  for (const teamId of [1, 2]) {
+    for (const readablePending of [true, false]) {
+      const apiClient = {
+        fetchBookingRequestList: async (_id: number, options?: { tabPendingConfirmation?: boolean }) =>
+          options?.tabPendingConfirmation === readablePending ? requestListResponse([]) : null,
+      } as unknown as ApiClient;
+      const outcome = await verifyAutoAcceptJob(apiClient, baseJob({ teamId }));
+      assert.deepEqual(outcome.failedRequestIds, [], "a partial read must never prove a loss");
+      assert.deepEqual(outcome.indeterminateRequestIds, [38659805]);
+      assert.equal(outcome.requests[0]?.releaseRequestDedupe, false);
+      assert.equal(outcome.requests[0]?.releaseBudget, false);
+    }
+  }
+
+  {
+    const apiClient = {
+      fetchBookingRequestList: async (_id: number, options?: { tabPendingConfirmation?: boolean }) =>
+        requestListResponse([{ request_id: 38659805, booking_id: 2706815,
+          request_acceptance_status: options?.tabPendingConfirmation ? 6 : 2 }]),
+    } as unknown as ApiClient;
+    const outcome = await verifyAutoAcceptJob(apiClient, baseJob());
+    assert.deepEqual(outcome.acceptedRequestIds, [38659805], "owned evidence must win over a stale non-owned tab");
+  }
+
+  {
+    const apiClient = { fetchBookingRequestList: async () => requestListResponse([]) } as unknown as ApiClient;
+    const outcome = await verifyAutoAcceptJob(apiClient, baseJob());
+    assert.deepEqual(outcome.indeterminateRequestIds, [38659805], "an accepted POST may precede list visibility");
+  }
+  {
     const tabReads: boolean[] = [];
     const apiClient = {
       fetchBookingRequestList: async (_bookingId: number, options?: { tabPendingConfirmation?: boolean }) => {
@@ -113,7 +165,7 @@ async function main(): Promise<void> {
     assert.equal(outcome.requests[0]?.reason, "verify_indeterminate");
     assert.equal(outcome.requests[0]?.terminal, false);
     assert.equal(outcome.requests[0]?.releaseBudget, false);
-    assert.equal(outcome.requests[0]?.releaseRequestDedupe, true);
+    assert.equal(outcome.requests[0]?.releaseRequestDedupe, false);
     assert.equal(outcome.evidence.pendingTabRead, false);
     assert.equal(outcome.evidence.confirmedTabRead, false);
   }

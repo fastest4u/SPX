@@ -6,14 +6,17 @@ import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.
 import {
   insertAutoAcceptAttempt,
   upsertAutoAcceptResult,
+  getOwnedAutoAcceptRequestKeys,
   type AutoAcceptResultStatus,
 } from "../repositories/auto-accept-result-repository.js";
 import type { ApiClient } from "./api-client.js";
 import { isLineBotEnabled, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
 import { buildAutoAcceptFailureAlertText, buildAutoAcceptTraceId, summarizeAutoAcceptEvidence, type AutoAcceptFailureReason } from "./auto-accept-diagnostics.js";
-import { verifyAutoAcceptJob, type AutoAcceptVerificationJob, type AutoAcceptVerificationOutcome } from "./auto-accept-verifier.js";
+import type { AutoAcceptVerificationJob, AutoAcceptVerificationOutcome } from "./auto-accept-verifier.js";
 import { createWorkerNotificationPublisher, type NotificationPublisher } from "./notification-publisher.js";
 import { buildAutoAcceptEventKey } from "./notification-events.js";
+import { AutoAcceptVerificationRunner, verificationHoldCount } from "./auto-accept-verification-runner.js";
+import { notifyAutoAcceptProgressCommitted } from "./notify-rules.js";
 
 // Re-export for backward compatibility
 export type { LineBotStatus as LineJsQrLoginResult } from "./line-bot.js";
@@ -313,6 +316,9 @@ interface AutoAcceptOptions {
   autoAcceptRules?: NotifyRule[];
   verificationMode?: "inline" | "detached";
   selectionStrategy?: RequestSelectionStrategy;
+  canVerify?: () => boolean | Promise<boolean>;
+  onVerifiedTrips?: (trips: TripLike[]) => void | Promise<void>;
+  onRetryableBooking?: (ruleId: string, bookingId: number) => void;
 }
 
 /**
@@ -355,6 +361,7 @@ export type ClaimToken = number;
  */
 export class NeedBudget {
   private remaining = new Map<string, number>();
+  private verificationHolds = new Map<string, Map<string, number>>();
   /** ruleId → token → unresolved claim batch. */
   private inFlight = new Map<string, Map<ClaimToken, { count: number; claimedAt: number }>>();
   /** Claims settled (DB decrement committed) since the last beginTick. */
@@ -421,8 +428,33 @@ export class NeedBudget {
     }
   }
 
+  /** Durable verification has no time-based expiry; only evidence releases it. */
+  trackVerification(ruleId: string, traceId: string, count: number): void {
+    const holds = this.verificationHolds.get(ruleId) ?? new Map<string, number>();
+    const previous = holds.get(traceId) ?? 0;
+    if (count > 0) holds.set(traceId, count);
+    else holds.delete(traceId);
+    if (holds.size > 0) this.verificationHolds.set(ruleId, holds);
+    else this.verificationHolds.delete(ruleId);
+    if (this.remaining.has(ruleId)) {
+      this.remaining.set(ruleId, Math.max(0, this.remaining.get(ruleId)! + previous - count));
+    }
+  }
+
+  /** Called only after the durable transaction commits, with newly owned IDs. */
+  settleVerification(ruleId: string, traceId: string, acceptedCount: number, remainingCount: number): void {
+    this.trackVerification(ruleId, traceId, remainingCount);
+    if (acceptedCount > 0) {
+      this.settledSinceTick.set(ruleId, (this.settledSinceTick.get(ruleId) ?? 0) + acceptedCount);
+      if (this.remaining.has(ruleId)) {
+        this.remaining.set(ruleId, Math.max(0, this.remaining.get(ruleId)! - acceptedCount));
+      }
+    }
+  }
+
   private heldCount(ruleId: string): number {
     let held = this.settledSinceTick.get(ruleId) ?? 0;
+    for (const count of this.verificationHolds.get(ruleId)?.values() ?? []) held += count;
     const batches = this.inFlight.get(ruleId);
     if (batches) {
       for (const batch of batches.values()) held += batch.count;
@@ -853,104 +885,125 @@ interface AutoAcceptBookingEntry {
   ruleName: string;
 }
 
-interface AutoAcceptVerificationQueueItem {
-  apiClient: ApiClient;
-  job: AutoAcceptVerificationJob;
-  options: Pick<AutoAcceptOptions, "notificationContext" | "needBudget" | "deferSideEffects">;
-}
-
-const AUTO_ACCEPT_VERIFY_CONCURRENCY = 2;
-const autoAcceptVerifyQueue: AutoAcceptVerificationQueueItem[] = [];
-const autoAcceptVerifyIdleWaiters: Array<() => void> = [];
-let activeAutoAcceptVerifyJobs = 0;
+type RecoveryOptions = Pick<AutoAcceptOptions, "teamId" | "notificationContext" | "needBudget" | "canVerify" | "onVerifiedTrips" | "onRetryableBooking">;
+const verificationRunners = new Set<AutoAcceptVerificationRunner>();
+const verificationRunnersByClient = new WeakMap<ApiClient, Map<number, AutoAcceptVerificationRunner>>();
 
 function emptyAutoAcceptRuleRunResult(): AutoAcceptRuleRunResult {
-  return {
-    autoAcceptMatches: [],
-    accepted: [],
-    failed: [],
-    deferredRequests: 0,
-    pendingVerification: 0,
-    acceptedProgress: [],
-    historyWrites: [],
-    claimToken: 0,
-  };
+  return { autoAcceptMatches: [], accepted: [], failed: [], deferredRequests: 0,
+    pendingVerification: 0, acceptedProgress: [], historyWrites: [], claimToken: 0 };
 }
 
-function autoAcceptVerifyIdle(): boolean {
-  return activeAutoAcceptVerifyJobs === 0 && autoAcceptVerifyQueue.length === 0;
+export function getAutoAcceptVerificationRunner(apiClient: ApiClient, options: RecoveryOptions): AutoAcceptVerificationRunner {
+  const teamId = options.teamId ?? 1;
+  let runners = verificationRunnersByClient.get(apiClient);
+  if (!runners) { runners = new Map(); verificationRunnersByClient.set(apiClient, runners); }
+  const existing = runners.get(teamId);
+  if (existing) return existing;
+  const runner = new AutoAcceptVerificationRunner(teamId, apiClient, {
+    canRun: options.canVerify ?? (() => true),
+    onHold: record => options.needBudget?.trackVerification(record.job.ruleId, record.job.traceId, verificationHoldCount(record)),
+    onSettled: async (record, acceptedIds, failedIds) => {
+      options.needBudget?.settleVerification(record.job.ruleId, record.job.traceId, acceptedIds.length, verificationHoldCount(record));
+      const newlyFailed = new Set(failedIds);
+      const retryable = record.notifications.flatMap(notification => notification.outcome.requests)
+        .filter(request => newlyFailed.has(request.requestId) && request.releaseRequestDedupe);
+      for (const request of retryable) releaseAutoAcceptRequest(record.job.bookingId, request.requestId);
+      if (record.job.acceptAll && retryable.length > 0 && verificationHoldCount(record) === 0) {
+        releaseAutoAcceptAllBooking(record.job.ruleId, record.job.bookingId);
+        options.onRetryableBooking?.(record.job.ruleId, record.job.bookingId);
+      }
+      if (record.job.discovery && record.job.requestIds.length === 0 && !record.job.ambiguousAccept
+        && !record.job.acceptResult.ok && verificationHoldCount(record) === 0) {
+        options.onRetryableBooking?.(record.job.ruleId, record.job.bookingId);
+      }
+      for (const id of acceptedIds) rememberAcceptedRequest(record.job.ruleId, id);
+      for (const _id of acceptedIds) metrics.recordAutoAccept(true);
+      for (const _id of failedIds) metrics.recordAutoAccept(false);
+      if (acceptedIds.length > 0) {
+        await notifyAutoAcceptProgressCommitted(teamId);
+      }
+    },
+    publish: async outcome => {
+      const ids = new Set(outcome.acceptedRequestIds);
+      // Durable notification replay also retries the idempotent booking-history save.
+      if (ids.size > 0) await options.onVerifiedTrips?.(outcome.job.trips.filter(trip => ids.has(Number(trip.request_id))));
+      return publishDurableVerificationOutcome(outcome, options.notificationContext);
+    },
+  });
+  runners.set(teamId, runner);
+  verificationRunners.add(runner);
+  return runner;
 }
 
-function resolveAutoAcceptVerifyIdleWaiters(): void {
-  if (!autoAcceptVerifyIdle()) return;
-  while (autoAcceptVerifyIdleWaiters.length > 0) {
-    const resolve = autoAcceptVerifyIdleWaiters.shift();
-    resolve?.();
-  }
+export async function stopAutoAcceptVerificationRecovery(apiClient: ApiClient, teamId: number): Promise<void> {
+  const runner = verificationRunnersByClient.get(apiClient)?.get(teamId);
+  if (!runner) return;
+  await runner.stop();
+  verificationRunners.delete(runner);
+  verificationRunnersByClient.get(apiClient)?.delete(teamId);
 }
 
 export async function awaitAutoAcceptVerificationIdle(timeoutMs = 5_000): Promise<void> {
-  if (autoAcceptVerifyIdle()) return;
-  await Promise.race([
-    new Promise<void>((resolve) => autoAcceptVerifyIdleWaiters.push(resolve)),
-    new Promise<void>((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for auto-accept verification queue")), timeoutMs)),
-  ]);
+  await Promise.all([...verificationRunners].map(runner => runner.idle(timeoutMs)));
 }
 
-function enqueueAutoAcceptVerification(item: AutoAcceptVerificationQueueItem): void {
-  autoAcceptVerifyQueue.push(item);
-  metrics.recordAutoAcceptVerificationQueued(autoAcceptVerifyQueue.length);
-  drainAutoAcceptVerifyQueue();
-}
-
-function drainAutoAcceptVerifyQueue(): void {
-  while (activeAutoAcceptVerifyJobs < AUTO_ACCEPT_VERIFY_CONCURRENCY && autoAcceptVerifyQueue.length > 0) {
-    const item = autoAcceptVerifyQueue.shift();
-    if (!item) continue;
-    activeAutoAcceptVerifyJobs += 1;
-    metrics.recordAutoAcceptVerificationActive(activeAutoAcceptVerifyJobs, autoAcceptVerifyQueue.length);
-    void processAutoAcceptVerification(item)
-      .catch((err) => {
-        logger.error("auto-accept-detached-verification-failed", {
-          bookingId: item.job.bookingId,
-          requestIds: item.job.requestIds,
-          ruleId: item.job.ruleId,
-          traceId: item.job.traceId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => {
-        activeAutoAcceptVerifyJobs -= 1;
-        metrics.recordAutoAcceptVerificationActive(activeAutoAcceptVerifyJobs, autoAcceptVerifyQueue.length);
-        drainAutoAcceptVerifyQueue();
-        resolveAutoAcceptVerifyIdleWaiters();
-      });
+async function publishDurableVerificationOutcome(outcome: AutoAcceptVerificationOutcome, context?: TeamNotificationContext): Promise<boolean> {
+  const accepted = acceptedTripsForOutcome(outcome);
+  if (accepted.length > 0) {
+    if (env.SPX_ROLE !== "worker" && !hasNotificationTarget(context)) return true;
+    return routeAutoAcceptSuccessNotification(accepted, {
+      teamId: outcome.job.teamId, notificationContext: context, source: "detached_verification",
+      traceId: outcome.job.traceId, evidence: { ...outcome.evidence },
+    });
   }
-}
-
-async function processAutoAcceptVerification(item: AutoAcceptVerificationQueueItem): Promise<void> {
-  const outcome = await verifyAutoAcceptJob(item.apiClient, item.job);
-  metrics.recordAutoAcceptVerificationCompleted({
-    status: outcome.verificationStatus,
-    reason: outcome.evidence.reason,
-    verificationLatencyMs: outcome.evidence.verificationLatencyMs ?? 0,
-    acceptToVerifyMs: Date.now() - item.job.acceptFinishedAt,
-  });
-  if (typeof item.job.listAgeMs === "number") {
-    metrics.recordOperation("listAgeMs", item.job.listAgeMs);
+  if (outcome.failedRequestIds.length === 0) return true;
+  if (env.SPX_ROLE !== "worker" && !hasNotificationTarget(context)) return true;
+  const failures: AutoAcceptResult["failed"] = [{
+    bookingId: outcome.job.bookingId, requestIds: outcome.failedRequestIds,
+    error: summarizeAutoAcceptEvidence(outcome.evidence), reason: outcome.requests[0]?.reason,
+    traceId: outcome.job.traceId, acceptRttMs: outcome.job.acceptRttMs,
+    pendingTabRead: outcome.evidence.pendingTabRead, confirmedTabRead: outcome.evidence.confirmedTabRead,
+  }];
+  if (env.SPX_ROLE === "worker") {
+    return publishWorkerAutoAcceptFailureNotification(failures, buildAutoAcceptFailureAlertText({
+      now: new Date(), failures: failures.map(failure => ({ ...failure, reason: failure.reason ?? "accept_api_error" })),
+    }), context);
   }
-  await finalizeAutoAcceptVerificationOutcome({
-    teamId: item.job.teamId,
-    outcome,
-    notificationContext: item.options.notificationContext,
-    needBudget: item.options.needBudget,
-    deferSideEffects: item.options.deferSideEffects ?? false,
-  });
+  await sendDetachedAutoAcceptFailureAlert(failures, context);
+  return true;
 }
 
-function firstTripText(job: AutoAcceptVerificationJob, field: "origin" | "destination" | "vehicle_type", thaiField: string): string {
-  const first = job.trips[0] as Record<string, unknown> | undefined;
-  return textValue(first?.[field] ?? first?.[thaiField]);
+export async function submitDurableAutoAccept(
+  apiClient: ApiClient, job: AutoAcceptVerificationJob, options: RecoveryOptions,
+): Promise<Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>> {
+  const runner = getAutoAcceptVerificationRunner(apiClient, options);
+  const created = await runner.prepare(job, () => options.needBudget?.release(job.ruleId, job.claimToken,
+    job.reservationCount ?? Math.max(job.requestIds.length, 1)));
+  if (!created) return { ok: false, httpStatus: 0, response: null, error: "Verification already pending" };
+  let result: Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>;
+  try {
+    result = job.acceptAll ? await apiClient.acceptAllBookingRequests(job.bookingId)
+      : await apiClient.acceptBookingRequests(job.bookingId, job.requestIds);
+  } catch {
+    // A thrown POST may have committed upstream; recovery only reads its result.
+    result = { ok: false, httpStatus: 0, response: null, error: "Accept transport outcome unknown" };
+  }
+  const acceptFinishedAt = Date.now();
+  const data = result.response?.data;
+  const successCount = data && typeof data === "object" ? (data as Record<string, unknown>).success_count : undefined;
+  const completed = { ...job, acceptFinishedAt, acceptRttMs: acceptFinishedAt - job.acceptStartedAt,
+    ...(job.discovery ? { discovery: { ...job.discovery, expectedAcceptedCount:
+      typeof successCount === "number" && Number.isInteger(successCount) && successCount > 0
+        ? successCount : job.discovery.expectedAcceptedCount } } : {}),
+    ambiguousAccept: result.httpStatus === 0,
+    acceptResult: { ok: result.ok, httpStatus: result.httpStatus, retcode: result.response?.retcode,
+      message: result.response?.message, error: result.error } };
+  try { await runner.submitted(completed); }
+  catch (error) {
+    logger.error("auto-accept-verification-response-save-pending", { teamId: job.teamId, traceId: job.traceId, error: String(error) });
+  }
+  return result;
 }
 
 function firstTripListAgeMs(trips: TripLike[]): number | undefined {
@@ -1032,196 +1085,6 @@ async function sendDetachedAutoAcceptFailureAlert(
   }
 }
 
-async function finalizeAutoAcceptVerificationOutcome(input: {
-  teamId: number;
-  outcome: AutoAcceptVerificationOutcome;
-  notificationContext?: TeamNotificationContext;
-  needBudget?: NeedBudget;
-  deferSideEffects: boolean;
-}): Promise<{
-  accepted: AcceptedTrip[];
-  failed: AutoAcceptResult["failed"];
-  deferredRequests: number;
-}> {
-  const { outcome } = input;
-  const job = outcome.job;
-  const accepted = acceptedTripsForOutcome(outcome);
-  const failedRequests = outcome.requests.filter((request) => request.status === "failed");
-  const indeterminateRequests = outcome.requests.filter((request) => request.status === "indeterminate");
-  const failed: AutoAcceptResult["failed"] = [];
-
-  for (const request of outcome.requests) {
-    if (request.releaseRequestDedupe) releaseAutoAcceptRequest(job.bookingId, request.requestId);
-  }
-  if (job.acceptAll && outcome.requests.some((request) => request.releaseRequestDedupe)) {
-    releaseAutoAcceptAllBooking(job.ruleId, job.bookingId);
-  }
-
-  const budgetReleaseCount = outcome.requests.filter((request) => request.releaseBudget).length;
-  if (budgetReleaseCount > 0) input.needBudget?.release(job.ruleId, job.claimToken, budgetReleaseCount);
-
-  if (accepted.length > 0) {
-    for (const item of accepted) rememberAcceptedRequest(job.ruleId, item.requestId);
-    for (const requestId of outcome.acceptedRequestIds) {
-      await recordAutoAcceptResultSafely({
-        teamId: input.teamId,
-        bookingId: job.bookingId,
-        requestId,
-        traceId: job.traceId,
-        status: "owned",
-        reasonCode: "verified_owned",
-        evidence: {
-          source: "detached_verification",
-          acceptRttMs: job.acceptRttMs,
-          httpStatus: job.acceptResult.httpStatus,
-          retcode: job.acceptResult.retcode,
-          message: job.acceptResult.message,
-          acceptAll: job.acceptAll,
-          verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-          pendingTabRead: outcome.evidence.pendingTabRead,
-          confirmedTabRead: outcome.evidence.confirmedTabRead,
-          observedStatuses: outcome.evidence.observedStatuses,
-        },
-      });
-    }
-    try {
-      await applyAutoAcceptProgress(input.teamId, [{ ruleId: job.ruleId, acceptedCount: accepted.length }], (ruleId, acceptedCount) => {
-        input.needBudget?.settle(ruleId, job.claimToken, acceptedCount);
-      });
-    } catch (err) {
-      logger.error("auto-accept-progress-failed", {
-        rules: [job.ruleId],
-        traceId: job.traceId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
-    await insertAutoAcceptHistory(input.teamId, {
-      ruleId: job.ruleId,
-      ruleName: job.ruleName,
-      bookingId: job.bookingId,
-      requestIds: outcome.acceptedRequestIds,
-      acceptedCount: outcome.acceptedRequestIds.length,
-      origin: firstTripText(job, "origin", "ต้นทาง"),
-      destination: firstTripText(job, "destination", "ปลายทาง"),
-      vehicleType: firstTripText(job, "vehicle_type", "ประเภทรถ"),
-      status: "success",
-      traceId: job.traceId,
-      acceptRttMs: job.acceptRttMs,
-      listAgeMs: job.listAgeMs,
-      verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-      verificationStatus: "verified_success",
-      verifiedAt: new Date(),
-    });
-    await routeAutoAcceptSuccessNotification(accepted, {
-      teamId: input.teamId,
-      notificationContext: input.notificationContext,
-      source: "detached_verification",
-      traceId: job.traceId,
-      evidence: {
-        traceId: job.traceId,
-        acceptRttMs: job.acceptRttMs,
-        listAgeMs: job.listAgeMs,
-        verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-        pendingTabRead: outcome.evidence.pendingTabRead,
-        confirmedTabRead: outcome.evidence.confirmedTabRead,
-      },
-    });
-  }
-
-  if (failedRequests.length > 0) {
-    const reason = failedRequests[0]?.reason ?? "accept_api_error";
-    const errorMessage = summarizeAutoAcceptEvidence(outcome.evidence);
-    const requestIds = failedRequests.map((request) => request.requestId);
-    for (const request of failedRequests) {
-      const reasonCode = canonicalFailureReasonCode(request.reason, job.acceptResult.ok);
-      await recordAutoAcceptResultSafely({
-        teamId: input.teamId,
-        bookingId: job.bookingId,
-        requestId: request.requestId,
-        traceId: job.traceId,
-        status: canonicalFailureStatus(reasonCode, job.acceptResult.ok),
-        reasonCode,
-        evidence: {
-          source: "detached_verification",
-          acceptRttMs: job.acceptRttMs,
-          httpStatus: job.acceptResult.httpStatus,
-          retcode: job.acceptResult.retcode,
-          message: job.acceptResult.message,
-          error: job.acceptResult.error,
-          acceptAll: job.acceptAll,
-          requestReason: request.reason,
-          observedStatus: request.observedStatus,
-          verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-          pendingTabRead: outcome.evidence.pendingTabRead,
-          confirmedTabRead: outcome.evidence.confirmedTabRead,
-          observedStatuses: outcome.evidence.observedStatuses,
-        },
-      });
-    }
-    for (let i = 0; i < failedRequests.length; i++) metrics.recordAutoAccept(false);
-    await insertAutoAcceptHistory(input.teamId, {
-      ruleId: job.ruleId,
-      ruleName: job.ruleName,
-      bookingId: job.bookingId,
-      requestIds,
-      acceptedCount: 0,
-      origin: firstTripText(job, "origin", "ต้นทาง"),
-      destination: firstTripText(job, "destination", "ปลายทาง"),
-      vehicleType: firstTripText(job, "vehicle_type", "ประเภทรถ"),
-      status: "failed",
-      errorMessage,
-      failureReason: reason,
-      traceId: job.traceId,
-      acceptRttMs: job.acceptRttMs,
-      listAgeMs: job.listAgeMs,
-      verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-      verificationStatus: "verified_failed",
-      verifiedAt: new Date(),
-    });
-    failed.push({
-      bookingId: job.bookingId,
-      requestIds,
-      error: errorMessage,
-      reason,
-      traceId: job.traceId,
-      acceptRttMs: job.acceptRttMs,
-      listAgeMs: job.listAgeMs,
-      pendingTabRead: outcome.evidence.pendingTabRead,
-      confirmedTabRead: outcome.evidence.confirmedTabRead,
-      nextAction: outcome.evidence.nextAction,
-    });
-  }
-
-  if (indeterminateRequests.length > 0) {
-    const reason = indeterminateRequests[0]?.reason ?? "verify_indeterminate";
-    await insertAutoAcceptHistory(input.teamId, {
-      ruleId: job.ruleId,
-      ruleName: job.ruleName,
-      bookingId: job.bookingId,
-      requestIds: indeterminateRequests.map((request) => request.requestId),
-      acceptedCount: 0,
-      origin: firstTripText(job, "origin", "ต้นทาง"),
-      destination: firstTripText(job, "destination", "ปลายทาง"),
-      vehicleType: firstTripText(job, "vehicle_type", "ประเภทรถ"),
-      status: "indeterminate",
-      errorMessage: summarizeAutoAcceptEvidence(outcome.evidence),
-      failureReason: reason,
-      traceId: job.traceId,
-      acceptRttMs: job.acceptRttMs,
-      listAgeMs: job.listAgeMs,
-      verificationLatencyMs: outcome.evidence.verificationLatencyMs,
-      verificationStatus: "indeterminate",
-      verifiedAt: new Date(),
-    });
-  }
-
-  if (failed.length > 0) await sendDetachedAutoAcceptFailureAlert(failed, input.notificationContext);
-
-  return { accepted, failed, deferredRequests: indeterminateRequests.length };
-}
-
 export function applyRequestSelectionStrategy<T>(items: T[], strategy: RequestSelectionStrategy = "random"): T[] {
   if (items.length <= 1) return items;
   if (strategy === "last") {
@@ -1241,8 +1104,10 @@ export function applyRequestSelectionStrategy<T>(items: T[], strategy: RequestSe
 
 function selectAutoAcceptRequests(
   match: RuleTripMatch,
-  options: AutoAcceptOptions
-): { selected: SelectedAutoAcceptRequest[]; claimToken: ClaimToken } {
+  options: AutoAcceptOptions,
+  runner?: AutoAcceptVerificationRunner,
+  ownedKeys: Set<string> = new Set(),
+): { selected: SelectedAutoAcceptRequest[]; claimToken: ClaimToken; reservationCount: number } {
   const candidates: SelectedAutoAcceptRequest[] = [];
 
   for (const trip of match.trips) {
@@ -1255,20 +1120,23 @@ function selectAutoAcceptRequests(
     }
 
     if (acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId))) continue;
+    if (ownedKeys.has(`${bookingId}:${requestId}`)) continue;
+    if (runner?.hasPending(bookingId, requestId)) continue;
     candidates.push({ trip, bookingId, requestId });
   }
 
   const strategy = options.selectionStrategy ?? env.REQUEST_SELECTION_STRATEGY;
   applyRequestSelectionStrategy(candidates, strategy);
 
+  const reserveWholeRule = Boolean(runner && match.acceptAll);
   const { granted: limit, token: claimToken } = options.needBudget
-    ? options.needBudget.claim(match.ruleId, match.need, candidates.length)
+    ? options.needBudget.claim(match.ruleId, match.need, reserveWholeRule ? match.need : candidates.length)
     : { granted: Math.max(0, match.need), token: 0 };
   const selected: SelectedAutoAcceptRequest[] = [];
   const selectedAcceptAllBookings = new Set<number>();
 
   for (const candidate of candidates) {
-    if (selected.length >= limit) break;
+    if (selected.length >= Math.min(limit, reserveWholeRule ? 1 : limit)) break;
     if (match.acceptAll) {
       if (selectedAcceptAllBookings.has(candidate.bookingId)) continue;
       if (!claimAutoAcceptAllBooking(match.ruleId, candidate.bookingId)) continue;
@@ -1282,7 +1150,8 @@ function selectAutoAcceptRequests(
     }
   }
 
-  options.needBudget?.release(match.ruleId, claimToken, limit - selected.length);
+  const reservationCount = reserveWholeRule && selected.length > 0 ? limit : selected.length;
+  options.needBudget?.release(match.ruleId, claimToken, limit - reservationCount);
 
   if (match.trips.length > selected.length) {
     logger.info("auto-accept-truncated", {
@@ -1295,7 +1164,7 @@ function selectAutoAcceptRequests(
     });
   }
 
-  return { selected, claimToken };
+  return { selected, claimToken, reservationCount };
 }
 
 async function acceptAutoAcceptMatch(
@@ -1312,7 +1181,12 @@ async function acceptAutoAcceptMatch(
     selectionStrategy: strategy,
   });
 
-  const { selected, claimToken } = selectAutoAcceptRequests(match, options);
+  const runner = options.verificationMode === "detached" ? getAutoAcceptVerificationRunner(apiClient, options) : undefined;
+  await runner?.restore();
+  const ownedKeys = runner ? await getOwnedAutoAcceptRequestKeys(options.teamId ?? 1,
+    match.trips.map(trip => Number(trip.booking_id)).filter(Number.isSafeInteger),
+    match.trips.map(trip => Number(trip.request_id)).filter(Number.isSafeInteger)) : new Set<string>();
+  const { selected, claimToken, reservationCount } = selectAutoAcceptRequests(match, options, runner, ownedKeys);
   if (selected.length === 0) {
     return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match], claimToken };
   }
@@ -1341,13 +1215,23 @@ async function acceptAutoAcceptMatch(
     logger.info("auto-accept-calling", { bookingId, requestIds, ruleId: match.ruleId, ruleName: match.ruleName, acceptAll: match.acceptAll });
 
     const acceptStartedAt = Date.now();
-    const result = match.acceptAll
-      ? await apiClient.acceptAllBookingRequests(bookingId)
-      : await apiClient.acceptBookingRequests(bookingId, requestIds);
-    const acceptFinishedAt = Date.now();
-    const ambiguousAccept = result.httpStatus === 0;
     const teamId = options.teamId ?? 1;
     const traceId = buildAutoAcceptTraceId({ teamId, bookingId, requestIds, acceptStartedAt });
+    const intent: AutoAcceptVerificationJob = {
+      teamId, ruleId: entry.ruleId, ruleName: entry.ruleName, bookingId, requestIds,
+      trips: entry.trips, claimToken, acceptResult: { ok: false, httpStatus: 0 },
+      reservationCount: match.acceptAll ? reservationCount : requestIds.length,
+      acceptStartedAt, acceptFinishedAt: acceptStartedAt, acceptRttMs: 0,
+      ambiguousAccept: true, acceptAll: match.acceptAll, traceId,
+      listAgeMs: firstTripListAgeMs(entry.trips),
+      ...(match.acceptAll ? { discovery: { bookingName: "", expectedAcceptedCount: requestIds.length } } : {}),
+    };
+    const result = options.verificationMode === "detached"
+      ? await submitDurableAutoAccept(apiClient, intent, options)
+      : match.acceptAll ? await apiClient.acceptAllBookingRequests(bookingId)
+        : await apiClient.acceptBookingRequests(bookingId, requestIds);
+    const acceptFinishedAt = Date.now();
+    const ambiguousAccept = result.httpStatus === 0;
 
     await recordAutoAcceptAttemptSafely({
       teamId,
@@ -1365,38 +1249,6 @@ async function acceptAutoAcceptMatch(
     });
 
     if (options.verificationMode === "detached") {
-      const listAgeMs = firstTripListAgeMs(entry.trips);
-      enqueueAutoAcceptVerification({
-        apiClient,
-        job: {
-          teamId,
-          ruleId: entry.ruleId,
-          ruleName: entry.ruleName,
-          bookingId,
-          requestIds,
-          trips: entry.trips,
-          claimToken,
-          acceptResult: {
-            ok: result.ok,
-            httpStatus: result.httpStatus,
-            retcode: result.response?.retcode,
-            message: result.response?.message,
-            error: result.error,
-          },
-          acceptStartedAt,
-          acceptFinishedAt,
-          acceptRttMs: acceptFinishedAt - acceptStartedAt,
-          ambiguousAccept,
-          acceptAll: match.acceptAll,
-          traceId,
-          ...(listAgeMs !== undefined ? { listAgeMs } : {}),
-        },
-        options: {
-          notificationContext: options.notificationContext,
-          needBudget: options.needBudget,
-          deferSideEffects: options.deferSideEffects,
-        },
-      });
       return {
         bookingId,
         entry,

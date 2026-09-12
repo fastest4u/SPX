@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS teams (
   line_group_id VARCHAR(255) NOT NULL DEFAULT '',
   auto_accept_success_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
   auto_accept_failure_line_group_id VARCHAR(255) NOT NULL DEFAULT '',
+  rate_limit_notify_enabled INT NOT NULL DEFAULT 0,
+  bidding_vehicle_type INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY teams_enabled_idx (enabled),
@@ -291,6 +293,26 @@ CREATE TABLE IF NOT EXISTS auto_accept_results (
   UNIQUE KEY aar_team_booking_request_uidx (team_id, booking_id, request_id),
   KEY aar_team_status_idx (team_id, status),
   KEY aar_trace_idx (winning_attempt_trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+
+CREATE TABLE IF NOT EXISTS auto_accept_verification_jobs (
+  team_id INT NOT NULL,
+  trace_id VARCHAR(160) NOT NULL,
+  job_json MEDIUMTEXT NOT NULL,
+  settled_json TEXT NOT NULL,
+  notifications_json MEDIUMTEXT NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  response_ready INT NOT NULL DEFAULT 0,
+  discovery_pending INT NOT NULL DEFAULT 0,
+  attempt_count INT NOT NULL DEFAULT 0,
+  next_attempt_at BIGINT NOT NULL,
+  lease_token VARCHAR(64) NULL,
+  lease_until BIGINT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (team_id, trace_id),
+  KEY aavj_team_due_idx (team_id, status, next_attempt_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
