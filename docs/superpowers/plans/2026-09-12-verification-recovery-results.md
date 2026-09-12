@@ -1,6 +1,6 @@
 # Verification recovery implementation results
 
-Implemented locally on 2026-09-12 in `.worktrees/spx-review-20260911`, based on detached HEAD `7ee8fa52`. Changes remain uncommitted and have not been deployed.
+Initial implementation checkpoint on 2026-09-12 in `.worktrees/spx-review-20260911`, based on detached HEAD `7ee8fa52`. The checks below describe that checkpoint. Integration and deployment status are tracked in [PR #98](https://github.com/fastest4u/SPX/pull/98).
 
 ## Result
 
@@ -34,9 +34,20 @@ During review, tests reproduced and then verified fixes for dropped reservation 
 
 Local evidence logs are in `output/verification-recovery-final-tests.log` and `output/verification-recovery-final-build.log`. Component review reports are also under `output/`.
 
+## PR #98 review fixes
+
+The subsequent eight-category review identified four additional issues. Each was reproduced before its fix:
+
+- P1: settled discovery requests leaving provider tabs reopened indeterminate work. Verification now excludes durable settled IDs and preserves prior ownership proof without fabricating current tab evidence. Both teams release the remaining reservation after partial settlement and restart, including previously lost requests disappearing.
+- P1: a failed intent write before POST stranded ephemeral admission. Normal admission now rechecks failed preparation, releasing quota/dedupe only after the database confirms no pending intent. An unknown commit acknowledgement retains a non-expiring hold. Fifteen scenarios cover fast, ordinary and detailed accept-all paths, database recovery and response persistence failure.
+- P2: recovery queried every due row even while both slots were occupied. Due reads now stop at capacity and fetch only enough rows for the available slots; startup still restores all holds.
+- P2: imported ordinary jobs lacked metadata required by booking history. Provider verification now hydrates requested trips, preserves richer saved fields across sparse reads and excludes unrelated IDs. Both-team tests exercise the real Poller history save with `SAVE_TO_DB=true` through notification acknowledgement.
+
+The additional regressions are `auto-accept-discovery-settled-recovery`, `pre-post-persistence-recovery`, `auto-accept-verification-capacity` and `auto-accept-historical-history-recovery`. See the PR checks and review report for the final integration gates.
+
 ## Rollout and limits
 
-Production rollout is still required before either deployed worker benefits from this fix. Apply the additive `041_auto_accept_verification_jobs.sql` migration through the normal release process, then deploy the reviewed code to the API/TEAM 1 host and TEAM 2's assigned host, `147.50.240.44`. Verify queue recovery and newly resolved history for each team after startup.
+The rollout requires the additive `041_auto_accept_verification_jobs.sql` migration through the normal release process and the reviewed code on the API/TEAM 1 host and TEAM 2's assigned host, `147.50.240.44`. Verify queue recovery and newly resolved history for each team after startup.
 
 The new table is aligned across Drizzle, runtime MySQL DDL, SQLite, migration generation and schema checks. The baseline migration was regenerated using the existing generator; it also includes the two preexisting source fields `rate_limit_notify_enabled` and `bidding_vehicle_type` that were absent from that baseline.
 

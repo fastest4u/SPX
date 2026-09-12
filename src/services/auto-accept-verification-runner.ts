@@ -103,11 +103,14 @@ export class AutoAcceptVerificationRunner {
   }
 
   async runDue(now = Date.now()): Promise<void> {
-    if (this.stopped || this.runningDue || !(await this.hooks.canRun())) return;
+    if (this.stopped || this.runningDue || this.active.size >= 2) return;
     this.runningDue = true;
     try {
+      if (!(await this.hooks.canRun())) return;
       await this.restore();
-      const jobs = await listAutoAcceptVerificationJobs(this.teamId, { dueAt: now });
+      const capacity = 2 - this.active.size;
+      if (this.stopped || capacity <= 0) return;
+      const jobs = await listAutoAcceptVerificationJobs(this.teamId, { dueAt: now, limit: capacity });
       for (const record of jobs) {
         if (this.active.size >= 2) break;
         this.launch(record.job.traceId, now);
@@ -144,7 +147,9 @@ export class AutoAcceptVerificationRunner {
       let updated = record;
       if (verificationHoldCount(record) > 0) {
         const job = record.job.discovery ? record.job : { ...record.job, requestIds: record.unresolvedRequestIds };
-        const read = () => verifyAutoAcceptJob(this.apiClient, job, { skipAmbiguousRecheck: true });
+        const read = () => verifyAutoAcceptJob(this.apiClient, job, {
+          skipAmbiguousRecheck: true, settledRequestIds: record.settledRequestIds,
+        });
         const outcome = this.apiClient.withVerificationPriority
           ? await this.apiClient.withVerificationPriority(read, async () => !this.stopped
             && Date.now() < (record.leaseUntil ?? 0) && await this.hooks.canRun() && !this.stopped)

@@ -17,6 +17,7 @@ import { createWorkerNotificationPublisher, type NotificationPublisher } from ".
 import { buildAutoAcceptEventKey } from "./notification-events.js";
 import { AutoAcceptVerificationRunner, verificationHoldCount } from "./auto-accept-verification-runner.js";
 import { notifyAutoAcceptProgressCommitted } from "./notify-rules.js";
+import { listAutoAcceptVerificationJobs } from "../repositories/auto-accept-verification-repository.js";
 
 // Re-export for backward compatibility
 export type { LineBotStatus as LineJsQrLoginResult } from "./line-bot.js";
@@ -888,6 +889,42 @@ interface AutoAcceptBookingEntry {
 type RecoveryOptions = Pick<AutoAcceptOptions, "teamId" | "notificationContext" | "needBudget" | "canVerify" | "onVerifiedTrips" | "onRetryableBooking">;
 const verificationRunners = new Set<AutoAcceptVerificationRunner>();
 const verificationRunnersByClient = new WeakMap<ApiClient, Map<number, AutoAcceptVerificationRunner>>();
+const failedPreparationsByClient = new WeakMap<ApiClient, Map<string, {
+  job: AutoAcceptVerificationJob;
+  options: RecoveryOptions;
+}>>();
+
+/** Recheck failed pre-POST writes before admitting more work on this client. */
+export async function recoverAutoAcceptPreparations(apiClient: ApiClient, teamId: number): Promise<void> {
+  const pending = failedPreparationsByClient.get(apiClient);
+  const failures = [...(pending?.values() ?? [])].filter(item => item.job.teamId === teamId);
+  if (!pending || failures.length === 0) return;
+  let records: Awaited<ReturnType<typeof listAutoAcceptVerificationJobs>>;
+  try { records = await listAutoAcceptVerificationJobs(teamId); }
+  catch {
+    // A lost commit acknowledgement is ambiguous until the database can answer.
+    // Keep non-expiring holds and retry this check on the next normal admission.
+    return;
+  }
+  const byTrace = new Map(records.map(record => [record.job.traceId, record]));
+  for (const failure of failures) {
+    const { job, options } = failure;
+    if (pending.get(job.traceId) !== failure) continue;
+    const record = byTrace.get(job.traceId);
+    if (record) {
+      options.needBudget?.trackVerification(job.ruleId, job.traceId, verificationHoldCount(record));
+    } else {
+      options.needBudget?.trackVerification(job.ruleId, job.traceId, 0);
+      for (const requestId of job.requestIds) releaseAutoAcceptRequest(job.bookingId, requestId);
+      if (job.acceptAll) {
+        releaseAutoAcceptAllBooking(job.ruleId, job.bookingId);
+        options.onRetryableBooking?.(job.ruleId, job.bookingId);
+      }
+    }
+    pending.delete(job.traceId);
+  }
+  if (pending.size === 0) failedPreparationsByClient.delete(apiClient);
+}
 
 function emptyAutoAcceptRuleRunResult(): AutoAcceptRuleRunResult {
   return { autoAcceptMatches: [], accepted: [], failed: [], deferredRequests: 0,
@@ -942,6 +979,11 @@ export async function stopAutoAcceptVerificationRecovery(apiClient: ApiClient, t
   await runner.stop();
   verificationRunners.delete(runner);
   verificationRunnersByClient.get(apiClient)?.delete(teamId);
+  const failedPreparations = failedPreparationsByClient.get(apiClient);
+  for (const [traceId, failure] of failedPreparations ?? []) {
+    if (failure.job.teamId === teamId) failedPreparations?.delete(traceId);
+  }
+  if (failedPreparations?.size === 0) failedPreparationsByClient.delete(apiClient);
 }
 
 export async function awaitAutoAcceptVerificationIdle(timeoutMs = 5_000): Promise<void> {
@@ -978,8 +1020,25 @@ export async function submitDurableAutoAccept(
   apiClient: ApiClient, job: AutoAcceptVerificationJob, options: RecoveryOptions,
 ): Promise<Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>> {
   const runner = getAutoAcceptVerificationRunner(apiClient, options);
-  const created = await runner.prepare(job, () => options.needBudget?.release(job.ruleId, job.claimToken,
-    job.reservationCount ?? Math.max(job.requestIds.length, 1)));
+  const reservationCount = job.reservationCount ?? Math.max(job.requestIds.length, 1);
+  let persisted = false;
+  let created: boolean;
+  try {
+    created = await runner.prepare(job, () => {
+      persisted = true;
+      options.needBudget?.release(job.ruleId, job.claimToken, reservationCount);
+    });
+  } catch (error) {
+    if (!persisted) {
+      const pending = failedPreparationsByClient.get(apiClient) ?? new Map();
+      pending.set(job.traceId, { job, options });
+      failedPreparationsByClient.set(apiClient, pending);
+      options.needBudget?.release(job.ruleId, job.claimToken, reservationCount);
+      options.needBudget?.trackVerification(job.ruleId, job.traceId, reservationCount);
+      await recoverAutoAcceptPreparations(apiClient, job.teamId);
+    }
+    throw error;
+  }
   if (!created) return { ok: false, httpStatus: 0, response: null, error: "Verification already pending" };
   let result: Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>;
   try {
@@ -1183,6 +1242,7 @@ async function acceptAutoAcceptMatch(
 
   const runner = options.verificationMode === "detached" ? getAutoAcceptVerificationRunner(apiClient, options) : undefined;
   await runner?.restore();
+  if (runner) await recoverAutoAcceptPreparations(apiClient, options.teamId ?? 1);
   const ownedKeys = runner ? await getOwnedAutoAcceptRequestKeys(options.teamId ?? 1,
     match.trips.map(trip => Number(trip.booking_id)).filter(Number.isSafeInteger),
     match.trips.map(trip => Number(trip.request_id)).filter(Number.isSafeInteger)) : new Set<string>();

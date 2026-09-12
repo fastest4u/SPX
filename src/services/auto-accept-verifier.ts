@@ -2,7 +2,7 @@ import type { ApiClient } from "./api-client.js";
 import type { BookingRequestListResponse } from "../models/types.js";
 import type { ClaimToken } from "./notifier.js";
 import type { TripLike } from "./notify-rules.js";
-import { extractAllRequestListTrips } from "../utils/booking-extractor.js";
+import { extractAllRequestListTrips, type ExtractedTripInfo } from "../utils/booking-extractor.js";
 import {
   type AutoAcceptEvidence,
   type AutoAcceptFailureReason,
@@ -62,6 +62,8 @@ export interface AutoAcceptVerificationOutcome {
 export interface VerifyAutoAcceptOptions {
   ambiguousRecheckDelayMs?: number;
   skipAmbiguousRecheck?: boolean;
+  /** Durable terminal results must not be reopened when they leave provider tabs. */
+  settledRequestIds?: readonly number[];
 }
 
 const DEFAULT_AMBIGUOUS_VERIFY_RECHECK_DELAY_MS = 2_500;
@@ -180,8 +182,9 @@ function classifyRequest(
   requestId: number,
   observedStatus: number | null,
   completeRead: boolean,
+  previouslyOwned: boolean,
 ): AutoAcceptVerifiedRequest {
-  if (observedStatus === ACCEPTED_STATUS) {
+  if (observedStatus === ACCEPTED_STATUS || previouslyOwned) {
     return {
       requestId,
       status: "accepted",
@@ -270,30 +273,47 @@ export async function verifyAutoAcceptJob(
     statuses = mergeStatuses([tabRead.pendingList, tabRead.confirmedList]);
   }
 
-  if (job.discovery) {
-    const trips = new Map(job.trips.map((trip) => [Number(trip.request_id), trip]));
-    for (const list of [tabRead.pendingList, tabRead.confirmedList]) {
-      if (!list) continue;
-      for (const trip of extractAllRequestListTrips(list.data, {
-        booking_id: job.bookingId, booking_name: job.discovery.bookingName,
-        agency_name: job.discovery.agencyName ?? "",
-      })) trips.set(trip.request_id, trip);
+  // Legacy ordinary jobs contain only display aliases. Hydrate them before
+  // durable notification replay invokes the booking-history saver.
+  const trips = new Map<number, TripLike & Partial<Record<keyof ExtractedTripInfo, unknown>>>(
+    job.trips.map((trip) => [Number(trip.request_id), trip]));
+  const requested = new Set(job.requestIds);
+  const contextTrip = trips.values().next().value;
+  for (const list of [tabRead.pendingList, tabRead.confirmedList]) {
+    if (!list) continue;
+    for (const trip of extractAllRequestListTrips(list.data, {
+      booking_id: job.bookingId,
+      booking_name: job.discovery?.bookingName ?? String(contextTrip?.booking_name ?? ""),
+      agency_name: job.discovery?.agencyName ?? String(contextTrip?.agency_name ?? ""),
+    })) {
+      if (!job.discovery && !requested.has(trip.request_id)) continue;
+      const previous = trips.get(trip.request_id);
+      // A sparse tab must not erase richer metadata persisted by an earlier read.
+      const fields = Object.fromEntries(Object.entries(trip).filter(([key, value]) => value !== undefined
+        && (!["", "-", "- -> -"].includes(String(value)) || previous?.[key as keyof ExtractedTripInfo] == null)));
+      trips.set(trip.request_id, { ...previous, ...fields, request_id: trip.request_id,
+        acceptance_status: statuses.get(trip.request_id) });
     }
+  }
+  job = { ...job, trips: [...trips.values()] };
+  if (job.discovery) {
     const verifiedRequestIds = [...new Set([...(job.discovery.verifiedRequestIds ?? []),
       ...[...statuses].filter(([, status]) => status === ACCEPTED_STATUS).map(([id]) => id)])];
-    job = { ...job, requestIds: [...new Set([...job.requestIds, ...statuses.keys()])], trips: [...trips.values()],
+    job = { ...job, requestIds: [...new Set([...job.requestIds, ...statuses.keys()])],
       discovery: { ...job.discovery, verifiedRequestIds } };
   }
   const verificationLatencyMs = Date.now() - startedAt;
   const completeRead = tabRead.pendingTabRead && tabRead.confirmedTabRead;
-  const requests = job.requestIds.map((requestId) => {
+  const settled = new Set(options.settledRequestIds);
+  const previouslyOwned = new Set(job.discovery?.verifiedRequestIds);
+  const requests = job.requestIds.filter(requestId => !settled.has(requestId)).map((requestId) => {
     const observedStatus = statuses.get(requestId) ?? null;
-    return classifyRequest(job, requestId, observedStatus, completeRead);
+    return classifyRequest(job, requestId, observedStatus, completeRead, previouslyOwned.has(requestId));
   });
 
   const outcome = buildOutcome(job, tabRead, statuses, requests, verificationLatencyMs);
   if (job.discovery) {
-    outcome.discoveryPending = !completeRead || requests.length === 0
+    outcome.discoveryPending = !completeRead || job.requestIds.length === 0
       || outcome.indeterminateRequestIds.length > 0
       || (job.acceptResult.ok && (job.discovery.verifiedRequestIds?.length ?? 0) < job.discovery.expectedAcceptedCount);
     if (outcome.discoveryPending && outcome.acceptedRequestIds.length === 0) {

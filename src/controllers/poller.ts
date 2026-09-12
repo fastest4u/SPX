@@ -4,7 +4,7 @@ import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
 import { saveBookingRequests } from "../services/db-service.js";
-import { acceptAndNotifyMatchedRules, getAutoAcceptVerificationRunner, stopAutoAcceptVerificationRecovery, submitDurableAutoAccept, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, sendRateLimitNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
+import { acceptAndNotifyMatchedRules, getAutoAcceptVerificationRunner, stopAutoAcceptVerificationRecovery, recoverAutoAcceptPreparations, submitDurableAutoAccept, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, sendRateLimitNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
 import { metrics } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
@@ -1101,6 +1101,7 @@ export class Poller {
     const options = this.verificationOptions();
     const runner = getAutoAcceptVerificationRunner(this.apiClient, options);
     await runner.restore();
+    await recoverAutoAcceptPreparations(this.apiClient, this.teamId);
     if (runner.hasPending(booking.booking_id)) return true;
     for (const match of matches) {
       if (await hasOwnedAutoAcceptVerification(this.teamId, booking.booking_id, match.ruleId)) continue;
