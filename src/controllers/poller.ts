@@ -900,6 +900,7 @@ export class Poller {
         if (autoAcceptEnabled) {
           const verificationRunner = getAutoAcceptVerificationRunner(this.apiClient, this.verificationOptions());
           await verificationRunner.restore();
+          await recoverAutoAcceptPreparations(this.apiClient, this.teamId);
           const durableRequestIds = new Set<number>();
           for (const trip of filtered.trips) {
             if (verificationRunner.hasPending(booking.booking_id, trip.request_id)) {

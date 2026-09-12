@@ -19,6 +19,7 @@ export function verificationHoldCount(record: VerificationQueueRecord): number {
 
 interface VerificationHooks {
   canRun: () => boolean | Promise<boolean>;
+  hasUnresolvedPreparation?: (bookingId: number, requestId?: number) => boolean;
   onHold: (record: VerificationQueueRecord) => void;
   onSettled: (record: VerificationQueueRecord, acceptedIds: number[], failedIds: number[]) => void | Promise<void>;
   publish: (outcome: AutoAcceptVerificationOutcome) => Promise<boolean>;
@@ -56,7 +57,14 @@ export class AutoAcceptVerificationRunner {
     this.hooks.onHold(record);
   }
 
+  /** Restore admission protection after a lost intent-write acknowledgement. */
+  adopt(record: VerificationQueueRecord): void {
+    if (record.job.teamId !== this.teamId) throw new Error("Verification record scope mismatch");
+    this.remember(record);
+  }
+
   hasPending(bookingId: number, requestId?: number): boolean {
+    if (this.hooks.hasUnresolvedPreparation?.(bookingId, requestId)) return true;
     for (const record of this.records.values()) {
       if (record.job.bookingId !== bookingId || verificationHoldCount(record) === 0) continue;
       if (requestId === undefined || record.job.acceptAll || record.unresolvedRequestIds.includes(requestId)) return true;

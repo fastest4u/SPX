@@ -36,10 +36,11 @@ Local evidence logs are in `output/verification-recovery-final-tests.log` and `o
 
 ## PR #98 review fixes
 
-The subsequent eight-category review identified four additional issues. Each was reproduced before its fix:
+The subsequent eight-category review identified four initial issues and one follow-up issue. Each was reproduced before its fix:
 
 - P1: settled discovery requests leaving provider tabs reopened indeterminate work. Verification now excludes durable settled IDs and preserves prior ownership proof without fabricating current tab evidence. Both teams release the remaining reservation after partial settlement and restart, including previously lost requests disappearing.
-- P1: a failed intent write before POST stranded ephemeral admission. Normal admission now rechecks failed preparation, releasing quota/dedupe only after the database confirms no pending intent. An unknown commit acknowledgement retains a non-expiring hold. Fifteen scenarios cover fast, ordinary and detailed accept-all paths, database recovery and response persistence failure.
+- P1: a failed intent write before POST stranded ephemeral admission. Normal admission now rechecks failed preparation, releasing quota/dedupe only after the database confirms no pending intent. An unknown commit acknowledgement retains a non-expiring hold.
+- P1: recovering a lost commit acknowledgement restored budget without restoring the runner's admission index. Recovery now adopts the persisted record; unknown preparations also protect booking/request admission through the same runner guard, including non-pending reconciliation. Twenty-one scenarios cover multiple matching rules, fast, ordinary and detailed accept-all paths, database recovery and response persistence failure.
 - P2: recovery queried every due row even while both slots were occupied. Due reads now stop at capacity and fetch only enough rows for the available slots; startup still restores all holds.
 - P2: imported ordinary jobs lacked metadata required by booking history. Provider verification now hydrates requested trips, preserves richer saved fields across sparse reads and excludes unrelated IDs. Both-team tests exercise the real Poller history save with `SAVE_TO_DB=true` through notification acknowledgement.
 

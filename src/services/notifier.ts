@@ -912,7 +912,7 @@ export async function recoverAutoAcceptPreparations(apiClient: ApiClient, teamId
     if (pending.get(job.traceId) !== failure) continue;
     const record = byTrace.get(job.traceId);
     if (record) {
-      options.needBudget?.trackVerification(job.ruleId, job.traceId, verificationHoldCount(record));
+      getAutoAcceptVerificationRunner(apiClient, options).adopt(record);
     } else {
       options.needBudget?.trackVerification(job.ruleId, job.traceId, 0);
       for (const requestId of job.requestIds) releaseAutoAcceptRequest(job.bookingId, requestId);
@@ -939,6 +939,13 @@ export function getAutoAcceptVerificationRunner(apiClient: ApiClient, options: R
   if (existing) return existing;
   const runner = new AutoAcceptVerificationRunner(teamId, apiClient, {
     canRun: options.canVerify ?? (() => true),
+    hasUnresolvedPreparation: (bookingId, requestId) => {
+      for (const { job } of failedPreparationsByClient.get(apiClient)?.values() ?? []) {
+        if (job.teamId === teamId && job.bookingId === bookingId
+          && (requestId === undefined || job.acceptAll || job.requestIds.includes(requestId))) return true;
+      }
+      return false;
+    },
     onHold: record => options.needBudget?.trackVerification(record.job.ruleId, record.job.traceId, verificationHoldCount(record)),
     onSettled: async (record, acceptedIds, failedIds) => {
       options.needBudget?.settleVerification(record.job.ruleId, record.job.traceId, acceptedIds.length, verificationHoldCount(record));
@@ -1180,7 +1187,7 @@ function selectAutoAcceptRequests(
 
     if (acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId))) continue;
     if (ownedKeys.has(`${bookingId}:${requestId}`)) continue;
-    if (runner?.hasPending(bookingId, requestId)) continue;
+    if (runner?.hasPending(bookingId, match.acceptAll ? undefined : requestId)) continue;
     candidates.push({ trip, bookingId, requestId });
   }
 
