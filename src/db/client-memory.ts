@@ -339,6 +339,24 @@ function initSchema(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS auto_accept_verification_jobs (
+      team_id INTEGER NOT NULL,
+      trace_id TEXT NOT NULL,
+      job_json TEXT NOT NULL,
+      settled_json TEXT NOT NULL,
+      notifications_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      response_ready INTEGER NOT NULL DEFAULT 0,
+      discovery_pending INTEGER NOT NULL DEFAULT 0,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      lease_token TEXT,
+      lease_until INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (team_id, trace_id)
+    );
+    CREATE INDEX IF NOT EXISTS aavj_team_due_idx ON auto_accept_verification_jobs(team_id, status, next_attempt_at);
+
     CREATE TABLE IF NOT EXISTS auto_accept_attempts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       trace_id TEXT NOT NULL,

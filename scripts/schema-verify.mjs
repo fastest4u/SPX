@@ -15,6 +15,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
 const EXPECTED_SCHEMA = {
+  auto_accept_verification_jobs: {
+    columns: {
+      team_id: { type: "int", nullable: false },
+      trace_id: { type: "varchar(160)", nullable: false },
+      job_json: { type: "mediumtext", nullable: false },
+      settled_json: { type: "text", nullable: false },
+      notifications_json: { type: "mediumtext", nullable: false },
+      status: { type: "varchar(16)", nullable: false, defaultIncludes: "pending" },
+      response_ready: { type: "int", nullable: false, defaultIncludes: "0" },
+      discovery_pending: { type: "int", nullable: false, defaultIncludes: "0" },
+      attempt_count: { type: "int", nullable: false, defaultIncludes: "0" },
+      next_attempt_at: { type: "bigint", nullable: false },
+      lease_token: { type: "varchar(64)", nullable: true },
+      lease_until: { type: "bigint", nullable: true },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["team_id", "trace_id"] },
+      { name: "aavj_team_due_idx", unique: false, columns: ["team_id", "status", "next_attempt_at"] },
+    ],
+  },
   teams: {
     columns: {
       id: { type: "int", nullable: false, extraIncludes: ["auto_increment"] },

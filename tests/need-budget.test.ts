@@ -3,6 +3,20 @@ import { NeedBudget } from "../src/services/notifier.js";
 
 const budget = new NeedBudget();
 
+// A rate-limited verification must not expire with ordinary abandoned claims.
+{
+  const b = new NeedBudget();
+  b.trackVerification("retry", "trace-1", 2);
+  b.beginTick(Date.now() + 24 * 60 * 60 * 1000);
+  assert.equal(b.claim("retry", 2, 1).granted, 0);
+  b.settleVerification("retry", "trace-1", 1, 1);
+  assert.equal(b.claim("retry", 2, 1).granted, 0, "stale tick still holds the committed win");
+  b.beginTick();
+  assert.equal(b.claim("retry", 1, 1).granted, 0, "unresolved sibling retains its slot");
+  b.settleVerification("retry", "trace-1", 0, 0);
+  assert.equal(b.claim("retry", 1, 1).granted, 1, "only verified failure returns a slot");
+}
+
 // First claim initializes the per-rule budget from dbNeed, then grants min(requested, available).
 const first = budget.claim("r", 3, 5);
 assert.equal(first.granted, 3); // init 3, grant min(5,3)=3, remaining 0

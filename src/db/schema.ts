@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, datetime, index, int, mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, datetime, index, int, mediumtext, mysqlTable, primaryKey, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const teams = mysqlTable("teams", {
   id: int("id").autoincrement().primaryKey(),
@@ -176,6 +176,25 @@ export const autoAcceptResults = mysqlTable("auto_accept_results", {
   teamBookingRequestIdx: uniqueIndex("aar_team_booking_request_uidx").on(table.teamId, table.bookingId, table.requestId),
   teamStatusIdx: index("aar_team_status_idx").on(table.teamId, table.status),
   traceIdx: index("aar_trace_idx").on(table.winningAttemptTraceId),
+}));
+
+export const autoAcceptVerificationJobs = mysqlTable("auto_accept_verification_jobs", {
+  teamId: int("team_id").notNull(),
+  traceId: varchar("trace_id", { length: 160 }).notNull(),
+  jobJson: mediumtext("job_json").notNull(),
+  settledJson: text("settled_json").notNull(),
+  notificationsJson: mediumtext("notifications_json").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  responseReady: int("response_ready").notNull().default(0),
+  discoveryPending: int("discovery_pending").notNull().default(0),
+  attemptCount: int("attempt_count").notNull().default(0),
+  nextAttemptAt: bigint("next_attempt_at", { mode: "number" }).notNull(),
+  leaseToken: varchar("lease_token", { length: 64 }),
+  leaseUntil: bigint("lease_until", { mode: "number" }),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  teamTracePk: primaryKey({ columns: [table.teamId, table.traceId] }),
+  teamDueIdx: index("aavj_team_due_idx").on(table.teamId, table.status, table.nextAttemptAt),
 }));
 
 export const metricsSnapshots = mysqlTable("metrics_snapshots", {

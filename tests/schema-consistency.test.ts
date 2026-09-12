@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { getTableName, is, Table } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
+import { autoAcceptVerificationJobsMigrationSql } from "../src/db/migration-sql.js";
 
 /**
  * Schema single-source guard.
@@ -27,7 +28,13 @@ function readSource(relativePath: string): string {
   return readFileSync(resolve(srcDir, relativePath), "utf8");
 }
 
-const mysqlDdl = readSource("db/client.ts") + "\n" + readSource("repositories/metrics-repository.ts");
+const clientSource = readSource("db/client.ts");
+// Runtime reuses the migration constant instead of maintaining a second literal.
+// Include it only with proof that this client imports and executes that exact SQL;
+// removing the runtime call must still fail this schema guard.
+assert.match(clientSource, /import\s*\{\s*autoAcceptVerificationJobsMigrationSql\s*\}\s*from\s*["']\.\/migration-sql\.js["']/);
+assert.match(clientSource, /await\s+pool\.query\(autoAcceptVerificationJobsMigrationSql\)/);
+const mysqlDdl = clientSource + "\n" + readSource("repositories/metrics-repository.ts") + "\n" + autoAcceptVerificationJobsMigrationSql;
 const sqliteDdl = readSource("db/client-memory.ts");
 
 function declaresTable(ddl: string, tableName: string): boolean {

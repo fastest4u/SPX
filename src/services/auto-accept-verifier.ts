@@ -2,6 +2,7 @@ import type { ApiClient } from "./api-client.js";
 import type { BookingRequestListResponse } from "../models/types.js";
 import type { ClaimToken } from "./notifier.js";
 import type { TripLike } from "./notify-rules.js";
+import { extractAllRequestListTrips, type ExtractedTripInfo } from "../utils/booking-extractor.js";
 import {
   type AutoAcceptEvidence,
   type AutoAcceptFailureReason,
@@ -16,6 +17,8 @@ export interface AutoAcceptVerificationJob {
   requestIds: number[];
   trips: TripLike[];
   claimToken: ClaimToken;
+  /** Quota reserved before an accept_all POST, when its size is still unknown. */
+  reservationCount?: number;
   acceptResult: {
     ok: boolean;
     httpStatus: number;
@@ -30,6 +33,8 @@ export interface AutoAcceptVerificationJob {
   ambiguousAccept: boolean;
   acceptAll: boolean;
   traceId: string;
+  /** Fast accept_all discovers request IDs after the one-time POST. */
+  discovery?: { bookingName: string; agencyName?: string; expectedAcceptedCount: number; verifiedRequestIds?: number[] };
 }
 
 export interface AutoAcceptVerifiedRequest {
@@ -50,10 +55,15 @@ export interface AutoAcceptVerificationOutcome {
   indeterminateRequestIds: number[];
   requests: AutoAcceptVerifiedRequest[];
   evidence: AutoAcceptEvidence;
+  discoveryPending?: boolean;
+  discoveryFailureReason?: AutoAcceptFailureReason;
 }
 
 export interface VerifyAutoAcceptOptions {
   ambiguousRecheckDelayMs?: number;
+  skipAmbiguousRecheck?: boolean;
+  /** Durable terminal results must not be reopened when they leave provider tabs. */
+  settledRequestIds?: readonly number[];
 }
 
 const DEFAULT_AMBIGUOUS_VERIFY_RECHECK_DELAY_MS = 2_500;
@@ -81,7 +91,7 @@ function nextActionFor(reason: AutoAcceptFailureReason): string {
     case "session_expired":
       return "Refresh the SPX cookie/device credentials for this team.";
     case "accept_timeout_ambiguous":
-      return "No final failure yet; the verifier will leave quota conservative and later polling may reconcile.";
+      return "No final failure yet; keep quota reserved and retry read-only verification.";
     case "verify_indeterminate":
       return "Verification could not read SPX tabs; retry/reconcile before treating this as a loss.";
     case "verify_not_confirmed":
@@ -123,7 +133,9 @@ function mergeStatuses(lists: Array<BookingRequestListResponse | null>): Map<num
     if (!list) continue;
     for (const request of list.data.request_list) {
       const previous = merged.get(request.request_id);
-      if (previous === undefined || request.request_acceptance_status > previous) {
+      if (previous !== ACCEPTED_STATUS && (previous === undefined
+        || request.request_acceptance_status === ACCEPTED_STATUS
+        || request.request_acceptance_status > previous)) {
         merged.set(request.request_id, request.request_acceptance_status);
       }
     }
@@ -139,7 +151,7 @@ function requestFor(reason: AutoAcceptFailureReason, requestId: number, observed
       reason,
       observedStatus,
       terminal: false,
-      releaseRequestDedupe: true,
+      releaseRequestDedupe: false,
       releaseBudget: false,
     };
   }
@@ -169,8 +181,10 @@ function classifyRequest(
   job: AutoAcceptVerificationJob,
   requestId: number,
   observedStatus: number | null,
+  completeRead: boolean,
+  previouslyOwned: boolean,
 ): AutoAcceptVerifiedRequest {
-  if (observedStatus === ACCEPTED_STATUS) {
+  if (observedStatus === ACCEPTED_STATUS || previouslyOwned) {
     return {
       requestId,
       status: "accepted",
@@ -181,12 +195,13 @@ function classifyRequest(
     };
   }
 
+  if (!completeRead) return requestFor("verify_indeterminate", requestId, observedStatus);
+  if (observedStatus !== null && LOST_RACE_STATUSES.has(observedStatus)) return requestFor("lost_race", requestId, observedStatus);
   if (job.ambiguousAccept) return requestFor("accept_timeout_ambiguous", requestId, observedStatus);
   if (isSessionExpired(job.acceptResult)) return requestFor("session_expired", requestId, observedStatus);
   if (!job.acceptResult.ok) return requestFor("accept_api_error", requestId, observedStatus);
-  if (observedStatus !== null && LOST_RACE_STATUSES.has(observedStatus)) return requestFor("lost_race", requestId, observedStatus);
   if (observedStatus !== null && UNPROVEN_OWNERSHIP_STATUSES.has(observedStatus)) return requestFor("verify_not_confirmed", requestId, observedStatus);
-  return requestFor("verify_not_confirmed", requestId, observedStatus);
+  return requestFor("verify_indeterminate", requestId, observedStatus);
 }
 
 function buildOutcome(
@@ -239,25 +254,73 @@ export async function verifyAutoAcceptJob(
   options: VerifyAutoAcceptOptions = {},
 ): Promise<AutoAcceptVerificationOutcome> {
   const startedAt = Date.now();
+  if (job.discovery && job.requestIds.length === 0 && !job.ambiguousAccept
+    && !job.acceptResult.ok && job.acceptResult.httpStatus >= 400) {
+    // An explicit HTTP rejection before request discovery has no owned IDs to
+    // reconcile. Record the rejected submission without inventing request IDs.
+    const outcome = buildOutcome(job, { pendingTabRead: false, confirmedTabRead: false }, new Map(), [], 0);
+    outcome.discoveryPending = false;
+    outcome.discoveryFailureReason = isSessionExpired(job.acceptResult) ? "session_expired" : "accept_api_error";
+    outcome.evidence.reason = outcome.discoveryFailureReason;
+    return outcome;
+  }
   let tabRead = await readTabs(apiClient, job.bookingId);
   let statuses = mergeStatuses([tabRead.pendingList, tabRead.confirmedList]);
 
-  if (job.ambiguousAccept && !job.requestIds.some((requestId) => statuses.get(requestId) === ACCEPTED_STATUS)) {
+  if (!options.skipAmbiguousRecheck && job.ambiguousAccept && !job.requestIds.some((requestId) => statuses.get(requestId) === ACCEPTED_STATUS)) {
     await sleep(options.ambiguousRecheckDelayMs ?? DEFAULT_AMBIGUOUS_VERIFY_RECHECK_DELAY_MS);
     tabRead = await readTabs(apiClient, job.bookingId);
     statuses = mergeStatuses([tabRead.pendingList, tabRead.confirmedList]);
   }
 
-  const verificationLatencyMs = Date.now() - startedAt;
-  if (!tabRead.pendingTabRead && !tabRead.confirmedTabRead) {
-    const requests = job.requestIds.map((requestId) => requestFor("verify_indeterminate", requestId, null));
-    return buildOutcome(job, tabRead, statuses, requests, verificationLatencyMs);
+  // Legacy ordinary jobs contain only display aliases. Hydrate them before
+  // durable notification replay invokes the booking-history saver.
+  const trips = new Map<number, TripLike & Partial<Record<keyof ExtractedTripInfo, unknown>>>(
+    job.trips.map((trip) => [Number(trip.request_id), trip]));
+  const requested = new Set(job.requestIds);
+  const contextTrip = trips.values().next().value;
+  for (const list of [tabRead.pendingList, tabRead.confirmedList]) {
+    if (!list) continue;
+    for (const trip of extractAllRequestListTrips(list.data, {
+      booking_id: job.bookingId,
+      booking_name: job.discovery?.bookingName ?? String(contextTrip?.booking_name ?? ""),
+      agency_name: job.discovery?.agencyName ?? String(contextTrip?.agency_name ?? ""),
+    })) {
+      if (!job.discovery && !requested.has(trip.request_id)) continue;
+      const previous = trips.get(trip.request_id);
+      // A sparse tab must not erase richer metadata persisted by an earlier read.
+      const fields = Object.fromEntries(Object.entries(trip).filter(([key, value]) => value !== undefined
+        && (!["", "-", "- -> -"].includes(String(value)) || previous?.[key as keyof ExtractedTripInfo] == null)));
+      trips.set(trip.request_id, { ...previous, ...fields, request_id: trip.request_id,
+        acceptance_status: statuses.get(trip.request_id) });
+    }
   }
-
-  const requests = job.requestIds.map((requestId) => {
+  job = { ...job, trips: [...trips.values()] };
+  if (job.discovery) {
+    const verifiedRequestIds = [...new Set([...(job.discovery.verifiedRequestIds ?? []),
+      ...[...statuses].filter(([, status]) => status === ACCEPTED_STATUS).map(([id]) => id)])];
+    job = { ...job, requestIds: [...new Set([...job.requestIds, ...statuses.keys()])],
+      discovery: { ...job.discovery, verifiedRequestIds } };
+  }
+  const verificationLatencyMs = Date.now() - startedAt;
+  const completeRead = tabRead.pendingTabRead && tabRead.confirmedTabRead;
+  const settled = new Set(options.settledRequestIds);
+  const previouslyOwned = new Set(job.discovery?.verifiedRequestIds);
+  const requests = job.requestIds.filter(requestId => !settled.has(requestId)).map((requestId) => {
     const observedStatus = statuses.get(requestId) ?? null;
-    return classifyRequest(job, requestId, observedStatus);
+    return classifyRequest(job, requestId, observedStatus, completeRead, previouslyOwned.has(requestId));
   });
 
-  return buildOutcome(job, tabRead, statuses, requests, verificationLatencyMs);
+  const outcome = buildOutcome(job, tabRead, statuses, requests, verificationLatencyMs);
+  if (job.discovery) {
+    outcome.discoveryPending = !completeRead || job.requestIds.length === 0
+      || outcome.indeterminateRequestIds.length > 0
+      || (job.acceptResult.ok && (job.discovery.verifiedRequestIds?.length ?? 0) < job.discovery.expectedAcceptedCount);
+    if (outcome.discoveryPending && outcome.acceptedRequestIds.length === 0) {
+      outcome.verificationStatus = "indeterminate";
+      outcome.evidence.verificationStatus = "indeterminate";
+      outcome.evidence.reason = "verify_indeterminate";
+    }
+  }
+  return outcome;
 }

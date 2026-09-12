@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Poller } from "../src/controllers/poller.js";
 import { env } from "../src/config/env.js";
-import { NeedBudget, setWorkerNotificationPublisherForTests } from "../src/services/notifier.js";
+import { NeedBudget, setWorkerNotificationPublisherForTests, awaitAutoAcceptVerificationIdle } from "../src/services/notifier.js";
 import { createNotificationPublisher, type PublishEnvelope } from "../src/services/notification-publisher.js";
 import { LogLevel, setLogLevel } from "../src/utils/logger.js";
 import type { Booking, BookingRequestListResponse } from "../src/models/types.js";
@@ -205,26 +205,27 @@ async function main(): Promise<void> {
     reconcileGate.resolve();
     const historyRows = await waitFor(
       () => getAutoAcceptHistory(1, { limit: 20 }),
-      (rows) => rows.some((row) => row.bookingId === 2706815 && row.requestIds.length === 2),
+      (rows) => [38659805, 38659806].every(id => rows.some(row => row.bookingId === 2706815 && row.status === "success" && row.requestIds.includes(id))),
       "fast accept_all should reconcile auto_accept_history request IDs"
     );
     const row = historyRows.find((item) => item.bookingId === 2706815);
     assert.equal(row?.status, "success");
-    assert.deepEqual(row?.requestIds, [38659805, 38659806]);
-    assert.equal(row?.acceptedCount, 2);
+    const wonRows = historyRows.filter(row => row.bookingId === 2706815 && row.status === "success");
+    assert.deepEqual(wonRows.flatMap(row => row.requestIds).sort((a,b) => a-b), [38659805, 38659806]);
+    assert.equal(wonRows.reduce((sum,row) => sum + row.acceptedCount, 0), 2);
     assert.equal(row?.origin, "NORC-B");
     assert.equal(row?.destination, "SOCs");
     assert.equal(row?.vehicleType, "6WH-6ล้อ[7.2m]");
-    assert.match(row?.traceId ?? "", /^aa:1:2706815:38659805-38659806:/);
+    assert.match(row?.traceId ?? "", /^aa:1:2706815::/);
     assert.equal(row?.verificationStatus, "verified_success");
     assert.ok(row?.verifiedAt);
     assert.ok(detailFetchCalls >= 2, "fast accept_all reconcile must fetch pending and confirmed tabs after accept_all");
-    assert.equal(published.length, 1, "worker fast accept_all reconcile must publish success centrally");
+    await awaitAutoAcceptVerificationIdle();
+    assert.equal(published.length, 2, "each request has a stable independently replayable notification");
     assert.equal(published[0]?.eventKey, "auto_accept_owned:team:1:booking:2706815:req:38659805");
-    assert.match(published[0]?.event.traceId ?? "", /^aa:1:2706815:38659805-38659806:/);
-    assert.deepEqual(published[0]?.event.requestIds, ["38659805", "38659806"]);
-    assert.equal(published[0]?.event.evidence?.sourcePath, "fast_accept_all_reconcile");
-    assert.equal(published[0]?.event.evidence?.acceptedCount, 2);
+    assert.match(published[0]?.event.traceId ?? "", /^aa:1:2706815::/);
+    assert.deepEqual(published.flatMap(item => item.event.requestIds ?? []).sort(), ["38659805", "38659806"]);
+    assert.equal(published[0]?.event.evidence?.source, "detached_verification");
     const savedRows = await waitFor(
       () => getBookingHistory(1, { limit: 20, sortBy: "request_id", sortDir: "asc" }),
       (rows) => [38659805, 38659806].every((requestId) => rows.some((row) => row.requestId === requestId)),
@@ -291,16 +292,14 @@ async function main(): Promise<void> {
     const ownedResult = await getAutoAcceptResult(1, 2706815, 39795910);
     assert.equal(ownedResult?.status, "owned");
     assert.equal(ownedResult?.reasonCode, "verified_owned");
-    assert.match(ownedResult?.winningAttemptTraceId ?? "", /^aa:1:2706815:39795910:/);
+    assert.match(ownedResult?.winningAttemptTraceId ?? "", /^aa:1:2706815::/);
 
     const lostResult = await getAutoAcceptResult(1, 2706815, 39795911);
     assert.equal(lostResult?.status, "lost");
-    assert.equal(lostResult?.reasonCode, "verified_not_owned");
+    assert.equal(lostResult?.reasonCode, "verified_lost_race");
     const lostEvidence = JSON.parse(lostResult?.evidenceJson ?? "{}") as Record<string, unknown>;
-    assert.equal(lostEvidence.source, "fast_accept_all_reconcile");
-    assert.equal(lostEvidence.observedCount, 3);
-    assert.equal(lostEvidence.acceptedCount, 1);
-    assert.equal(lostEvidence.observedStatus, 4);
+    assert.equal(lostEvidence.source, "detached_verification");
+    assert.deepEqual(lostEvidence.observedStatuses, { 39795910: 2, 39795911: 4, 39795912: 4 });
 
     const preservedOwned = await getAutoAcceptResult(1, 2706815, 39795912);
     assert.equal(preservedOwned?.status, "owned");
@@ -376,11 +375,11 @@ async function main(): Promise<void> {
       (rows) => rows.some((row) => row.bookingId === 2706815 && row.status === "failed" && row.requestIds.length === 1),
       "unverified fast accept_all should become a failed history row"
     );
-    const row = historyRows.find((item) => item.bookingId === 2706815);
+    const row = historyRows.find((item) => item.bookingId === 2706815 && item.requestIds.includes(39795903));
     assert.equal(row?.status, "failed");
     assert.deepEqual(row?.requestIds, [39795903]);
     assert.equal(row?.acceptedCount, 0);
-    assert.match(row?.errorMessage ?? "", /not confirmed|ambiguous/i);
+    assert.ok(["lost_race", "verify_not_confirmed"].includes(row?.failureReason ?? ""));
     assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 1);
   }
 
@@ -420,11 +419,11 @@ async function main(): Promise<void> {
       (rows) => rows.some((row) => row.bookingId === 2706815 && row.requestIds.includes(39795906)),
       "status 6 must not be treated as verified fast accept_all success"
     );
-    const row = historyRows.find((item) => item.bookingId === 2706815);
+    const row = historyRows.find((item) => item.bookingId === 2706815 && item.requestIds.includes(39795906));
     assert.equal(row?.status, "failed");
     assert.deepEqual(row?.requestIds, [39795906]);
     assert.equal(row?.acceptedCount, 0);
-    assert.match(row?.errorMessage ?? "", /not confirmed|ambiguous/i);
+    assert.ok(["lost_race", "verify_not_confirmed"].includes(row?.failureReason ?? ""));
     assert.equal((await readRules(1)).find((item) => item.id === rule.id)?.need, 1);
   }
 

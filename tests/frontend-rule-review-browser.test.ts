@@ -3,12 +3,13 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { chromium } from 'playwright'
+import { browserFixtureServerOptions } from './browser-fixture-server.js'
 import type { RuleInput } from '../src/frontend/types'
 
 async function run() {
   const server = await createServer({
     configFile: false, envDir: false, root: process.cwd(), cacheDir: 'node_modules/.vite-rule-review-tests', plugins: [tailwindcss(), react()],
-    optimizeDeps: { entries: ['tests/rule-review-fixture.html'] }, server: { port: 0, watch: null },
+    optimizeDeps: { entries: ['tests/rule-review-fixture.html'] }, server: await browserFixtureServerOptions(),
   })
   const browser = await chromium.launch({ headless: true })
   try {

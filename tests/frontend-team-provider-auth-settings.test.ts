@@ -7,6 +7,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { chromium } from 'playwright'
+import { browserFixtureServerOptions } from './browser-fixture-server.js'
 
 async function main() {
   mkdirSync('output/playwright/team-provider-auth', { recursive: true })
@@ -27,7 +28,7 @@ async function main() {
     configFile: false, envDir: false, root: process.cwd(),
     cacheDir: 'node_modules/.vite-team-provider-auth-tests',
     optimizeDeps: { entries: ['tests/team-provider-auth-settings-fixture.html'] },
-    plugins: [tailwindcss(), react()], server: { port: 0, watch: null },
+    plugins: [tailwindcss(), react()], server: await browserFixtureServerOptions(),
   })
   const browser = await chromium.launch({ headless: true })
   const payloads: Array<Record<string, unknown>> = []
