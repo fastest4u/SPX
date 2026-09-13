@@ -162,6 +162,7 @@ async function fetchRaw<T>(
   url: string,
   options?: RequestInit,
   alreadyRetried = false,
+  authRecovery: 'refresh-and-replay' | 'none' = 'refresh-and-replay',
 ): Promise<ApiSuccessResponse<T>> {
   const headers = new Headers(options?.headers)
   if (options?.body && !headers.has('Content-Type')) {
@@ -178,6 +179,7 @@ async function fetchRaw<T>(
 
   // Global 401 handler — try one silent refresh + retry before redirecting.
   if (response.status === 401) {
+    if (authRecovery === 'none') throw buildAuthError(data)
     return handleUnauthorized<ApiSuccessResponse<T>>(
       url,
       alreadyRetried,
@@ -196,6 +198,12 @@ async function fetchRaw<T>(
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetchRaw<T>(url, options)
+  return response.data
+}
+
+/** A provider 401 can arrive after dispatch; keep the uncertain result without replaying or redirecting. */
+async function fetchJsonWithoutAuthRecovery<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetchRaw<T>(url, options, false, 'none')
   return response.data
 }
 
@@ -734,7 +742,7 @@ export const biddingApi = {
     }),
 
   acceptAll: (input: AcceptAllBookingInput): Promise<AcceptAllBookingResponse> =>
-    fetchJson<AcceptAllBookingResponse>(`${API_BASE}/bidding/accept-all`, {
+    fetchJsonWithoutAuthRecovery<AcceptAllBookingResponse>(`${API_BASE}/bidding/accept-all`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),

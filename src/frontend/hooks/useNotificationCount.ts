@@ -1,5 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
-import { metricsApi } from '../lib/api'
+import { useScopedMetrics } from './useScopedMetrics'
 
 /**
  * Returns the number of items currently warranting an operator's attention.
@@ -16,12 +15,7 @@ import { metricsApi } from '../lib/api'
  * each signal stays addressable.
  */
 export function useNotificationCount(): number {
-    const { data: metrics } = useQuery({
-        queryKey: ['metrics'],
-        queryFn: metricsApi.snapshot,
-        staleTime: 5 * 1000,
-        refetchInterval: 15 * 1000,
-    })
+    const { data: metrics } = useScopedMetrics()
 
     if (!metrics) return 0
     const signals = [

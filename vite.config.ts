@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   root: '.',
+  envDir: process.env.SPX_TEST_SKIP_ENV_FILE === '1' ? false : undefined,
   plugins: [
     TanStackRouterVite({
       target: 'react',

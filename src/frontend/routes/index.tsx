@@ -1,10 +1,11 @@
+import { useScopedMetrics } from '../hooks/useScopedMetrics'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { ErrorState } from '../components/ui/error-state'
 import { currentTeamApi, rulesApi, metricsApi } from '../lib/api'
 import { useSseStream } from '../hooks/useSseContext'
 import { useAuth } from '../hooks/useAuth'
-import { Button } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Input } from '../components/ui/input'
@@ -30,12 +31,19 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import type { AuthUser, NotifyRule, Team, TimingSummary } from '../types'
+import type { AuthUser, NotifyRule, TimingSummary } from '../types'
 import { EditRuleDialog } from '../components/EditRuleDialog'
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
+import {
+  DASHBOARD_STATUS_CLOCK_INTERVAL_MS,
+  DASHBOARD_TEAM_RUNTIME_REFRESH_MS,
+  getDashboardTeamControlState,
+} from '../lib/dashboard-runtime-state'
+
+export { DASHBOARD_POLL_FRESHNESS_MS, getDashboardTeamControlState } from '../lib/dashboard-runtime-state'
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -51,17 +59,6 @@ const ruleStatusOptions: Array<{ value: RuleStatusFilter; label: string }> = [
 ]
 
 const filterSelectClassName = 'h-10 w-full rounded-[8px] border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-foreground outline-none transition-colors hover:border-white/15 focus:border-ring focus:ring-2 focus:ring-ring/25'
-
-type DashboardTeamControlState = {
-  canToggle: boolean
-  command: 'enable' | 'disable' | null
-  disabled: boolean
-  primaryLabel: 'Live' | 'Paused' | 'Off'
-  primaryTone: 'live' | 'paused' | 'off'
-  title: string
-  healthLabel: 'Healthy' | 'Degraded'
-  healthTone: 'healthy' | 'degraded'
-}
 
 export function canShowOwnTeamProviderAuth(user: AuthUser | null): boolean {
   return user?.role === 'user' && typeof user.teamId === 'number'
@@ -89,43 +86,7 @@ export function getDashboardSessionRecovery(user: AuthUser | null) {
   } as const
 }
 
-export function getDashboardTeamControlState({
-  user,
-  team,
-  isSystemPaused,
-  isSessionHealthy,
-  isMutating,
-}: {
-  user: AuthUser | null
-  team?: Pick<Team, 'id' | 'name' | 'enabled' | 'runtimeStatus'> | null
-  isSystemPaused: boolean
-  isSessionHealthy: boolean
-  isMutating: boolean
-}): DashboardTeamControlState {
-  const isOwnTeamUser = user?.role === 'user' && typeof user.teamId === 'number' && team?.id === user.teamId
-  const teamEnabled = team ? team.enabled : !isSystemPaused
-  const primaryLabel = teamEnabled ? (isSystemPaused && !team ? 'Paused' : 'Live') : 'Off'
-  const primaryTone = primaryLabel === 'Off' ? 'off' : primaryLabel === 'Paused' ? 'paused' : 'live'
-  const command = isOwnTeamUser ? (teamEnabled ? 'disable' : 'enable') : null
-  const readonlyTitle = user?.role === 'admin'
-    ? 'Admin ดูสถานะจาก Dashboard ได้เท่านั้น ใช้หน้า Teams เพื่อเปิดหรือปิดทีม'
-    : 'ยังไม่พบทีมของผู้ใช้ จึงเปิดหรือปิดระบบบิทจาก Dashboard ไม่ได้'
-
-  return {
-    canToggle: isOwnTeamUser,
-    command,
-    disabled: !isOwnTeamUser || isMutating,
-    primaryLabel,
-    primaryTone,
-    title: isOwnTeamUser
-      ? `กดเพื่อ${teamEnabled ? 'ปิด' : 'เปิด'}ระบบบิทของทีม ${team.name}`
-      : readonlyTitle,
-    healthLabel: isSessionHealthy ? 'Healthy' : 'Degraded',
-    healthTone: isSessionHealthy ? 'healthy' : 'degraded',
-  }
-}
-
-function DashboardComponent() {
+export function DashboardComponent() {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -137,6 +98,7 @@ function DashboardComponent() {
   const [ruleStatusFilter, setRuleStatusFilter] = useState<RuleStatusFilter>('all')
   const [ruleTeamFilter, setRuleTeamFilter] = useState('all')
   const [ruleVehicleFilter, setRuleVehicleFilter] = useState('all')
+  const [, setStatusClockTick] = useState(0)
 
   // Stable per-row handlers so memoized RuleRow does not re-render on every SSE
   // metrics tick (~6-7×/sec at a 150ms poll) — only when the rules data changes.
@@ -150,11 +112,7 @@ function DashboardComponent() {
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: initialMetrics, isError: metricsIsError, error: metricsError, refetch: refetchMetrics } = useQuery({
-    queryKey: ['metrics'],
-    queryFn: metricsApi.snapshot,
-    staleTime: 5 * 1000,
-  })
+  const { data: metrics, hasFreshSse, isError: metricsIsError, error: metricsError, refetch: refetchMetrics } = useScopedMetrics()
 
   const { data: history = [], isError: historyIsError, refetch: refetchHistory } = useQuery({
     queryKey: ['metrics-history', 60],
@@ -168,13 +126,11 @@ function DashboardComponent() {
     queryKey: ['current-team'],
     queryFn: currentTeamApi.get,
     enabled: shouldLoadCurrentTeam,
+    refetchInterval: DASHBOARD_TEAM_RUNTIME_REFRESH_MS,
     staleTime: 10_000,
   })
 
-  const { data: sseMetrics, rules: sseRules, sessionAlert } = useSseStream()
-  const metrics = sseMetrics || initialMetrics
-  const statusUnconfirmed = !metrics || (metricsIsError && !sseMetrics) || (shouldLoadCurrentTeam && (!currentTeam || teamIsError))
-  const hasSessionExpired = metrics?.lastPoll?.status === 'session_expired'
+  const { rules: sseRules, sessionAlert } = useSseStream()
   const sessionAlertTimestamp = sessionAlert?.timestamp
 
   const toggleTeamMutation = useMutation({
@@ -212,6 +168,12 @@ function DashboardComponent() {
       duration: 20_000,
     })
   }, [sessionAlertTimestamp])
+
+  useEffect(() => {
+    // Trigger aging during silence; metrics-driven renders use current wall time.
+    const timer = window.setInterval(() => setStatusClockTick((tick) => tick + 1), DASHBOARD_STATUS_CLOCK_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const teamFilterOptions = useMemo(() => {
     const teams = new Map<string, string>()
@@ -373,16 +335,21 @@ function DashboardComponent() {
   const teamControlState = getDashboardTeamControlState({
     user,
     team: currentTeam,
-    isSystemPaused: metrics?.isPaused ?? false,
-    isSessionHealthy: metrics?.session?.isHealthy ?? true,
+    metrics,
+    nowMs: Date.now(),
     isMutating: toggleTeamMutation.isPending,
   })
+  const hasSessionExpired = teamControlState.primaryLabel === 'Session expired'
 
   const primaryStatusClassName = `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-50 ${teamControlState.primaryTone === 'off'
     ? 'bg-white/[0.05] text-muted-foreground'
     : teamControlState.primaryTone === 'paused'
       ? 'bg-[color:var(--color-warning-soft)] text-warning'
-      : 'bg-[color:var(--color-info-soft)] text-info'
+      : teamControlState.primaryTone === 'error'
+        ? 'bg-[color:var(--color-danger-soft)] text-danger'
+        : teamControlState.primaryTone === 'unknown'
+          ? 'bg-white/[0.05] text-muted-foreground'
+          : 'bg-[color:var(--color-info-soft)] text-info'
     }`
 
   const primaryStatusContent = (
@@ -391,6 +358,10 @@ function DashboardComponent() {
         <PowerOff className="h-3 w-3" />
       ) : teamControlState.primaryTone === 'paused' ? (
         <PauseCircle className="h-3 w-3" />
+      ) : teamControlState.primaryTone === 'error' ? (
+        <AlertTriangle className="h-3 w-3" />
+      ) : teamControlState.primaryTone === 'unknown' ? (
+        <WifiOff className="h-3 w-3" />
       ) : (
         <Radio className="h-3 w-3 animate-pulse" />
       )}
@@ -399,35 +370,49 @@ function DashboardComponent() {
   )
 
   const statusGroup = (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-0.5 pr-2">
-      {teamControlState.canToggle ? (
-        <button
-          type="button"
-          onClick={() => toggleTeamMutation.mutate()}
-          disabled={teamControlState.disabled}
-          className={primaryStatusClassName}
-          title={teamControlState.title}
-          aria-label={teamControlState.title}
-        >
-          {primaryStatusContent}
-        </button>
-      ) : (
-        <span className={primaryStatusClassName} title={teamControlState.title}>
-          {primaryStatusContent}
-        </span>
-      )}
-      <span className="h-3 w-px bg-white/10" aria-hidden="true" />
-      {teamControlState.healthTone === 'healthy' ? (
-        <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-success">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
-          {teamControlState.healthLabel}
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 text-[0.65rem] font-semibold text-warning">
-          <WifiOff className="h-3 w-3" />
-          {teamControlState.healthLabel}
-        </span>
-      )}
+    <div className="flex max-w-full flex-col items-start gap-1">
+      <div
+        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-0.5 pr-2"
+        role="status"
+        aria-label={`สถานะ Worker: ${teamControlState.runtimeReason}; ${teamControlState.healthLabel}`}
+      >
+        {teamControlState.canToggle ? (
+          <button
+            type="button"
+            onClick={() => toggleTeamMutation.mutate()}
+            disabled={teamControlState.disabled}
+            className={primaryStatusClassName}
+            title={teamControlState.title}
+            aria-label={teamControlState.title}
+          >
+            {primaryStatusContent}
+          </button>
+        ) : (
+          <span className={primaryStatusClassName} title={teamControlState.title}>
+            {primaryStatusContent}
+          </span>
+        )}
+        <span className="h-3 w-px shrink-0 bg-white/10" aria-hidden="true" />
+        {teamControlState.healthTone === 'healthy' ? (
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-success">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+            <span className="truncate">{teamControlState.healthLabel}</span>
+          </span>
+        ) : teamControlState.healthTone === 'degraded' ? (
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-warning">
+            <WifiOff className="h-3 w-3 shrink-0" />
+            <span className="truncate">{teamControlState.healthLabel}</span>
+          </span>
+        ) : (
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-muted-foreground">
+            <WifiOff className="h-3 w-3 shrink-0" />
+            <span className="truncate">{teamControlState.healthLabel}</span>
+          </span>
+        )}
+      </div>
+      <span className="max-w-[22rem] text-xs leading-snug text-muted-foreground">
+        {teamControlState.runtimeReason}
+      </span>
     </div>
   )
   const sessionRecovery = getDashboardSessionRecovery(user)
@@ -438,7 +423,7 @@ function DashboardComponent() {
         icon={LayoutDashboard}
         title="ภาพรวมระบบ"
         subtitle="Pipeline telemetry และ rule ที่กำลังทำงาน"
-        meta={statusUnconfirmed ? <span className="text-xs text-muted-foreground">ยังยืนยันสถานะระบบไม่ได้</span> : statusGroup}
+        meta={statusGroup}
       />
 
       {hasSessionExpired ? (
@@ -448,9 +433,12 @@ function DashboardComponent() {
             <span className="text-sm font-bold">{sessionRecovery.title}</span>
           </div>
           {sessionRecovery.href && sessionRecovery.actionLabel ? (
-            <Button asChild variant="outline" size="sm">
-              <a href={sessionRecovery.href}>{sessionRecovery.actionLabel}</a>
-            </Button>
+            <a
+              href={sessionRecovery.href}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              {sessionRecovery.actionLabel}
+            </a>
           ) : null}
         </div>
       ) : null}
@@ -462,7 +450,7 @@ function DashboardComponent() {
       ) : null}
 
       {/* Pipeline timeline — 4 stages as connected flow, not 4 lonely tiles. */}
-      {metricsIsError && !sseMetrics ? (
+      {metricsIsError && !hasFreshSse ? (
         <ErrorState title="โหลดสถานะการทำงานไม่สำเร็จ" error={metricsError} onRetry={() => { void refetchMetrics() }} />
       ) : !metrics ? (
         <SkeletonCard lines={3} />
@@ -589,7 +577,7 @@ function DashboardComponent() {
    Renders the critical-path stages connected by a flowing line. Each stage
    shows its p95 latency + inline sparkline of last 60 polls' avg latency.
    ───────────────────────────────────────────────────────────── */
-function PipelineTimeline({
+export function PipelineTimeline({
   metrics,
   history,
 }: {
@@ -622,7 +610,10 @@ function PipelineTimeline({
   const queued = metrics?.runtime?.queuedDetailBookings ?? 0
   const verifyQueued = metrics?.autoAccept?.pendingVerificationCount ?? 0
   const upstream = metrics?.upstream
-  const reuseRatio = upstream && upstream.requests > 0 ? upstream.reuseRatio : null
+  const poolRequests = Array.isArray(upstream?.connectionPools)
+    ? upstream.connectionPools.reduce((sum, pool) => sum + (Number.isFinite(pool?.requests) ? pool.requests : 0), 0) : 0
+  const reuseRatio = metrics?.teamId === null && upstream?.connectionScope === 'aggregate' && Number.isFinite(upstream.reuseRatio) && poolRequests > 0
+    ? upstream.reuseRatio : null
 
   return (
     <Card className="bg-card border-white/10">
@@ -637,9 +628,13 @@ function PipelineTimeline({
           {reuseRatio !== null ? (
             <Badge
               variant={reuseRatio >= 80 ? 'success' : reuseRatio >= 50 ? 'warning' : 'neutral'}
-              title={`${(upstream?.requests ?? 0).toLocaleString()} upstream reqs · ${(upstream?.connections ?? 0).toLocaleString()} new connections`}
+              title={`${poolRequests.toLocaleString()} process-pool requests · ${(upstream?.connections ?? 0).toLocaleString()} new connections`}
             >
-              {reuseRatio}% warm
+              {reuseRatio}% pool reuse
+            </Badge>
+          ) : upstream ? (
+            <Badge variant="neutral" title="Physical connections are shared across teams in each process; a team reuse ratio is unavailable.">
+              {upstream.connectionScope === 'process' || upstream.connectionScope === 'aggregate' ? 'Shared process pool' : 'Pool ownership unknown'}
             </Badge>
           ) : null}
           <Badge variant={queued ? 'warning' : 'neutral'}>
@@ -665,6 +660,22 @@ function PipelineTimeline({
             />
           ))}
         </ol>
+        <div className="mt-4 border-t border-border pt-3" aria-label="ช่วงเวลาที่แอปสังเกต">
+          <p className="text-xs text-muted-foreground">ช่วงเวลาที่แอปสังเกต · ไม่ใช่เวลาเผยแพร่จากผู้ให้บริการ</p>
+          <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            {([
+              ['รายการหน้าแรก', metrics?.operations?.biddingListPage1],
+              ['หน้าแรก → เริ่มอ่านรายละเอียด', metrics?.operations?.page1ToDetailStart],
+              ['พบรายการตรงเงื่อนไข → ส่งคำขอรับงาน', metrics?.operations?.firstMatchToAcceptStart],
+              ['รับงานเสร็จ → เริ่มอ่านผลยืนยัน', metrics?.operations?.verificationQueueWait],
+            ] as const).map(([label, summary]) => (
+              <div key={label} className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="tabular-nums">{summary?.count ? `${summary.avg.toLocaleString()} ms · p95 ${summary.p95.toLocaleString()} ms` : 'ยังไม่มีข้อมูลสังเกต'}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </CardContent>
     </Card>
   )

@@ -11,7 +11,9 @@ import {
 const envFilePath = resolve(process.cwd(), ".env");
 const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 
-if (existsSync(envFilePath)) {
+// Explicit subprocess-test isolation; application startup always keeps file loading.
+const skipEnvFile = process.env.NODE_ENV === "test" && process.env.SPX_TEST_SKIP_ENV_FILE === "1";
+if (!skipEnvFile && existsSync(envFilePath)) {
   const lines = readFileSync(envFilePath, "utf8").split(/\r?\n/);
 
   for (const rawLine of lines) {

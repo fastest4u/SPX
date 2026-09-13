@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from '../components/ui/button'
@@ -15,19 +15,26 @@ function LoginComponent() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [required, setRequired] = useState({ username: false, password: false })
+  const usernameRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const submitting = useRef(false)
   const { login, isLoggingIn } = useAuth({ enabled: false })
 
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (submitting.current) return
     setError('')
-
-    if (!username.trim() || !password.trim()) {
-      setError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน')
+    const invalid = { username: !username.trim(), password: !password }
+    setRequired(invalid)
+    if (invalid.username || invalid.password) {
+      ;(invalid.username ? usernameRef : passwordRef).current?.focus()
       return
     }
 
+    submitting.current = true
     try {
       await login(username.trim(), password)
       void navigate({ to: '/' })
@@ -35,47 +42,14 @@ function LoginComponent() {
       const msg = err instanceof Error ? err.message : 'เข้าสู่ระบบไม่สำเร็จ'
       // Clean up the error message if it starts with a code like "INVALID_CREDENTIALS: "
       setError(msg.includes(':') ? msg.split(':').slice(1).join(':').trim() : msg)
-    }
+    } finally { submitting.current = false }
   }
 
   return (
     <div className="flex min-h-dvh items-center justify-center gradient-bg px-3 py-8 sm:px-6 lg:px-8">
       <div className="grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        {/* Hero Section */}
-        <div className="reveal-up text-center lg:text-left">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-3 py-2 text-sm font-semibold text-success">
-            <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_14px_color-mix(in_oklab,var(--color-success)_50%,transparent)]"></span>
-            Logistics command center
-          </div>
-          <h1 className="mx-auto max-w-2xl text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:mx-0 lg:text-6xl">
-            BOT Control Center
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg lg:mx-0">
-            จัดการ rule ค้นหางาน ติดตาม polling แบบ real-time ตรวจสอบประวัติ และควบคุมการแจ้งเตือนจากหน้าจอเดียว
-          </p>
-        </div>
-
-        {/* Feature Cards */}
-        <div className="grid gap-3 sm:grid-cols-3 lg:col-start-1">
-          <div className="glass rounded-2xl p-4 text-left">
-            <Activity className="mb-3 h-5 w-5 text-info" />
-            <div className="mb-1 text-sm font-bold text-foreground">Live Metrics</div>
-            <div className="text-xs leading-5 text-muted-foreground">สถานะระบบและ latency</div>
-          </div>
-          <div className="glass rounded-2xl p-4 text-left">
-            <BellRing className="mb-3 h-5 w-5 text-success" />
-            <div className="mb-1 text-sm font-bold text-foreground">Smart Alerts</div>
-            <div className="text-xs leading-5 text-muted-foreground">LINE และ Discord</div>
-          </div>
-          <div className="glass rounded-2xl p-4 text-left">
-            <ShieldCheck className="mb-3 h-5 w-5 text-primary" />
-            <div className="mb-1 text-sm font-bold text-foreground">Audit Ready</div>
-            <div className="text-xs leading-5 text-muted-foreground">ตรวจสอบย้อนหลังได้</div>
-          </div>
-        </div>
-
         {/* Login Form */}
-        <Card className="glass border-white/10 reveal-up lg:row-span-2 lg:col-start-2">
+        <Card className="glass border-white/10 reveal-up lg:row-span-2 lg:row-start-1 lg:col-start-2">
           <CardHeader>
             <CardTitle className="text-foreground">เข้าสู่ระบบ</CardTitle>
             <CardDescription className="text-muted-foreground">
@@ -83,7 +57,7 @@ function LoginComponent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form noValidate onSubmit={handleSubmit} className="space-y-4">
               {error && (
                 <div className="rounded-xl border border-destructive/25 bg-destructive/10 p-3 text-sm text-danger" role="alert">
                   {error}
@@ -91,33 +65,44 @@ function LoginComponent() {
               )}
 
               <div className="space-y-2">
-                <label htmlFor="login-username" className="text-sm font-semibold text-foreground">Username</label>
+                <label htmlFor="login-username" className="text-sm font-semibold text-foreground">ชื่อผู้ใช้</label>
                 <Input
                   id="login-username"
+                  ref={usernameRef}
+                  name="username"
+                  spellCheck={false}
+                  aria-invalid={required.username}
+                  aria-describedby={required.username ? 'login-username-error' : undefined}
                   type="text"
                   placeholder="your.username"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => { setUsername(e.target.value); setRequired((current) => ({ ...current, username: false })) }}
                   autoComplete="username"
                 />
+                {required.username && <p id="login-username-error" className="text-sm text-danger">กรุณากรอกชื่อผู้ใช้</p>}
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="login-password" className="text-sm font-semibold text-foreground">Password</label>
+                <label htmlFor="login-password" className="text-sm font-semibold text-foreground">รหัสผ่าน</label>
                 <div className="relative">
                   <Input
                     id="login-password"
+                    ref={passwordRef}
+                    name="password"
+                    aria-invalid={required.password}
+                    aria-describedby={required.password ? 'login-password-error' : undefined}
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••••••"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => { setPassword(e.target.value); setRequired((current) => ({ ...current, password: false })) }}
                     autoComplete="current-password"
-                    className="pr-10"
+                    className="h-11 pr-12"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                    className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-pressed={showPassword}
                     aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                   >
                     {showPassword ? (
@@ -127,6 +112,7 @@ function LoginComponent() {
                     )}
                   </button>
                 </div>
+                {required.password && <p id="login-password-error" className="text-sm text-danger">กรุณากรอกรหัสผ่าน</p>}
               </div>
 
               <Button
@@ -146,6 +132,40 @@ function LoginComponent() {
             </form>
           </CardContent>
         </Card>
+        {/* Hero Section */}
+        <div className="reveal-up text-center lg:col-start-1 lg:row-start-1 lg:text-left">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-3 py-2 text-sm font-semibold text-success">
+            <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_14px_color-mix(in_oklab,var(--color-success)_50%,transparent)]"></span>
+            Logistics command center
+          </div>
+          <h1 className="mx-auto max-w-2xl text-4xl font-black tracking-tight text-foreground sm:text-5xl lg:mx-0 lg:text-6xl">
+            BOT Control Center
+          </h1>
+          <p className="mx-auto mt-5 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg lg:mx-0">
+            จัดการ rule ค้นหางาน ติดตาม polling แบบ real-time ตรวจสอบประวัติ และควบคุมการแจ้งเตือนจากหน้าจอเดียว
+          </p>
+        </div>
+
+        {/* Feature Cards */}
+        <div className="grid gap-3 sm:grid-cols-3 lg:col-start-1 lg:row-start-2">
+          <div className="glass rounded-2xl p-4 text-left">
+            <Activity className="mb-3 h-5 w-5 text-info" />
+            <div className="mb-1 text-sm font-bold text-foreground">Live Metrics</div>
+            <div className="text-xs leading-5 text-muted-foreground">สถานะระบบและ latency</div>
+          </div>
+          <div className="glass rounded-2xl p-4 text-left">
+            <BellRing className="mb-3 h-5 w-5 text-success" />
+            <div className="mb-1 text-sm font-bold text-foreground">Smart Alerts</div>
+            <div className="text-xs leading-5 text-muted-foreground">LINE และ Discord</div>
+          </div>
+          <div className="glass rounded-2xl p-4 text-left">
+            <ShieldCheck className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-bold text-foreground">Audit Ready</div>
+            <div className="text-xs leading-5 text-muted-foreground">ตรวจสอบย้อนหลังได้</div>
+          </div>
+        </div>
+
+
       </div>
     </div>
   )

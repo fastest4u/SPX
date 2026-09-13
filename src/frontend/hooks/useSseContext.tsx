@@ -1,4 +1,6 @@
 import * as React from 'react'
+import { DASHBOARD_STATUS_CLOCK_INTERVAL_MS } from '../lib/dashboard-runtime-state'
+import { useAuth } from './useAuth'
 import { useSse } from './useSse'
 import type { MetricsSnapshot, NotifyRule } from '../types'
 
@@ -11,6 +13,8 @@ interface SessionExpiredEvent {
 
 interface SseContextValue {
     status: SseStatus
+    metricsReceivedAt: number | null
+    observationNowMs: number
     data: MetricsSnapshot | null
     rules: NotifyRule[] | null
     sessionAlert: SessionExpiredEvent | null
@@ -36,9 +40,19 @@ export function SseProvider({
     enabled?: boolean
     children: React.ReactNode
 }) {
-    const sse = useSse(url, enabled)
+    const [observationNowMs, setObservationNowMs] = React.useState(() => Date.now())
+    React.useEffect(() => {
+        const timer = setInterval(() => setObservationNowMs(Date.now()), DASHBOARD_STATUS_CLOCK_INTERVAL_MS)
+        return () => clearInterval(timer)
+    }, [])
+    const { user } = useAuth()
+    const scopeKey = user ? `${user.id}:${user.role}:${user.teamId}` : 'anonymous'
+    const metricsTeamId = user?.role === 'admin' ? null : user?.teamId ?? undefined
+    const sse = useSse(url, enabled && !!user, scopeKey, metricsTeamId)
     const value: SseContextValue = {
         status: sse.status,
+        metricsReceivedAt: sse.metricsReceivedAt,
+        observationNowMs: Math.max(observationNowMs, sse.metricsReceivedAt ?? 0),
         data: sse.data,
         rules: sse.rules,
         sessionAlert: sse.sessionAlert,
@@ -58,6 +72,8 @@ export function useSseStream(): SseContextValue {
     return (
         ctx ?? {
             status: 'disconnected',
+            metricsReceivedAt: null,
+            observationNowMs: Date.now(),
             data: null,
             rules: null,
             sessionAlert: null,

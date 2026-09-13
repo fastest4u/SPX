@@ -95,6 +95,8 @@ async function main(): Promise<void> {
   const acceptHeaders: Array<Record<string, string>> = [];
   const requestListBodies: unknown[] = [];
   let failBeforeSnapshot = false;
+  let failAfterSnapshot = false;
+  let ownedAfterCount = 2;
   let acceptSuccessCount = 2;
   globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
@@ -104,11 +106,12 @@ async function main(): Promise<void> {
       if (failBeforeSnapshot && !afterAccept) {
         throw new Error("before snapshot unavailable");
       }
+      if (failAfterSnapshot && afterAccept) throw new Error("after snapshot unavailable");
       const requests = afterAccept && body.request_tab_pending_confirmation === false
         ? [
             requestListItem(38659805, 2, "NORC-B", "SOCs"),
             requestListItem(38659806, 2, "NORC-B", "SOCs"),
-          ]
+          ].slice(0, ownedAfterCount)
         : (!afterAccept && body.request_tab_pending_confirmation === true
             ? [
                 requestListItem(38659805, 1, "NORC-B", "SOCs"),
@@ -179,6 +182,9 @@ async function main(): Promise<void> {
     assert.equal(historyRows[0]?.bookingId, 2706815);
     assert.deepEqual(historyRows[0]?.requestIds, [38659805, 38659806]);
     assert.equal(historyRows[0]?.acceptedCount, 2);
+    assert.equal(historyRows[0]?.status, "success");
+    assert.equal(historyRows[0]?.verificationStatus, "verified_success");
+    assert.ok(historyRows[0]?.verifiedAt);
     assert.equal(historyRows[0]?.origin, "NORC-B");
     assert.equal(historyRows[0]?.destination, "SOCs");
     assert.equal(historyRows[0]?.vehicleType, "6WH");
@@ -201,7 +207,29 @@ async function main(): Promise<void> {
     assert.equal(ambiguousData?.notified, false);
     const afterAmbiguousRows = await getAutoAcceptHistory(beta.id, { limit: 20, sortBy: "id", sortDir: "desc" });
     assert.deepEqual(afterAmbiguousRows[0]?.requestIds, []);
-    assert.equal(afterAmbiguousRows[0]?.acceptedCount, 2);
+    assert.equal(afterAmbiguousRows[0]?.acceptedCount, 0);
+    assert.equal(afterAmbiguousRows[0]?.status, "indeterminate");
+    assert.equal(afterAmbiguousRows[0]?.verificationStatus, "indeterminate");
+    assert.equal(afterAmbiguousRows[0]?.verifiedAt, null);
+    assert.equal(acceptBodies.length, 1, "unproven outcome does not replay provider POST");
+
+    for (const afterFailure of [false, true]) {
+      acceptBodies.length = 0;
+      requestListBodies.length = 0;
+      failBeforeSnapshot = false;
+      failAfterSnapshot = afterFailure;
+      ownedAfterCount = 1;
+      const response = await app.inject({ method: "POST", url: "/api/bidding/accept-all", payload: { teamId: beta.id, bookingId: 2706815, confirm: true } });
+      assert.equal(response.statusCode, 200);
+      const evidence = parseBody<{ verifiedAcceptedCount: number; verificationStatus: string; requestIds: number[]; notified: boolean }>(response).data!;
+      assert.equal(evidence.verifiedAcceptedCount, afterFailure ? 0 : 1);
+      assert.equal(evidence.verificationStatus, afterFailure ? "indeterminate" : "verified_success");
+      assert.deepEqual(evidence.requestIds, afterFailure ? [] : [38659805]);
+      const rows = await getAutoAcceptHistory(beta.id, { limit: 20, sortBy: "id", sortDir: "desc" });
+      assert.equal(rows[0]?.acceptedCount, afterFailure ? 0 : 1, "only observed IDs become confirmed history");
+      assert.equal(acceptBodies.length, 1);
+      if (afterFailure) assert.equal(evidence.notified, false);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     mutableEnv.API_URL = originalApiUrl;

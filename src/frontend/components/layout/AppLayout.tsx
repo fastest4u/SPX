@@ -41,12 +41,12 @@ const navItems: NavItem[] = [
   { path: '/notifications', label: 'แจ้งเตือน', icon: Bell, shortcut: '3' },
   { path: '/line-bot', label: 'LINE Bot', icon: MessageCircle, shortcut: '4' },
   { path: '/reports', label: 'รายงาน', icon: FileBarChart, shortcut: '6' },
+  { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '8' },
 ]
 
 const adminNavItems: NavItem[] = [
   { path: '/line-image-extractions', label: 'LINE Runsheets', icon: FileImage, shortcut: '5' },
   { path: '/audit', label: 'ประวัติการใช้งาน', icon: FileText, shortcut: '7' },
-  { path: '/auto-accept-history', label: 'ประวัติรับงาน', icon: Truck, shortcut: '8' },
   { path: '/teams', label: 'จัดการทีม', icon: Building2, shortcut: '9' },
   { path: '/users', label: 'จัดการผู้ใช้', icon: Users },
   {

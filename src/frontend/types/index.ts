@@ -383,6 +383,10 @@ export interface LineQuota {
 
 // Metrics Types
 export type TimedOperation =
+  | 'biddingListPage1'
+  | 'page1ToDetailStart'
+  | 'firstMatchToAcceptStart'
+  | 'verificationQueueWait'
   | 'detailFetch'
   | 'dbSave'
   | 'notify'
@@ -485,6 +489,8 @@ export interface MetricsSnapshot {
   upstream?: {
     requests: number;
     connections: number;
+    connectionScope?: 'process' | 'aggregate' | 'unknown'
+    connectionPools?: Array<{ id: string; requests: number; connections: number }>
     reuseRatio: number;
   };
   operations: Record<TimedOperation, TimingSummary>;
@@ -562,6 +568,8 @@ export interface AcceptAllBookingResponse {
   teamId: number;
   acceptAll: true;
   acceptedCount?: number;
+  verifiedAcceptedCount?: number;
+  verificationStatus?: 'verified_success' | 'indeterminate';
   requestIds?: number[];
   notified?: boolean;
   response?: unknown;
