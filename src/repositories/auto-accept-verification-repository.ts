@@ -205,6 +205,55 @@ export async function rescheduleAutoAcceptVerificationJob(teamId: number, traceI
   });
 }
 
+function hasReusableLostProof(canonical: Row, record: VerificationQueueRecord, now: number): boolean {
+  // Unacknowledged intents (including legacy imports) have a placeholder finish
+  // time. A result older than the actual POST must never close those intents.
+  if (!record.responseReady || canonical.status !== "lost" || canonical.reason_code !== "verified_lost_race") return false;
+  try {
+    const evidence = JSON.parse(String(canonical.evidence_json)) as Record<string, unknown> | null;
+    if (!evidence || evidence.source !== "detached_verification" || evidence.pendingTabRead !== true || evidence.confirmedTabRead !== true) return false;
+    const startedAt = evidence.verificationStartedAt;
+    const statuses = evidence.observedStatuses;
+    return typeof startedAt === "number" && Number.isSafeInteger(startedAt) && startedAt > 0 && startedAt <= now
+      && Number.isSafeInteger(record.job.acceptFinishedAt) && record.job.acceptFinishedAt > 0
+      && startedAt >= record.job.acceptFinishedAt
+      && !!statuses && typeof statuses === "object" && !Array.isArray(statuses)
+      && (statuses as Record<string, unknown>)[String(canonical.request_id)] === 4;
+  } catch { return false; }
+}
+
+/** Close duplicate history using proof already settled for this team/request.
+ * Keep the caller's lease, canonical evidence, quota and notification outbox intact.
+ */
+export async function reuseAutoAcceptVerificationEvidence(teamId: number, traceId: string, leaseToken: string, options: { now?: number } = {}): Promise<VerificationQueueRecord | null> {
+  const now = options.now ?? Date.now();
+  return transaction(function* () {
+    const row = yield* readJob(teamId, traceId);
+    if (!row || row.leaseToken !== leaseToken || row.leaseUntil === null || row.leaseUntil <= now) return null;
+    if (row.job.discovery || row.discoveryPending || !row.unresolvedRequestIds.length) return row;
+    const placeholders = row.unresolvedRequestIds.map(() => "?").join(",");
+    const results = yield select(`SELECT request_id,status,reason_code,evidence_json FROM auto_accept_results WHERE team_id=? AND booking_id=? AND request_id IN (${placeholders}) ORDER BY request_id${lock()}`,
+      teamId, row.job.bookingId, ...row.unresolvedRequestIds);
+    const settled = new Set(row.settledRequestIds);
+    for (const canonical of results) {
+      const owned = canonical.status === "owned";
+      if (!owned && !hasReusableLostProof(canonical, row, now)) continue;
+      const requestId = Number(canonical.request_id);
+      const historyId = yield* ensureRequestHistory(row.job, requestId);
+      yield write("UPDATE auto_accept_history SET status=?,accepted_count=0,failure_reason=?,error_message=?,verification_status=?,verified_at=? WHERE id=? AND team_id=?",
+        owned ? "success" : "failed", owned ? null : "lost_race", owned ? null : "Verification failed: lost_race",
+        owned ? "verified_success" : "verified_failed", stamp(now), historyId, teamId);
+      settled.add(requestId);
+    }
+    if (settled.size !== row.settledRequestIds.length) {
+      row.settledRequestIds = [...settled];
+      row.unresolvedRequestIds = row.job.requestIds.filter(id => !settled.has(id));
+      yield* save(row);
+    }
+    return row;
+  });
+}
+
 export async function settleAutoAcceptVerificationJob(teamId: number, traceId: string, leaseToken: string, outcome: AutoAcceptVerificationOutcome, options: { now?: number; nextAttemptAt?: number } = {}): Promise<VerificationSettlement> {
   const now = options.now ?? Date.now();
   validate(outcome.job);

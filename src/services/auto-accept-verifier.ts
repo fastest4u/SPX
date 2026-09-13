@@ -264,11 +264,13 @@ export async function verifyAutoAcceptJob(
     outcome.evidence.reason = outcome.discoveryFailureReason;
     return outcome;
   }
+  let verificationStartedAt = Date.now();
   let tabRead = await readTabs(apiClient, job.bookingId);
   let statuses = mergeStatuses([tabRead.pendingList, tabRead.confirmedList]);
 
   if (!options.skipAmbiguousRecheck && job.ambiguousAccept && !job.requestIds.some((requestId) => statuses.get(requestId) === ACCEPTED_STATUS)) {
     await sleep(options.ambiguousRecheckDelayMs ?? DEFAULT_AMBIGUOUS_VERIFY_RECHECK_DELAY_MS);
+    verificationStartedAt = Date.now();
     tabRead = await readTabs(apiClient, job.bookingId);
     statuses = mergeStatuses([tabRead.pendingList, tabRead.confirmedList]);
   }
@@ -312,6 +314,7 @@ export async function verifyAutoAcceptJob(
   });
 
   const outcome = buildOutcome(job, tabRead, statuses, requests, verificationLatencyMs);
+  outcome.evidence.verificationStartedAt = verificationStartedAt;
   if (job.discovery) {
     outcome.discoveryPending = !completeRead || job.requestIds.length === 0
       || outcome.indeterminateRequestIds.length > 0

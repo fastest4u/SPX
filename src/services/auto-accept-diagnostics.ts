@@ -20,6 +20,8 @@ export interface AutoAcceptEvidence {
   acceptRttMs?: number;
   listAgeMs?: number;
   verificationLatencyMs?: number;
+  /** Start of the provider read pair, before either tab is requested. */
+  verificationStartedAt?: number;
   pendingTabRead: boolean;
   confirmedTabRead: boolean;
   observedStatuses: Record<number, number | null>;
