@@ -6,6 +6,7 @@ import {
   rescheduleAutoAcceptVerificationJob, settleAutoAcceptVerificationJob,
   acknowledgeAutoAcceptVerificationNotification, type VerificationQueueRecord,
   importHistoricalAutoAcceptVerifications,
+  reuseAutoAcceptVerificationEvidence,
 } from "../repositories/auto-accept-verification-repository.js";
 import { logger } from "../utils/logger.js";
 
@@ -29,6 +30,7 @@ interface VerificationHooks {
 export class AutoAcceptVerificationRunner {
   private records = new Map<string, VerificationQueueRecord>();
   private active = new Map<string, Promise<void>>();
+  private activeBookings = new Map<number, Promise<void>>();
   private queued = new Map<string, number>();
   private restorePromise?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
@@ -121,22 +123,28 @@ export class AutoAcceptVerificationRunner {
       const jobs = await listAutoAcceptVerificationJobs(this.teamId, { dueAt: now, limit: capacity });
       for (const record of jobs) {
         if (this.active.size >= 2) break;
-        this.launch(record.job.traceId, now);
+        this.launch(record.job.traceId, now, record.job.bookingId);
       }
     } finally { this.runningDue = false; }
   }
 
-  private launch(traceId: string, now = Date.now()): void {
+  private launch(traceId: string, now = Date.now(), bookingId = this.records.get(traceId)?.job.bookingId): void {
     if (this.stopped || this.active.has(traceId)) return;
     if (this.active.size >= 2) { this.queued.set(traceId, now); return; }
-    const task = this.process(traceId, now).catch(error => {
+    const previous = bookingId === undefined ? undefined : this.activeBookings.get(bookingId);
+    // A sibling must see the first trace's committed evidence before deciding
+    // to read again. Claim only after waiting, with a fresh lease clock.
+    const work = previous ? previous.then(() => this.process(traceId, Date.now())) : this.process(traceId, now);
+    const task = work.catch(error => {
       logger.warn("auto-accept-verification-retry-pending", { teamId: this.teamId, traceId, error: String(error) });
     }).finally(() => {
       this.active.delete(traceId);
+      if (bookingId !== undefined && this.activeBookings.get(bookingId) === task) this.activeBookings.delete(bookingId);
       const next = this.queued.entries().next().value;
-      if (next) { this.queued.delete(next[0]); this.launch(next[0], next[1]); }
+      if (next) { this.queued.delete(next[0]); this.launch(next[0], Date.now()); }
     });
     this.active.set(traceId, task);
+    if (bookingId !== undefined) this.activeBookings.set(bookingId, task);
   }
 
   private nextAttempt(attempt: number): number {
@@ -152,11 +160,18 @@ export class AutoAcceptVerificationRunner {
     this.remember(record);
     try {
       if (this.stopped || !(await this.hooks.canRun())) return;
-      let updated = record;
-      if (verificationHoldCount(record) > 0) {
-        const job = record.job.discovery ? record.job : { ...record.job, requestIds: record.unresolvedRequestIds };
+      let updated = await reuseAutoAcceptVerificationEvidence(this.teamId, traceId, record.leaseToken);
+      if (!updated) return;
+      this.records.set(traceId, updated);
+      if (updated.unresolvedRequestIds.length !== record.unresolvedRequestIds.length) {
+        await this.hooks.onSettled(updated, [], []);
+      }
+      if (this.stopped || !(await this.hooks.canRun())) return;
+      if (verificationHoldCount(updated) > 0) {
+        const job = updated.job.discovery ? updated.job : { ...updated.job, requestIds: updated.unresolvedRequestIds };
+        const settledRequestIds = updated.settledRequestIds;
         const read = () => verifyAutoAcceptJob(this.apiClient, job, {
-          skipAmbiguousRecheck: true, settledRequestIds: record.settledRequestIds,
+          skipAmbiguousRecheck: true, settledRequestIds,
         });
         const outcome = this.apiClient.withVerificationPriority
           ? await this.apiClient.withVerificationPriority(read, async () => !this.stopped
