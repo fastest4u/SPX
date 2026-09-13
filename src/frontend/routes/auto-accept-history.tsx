@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { autoAcceptHistoryApi, biddingApi, teamsApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -12,11 +12,12 @@ import { FilterChip } from '../components/ui/filter-chip'
 import { formatDateTime } from '../lib/utils'
 import { SkeletonTable } from '../components/ui/skeleton'
 import { ErrorState } from '../components/ui/error-state'
-import { Search, CheckCircle2, XCircle, Truck, Send, Loader2, SlidersHorizontal, X } from 'lucide-react'
+import { Clock3, Search, CheckCircle2, XCircle, Truck, Send, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useAuth } from '../hooks/useAuth'
 import { toast } from 'sonner'
-import type { AcceptAllBookingResponse, AutoAcceptHistoryItem, AutoAcceptHistoryQuery, Team } from '../types'
+import { ManualAcceptResult, type ManualAcceptOutcome } from '../components/ManualAcceptResult'
+import type { AutoAcceptHistoryItem, AutoAcceptHistoryQuery, Team } from '../types'
 
 export const Route = createFileRoute('/auto-accept-history')({
   component: AutoAcceptHistoryComponent,
@@ -83,7 +84,7 @@ const AAH_COLUMNS: DataTableColumn<AutoAcceptHistoryDisplayItem>[] = [
         </span>
       ) : item.status === 'indeterminate' ? (
         <span className="flex items-center gap-1 text-warning" title={item.errorMessage}>
-          <XCircle className="h-4 w-4" />
+          <Clock3 className="h-4 w-4" />
           {'รอตรวจสอบ'}
         </span>
       ) : (
@@ -138,7 +139,11 @@ function AutoAcceptHistoryComponent() {
   const [selectedTeamId, setSelectedTeamId] = useState<number | ''>('')
   const [acceptAllBookingId, setAcceptAllBookingId] = useState('')
   const [acceptAllConfirmed, setAcceptAllConfirmed] = useState(false)
-  const [acceptAllResult, setAcceptAllResult] = useState<AcceptAllBookingResponse | null>(null)
+  const [acceptAllResult, setAcceptAllResult] = useState<ManualAcceptOutcome | null>(null)
+  const scopeVersion = useRef(0)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
+  const clearOutcome = () => { scopeVersion.current++; setAcceptAllResult(null); setAcceptAllConfirmed(false) }
   const debouncedSearch = useDebouncedValue(search.trim(), 400)
   const debouncedRuleName = useDebouncedValue(ruleName.trim(), 300)
 
@@ -153,21 +158,26 @@ function AutoAcceptHistoryComponent() {
   const teams = teamsQuery.data ?? []
 
   const acceptAllMutation = useMutation({
-    mutationFn: biddingApi.acceptAll,
-    onSuccess: (data) => {
-      setAcceptAllResult(data)
-      toast.success('ส่ง accept_all แล้ว')
+    mutationFn: (attempt: { teamId: number; bookingId: number; teamName: string; version: number }) =>
+      biddingApi.acceptAll({ teamId: attempt.teamId, bookingId: attempt.bookingId, confirm: true }),
+    retry: false,
+    onSuccess: (data, attempt) => {
+      if (attempt.version !== scopeVersion.current) return
+      setAcceptAllResult({ ...attempt, data })
+      toast.success('ส่งคำขอรับงานแล้ว กรุณาตรวจสอบผลด้านล่าง')
     },
-    onError: (error: Error) => {
-      toast.error('accept_all ไม่สำเร็จ', { description: error.message })
+    onError: (_error, attempt) => {
+      if (attempt.version !== scopeVersion.current) return
+      setAcceptAllResult({ ...attempt, failed: true })
     },
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['autoAcceptHistory'] }) },
   })
 
   const { data: result, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['autoAcceptHistory', { search: debouncedSearch, status, ruleName: debouncedRuleName, sortKey, sortDir, page, pageSize }],
+    queryKey: ['autoAcceptHistory', { search: search.trim() ? debouncedSearch : '', status, ruleName: debouncedRuleName, sortKey, sortDir, page, pageSize }],
     queryFn: () =>
       autoAcceptHistoryApi.paginated({
-        search: debouncedSearch || undefined,
+        search: search.trim() ? debouncedSearch || undefined : undefined,
         status: status || undefined,
         ruleName: debouncedRuleName || undefined,
         sortBy: sortKey,
@@ -234,7 +244,10 @@ function AutoAcceptHistoryComponent() {
       toast.error('กรุณายืนยันก่อนส่ง')
       return
     }
-    acceptAllMutation.mutate({ teamId: selectedTeamId, bookingId, confirm: true })
+    if (acceptAllMutation.isPending) return
+    setAcceptAllResult(null)
+    const version = ++scopeVersion.current
+    acceptAllMutation.mutate({ teamId: selectedTeamId, bookingId, teamName: teams.find((team) => team.id === selectedTeamId)!.name, version })
   }
 
   return (
@@ -259,9 +272,9 @@ function AutoAcceptHistoryComponent() {
               teams={teams}
               teamsReady={teamsQuery.isSuccess}
               selectedTeamId={selectedTeamId}
-              onTeamChange={setSelectedTeamId}
+              onTeamChange={(value) => { clearOutcome(); setSelectedTeamId(value) }}
               bookingId={acceptAllBookingId}
-              onBookingIdChange={setAcceptAllBookingId}
+              onBookingIdChange={(value) => { clearOutcome(); setAcceptAllBookingId(value) }}
               confirmed={acceptAllConfirmed}
               onConfirmedChange={setAcceptAllConfirmed}
               isPending={acceptAllMutation.isPending}
@@ -275,6 +288,8 @@ function AutoAcceptHistoryComponent() {
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchRef}
+                aria-label="ค้นหาประวัติรับงาน"
                 placeholder="ค้นหาเส้นทาง, ประเภทรถ..."
                 value={search}
                 onChange={(e) => {
@@ -289,8 +304,10 @@ function AutoAcceptHistoryComponent() {
                   onClick={() => {
                     setSearch('')
                     setPage(1)
+                    searchRef.current?.focus()
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="ล้างคำค้นหาประวัติรับงาน"
+                  className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -301,6 +318,9 @@ function AutoAcceptHistoryComponent() {
               variant="outline"
               size="icon"
               className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info' : ''}`}
+              aria-label="ตัวกรองประวัติรับงาน"
+              aria-expanded={showFilters}
+              aria-controls="aah-filters"
               onClick={() => setShowFilters((value) => !value)}
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -309,14 +329,14 @@ function AutoAcceptHistoryComponent() {
 
           {/* Expandable Filters */}
           {showFilters ? (
-            <FilterPanel className="mb-4 space-y-3 animate-in">
+            <div id="aah-filters"><FilterPanel className="mb-4 space-y-3 animate-in">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
                     <SlidersHorizontal className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="text-sm font-bold text-foreground">Filter panel</div>
+                    <div className="text-sm font-bold text-foreground">ตัวกรอง</div>
                     <div className="text-xs text-muted-foreground">
                       กรองตาม Rule, สถานะ และคำค้นหา
                     </div>
@@ -352,7 +372,7 @@ function AutoAcceptHistoryComponent() {
                   </select>
                 </div>
               </div>
-            </FilterPanel>
+            </FilterPanel></div>
           ) : null}
 
           {/* Active Filter Chips */}
@@ -477,7 +497,7 @@ function AdminAcceptAllPanel({
   confirmed: boolean
   onConfirmedChange: (confirmed: boolean) => void
   isPending: boolean
-  result: AcceptAllBookingResponse | null
+  result: ManualAcceptOutcome | null
   onSubmit: () => void
 }) {
   const bookingIdNumber = Number(bookingId.trim())
@@ -499,7 +519,7 @@ function AdminAcceptAllPanel({
             id="accept-all-team"
             value={selectedTeamId}
             onChange={(event) => onTeamChange(event.target.value ? Number(event.target.value) : '')}
-            disabled={!teamsReady || isPending}
+            disabled={!teamsReady}
             className="flex h-10 w-full rounded-md border border-white/10 bg-white/[0.05] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="" className="bg-popover">เลือกทีม</option>
@@ -520,7 +540,6 @@ function AdminAcceptAllPanel({
             inputMode="numeric"
             value={bookingId}
             onChange={(event) => onBookingIdChange(event.target.value)}
-            disabled={isPending}
             placeholder="2706815"
           />
         </div>
@@ -539,11 +558,7 @@ function AdminAcceptAllPanel({
           accept_all
         </Button>
       </div>
-      {result ? (
-        <pre className="mt-3 max-h-56 overflow-auto rounded-[8px] border border-white/10 bg-black/10 p-3 text-xs leading-5 text-muted-foreground">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      ) : null}
+      {result ? <ManualAcceptResult result={result} /> : null}
     </FilterPanel>
   )
 }
@@ -567,7 +582,7 @@ function AutoAcceptMobileCard({ item, showTeam }: { item: AutoAcceptHistoryDispl
           </div>
         </div>
         <span className={isSuccess ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-success' : isIndeterminate ? 'flex shrink-0 items-center gap-1 text-xs font-semibold text-warning' : 'flex shrink-0 items-center gap-1 text-xs font-semibold text-danger'}>
-          {isSuccess ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+          {isSuccess ? <CheckCircle2 className="h-4 w-4" /> : isIndeterminate ? <Clock3 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
           {isSuccess ? 'สำเร็จ' : isIndeterminate ? 'รอตรวจสอบ' : 'ล้มเหลว'}
         </span>
       </div>

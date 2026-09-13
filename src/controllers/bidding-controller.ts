@@ -110,10 +110,9 @@ function acceptedRequestIdSet(trips: ExtractedTripInfo[]): Set<number> {
 async function recordManualAcceptAllSuccess(
   team: TeamRuntimeConfig,
   bookingId: number,
-  response: { data?: unknown } | null,
   acceptedTrips: ExtractedTripInfo[]
 ): Promise<boolean> {
-  const acceptedCount = acceptedTrips.length > 0 ? acceptedTrips.length : acceptAllSuccessCount(response);
+  const acceptedCount = acceptedTrips.length;
   await insertAutoAcceptHistory(team.id, {
     ruleId: MANUAL_ACCEPT_ALL_RULE_ID,
     ruleName: MANUAL_ACCEPT_ALL_RULE_NAME,
@@ -123,7 +122,10 @@ async function recordManualAcceptAllSuccess(
     origin: textValue(acceptedTrips[0]?.["ต้นทาง"]),
     destination: textValue(acceptedTrips[0]?.["ปลายทาง"]),
     vehicleType: textValue(acceptedTrips[0]?.["ประเภทรถ"]),
-    status: "success",
+    status: acceptedCount > 0 ? "success" : "indeterminate",
+    verificationStatus: acceptedCount > 0 ? "verified_success" : "indeterminate",
+    verifiedAt: acceptedCount > 0 ? new Date() : null,
+    errorMessage: acceptedCount > 0 ? undefined : "ส่งคำขอแล้ว แต่ยังยืนยันงานที่รับใหม่ไม่ได้ ตรวจสอบกับผู้ให้บริการก่อนส่งซ้ำ",
   });
 
   if (acceptedTrips.length === 0) return false;
@@ -265,13 +267,15 @@ export const biddingController: FastifyPluginAsync = async (app) => {
         reason: "before snapshot failed",
       });
     }
-    const notified = await recordManualAcceptAllSuccess(team, validBookingId, result.response, acceptedTrips);
+    const notified = await recordManualAcceptAllSuccess(team, validBookingId, acceptedTrips);
 
     return sendSuccess(reply, {
       bookingId,
       teamId,
       acceptAll: true,
       acceptedCount: acceptedTrips.length > 0 ? acceptedTrips.length : acceptAllSuccessCount(result.response),
+      verifiedAcceptedCount: acceptedTrips.length,
+      verificationStatus: acceptedTrips.length > 0 ? "verified_success" : "indeterminate",
       requestIds: acceptedTrips.map((trip) => trip.request_id),
       notified,
       response: result.response,

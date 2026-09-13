@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { CalendarDays, Car, FileImage, ImageIcon, Map, Search, SlidersHorizontal, X } from 'lucide-react'
 import { lineImageExtractionApi } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { PaginationControls } from '../components/PaginationControls'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
-import { ContentSection, FilterPanel, PageShell } from '../components/layout/Page'
+import { ContentSection, EmptyPanel, FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { FilterChip } from '../components/ui/filter-chip'
 import { SkeletonTable } from '../components/ui/skeleton'
@@ -21,29 +22,29 @@ export const Route = createFileRoute('/line-image-extractions')({
 
 const COLUMNS: DataTableColumn<LineImageExtraction>[] = [
   {
-    header: 'Image',
+    header: 'ภาพ',
     sortable: false,
     render: (item) => <ImagePreview item={item} />,
   },
   {
-    header: 'Document date',
+    header: 'วันที่เอกสาร',
     sortKey: 'date_text',
     render: (item) => item.dateText || '-',
   },
   {
-    header: 'Trip number',
+    header: 'เลขเที่ยว',
     sortKey: 'trip_number',
     className: 'font-mono text-xs text-warning',
     render: (item) => item.tripNumber || '-',
   },
   {
-    header: 'Driver',
+    header: 'คนขับ',
     sortKey: 'driver_name',
     className: 'min-w-[240px]',
     render: (item) => item.driverName,
   },
   {
-    header: 'Agency',
+    header: 'บริษัท',
     render: (item) => (
       <span className="inline-flex rounded-full border border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] px-2 py-1 text-xs font-bold text-success">
         {item.agencyName}
@@ -51,23 +52,24 @@ const COLUMNS: DataTableColumn<LineImageExtraction>[] = [
     ),
   },
   {
-    header: 'Vehicle',
+    header: 'ประเภทรถ',
     render: (item) => item.vehicleType,
   },
   {
-    header: 'Route',
+    header: 'เส้นทาง',
     sortKey: 'route',
     className: 'min-w-[180px] font-mono text-xs text-info',
     render: (item) => item.route,
   },
   {
-    header: 'Saved at',
+    header: 'บันทึกเมื่อ',
     sortKey: 'created_at',
     render: (item) => formatDateTime(item.createdAt),
   },
 ]
 
 function LineImageExtractionsComponent() {
+  const searchRef = useRef<HTMLInputElement>(null)
   const [searchInput, setSearchInput] = useState('')
   const [agency, setAgency] = useState('')
   const [tripNumber, setTripNumber] = useState('')
@@ -91,7 +93,7 @@ function LineImageExtractionsComponent() {
   const debouncedDriver = useDebouncedValue(driver.trim(), 250)
 
   const query = {
-    search: search || undefined,
+    search: searchInput.trim() ? search || undefined : undefined,
     agency: debouncedAgency || undefined,
     tripNumber: debouncedTripNumber || undefined,
     route: debouncedRoute || undefined,
@@ -119,7 +121,7 @@ function LineImageExtractionsComponent() {
   const uniqueTripNumbers = new Set(rows.map((row) => row.tripNumber).filter(Boolean)).size
   const uniqueRoutes = new Set(rows.map((row) => row.route).filter(Boolean)).size
   const uniqueVehicles = new Set(rows.map((row) => row.vehicleType).filter(Boolean)).size
-  const hasFilters = Boolean(agency || tripNumber || route || vehicleType || driver || month || createdFrom || createdTo)
+  const hasFilters = Boolean(searchInput || agency || tripNumber || route || vehicleType || driver || month || createdFrom || createdTo)
 
   const resetFilters = () => {
     setSearchInput('')
@@ -149,27 +151,29 @@ function LineImageExtractionsComponent() {
       <PageHeader
         icon={FileImage}
         title="LINE Runsheets"
-        subtitle={isError && !result ? 'ยังยืนยันข้อมูล LINE Runsheets ไม่ได้' : total > 0 ? `${total} saved runsheet records` : 'Saved LH-PWL image extractions will appear here'}
+        subtitle={isError && !result ? 'ยังยืนยันข้อมูล LINE Runsheets ไม่ได้' : total > 0 ? `${total} ใบงานที่บันทึกไว้` : 'ใบงาน LH-PWL ที่บันทึกแล้วจะแสดงที่นี่'}
       />
 
       <ContentSection>
           {(!isError || !!result) && <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Metric label="Saved records" value={total} icon={FileImage} tone="info" />
-            <Metric label="Trips (page)" value={uniqueTripNumbers} icon={CalendarDays} tone="primary" />
-            <Metric label="Routes (page)" value={uniqueRoutes} icon={Map} tone="success" />
-            <Metric label="Vehicles (page)" value={uniqueVehicles} icon={Car} tone="warning" />
+            <Metric label="ใบงานที่บันทึก" value={total} icon={FileImage} tone="info" />
+            <Metric label="เที่ยวในหน้านี้" value={uniqueTripNumbers} icon={CalendarDays} tone="primary" />
+            <Metric label="เส้นทางในหน้านี้" value={uniqueRoutes} icon={Map} tone="success" />
+            <Metric label="ประเภทรถในหน้านี้" value={uniqueVehicles} icon={Car} tone="warning" />
           </div>}
 
           <div className="mb-4 flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchRef}
+                aria-label="ค้นหา LINE Runsheets"
                 value={searchInput}
                 onChange={(event) => {
                   setSearchInput(event.target.value)
                   setPage(1)
                 }}
-                placeholder="Search trip number, driver, agency, route, vehicle..."
+                placeholder="ค้นหาเลขเที่ยว คนขับ บริษัท เส้นทาง ประเภทรถ..."
                 className="h-11 pl-10 pr-10"
               />
               {searchInput && (
@@ -178,8 +182,10 @@ function LineImageExtractionsComponent() {
                   onClick={() => {
                     setSearchInput('')
                     setPage(1)
+                    searchRef.current?.focus()
                   }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="ล้างคำค้นหา LINE Runsheets"
+                  className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -190,6 +196,9 @@ function LineImageExtractionsComponent() {
               variant="outline"
               size="icon"
               className={`h-11 w-11 shrink-0 ${showFilters || hasFilters ? 'border-[color:var(--color-info-border)] bg-[color:var(--color-info-soft)] text-info' : ''}`}
+              aria-label="ตัวกรอง LINE Runsheets"
+              aria-expanded={showFilters}
+              aria-controls="runsheet-filters"
               onClick={() => setShowFilters((value) => !value)}
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -197,14 +206,14 @@ function LineImageExtractionsComponent() {
           </div>
 
           {showFilters && (
-            <FilterPanel className="mb-4 space-y-3 animate-in">
+            <div id="runsheet-filters"><FilterPanel className="mb-4 space-y-3 animate-in">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-primary/15 bg-primary/10 text-primary">
                     <SlidersHorizontal className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="text-sm font-bold text-foreground">Filter panel</div>
+                    <div className="text-sm font-bold text-foreground">ตัวกรอง</div>
                     <div className="text-xs text-muted-foreground">
                       กรองตาม Agency, Trip Number, Route, วันที่ และข้อมูลอื่นๆ
                     </div>
@@ -215,25 +224,25 @@ function LineImageExtractionsComponent() {
                 </Button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <FilterInput label="Agency" value={agency} placeholder="LH-PWL" onChange={setAgency} onPageReset={() => setPage(1)} />
-                <FilterInput label="Trip number" value={tripNumber} placeholder="LT0Q5L2657AJ2" onChange={setTripNumber} onPageReset={() => setPage(1)} />
-                <FilterInput label="Route" value={route} placeholder="NERC > SOCE" onChange={setRoute} onPageReset={() => setPage(1)} />
-                <FilterInput label="Vehicle" value={vehicleType} placeholder="6WH" onChange={setVehicleType} onPageReset={() => setPage(1)} />
-                <FilterInput label="Driver" value={driver} placeholder="driver name" onChange={setDriver} onPageReset={() => setPage(1)} />
+                <FilterInput label="บริษัท" value={agency} placeholder="LH-PWL" onChange={setAgency} onPageReset={() => setPage(1)} />
+                <FilterInput label="เลขเที่ยว" value={tripNumber} placeholder="LT0Q5L2657AJ2" onChange={setTripNumber} onPageReset={() => setPage(1)} />
+                <FilterInput label="เส้นทาง" value={route} placeholder="NERC > SOCE" onChange={setRoute} onPageReset={() => setPage(1)} />
+                <FilterInput label="ประเภทรถ" value={vehicleType} placeholder="6WH" onChange={setVehicleType} onPageReset={() => setPage(1)} />
+                <FilterInput label="คนขับ" value={driver} placeholder="driver name" onChange={setDriver} onPageReset={() => setPage(1)} />
                 <div className="space-y-1.5">
-                  <label htmlFor="lie-month" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">Month</label>
+                  <label htmlFor="lie-month" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">เดือน</label>
                   <Input id="lie-month" type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1) }} />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="lie-from" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">Saved from</label>
+                  <label htmlFor="lie-from" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">บันทึกตั้งแต่</label>
                   <Input id="lie-from" type="date" value={createdFrom} onChange={(event) => { setCreatedFrom(event.target.value); setPage(1) }} />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="lie-to" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">Saved to</label>
+                  <label htmlFor="lie-to" className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">บันทึกถึง</label>
                   <Input id="lie-to" type="date" value={createdTo} onChange={(event) => { setCreatedTo(event.target.value); setPage(1) }} />
                 </div>
               </div>
-            </FilterPanel>
+            </FilterPanel></div>
           )}
 
           {/* Active Filter Chips */}
@@ -243,22 +252,22 @@ function LineImageExtractionsComponent() {
                 <FilterChip label="ค้นหา" value={searchInput} onClear={() => { setSearchInput(''); setPage(1) }} />
               ) : null}
               {agency ? (
-                <FilterChip label="Agency" value={agency} onClear={() => { setAgency(''); setPage(1) }} />
+                <FilterChip label="บริษัท" value={agency} onClear={() => { setAgency(''); setPage(1) }} />
               ) : null}
               {tripNumber ? (
                 <FilterChip label="Trip" value={tripNumber} onClear={() => { setTripNumber(''); setPage(1) }} />
               ) : null}
               {route ? (
-                <FilterChip label="Route" value={route} onClear={() => { setRoute(''); setPage(1) }} />
+                <FilterChip label="เส้นทาง" value={route} onClear={() => { setRoute(''); setPage(1) }} />
               ) : null}
               {vehicleType ? (
-                <FilterChip label="Vehicle" value={vehicleType} onClear={() => { setVehicleType(''); setPage(1) }} />
+                <FilterChip label="ประเภทรถ" value={vehicleType} onClear={() => { setVehicleType(''); setPage(1) }} />
               ) : null}
               {driver ? (
-                <FilterChip label="Driver" value={driver} onClear={() => { setDriver(''); setPage(1) }} />
+                <FilterChip label="คนขับ" value={driver} onClear={() => { setDriver(''); setPage(1) }} />
               ) : null}
               {month ? (
-                <FilterChip label="Month" value={month} onClear={() => { setMonth(''); setPage(1) }} />
+                <FilterChip label="เดือน" value={month} onClear={() => { setMonth(''); setPage(1) }} />
               ) : null}
               {createdFrom ? (
                 <FilterChip label="From" value={createdFrom} onClear={() => { setCreatedFrom(''); setPage(1) }} />
@@ -282,14 +291,32 @@ function LineImageExtractionsComponent() {
             />
           ) : null}
 
-          {(!isError || rows.length > 0) && <DataTable
+          {(!isError || rows.length > 0) && <>
+          <div className="space-y-3 md:hidden">
+            {rows.length === 0 ? <EmptyPanel>ไม่พบใบงานที่บันทึกไว้</EmptyPanel> : rows.map((item) => (
+              <MobileRecordCard key={item.id}>
+                <h2 className="break-words font-semibold text-warning">{item.tripNumber || 'ไม่มีเลขเที่ยว'}</h2>
+                <p className="mt-2 break-words text-info">{item.route}</p>
+                <dl className="my-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
+                  <dt>คนขับ</dt><dd className="break-words">{item.driverName}</dd>
+                  <dt>ประเภทรถ</dt><dd>{item.vehicleType}</dd>
+                  <dt>บริษัท</dt><dd className="break-words">{item.agencyName}</dd>
+                  <dt>วันที่เอกสาร</dt><dd>{item.dateText || '—'}</dd>
+                  <dt>บันทึกเมื่อ</dt><dd className="break-words">{formatDateTime(item.createdAt)}</dd>
+                </dl>
+                <ImagePreview item={item} />
+              </MobileRecordCard>
+            ))}
+            {rows.length > 0 && <PaginationControls variant="mobile" page={page} pageSize={pageSize} totalItems={total} totalPages={totalPages} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1) }} />}
+          </div>
+          <div className="hidden md:block"><DataTable
             columns={COLUMNS}
             data={rows}
             keyField={(item) => item.id}
             densityKey="line-image-extractions"
             minWidth="1160px"
             emptyIcon={<ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />}
-            emptyMessage="No saved runsheets found"
+            emptyMessage="ไม่พบใบงานที่บันทึกไว้"
             pagination={rows.length > 0 ? {
               page,
               pageSize,
@@ -310,7 +337,7 @@ function LineImageExtractionsComponent() {
                 setPage(1)
               },
             }}
-          />}
+          /></div></>}
       </ContentSection>
     </PageShell>
   )
@@ -335,10 +362,12 @@ function Metric({ label, value, icon: Icon, tone }: { label: string; value: numb
 }
 
 function FilterInput({ label, value, placeholder, onChange, onPageReset }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; onPageReset: () => void }) {
+  const id = useId()
   return (
     <div className="space-y-1.5">
-      <label className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</label>
+      <label htmlFor={id} className="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</label>
       <Input
+        id={id}
         value={value}
         placeholder={placeholder}
         onChange={(event) => {
@@ -358,17 +387,17 @@ function ImagePreview({ item }: { item: LineImageExtraction }) {
         <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-black/20">
           <ImageIcon className="h-4 w-4" />
         </span>
-        <span className="hidden lg:inline">Unavailable</span>
+        <span className="hidden lg:inline">ไม่มีภาพ</span>
       </span>
     )
   }
 
   return (
-    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2">
+    <a aria-label={`เปิดภาพใบงาน ${item.tripNumber || item.id}`} href={imageUrl} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2 rounded focus-visible:ring-2 focus-visible:ring-ring">
       <span className="flex h-12 w-12 overflow-hidden rounded-lg border border-white/10 bg-black/20">
         <img src={imageUrl} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
       </span>
-      <span className="hidden text-xs text-muted-foreground group-hover:text-info lg:inline">Open</span>
+      <span className="hidden text-xs text-muted-foreground group-hover:text-info lg:inline">เปิดภาพ</span>
     </a>
   )
 }

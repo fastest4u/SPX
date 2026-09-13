@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { decodeMetricsSsePayload } from '../lib/dashboard-sse-events'
 import type { MetricsSnapshot, NotifyRule } from '../types'
 
 type SseStatus = 'connecting' | 'connected' | 'disconnected'
 
 interface SseState {
   status: SseStatus
+  metricsReceivedAt: number | null
+  scopeKey: string
   data: MetricsSnapshot | null
   rules: NotifyRule[] | null
   sessionAlert: SessionExpiredEvent | null
@@ -41,10 +44,12 @@ const SSE_INITIAL_RECONNECT_MS = 5000
 const SSE_MAX_RECONNECT_MS = 60_000
 const SSE_MAX_RETRIES = 10
 
-export function useSse(url: string, enabled: boolean = true) {
+export function useSse(url: string, enabled: boolean = true, scopeKey = '') {
   const queryClient = useQueryClient()
   const [state, setState] = useState<SseState>({
     status: 'connecting',
+    metricsReceivedAt: null,
+    scopeKey,
     data: null,
     rules: null,
     sessionAlert: null,
@@ -79,24 +84,30 @@ export function useSse(url: string, enabled: boolean = true) {
     eventSourceRef.current = es
 
     es.onopen = () => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || eventSourceRef.current !== es) return
       // Reset retry counter on successful connection
       retriesRef.current = 0
       setState((prev: SseState) => ({ ...prev, status: 'connected', error: null }))
     }
 
-    es.addEventListener('metrics', (event) => {
-      if (!isMountedRef.current) return
+    const onMetrics = (event: MessageEvent<string>) => {
+      if (!isMountedRef.current || eventSourceRef.current !== es) return
       try {
-        const data = unwrapSseData<MetricsSnapshot>(event.data)
-        setState((prev: SseState) => ({ ...prev, data }))
+        const data = decodeMetricsSsePayload(event.data)
+        if (!data) return
+        const envelope = JSON.parse(event.data)
+        const envelopeTeamId = envelope.scope?.kind === 'team' ? envelope.scope.teamId : envelope.teamId
+        if (typeof envelopeTeamId === 'number' && data.teamId !== envelopeTeamId) return
+        setState((prev: SseState) => ({ ...prev, data, metricsReceivedAt: Date.now(), scopeKey }))
       } catch (error) {
         console.error('Failed to parse SSE metrics data:', error)
       }
-    })
+    }
+    es.addEventListener('metrics', onMetrics)
+    es.addEventListener('metrics.snapshot', onMetrics)
 
     es.addEventListener('rules', (event) => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || eventSourceRef.current !== es) return
       try {
         const rules = unwrapSseData<NotifyRule[]>(event.data)
         setState((prev: SseState) => ({ ...prev, rules }))
@@ -106,7 +117,7 @@ export function useSse(url: string, enabled: boolean = true) {
     })
 
     es.addEventListener('session-expired', (event) => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || eventSourceRef.current !== es) return
       try {
         const sessionAlert = unwrapSseData<SessionExpiredEvent>(event.data)
         setState((prev: SseState) => ({ ...prev, sessionAlert, status: 'disconnected' }))
@@ -127,7 +138,7 @@ export function useSse(url: string, enabled: boolean = true) {
     })
 
     es.onerror = () => {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || eventSourceRef.current !== es) return
 
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
@@ -164,7 +175,7 @@ export function useSse(url: string, enabled: boolean = true) {
         }
       }, backoffMs)
     }
-  }, [url, enabled, queryClient])
+  }, [url, enabled, queryClient, scopeKey])
 
   const disconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -180,6 +191,7 @@ export function useSse(url: string, enabled: boolean = true) {
   useEffect(() => {
     isMountedRef.current = true
     retriesRef.current = 0
+    setState({ status: 'connecting', data: null, metricsReceivedAt: null, scopeKey, rules: null, sessionAlert: null, error: null })
 
     if (enabled) {
       connect()
@@ -189,7 +201,7 @@ export function useSse(url: string, enabled: boolean = true) {
       isMountedRef.current = false
       disconnect()
     }
-  }, [connect, disconnect, enabled])
+  }, [connect, disconnect, enabled, scopeKey])
 
   const reconnect = useCallback(() => {
     retriesRef.current = 0
@@ -199,6 +211,12 @@ export function useSse(url: string, enabled: boolean = true) {
 
   return {
     ...state,
+    status: state.scopeKey === scopeKey ? state.status : 'connecting' as const,
+    rules: state.scopeKey === scopeKey ? state.rules : null,
+    sessionAlert: state.scopeKey === scopeKey ? state.sessionAlert : null,
+    error: state.scopeKey === scopeKey ? state.error : null,
+    data: state.scopeKey === scopeKey ? state.data : null,
+    metricsReceivedAt: state.scopeKey === scopeKey ? state.metricsReceivedAt : null,
     reconnect,
   }
 }

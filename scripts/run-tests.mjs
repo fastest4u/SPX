@@ -24,6 +24,10 @@ const DEFAULT_TEST_TIMEOUT_MS = 60_000;
 // Browser suites include a cold Vite compile, bounded polling scenarios and
 // browser/server cleanup. Keep ordinary test deadlines short.
 const browserTestTimeouts = new Map([
+  ["admin-ui-e2e.test.ts", 240_000],
+  ["user-ui-e2e.test.ts", 240_000],
+  ["frontend-metrics-observation-browser.test.ts", 180_000],
+  ["frontend-dashboard-runtime-browser.test.ts", 180_000],
   ["frontend-provider-auth-browser.test.ts", 180_000],
   ["frontend-rule-review-browser.test.ts", 180_000],
   ["frontend-team-provider-auth-settings.test.ts", 180_000],
@@ -51,7 +55,7 @@ function runTest(file) {
     const child = spawn(process.execPath, ["--import", "tsx", join(testsDir, file)], {
       cwd: repoRoot,
       stdio: "inherit",
-      env: { ...process.env, NODE_ENV: "test", DB_MODE: "memory" },
+      env: { ...process.env, NODE_ENV: "test", DB_MODE: "memory", SPX_TEST_SKIP_ENV_FILE: "1", SECRETS_KEY: "synthetic-standalone-test-key-32-characters" },
     });
 
     const timeout = setTimeout(() => {
