@@ -292,7 +292,30 @@ function LineImageExtractionsComponent() {
           ) : null}
 
           {(!isError || rows.length > 0) && <>
-          <div className="space-y-3 md:hidden">
+          <div className="space-y-3 md:hidden" role="region" aria-label="ใบงานบนมือถือ">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1.5 text-xs text-muted-foreground">
+                <span>เรียงใบงานตาม</span>
+                <select
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={sortKey}
+                  onChange={(event) => { setSortKey(event.target.value as NonNullable<LineImageExtractionQuery['sortBy']>); setPage(1) }}
+                >
+                  {COLUMNS.filter((column) => column.sortKey).map((column) => <option key={column.sortKey} value={column.sortKey}>{column.header}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5 text-xs text-muted-foreground">
+                <span>ลำดับใบงาน</span>
+                <select
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={sortDir}
+                  onChange={(event) => { setSortDir(event.target.value as 'asc' | 'desc'); setPage(1) }}
+                >
+                  <option value="asc">น้อยไปมาก</option>
+                  <option value="desc">มากไปน้อย</option>
+                </select>
+              </label>
+            </div>
             {rows.length === 0 ? <EmptyPanel>ไม่พบใบงานที่บันทึกไว้</EmptyPanel> : rows.map((item) => (
               <MobileRecordCard key={item.id}>
                 <h2 className="break-words font-semibold text-warning">{item.tripNumber || 'ไม่มีเลขเที่ยว'}</h2>

@@ -56,6 +56,10 @@ async function run() {
     await page.evaluate(() => window.__metricsFixture.emit(71, true, true));
     await page.getByLabel("selected").filter({ hasText: "71:true:true" }).waitFor();
     assert.equal(await page.getByLabel("bell").textContent(), "1");
+    await page.evaluate(() => window.__metricsFixture.emit(72, false, true));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
+    assert.equal(await page.getByLabel("selected").textContent(), "71:true:true", "foreign team event must retain the current team observation");
+    assert.equal(await page.getByLabel("bell").textContent(), "1");
     const initial = await page.evaluate(() => window.__metricsFixture.counts()["71"]);
     await page.clock.runFor(110_000);
     assert.equal(
@@ -89,6 +93,9 @@ async function run() {
     await page.getByLabel("selected").filter({ hasText: "null:false:false" }).waitFor();
     await page.evaluate(() => window.__metricsFixture.emit(null, true, true));
     await page.getByLabel("selected").filter({ hasText: "null:true:true" }).waitFor();
+    await page.evaluate(() => window.__metricsFixture.emit(72, false));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
+    assert.equal(await page.getByLabel("selected").textContent(), "null:true:true", "team event on admin stream must retain the aggregate observation");
     await page.getByText("95% pool reuse", { exact: true }).waitFor();
     await page.evaluate(() => {
       window.__metricsFixture.legacyPool(true);

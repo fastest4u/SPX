@@ -47,7 +47,8 @@ export function SseProvider({
     }, [])
     const { user } = useAuth()
     const scopeKey = user ? `${user.id}:${user.role}:${user.teamId}` : 'anonymous'
-    const sse = useSse(url, enabled && !!user, scopeKey)
+    const metricsTeamId = user?.role === 'admin' ? null : user?.teamId ?? undefined
+    const sse = useSse(url, enabled && !!user, scopeKey, metricsTeamId)
     const value: SseContextValue = {
         status: sse.status,
         metricsReceivedAt: sse.metricsReceivedAt,

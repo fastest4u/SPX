@@ -29,6 +29,7 @@ Thai operators connect the provider account used by their team; administrators c
 | CRUD | `providerAuthApi` and shared `ProviderAuthPanel` | Scoped backend API and feature spec | Read, connect/replace, reconnect; stay in current context | Synthetic success/failure/reconnect flow |
 | Rule form | Shared Input/Label/Button and `RuleEditorDialog` | `docs/implementation/2026-09-11-rule-activation/design.md` | Create disabled by default; edit own-team/admin rules | Validation, unchanged-progress pause, browser requests |
 | Select/Listbox | Native team select | Existing administrator team ownership choice | OS-owned team selection; no custom listbox semantics | Keyboard/native selection and mobile bounds |
+| Date | Existing native Runsheet date/month filters | Operator addendum dated 2026-09-13 | OS-owned popup; Thai owned labels | Associated filters and five viewport profiles |
 | Disclosure | `VehicleTypeMultiSelect` | Existing vehicle options | Authored multiple toggle buttons; Escape closes menu before dialog | Expanded/pressed semantics, outside click, keyboard |
 | Rule review | `RuleReviewSummary` and shared Dialog | User whole-booking decision and signed API review contract | Standalone historical preview; active save acknowledgement | Historical counts, mode disclosure, scope warnings, expiry |
 
@@ -78,3 +79,29 @@ New rules begin disabled. Before an active create/edit, the operator reviews cur
 | Dismiss | Cancel, Escape, close | Abort pending preview; save cannot be cancelled by closing | App-owned discard view for dirty input, then restore focus | No late response populates a reopened/different-user editor | Rule activation design |
 
 Use bounded vertical scrolling, 16px viewport margins, and no horizontal overflow for changed dialogs. Verify 320×568, 390×844, 768×1024, 1440×900 and short landscape. Shared close targets are 44px. These checks cover these flows, not every application screen. Static audit uses exact scoped source copies because its sourceRoots setting only accepts directories; source hashes are recorded with the evidence.
+
+## Operator history, Runsheets and login — 2026-09-13
+
+This bounded addendum follows the source-owned permission contracts in `auto-accept-history-controller.ts`, `bidding-controller.ts` and `routes/__root.tsx`. It preserves the Quiet Authority tokens and shared layout; it does not claim a theme redesign or a new recovery service.
+
+| Capability | Canonical owner | Source of truth | Allowed variants | Verification |
+|---|---|---|---|---|
+| History navigation and permissions | `AppLayout`, backend history team scope, root route guard | Existing own-team history and admin-only manual/OCR permissions | Common history entry; selected-team manual acceptance for admin | Real memory HTTP status filters and Admin/User E2E |
+| Manual acceptance feedback | `ManualAcceptResult` and history page mutation owner | Controller observed new accepted request IDs | Submitted, verified subset, unproven, unsuccessful/unknown transport | Panel regression, mocked controller, deferred browser response |
+| Responsive records | `MobileRecordCard`, `DataTable`, `PaginationControls` | Persisted Runsheet record | Cards below md, bounded table above md | Five viewport profiles, all record fields and named image action |
+| Form validation | Shared Input/Button and login field owner | Existing dashboard authentication | Associated Thai required errors, first-invalid focus, password manager/paste/autocomplete | Login validation, toggle, async error and successful real local login |
+| Select/Listbox | Native team/status and Runsheet sorting selects | Existing platform-owned selectors and DataTable sort state | OS popup geometry accepted | Keyboard selection, query ordering, page reset and viewport bounds |
+| Date | Existing native Runsheet date/month filters | Stored document and saved timestamps | OS-owned picker locale/geometry accepted; owned labels are Thai | Associated labels and responsive layout; real-device picker checks remain a limit |
+| Search | Existing debounced query hook and screen state | Existing transient list search architecture | Local transient query/filter/page state retained; clear refreshes immediately and restores focus | Search, no-results, clear and filter browser checks |
+
+Manual history records `success`/`verified_success` only for the observed new request IDs. A nonempty subset establishes only that subset, not completion of the whole booking. No observed new IDs yields `indeterminate`, zero confirmed acceptances and no verified timestamp. The compatible response's legacy `acceptedCount` may still carry the provider's reported count; only the additive verified count and observed IDs support confirmation copy. An HTTP/network failure does not establish business rejection. The operator is directed to check the provider before another submission; the UI promises no automatic follow-up and does not retry the mutation.
+
+Booking/team edits clear the prior result and confirmation synchronously. Each attempt is bound to its submitted booking/team and generation; a late result after editing cannot populate the current form. Editing never cancels or repeats the provider mutation. Team loading/error guards and explicit confirmation remain required. History refresh follows settled requests, including ambiguous failures.
+
+Runsheet cards retain trip, route, driver, vehicle, agency, document date, saved timestamp and an accessible image action. Search/clear/filter controls have Thai names and expanded/panel relationships; filter labels activate their inputs. Login is first in narrow DOM/visual order while desktop keeps its two-column arrangement; required messages are field-specific, associated and focused, and the password toggle has a 44px target and visible keyboard focus.
+
+Executable verification is owned by `tests/operator-ui-e2e.ts` and the focused dashboard/manual-outcome tests. Admin/User suites require explicit `npm run test:e2e`; their default whole-suite skip is not browser evidence. The isolated E2E runner builds current production-mode frontend source, uses synthetic allowlisted child env and memory DB, blocks Service Workers/non-loopback browser traffic, records expected font attempts, captures actual HTTP error statuses, fences provider/LINE actions, and bounds child execution.
+
+Runsheet sorting remains available in both card and table layouts. Native mobile selectors reuse the table column keys and direction state; changing either returns to page 1. Browser-owned popup geometry is intentional, matching existing native selectors. Keyboard selection, actual server ordering, pagination reset and desktop/mobile state continuity are covered by the operator E2E.
+
+Dashboard Live requires an enabled, running worker with a recent successful poll for the signed-in team and healthy provider session. Fresh SSE observations expire after 120 seconds into bounded HTTP refresh. Events outside the actor metrics scope cannot replace or renew its retained observation; administrator metrics retain the aggregate while individual team events arrive. Optional A3 stage/pool data may be absent on legacy servers and remains explicitly unknown.

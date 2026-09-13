@@ -152,6 +152,43 @@ export async function runOperatorE2e(role: 'admin' | 'user', pages: { path: stri
     const page = await context.newPage(); page.setDefaultTimeout(12_000)
     await login(page, true)
     await page.getByRole('heading', { name: 'ภาพรวมระบบ', exact: true }).waitFor()
+    if (role === 'admin') {
+      for (let index = 0; index < 12; index += 1) {
+        const suffix = String(index).padStart(2, '0')
+        await insertLineImageExtraction({ chatId: 'synthetic-sort', senderId: 'synthetic', imagePath: 'synthetic.png', dateText: '2026-09-12', tripNumber: `SORT-${suffix}`, driverName: `Driver ${suffix}`, agencyName: 'LH-PWL', vehicleType: '6WH', route: 'NERC > SOCE', rawText: 'synthetic' })
+      }
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(`${origin}/line-image-extractions`)
+      await page.getByRole('heading', { name: 'LINE Runsheets', exact: true }).waitFor()
+      await page.getByRole('heading', { name: 'SORT-11', exact: true }).waitFor()
+      const sortField = page.getByRole('combobox', { name: 'เรียงใบงานตาม', exact: true })
+      assert.equal(await sortField.count(), 1, 'mobile Runsheets must preserve sorting access')
+      const mobile = page.getByRole('region', { name: 'ใบงานบนมือถือ', exact: true })
+      await mobile.getByRole('combobox', { name: 'จำนวนรายการต่อหน้า', exact: true }).selectOption('10')
+      const secondPage = page.waitForResponse(response => new URL(response.url()).pathname === '/api/line-image-extractions' && new URL(response.url()).searchParams.get('page') === '2')
+      await mobile.getByRole('button', { name: 'หน้าถัดไป', exact: true }).click()
+      await secondPage
+      const sorted = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/line-image-extractions' && url.searchParams.get('sortBy') === 'driver_name' && url.searchParams.get('page') === '1'
+      })
+      await sortField.selectOption('driver_name')
+      await sorted
+      await page.getByRole('combobox', { name: 'ลำดับใบงาน', exact: true }).selectOption('asc')
+      await mobile.locator('h2').first().filter({ hasText: 'SORT-00' }).waitFor()
+      await sortField.focus()
+      await page.keyboard.press('ArrowUp')
+      await page.keyboard.press('Enter')
+      assert.equal(await sortField.inputValue(), 'trip_number')
+      await page.screenshot({ path: `${output}/runsheets-sort-390x844.png`, fullPage: true })
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      assert.equal(await sortField.isVisible(), false)
+      assert.equal(await page.getByRole('columnheader', { name: /เลขเที่ยว/ }).getAttribute('aria-sort'), 'ascending', 'desktop and mobile share the same sort state')
+      await page.goto(`${origin}/`)
+      await page.getByRole('heading', { name: 'ภาพรวมระบบ', exact: true }).waitFor()
+    }
+
     await page.getByRole('link', { name: /ประวัติรับงาน/ }).first().click()
     await page.getByRole('heading', { name: 'ประวัติการรับงานอัตโนมัติ', exact: true }).waitFor()
     if (role === 'user') {

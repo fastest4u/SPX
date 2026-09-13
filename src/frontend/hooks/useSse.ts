@@ -44,7 +44,7 @@ const SSE_INITIAL_RECONNECT_MS = 5000
 const SSE_MAX_RECONNECT_MS = 60_000
 const SSE_MAX_RETRIES = 10
 
-export function useSse(url: string, enabled: boolean = true, scopeKey = '') {
+export function useSse(url: string, enabled: boolean = true, scopeKey = '', expectedMetricsTeamId?: number | null) {
   const queryClient = useQueryClient()
   const [state, setState] = useState<SseState>({
     status: 'connecting',
@@ -94,7 +94,7 @@ export function useSse(url: string, enabled: boolean = true, scopeKey = '') {
       if (!isMountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = decodeMetricsSsePayload(event.data)
-        if (!data) return
+        if (!data || data.teamId !== expectedMetricsTeamId) return
         const envelope = JSON.parse(event.data)
         const envelopeTeamId = envelope.scope?.kind === 'team' ? envelope.scope.teamId : envelope.teamId
         if (typeof envelopeTeamId === 'number' && data.teamId !== envelopeTeamId) return
@@ -175,7 +175,7 @@ export function useSse(url: string, enabled: boolean = true, scopeKey = '') {
         }
       }, backoffMs)
     }
-  }, [url, enabled, queryClient, scopeKey])
+  }, [url, enabled, queryClient, scopeKey, expectedMetricsTeamId])
 
   const disconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
