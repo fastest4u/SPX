@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   assert.throws(() => gate6InstanceUnit("monitor", ROLLBACK, context), /context|instance/i);
 
   const installedWatchdog = join(supervisor, "scripts", "gate6-host-watchdog.mjs");
-  if (process.platform === "win32") await chmod(installedWatchdog, 0o600);
+  await chmod(installedWatchdog, 0o600);
   await writeFile(installedWatchdog, "tampered\n");
   await assert.rejects(() => verifyGate6SupervisorInstall({
     instance: CANDIDATE,

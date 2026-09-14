@@ -537,7 +537,7 @@ export async function runProductionBackupRestore(context, adapter) {
   return result.evidence;
 }
 
-async function assertPrivateExportRoot(exportRoot) {
+async function assertPrivateExportRoot(exportRoot, expectedUid = 0n) {
   const [status, canonical] = await Promise.all([
     lstat(exportRoot, { bigint: true }),
     realpath(exportRoot),
@@ -546,7 +546,7 @@ async function assertPrivateExportRoot(exportRoot) {
     status.isSymbolicLink() ||
     !status.isDirectory() ||
     (process.platform !== "win32" &&
-      (status.uid !== 0n || (Number(status.mode) & 0o777) !== 0o700)) ||
+      (status.uid !== expectedUid || (Number(status.mode) & 0o777) !== 0o700)) ||
     resolve(canonical) !== resolve(exportRoot)
   ) {
     throw new Error("production backup export root is invalid");
@@ -577,7 +577,7 @@ function sameFileIdentity(left, right) {
   );
 }
 
-async function verifyStableCanonicalFile(path, value) {
+async function verifyStableCanonicalFile(path, value, expectedUid = 0n) {
   const expectedBytes = Buffer.from(canonicalJson(value), "utf8");
   if (expectedBytes.length > 256 * 1024) throw new Error("production backup artifact is too large");
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -588,7 +588,9 @@ async function verifyStableCanonicalFile(path, value) {
       before.isSymbolicLink() ||
       before.size !== BigInt(expectedBytes.length) ||
       (process.platform !== "win32" &&
-        (before.uid !== 0n || before.nlink !== 1n || (Number(before.mode) & 0o777) !== 0o400))
+        (before.uid !== expectedUid ||
+          before.nlink !== 1n ||
+          (Number(before.mode) & 0o777) !== 0o400))
     ) {
       throw new Error("production backup artifact identity is invalid");
     }
@@ -616,8 +618,13 @@ async function syncDirectory(exportRoot) {
   }
 }
 
-async function writeInstalledArtifacts(evidence, signature, exportRoot = BACKUP_EXPORT_ROOT) {
-  await assertPrivateExportRoot(exportRoot);
+async function writeInstalledArtifacts(
+  evidence,
+  signature,
+  exportRoot = BACKUP_EXPORT_ROOT,
+  expectedUid = 0n,
+) {
+  await assertPrivateExportRoot(exportRoot, expectedUid);
   const signaturePath = join(exportRoot, BACKUP_SIGNATURE_FILE);
   const evidencePath = join(exportRoot, BACKUP_EVIDENCE_FILE);
   let wroteSignature = false;
@@ -627,8 +634,16 @@ async function writeInstalledArtifacts(evidence, signature, exportRoot = BACKUP_
     wroteSignature = true;
     await writeCreateOnce(evidencePath, evidence);
     wroteEvidence = true;
-    const signatureSha256 = await verifyStableCanonicalFile(signaturePath, signature);
-    const evidenceSha256 = await verifyStableCanonicalFile(evidencePath, evidence);
+    const signatureSha256 = await verifyStableCanonicalFile(
+      signaturePath,
+      signature,
+      expectedUid,
+    );
+    const evidenceSha256 = await verifyStableCanonicalFile(
+      evidencePath,
+      evidence,
+      expectedUid,
+    );
     await syncDirectory(exportRoot);
     return Object.freeze({ evidenceSha256, signatureSha256 });
   } catch (error) {
@@ -649,7 +664,8 @@ export async function writeProductionBackupRestoreArtifactsForTest(
   if (typeof exportRoot !== "string" || resolve(exportRoot) !== exportRoot) {
     throw new Error("test-only production backup export root must be absolute");
   }
-  return writeInstalledArtifacts(evidence, signature, exportRoot);
+  const expectedUid = process.platform === "win32" ? 0n : BigInt(process.getuid());
+  return writeInstalledArtifacts(evidence, signature, exportRoot, expectedUid);
 }
 
 async function main() {

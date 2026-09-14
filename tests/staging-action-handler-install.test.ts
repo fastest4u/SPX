@@ -100,9 +100,9 @@ async function main(): Promise<void> {
   const handlerRoot = join(temp, "libexec", "spx-staging-actions");
   const expectedUid = process.platform === "win32" ? null : process.getuid!();
   try {
-    for (const entry of STAGING_ACTION_HANDLER_MANIFEST) {
-      const relative = entry.script.slice(`${OPERATOR}/`.length);
-      const path = join(sourceRoot, entry.script);
+    for (const script of new Set(STAGING_ACTION_HANDLER_MANIFEST.map((entry) => entry.script))) {
+      const relative = script.slice(`${OPERATOR}/`.length);
+      const path = join(sourceRoot, script);
       await mkdir(join(path, ".."), { recursive: true });
       await writeFile(path, `fixture:${relative}\n`, "utf8");
       if (process.platform !== "win32") await chmod(path, 0o444);
@@ -141,8 +141,8 @@ async function main(): Promise<void> {
       installed: false,
     });
     const nextSourceRoot = join(temp, "next-operator");
-    for (const entry of STAGING_ACTION_HANDLER_MANIFEST) {
-      const path = join(nextSourceRoot, entry.script);
+    for (const script of new Set(STAGING_ACTION_HANDLER_MANIFEST.map((entry) => entry.script))) {
+      const path = join(nextSourceRoot, script);
       await mkdir(join(path, ".."), { recursive: true });
       await writeFile(path, "fixture:next-release\n", "utf8");
       if (process.platform !== "win32") await chmod(path, 0o444);
