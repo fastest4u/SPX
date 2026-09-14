@@ -28,7 +28,6 @@ jobs:
     environment: production
     concurrency:
       group: spx-production-mutation
-      queue: max
       cancel-in-progress: false
     permissions:
       actions: read
@@ -40,11 +39,11 @@ jobs:
       CANDIDATE_SHA: ${{ inputs.candidate_sha }}
       APPROVAL_ARTIFACT_ID: ${{ inputs.approval_artifact_id }}
       APPROVAL_RUN_ID: ${{ inputs.approval_run_id }}
-      WORKFLOW_SHA: ${{ job.workflow_sha }}
     steps:
       - name: Validate immutable selectors and protected workflow identity
         shell: bash
         env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_ACCEPTED_EVIDENCE_EXPORTER_SHA }}
         run: |
           set -euo pipefail
@@ -99,6 +98,7 @@ jobs:
         id: trusted
         shell: bash
         env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           EXPECTED_WORKFLOW_FILE_SHA256: ${{ vars.SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_WORKFLOW_SHA256 }}
           EXPECTED_EXPORTER_MODULE_SHA256: ${{ vars.SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_MODULE_SHA256 }}
         run: |
@@ -209,6 +209,7 @@ jobs:
         id: payload
         shell: bash
         env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
         run: |
           set -euo pipefail
@@ -445,6 +446,7 @@ jobs:
       - name: Verify canonical accepted evidence and trusted producer metadata
         shell: bash
         env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           EXPECTED_FILENAME: ${{ steps.phase.outputs.filename }}
           EXPECTED_GATE6_ID: ${{ steps.approval.outputs.gate6_id }}
           WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}

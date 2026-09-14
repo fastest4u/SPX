@@ -897,8 +897,9 @@ for (const [file, source] of [
   assert.match(source, /group:\s*spx-production-mutation/);
   assert.match(
     source,
-    /group:\s*spx-production-mutation[\s\S]*queue:\s*max[\s\S]*cancel-in-progress:\s*false/,
+    /group:\s*spx-production-mutation[\s\S]*cancel-in-progress:\s*false/,
   );
+  assert.doesNotMatch(source, /^\s+queue:/m);
   assert.match(source, /cancel-in-progress:\s*false/);
   assertPinnedActions(source, file);
 }

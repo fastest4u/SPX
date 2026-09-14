@@ -74,7 +74,7 @@ assert.doesNotMatch(trusted, /workflow_dispatch:/);
 assert.match(trusted, /^permissions:\s*\{\}\s*$/m);
 assert.match(trusted, /environment:\s*production/);
 assert.match(trusted, /group:\s*spx-production-mutation/);
-assert.match(trusted, /queue:\s*max/);
+assert.doesNotMatch(trusted, /^\s+queue:/m);
 assert.match(trusted, /cancel-in-progress:\s*false/);
 assert.match(
   trusted,

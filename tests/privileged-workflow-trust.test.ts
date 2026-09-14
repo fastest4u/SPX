@@ -68,6 +68,31 @@ function jobBlocks(source: string): Array<{ name: string; source: string }> {
   return blocks;
 }
 
+function assertValidWorkflowControlSyntax(source: string, workflowName: string): void {
+  assert.doesNotMatch(
+    source,
+    /^\s+queue:/m,
+    `${workflowName} must use only supported GitHub Actions concurrency keys`,
+  );
+  const lines = source.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^ {4}env:\s*$/.test(lines[index])) continue;
+    for (index += 1; index < lines.length; index += 1) {
+      const line = lines[index];
+      const indentation = /^\s*/.exec(line)?.[0].length ?? 0;
+      if (line.trim().length > 0 && indentation <= 4) {
+        index -= 1;
+        break;
+      }
+      assert.doesNotMatch(
+        line,
+        /\$\{\{\s*job\./,
+        `${workflowName} must resolve job workflow identity inside a step`,
+      );
+    }
+  }
+}
+
 function assertPinnedPrivilegeDelegation(block: string, label: string): void {
   assert.match(
     block,
@@ -252,6 +277,9 @@ const workflowSources = Object.fromEntries(
     .filter((name) => /\.ya?ml$/.test(name))
     .map((name) => [name, read(`.github/workflows/${name}`)]),
 );
+for (const [name, source] of Object.entries(workflowSources)) {
+  assertValidWorkflowControlSyntax(source, name);
+}
 const privilegedReusableNames = new Set([
   "deployment-target-descriptor-signer.yml",
   "gate6-accepted-evidence-exporter.yml",

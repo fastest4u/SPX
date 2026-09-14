@@ -27,7 +27,6 @@ jobs:
     environment: production
     concurrency:
       group: spx-production-mutation
-      queue: max
       cancel-in-progress: false
     permissions:
       actions: read
@@ -40,7 +39,6 @@ jobs:
       APPROVAL_RUN_ID: ${{ inputs.approval_run_id }}
       STAGE_ARTIFACT_ID: ${{ inputs.stage_artifact_id }}
       STAGE_RUN_ID: ${{ inputs.stage_run_id }}
-      TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
       EXPECTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_OCR_PERMIT_SIGNER_SHA }}
       ENVELOPE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
       SIGNER_URL: ${{ vars.SPX_GATE6_OCR_PERMIT_SIGNER_URL }}
@@ -86,6 +84,8 @@ jobs:
 
       - name: Validate protected signer identity and selectors
         shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
@@ -272,6 +272,8 @@ jobs:
 
       - name: Request exact OIDC identity and KMS signature
         shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           oidc_response="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
@@ -301,6 +303,8 @@ jobs:
 
       - name: Validate and publish the one-shot permit
         shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
