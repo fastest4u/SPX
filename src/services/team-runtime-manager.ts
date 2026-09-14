@@ -466,7 +466,12 @@ export class TeamRuntimeManager {
     reason: string,
   ): Promise<void> {
     if (!this.desiredState) return;
-    await this.desiredState.set({ teamId, desiredState, reason });
+    await this.desiredState.set({
+      teamId,
+      desiredState,
+      expectedDesiredState: "restart",
+      reason,
+    });
   }
 
   private async stopAllRuntimes(): Promise<void> {

@@ -252,6 +252,55 @@ async function testDesiredPausedStartSerializesWithTeamRestart(): Promise<void> 
   assert.equal(activeRuntimes, 0);
 }
 
+async function testStartupRestartAcknowledgementDoesNotOverwriteNewerDesiredState(): Promise<void> {
+  const runtimeStartEntered = deferred();
+  const releaseRuntimeStart = deferred();
+  let desiredState: "restart" | "running" | "stopped" = "restart";
+  let activeRuntimes = 0;
+  const team = { id: 1, name: "A", enabled: true, spxCookie: "ca", spxDeviceId: "da", lineGroupId: "ga" };
+
+  const manager = new TeamRuntimeManager({
+    loadEnabledTeams: async () => [team],
+    loadTeam: async () => team,
+    createRuntime: () => {
+      let status: "stopped" | "running" = "stopped";
+      return {
+        teamId: team.id,
+        start: async () => {
+          runtimeStartEntered.resolve();
+          await releaseRuntimeStart.promise;
+          status = "running";
+          activeRuntimes++;
+        },
+        stop: async () => {
+          if (status === "running") activeRuntimes--;
+          status = "stopped";
+        },
+        pause: () => undefined,
+        resume: () => undefined,
+        status: () => ({ teamId: team.id, teamName: team.name, status, lastPollAt: null, lastError: null }),
+      };
+    },
+    desiredState: {
+      list: async () => [{ teamId: 1, desiredState }],
+      set: async (input) => {
+        if (input.expectedDesiredState !== undefined && desiredState !== input.expectedDesiredState) return;
+        desiredState = input.desiredState;
+      },
+    },
+  });
+
+  const startup = manager.startAllEnabledTeams();
+  await runtimeStartEntered.promise;
+  desiredState = "stopped";
+  releaseRuntimeStart.resolve();
+  await startup;
+
+  assert.equal(desiredState, "stopped", "a completed startup must not acknowledge over a newer stop command");
+  await manager.reconcileDesiredStates();
+  assert.equal(activeRuntimes, 0);
+}
+
 async function main(): Promise<void> {
   const events: string[] = [];
   let version = "v1";
@@ -378,6 +427,7 @@ async function main(): Promise<void> {
   await testConcurrentDesiredStateReconciliationIsSingleFlight();
   await testRestartAllSerializesWithTeamRestart();
   await testDesiredPausedStartSerializesWithTeamRestart();
+  await testStartupRestartAcknowledgementDoesNotOverwriteNewerDesiredState();
 
   console.log("team-runtime-manager: all assertions passed");
 }

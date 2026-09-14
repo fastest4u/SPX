@@ -42,6 +42,7 @@ export type TeamRuntimeDesiredStateRow = Omit<typeof teamRuntimeDesiredState.$in
 export interface SetTeamRuntimeDesiredStateInput {
   teamId: number;
   desiredState: TeamRuntimeDesiredStateValue;
+  expectedDesiredState?: TeamRuntimeDesiredStateValue;
   changedByUserId?: number | null;
   reason?: string | null;
   now?: Date;
@@ -281,6 +282,17 @@ export async function setTeamRuntimeDesiredState(input: SetTeamRuntimeDesiredSta
     reason: input.reason?.substring(0, 1000) ?? null,
     updatedAt: dbTimestamp(now),
   };
+
+  if (input.expectedDesiredState !== undefined) {
+    await db
+      .update(teamRuntimeDesiredState)
+      .set(values)
+      .where(and(
+        eq(teamRuntimeDesiredState.teamId, input.teamId),
+        eq(teamRuntimeDesiredState.desiredState, input.expectedDesiredState),
+      ));
+    return;
+  }
 
   try {
     await db.insert(teamRuntimeDesiredState).values(values);
