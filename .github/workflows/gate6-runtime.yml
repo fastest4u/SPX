@@ -1,0 +1,58 @@
+name: Gate 6 protected runtime operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Fixed Gate 6 delivery operation
+        required: true
+        type: choice
+        options:
+          - admit
+          - permit-register-line
+          - permit-register-ocr
+          - postproof-register
+          - abort
+          - seal-close
+          - release
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      artifact_id:
+        description: Signed operation artifact bundle ID
+        required: true
+        type: string
+      artifact_run_id:
+        description: Signed operation artifact run ID
+        required: true
+        type: string
+      final_verifier_artifact_id:
+        description: Sealed final-verifier artifact ID (release only)
+        required: false
+        default: ""
+        type: string
+      final_verifier_run_id:
+        description: Sealed final-verifier workflow run ID (release only)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deliver:
+    # BOOTSTRAP-DENY: Stage 2 replaces this coordinated zero SHA only after Stage 1 exists.
+    uses: fastest4u/SPX/.github/workflows/gate6-runtime-executor.yml@0000000000000000000000000000000000000000
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    with:
+      operation: ${{ inputs.operation }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      artifact_id: ${{ inputs.artifact_id }}
+      artifact_run_id: ${{ inputs.artifact_run_id }}
+      final_verifier_artifact_id: ${{ inputs.final_verifier_artifact_id }}
+      final_verifier_run_id: ${{ inputs.final_verifier_run_id }}

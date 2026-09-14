@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "descriptorId": "dtd-staging-a3-20260710-01",
+  "releaseEnvironment": "staging",
+  "runtimeEnvironment": "staging",
+  "composeProject": "spx-staging",
+  "topology": "split",
+  "releaseManifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "operatorBundleSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "releaseSourceSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "imageId": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "imageTag": "spx-app:dddddddddddddddddddddddddddddddddddddddd",
+  "targetFactsSha256": "da48d6e1d39c142276aff9cc842c1b84e450fae1bedb10b0bcd65d7cf17e5880",
+  "target": {
+    "hostIdentitySha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "networkIdentitySha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "approvedSourceCidrsSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "dockerContext": "unix:///var/run/docker.sock",
+    "productionObserverPolicySha256": "05bf8910d8f678b984a6e82abe2abd9aba717a5eda31408bcc5d590d4e88aae8",
+    "canonicalPaths": {
+      "releaseRoot": "/opt/spx-staging/release",
+      "environmentFile": "/etc/spx-staging/runtime.env",
+      "stateRoot": "/var/lib/spx-staging-rollout"
+    }
+  },
+  "database": {
+    "name": "spx_staging",
+    "tlsFingerprintSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "accountHosts": {
+      "auto-accept-ifn-phase3": "172.17.0.1",
+      "auto-accept-ptwl-phase3": "172.17.0.1",
+      "gate6-monitor": "172.17.0.1",
+      "line-service": "172.17.0.1",
+      "migrator": "172.17.0.1",
+      "notification-service": "172.17.0.1",
+      "phase3-control": "172.17.0.1",
+      "phase3-observer": "172.17.0.1",
+      "poller-ifn-phase3": "172.17.0.1",
+      "poller-ptwl-phase3": "172.17.0.1",
+      "realtime-service": "172.17.0.1",
+      "web-api": "172.17.0.1",
+      "worker-ifn": "172.17.0.1",
+      "worker-ifn-split": "172.17.0.1",
+      "worker-ptwl": "172.17.0.1",
+      "worker-ptwl-split": "172.17.0.1"
+    }
+  },
+  "providerTargetFingerprints": [
+    "3333333333333333333333333333333333333333333333333333333333333333"
+  ],
+  "publishedPorts": [13000, 13002, 13003, 13004, 13005],
+  "volumeFingerprints": ["4444444444444444444444444444444444444444444444444444444444444444"],
+  "nodeIds": ["stg-web-a3", "stg-worker-ifn-a3", "stg-worker-ptwl-a3"],
+  "productionDenyTargetSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "issuedAt": "2026-07-10T12:00:00.000Z",
+  "expiresAt": "2026-07-10T12:10:00.000Z",
+  "signingWorkflowSourceSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "signingWorkflowFileSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+  "signing": {
+    "repository": "example/SPX",
+    "workflowRef": "example/SPX/.github/workflows/deployment-target-descriptor-signer.yml@dddddddddddddddddddddddddddddddddddddddd",
+    "environment": "staging",
+    "subject": "repo:example/SPX:environment:staging",
+    "audience": "https://github.com/example",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "jobWorkflowRef": "example/SPX/.github/workflows/deployment-target-descriptor-signer.yml@dddddddddddddddddddddddddddddddddddddddd",
+    "jobWorkflowSha": "dddddddddddddddddddddddddddddddddddddddd"
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "phase4-n-minus-one-v1",
+  "rollbackEligibleRoles": [
+    "web-api",
+    "notification-service",
+    "line-service",
+    "ocr-service",
+    "worker-ifn-split",
+    "worker-ptwl-split"
+  ],
+  "roles": {
+    "web-api": {
+      "probeService": "n-minus-one-web-probe",
+      "nodeId": "stg-n-minus-one-web-api",
+      "usesDatabase": true,
+      "dbCredentialAllowed": true,
+      "transactionRequired": true,
+      "representativeReads": ["teams", "app_settings", "realtime_metrics_read_models"],
+      "representativeWrites": ["app_settings"],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    },
+    "notification-service": {
+      "probeService": "n-minus-one-notification-probe",
+      "nodeId": "stg-n-minus-one-notification-service",
+      "usesDatabase": true,
+      "dbCredentialAllowed": true,
+      "transactionRequired": true,
+      "representativeReads": ["notification_events", "notification_outbox"],
+      "representativeWrites": ["notification_outbox", "notification_deliveries"],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    },
+    "line-service": {
+      "probeService": "n-minus-one-line-probe",
+      "nodeId": "stg-n-minus-one-line-service",
+      "usesDatabase": true,
+      "dbCredentialAllowed": true,
+      "transactionRequired": true,
+      "representativeReads": ["line_image_extractions", "app_settings"],
+      "representativeWrites": ["line_image_extractions"],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    },
+    "ocr-service": {
+      "probeService": "n-minus-one-ocr-probe",
+      "nodeId": "stg-n-minus-one-ocr-service",
+      "usesDatabase": false,
+      "dbCredentialAllowed": false,
+      "transactionRequired": false,
+      "representativeReads": [],
+      "representativeWrites": [],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    },
+    "worker-ifn-split": {
+      "probeService": "n-minus-one-worker-ifn-probe",
+      "nodeId": "stg-n-minus-one-worker-ifn-split",
+      "usesDatabase": true,
+      "dbCredentialAllowed": true,
+      "transactionRequired": true,
+      "representativeReads": ["teams", "auto_accept_jobs", "team_runtime_leases"],
+      "representativeWrites": ["spx_booking_history", "auto_accept_jobs", "auto_accept_job_settlements"],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    },
+    "worker-ptwl-split": {
+      "probeService": "n-minus-one-worker-ptwl-probe",
+      "nodeId": "stg-n-minus-one-worker-ptwl-split",
+      "usesDatabase": true,
+      "dbCredentialAllowed": true,
+      "transactionRequired": true,
+      "representativeReads": ["teams", "auto_accept_jobs", "team_runtime_leases"],
+      "representativeWrites": ["spx_booking_history", "auto_accept_jobs", "auto_accept_job_settlements"],
+      "ddlAllowed": false,
+      "providerCallsAllowed": false,
+      "backgroundLoopsAllowed": false,
+      "liveClaimsAllowed": false
+    }
+  }
+}

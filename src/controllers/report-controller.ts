@@ -1,9 +1,10 @@
+import { runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
 import { Readable } from "node:stream";
 import type { FastifyPluginAsync } from "fastify";
 import { getBookingHistory } from "../repositories/booking-history-repository.js";
 import { getAuditLogs } from "../repositories/audit-repository.js";
 import { metrics } from "../services/metrics.js";
-import { resolveScopedTeamId } from "../services/team-scope.js";
+import { requireRequestUser, resolveScopedTeamId } from "../services/team-scope.js";
 
 function csvEscape(value: unknown): string {
   let text = String(value ?? "");
@@ -36,8 +37,9 @@ function csvStream(rows: Iterable<unknown[]>): Readable {
 }
 
 export const reportController: FastifyPluginAsync = async (app) => {
-  app.get("/metrics.csv", async (_req, reply) => {
-    const snap = metrics.snapshot();
+  app.get("/metrics.csv", async (req, reply) => {
+    const teamId = requireRequestUser(req).role === "admin" ? null : resolveScopedTeamId(req);
+    const snap = runtimeMetricsSnapshotFor(metrics.snapshot({ teamId }), teamId);
     const rows = [
       ["metric", "value"],
       ["uptime", snap.uptime],
@@ -59,7 +61,7 @@ export const reportController: FastifyPluginAsync = async (app) => {
       ["tripsSkipped", snap.data.tripsSkipped],
     ];
 
-    reply
+    return reply
       .header("Content-Type", "text/csv; charset=utf-8")
       .header("Content-Disposition", 'attachment; filename="spx-metrics.csv"')
       .send(csvStream(rows));

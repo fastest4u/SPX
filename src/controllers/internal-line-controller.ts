@@ -17,8 +17,16 @@ import {
   type LineServiceStorageResponse,
   type LineServiceStatusResponse,
 } from "../services/line-service-contract.js";
-import { verifyInternalSignature } from "../services/internal-auth.js";
 import {
+  InternalRequestReplayGuard,
+  type InternalRequestReplayStore,
+  type NodeSecretKeyRing,
+  verifyInternalNodeSignature,
+  verifyInternalSignature,
+} from "../services/internal-auth.js";
+import {
+  beginNotificationProviderExecution,
+  completeNotificationProviderSend,
   getNotificationOutboxDeliveryState,
   markNotificationDeliveredAfterProviderSend,
 } from "../repositories/notification-repository.js";
@@ -42,8 +50,13 @@ export interface InternalLineServiceDependencies {
 }
 
 export interface InternalLineControllerOptions {
-  sharedSecret: string;
+  sharedSecret?: string;
   adminSharedSecret: string;
+  nodeSecrets?: ReadonlyMap<string, NodeSecretKeyRing>;
+  sendAllowedNodeIds?: ReadonlySet<string>;
+  adminAllowedNodeIds?: ReadonlySet<string>;
+  requireOutboxFence?: boolean;
+  replayGuard?: InternalRequestReplayStore;
   line: InternalLineServiceDependencies;
   isListenerActive?: () => boolean;
 }
@@ -76,15 +89,31 @@ function verifySignedRequest(input: {
   request: FastifyRequest;
   rawBody: string;
   path: string;
-  sharedSecret: string;
+  sharedSecret?: string;
+  nodeSecrets?: ReadonlyMap<string, NodeSecretKeyRing>;
+  onPreviousKeyUsed?: (nodeId: string) => void;
 }): { ok: true; nodeId: string } | { ok: false } {
   const nodeId = firstHeader(input.request.headers["x-spx-node-id"]);
   const timestamp = firstHeader(input.request.headers["x-spx-timestamp"]);
   const signature = firstHeader(input.request.headers["x-spx-signature"]);
   const eventKey = firstHeader(input.request.headers["idempotency-key"]);
+  const requestId = firstHeader(input.request.headers["x-spx-request-id"]);
 
   if (!nodeId || !timestamp || !signature) return { ok: false };
 
+  // An explicitly configured map, including an empty one, disables shared-key fallback.
+  if (input.nodeSecrets !== undefined) {
+    if (!requestId) return { ok: false };
+    const authResult = verifyInternalNodeSignature({
+      body: input.rawBody, timestamp, nodeId, path: input.path, signature, eventKey, requestId,
+      nodeSecrets: input.nodeSecrets,
+      onKeyGeneration: (generation) => {
+        if (generation === "previous") input.onPreviousKeyUsed?.(nodeId);
+      },
+    });
+    return authResult.ok ? { ok: true, nodeId } : { ok: false };
+  }
+  if (!input.sharedSecret?.trim()) return { ok: false };
   const authResult = verifyInternalSignature({
     body: input.rawBody,
     timestamp,
@@ -93,6 +122,7 @@ function verifySignedRequest(input: {
     secret: input.sharedSecret,
     signature,
     eventKey,
+    requestId,
   });
   return authResult.ok ? { ok: true, nodeId } : { ok: false };
 }
@@ -147,6 +177,14 @@ function parseSendRequest(rawBody: string): LineServiceSendRequest {
   if (Number.isInteger(parsed.outboxId) && (parsed.outboxId as number) > 0) {
     request.outboxId = parsed.outboxId as number;
   }
+  if (parsed.providerRequestId !== undefined || parsed.providerStartedAt !== undefined) {
+    if (typeof parsed.providerRequestId !== "string" || !/^[A-Za-z0-9._:-]{1,128}$/.test(parsed.providerRequestId)
+      || typeof parsed.providerStartedAt !== "string" || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(parsed.providerStartedAt)) {
+      throw new Error("Provider fence is invalid");
+    }
+    request.providerRequestId = parsed.providerRequestId;
+    request.providerStartedAt = parsed.providerStartedAt;
+  }
   return request;
 }
 
@@ -177,6 +215,28 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
   app,
   options,
 ) => {
+  if (options.nodeSecrets !== undefined && !options.replayGuard) {
+    throw new Error("Node-authenticated LINE requires an injected durable replay store");
+  }
+  const replayGuard = options.replayGuard ?? new InternalRequestReplayGuard();
+  async function authorizeOperation(request: FastifyRequest, reply: FastifyReply, nodeId: string, access: "send" | "admin"): Promise<boolean> {
+    const allowed = access === "send" ? options.sendAllowedNodeIds : options.adminAllowedNodeIds;
+    if ((allowed && !allowed.has(nodeId)) || (options.nodeSecrets !== undefined && !allowed?.has(nodeId))) {
+      sendInternalAuthFailed(reply); return false;
+    }
+    const requestId = firstHeader(request.headers["x-spx-request-id"]);
+    if (!requestId) {
+      if (options.nodeSecrets !== undefined) { sendInternalAuthFailed(reply); return false; }
+      return true;
+    }
+    try {
+      const result = await replayGuard.consume({ nodeId, requestId,
+        signedTimestamp: firstHeader(request.headers["x-spx-timestamp"])!, partition: `line-${access}` });
+      if (result.ok) return true;
+      sendError(reply, result.reason === "replay" ? 409 : 429, result.reason === "replay" ? "INTERNAL_REQUEST_REPLAYED" : "INTERNAL_REPLAY_CAPACITY", "Internal request cannot be consumed");
+    } catch { sendError(reply, 503, "INTERNAL_REPLAY_UNAVAILABLE", "Internal replay protection is unavailable"); }
+    return false;
+  }
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
     done(null, body);
@@ -189,8 +249,13 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       rawBody,
       path: LINE_INTERNAL_SEND_PATH,
       sharedSecret: options.sharedSecret,
+      nodeSecrets: options.nodeSecrets,
+      onPreviousKeyUsed: (nodeId) => {
+        app.log.warn({ nodeId, boundary: "line-send" }, "internal-hmac-previous-key-used");
+      },
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "send")) return;
 
     let body: LineServiceSendRequest;
     try {
@@ -199,8 +264,39 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       return sendInvalidLineRequest(reply, error);
     }
 
+    const fenced = body.outboxId && body.providerRequestId && body.providerStartedAt ? {
+      outboxId: body.outboxId, nodeId: authResult.nodeId, providerRequestId: body.providerRequestId, providerStartedAt: body.providerStartedAt,
+    } : null;
+    if (options.requireOutboxFence && !fenced) {
+      return sendError(reply, 400, "LINE_PROVIDER_FENCE_REQUIRED", "A durable provider fence is required");
+    }
+
     if (!options.line.isEnabled()) {
       return retryableUnavailable(reply, "LINE_SERVICE_UNAVAILABLE", "LINE service is unavailable");
+    }
+
+    if (fenced) {
+      let state: "started" | "sent" | "conflict";
+      try {
+        state = await beginNotificationProviderExecution({ ...fenced, targetId: body.targetId, text: body.text, eventKey: body.traceId });
+      } catch {
+        return retryableUnavailable(reply, "LINE_PROVIDER_FENCE_UNAVAILABLE", "Provider fence is unavailable");
+      }
+      if (state === "sent") return sendSuccess(reply, sentResponse());
+      if (state === "conflict") return sendError(reply, 409, "LINE_PROVIDER_FENCE_CONFLICT", "Provider attempt is stale or already consumed");
+      try {
+        const result = await options.line.sendMessage(body.targetId, body.text);
+        if (!result.ok) {
+          await completeNotificationProviderSend({ ...fenced, outcome: "ambiguous", error: result.error || "LINE send failed" });
+          return retryableUnavailable(reply, "LINE_SEND_AMBIGUOUS", "Provider delivery requires reconciliation");
+        }
+        const saved = await completeNotificationProviderSend({ ...fenced, outcome: "sent" });
+        if (!saved) return sendError(reply, 409, "LINE_PROVIDER_FENCE_CONFLICT", "Provider attempt changed before completion");
+        return sendSuccess(reply, sentResponse());
+      } catch {
+        try { await completeNotificationProviderSend({ ...fenced, outcome: "ambiguous" }); } catch { /* Persisted execution fence prevents replay. */ }
+        return retryableUnavailable(reply, "LINE_SEND_AMBIGUOUS", "Provider delivery requires reconciliation");
+      }
     }
 
     if (hasSentOutboxId(body.outboxId, body.traceId)) {
@@ -262,6 +358,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     let status: LineBotStatus;
     try {
@@ -293,6 +390,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     let status: LineBotStatus;
     try {
@@ -325,6 +423,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     try {
       const response = await options.line.getGroups();
@@ -347,6 +446,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     let profile: LineBotProfile | null;
     try {
@@ -384,6 +484,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     let storage: LineBotStorageHealth;
     try {
@@ -415,6 +516,7 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
       sharedSecret: options.adminSharedSecret,
     });
     if (!authResult.ok) return sendInternalAuthFailed(reply);
+    if (!await authorizeOperation(request, reply, authResult.nodeId, "admin")) return;
 
     let body: LineServiceLogoutRequest;
     try {

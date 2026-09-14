@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { closePool } from "../src/db/client.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
-import { createInternalSignature } from "../src/services/internal-auth.js";
+import { createInternalSignature, type InternalRequestReplayInput } from "../src/services/internal-auth.js";
 import { internalNotificationController } from "../src/controllers/internal-notification-controller.js";
 import { sendError } from "../src/utils/response.js";
 import { createTeam } from "../src/repositories/team-repository.js";
@@ -292,6 +292,80 @@ async function main(): Promise<void> {
   } finally {
     await unrestrictedApp.close();
     await resetDb();
+  }
+
+  const nodeSecret = "node-scoped-notification-secret";
+  const replayInputs: InternalRequestReplayInput[] = [];
+  const replayApp = Fastify({ logger: false });
+  await replayApp.register(internalNotificationController, {
+    prefix: "/internal",
+    nodeSecrets: new Map([[nodeId, { active: nodeSecret }]]),
+    allowedNodes: new Map([[nodeId, new Set([2])]]),
+    replayGuard: {
+      consume: async (input) => {
+        replayInputs.push(input);
+        return { ok: false, reason: "replay" };
+      },
+    },
+  });
+  try {
+    const eventKey = "node-scoped-replay-event";
+    const requestId = "node-scoped-replay-request";
+    const body = JSON.stringify(buildPayload());
+    const signature = createInternalSignature({
+      body,
+      timestamp,
+      nodeId,
+      path: internalPath,
+      secret: nodeSecret,
+      eventKey,
+      requestId,
+    });
+    const replay = await replayApp.inject({
+      method: "POST",
+      url: internalPath,
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": eventKey,
+        "x-spx-node-id": nodeId,
+        "x-spx-request-id": requestId,
+        "x-spx-timestamp": timestamp,
+        "x-spx-signature": signature,
+      },
+      payload: body,
+    });
+    assert.equal(replay.statusCode, 409, replay.body);
+    assert.equal(parseBody(replay).error_code, "INTERNAL_REPLAY_DETECTED");
+    assert.deepEqual(replayInputs, [{
+      nodeId,
+      requestId,
+      signedTimestamp: timestamp,
+      partition: "notification-events",
+    }]);
+
+    const missingRequestId = await replayApp.inject({
+      method: "POST",
+      url: internalPath,
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": eventKey,
+        "x-spx-node-id": nodeId,
+        "x-spx-timestamp": timestamp,
+        "x-spx-signature": createInternalSignature({
+          body,
+          timestamp,
+          nodeId,
+          path: internalPath,
+          secret: nodeSecret,
+          eventKey,
+        }),
+      },
+      payload: body,
+    });
+    assert.equal(missingRequestId.statusCode, 401, missingRequestId.body);
+    assert.equal(replayInputs.length, 1);
+  } finally {
+    await replayApp.close();
   }
 
   console.log("internal-notification-controller: all assertions passed");

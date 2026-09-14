@@ -11,6 +11,8 @@ export interface LineServiceSendRequest {
   text: string;
   traceId?: string;
   outboxId?: number;
+  providerRequestId?: string;
+  providerStartedAt?: string;
 }
 
 export interface LineServiceSendResponse {

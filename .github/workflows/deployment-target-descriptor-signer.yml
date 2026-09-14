@@ -1,0 +1,326 @@
+name: Trusted deployment target descriptor signer
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      request_artifact_id:
+        required: true
+        type: string
+      request_run_id:
+        required: true
+        type: string
+      release_artifact_id:
+        required: true
+        type: string
+      release_run_id:
+        required: true
+        type: string
+      release_source_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign-and-attest:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.target }}
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Enforce immutable trusted signer identity
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          TRUSTED_WORKFLOW_REF: ${{ job.workflow_ref }}
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          EXPECTED_TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+          REQUEST_ARTIFACT_ID: ${{ inputs.request_artifact_id }}
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          RELEASE_SOURCE_SHA: ${{ inputs.release_source_sha }}
+        run: |
+          set -euo pipefail
+          case "${TARGET}" in staging|production) ;; *) exit 1 ;; esac
+          [[ "${TRUSTED_WORKFLOW_REF}" =~ @[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${REQUEST_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          [[ "${REQUEST_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          [[ "${RELEASE_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${RELEASE_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${TRUSTED_WORKFLOW_REF##*@}" = "${TRUSTED_WORKFLOW_SHA}"
+          test "${TRUSTED_WORKFLOW_SHA}" = "${EXPECTED_TRUSTED_WORKFLOW_SHA}"
+
+      - name: Checkout only immutable trusted signer source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Download untrusted request artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.request_artifact_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.request_run_id }}
+          path: request
+
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.release_artifact_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.release_run_id }}
+          path: release
+          merge-multiple: true
+
+      - name: Validate request and release attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TARGET: ${{ inputs.target }}
+          EXPECTED_REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          EXPECTED_RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          EXPECTED_RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          EXPECTED_RELEASE_SOURCE_SHA: ${{ inputs.release_source_sha }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${TRUSTED_RELEASE_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          node --input-type=module -e '
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            const request = JSON.parse(readStableRegularFile("request/descriptor-request.json", "descriptor request").toString("utf8"));
+            const keys = Object.keys(request).sort().join(",");
+            if (keys !== "releaseArtifactId,releaseRunId,releaseSourceSha,repository,requestRunId,requestWorkflowSha,schemaVersion,target") throw new Error("invalid request fields");
+            if (request.schemaVersion !== 1 || request.repository !== process.env.GITHUB_REPOSITORY) throw new Error("invalid request identity");
+            if (request.target !== process.env.EXPECTED_TARGET) throw new Error("request target mismatch");
+            if (request.requestRunId !== process.env.EXPECTED_REQUEST_RUN_ID) throw new Error("request run mismatch");
+            if (request.releaseArtifactId !== process.env.EXPECTED_RELEASE_ARTIFACT_ID) throw new Error("request artifact mismatch");
+            if (request.releaseRunId !== process.env.EXPECTED_RELEASE_RUN_ID) throw new Error("release run mismatch");
+            if (request.releaseSourceSha !== process.env.EXPECTED_RELEASE_SOURCE_SHA) throw new Error("request source mismatch");
+          '
+          gh attestation verify release/release-manifest.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
+            --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}"
+          gh attestation verify release/operator-bundle.tar \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
+            --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}"
+          node scripts/build-operator-bundle.mjs verify-archive \
+            --archive=release/operator-bundle.tar \
+            --index=release/operator-bundle.index.json
+
+      - name: Materialize protected target facts
+        shell: bash
+        env:
+          TARGET_FACTS_B64: ${{ vars.SPX_DESCRIPTOR_TARGET_FACTS_B64 }}
+          EXPECTED_TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${TARGET_FACTS_B64}"
+          TARGET_FACTS_B64="${TARGET_FACTS_B64}" node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const bytes = Buffer.from(process.env.TARGET_FACTS_B64, "base64");
+            JSON.parse(bytes.toString("utf8"));
+            writeFileSync("target-facts.json", bytes, { mode: 0o600 });
+          '
+          node scripts/deployment-target-descriptor.mjs validate-facts \
+            --facts=target-facts.json \
+            --environment="${EXPECTED_TARGET}"
+
+      - name: Request OIDC and preserve actual immutable issuer provenance
+        shell: bash
+        env:
+          EXPECTED_AUDIENCE: ${{ vars.SPX_DESCRIPTOR_OIDC_AUDIENCE }}
+          EXPECTED_TARGET: ${{ inputs.target }}
+          TRUSTED_WORKFLOW_REF: ${{ job.workflow_ref }}
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          ENCODED_AUDIENCE="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "${EXPECTED_AUDIENCE}")"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${ENCODED_AUDIENCE}" \
+            --output oidc-response.json
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            import { canonicalJson } from "./src/services/release-manifest.ts";
+            const response = JSON.parse(readStableRegularFile("oidc-response.json", "OIDC response").toString("utf8"));
+            if (Object.keys(response).join(",") !== "value" || typeof response.value !== "string") throw new Error("invalid OIDC response");
+            const parts = response.value.split(".");
+            if (parts.length !== 3) throw new Error("invalid OIDC token");
+            const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+            const expectedSubject = `repo:${process.env.GITHUB_REPOSITORY}:environment:${process.env.EXPECTED_TARGET}`;
+            if (claims.iss !== "https://token.actions.githubusercontent.com") throw new Error("OIDC issuer mismatch");
+            if (claims.aud !== process.env.EXPECTED_AUDIENCE) throw new Error("OIDC audience mismatch");
+            if (claims.repository !== process.env.GITHUB_REPOSITORY) throw new Error("OIDC repository mismatch");
+            if (claims.sub !== expectedSubject) throw new Error("OIDC subject mismatch");
+            if (claims.job_workflow_ref !== process.env.TRUSTED_WORKFLOW_REF || !/@[0-9a-f]{40}$/.test(claims.job_workflow_ref)) throw new Error("OIDC job_workflow_ref is mutable or mismatched");
+            if (claims.job_workflow_sha !== process.env.TRUSTED_WORKFLOW_SHA) throw new Error("OIDC job_workflow_sha mismatch");
+            const provenance = {
+              repository: claims.repository,
+              workflowRef: claims.job_workflow_ref,
+              environment: process.env.EXPECTED_TARGET,
+              subject: claims.sub,
+              audience: claims.aud,
+              issuer: claims.iss,
+              jobWorkflowRef: claims.job_workflow_ref,
+              jobWorkflowSha: claims.job_workflow_sha,
+            };
+            writeFileSync("oidc-token", response.value, { mode: 0o600 });
+            writeFileSync("signer-provenance.json", canonicalJson(provenance), { mode: 0o444 });
+          '
+          rm -f oidc-response.json
+
+      - name: Build canonical descriptor with trusted code
+        shell: bash
+        env:
+          RELEASE_SOURCE_SHA: ${{ inputs.release_source_sha }}
+          DESCRIPTOR_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          node scripts/deployment-target-descriptor.mjs build \
+            --facts=target-facts.json \
+            --release-manifest=release/release-manifest.json \
+            --operator-bundle=release/operator-bundle.tar \
+            --operator-index=release/operator-bundle.index.json \
+            --signing-workflow=.github/workflows/deployment-target-descriptor-signer.yml \
+            --signing-provenance=signer-provenance.json \
+            --release-source-sha="${RELEASE_SOURCE_SHA}" \
+            --run-id="${DESCRIPTOR_RUN_ID}" \
+            --output=deployment-target-descriptor.unsigned.json
+
+      - name: Ask protected KMS broker to sign
+        shell: bash
+        env:
+          SIGNER_URL: ${{ vars.SPX_DESCRIPTOR_SIGNER_URL }}
+          EXPECTED_KEY_ID: ${{ vars.SPX_DESCRIPTOR_KEY_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module -e '
+            import { createHash } from "node:crypto";
+            import { writeFileSync } from "node:fs";
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            const payload = readStableRegularFile("deployment-target-descriptor.unsigned.json", "unsigned descriptor");
+            writeFileSync("sign-request.json", JSON.stringify({ algorithm: "Ed25519", descriptorSha256: createHash("sha256").update(payload).digest("hex"), payloadBase64: payload.toString("base64") }), { mode: 0o600 });
+            writeFileSync("sign-headers", `Authorization: Bearer ${readStableRegularFile("oidc-token", "OIDC token").toString("utf8")}\nContent-Type: application/json\n`, { mode: 0o600 });
+          '
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --request POST --header @sign-headers --data-binary @sign-request.json \
+            "${SIGNER_URL}" --output sign-response.json
+          EXPECTED_KEY_ID="${EXPECTED_KEY_ID}" node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            const response = JSON.parse(readStableRegularFile("sign-response.json", "KMS response").toString("utf8"));
+            if (Object.keys(response).sort().join(",") !== "keyId,signature" || response.keyId !== process.env.EXPECTED_KEY_ID || !/^[A-Za-z0-9_-]+$/.test(response.signature)) throw new Error("invalid KMS response");
+            writeFileSync("descriptor-signature", response.signature, { mode: 0o600 });
+          '
+          node scripts/deployment-target-descriptor.mjs assemble \
+            --descriptor=deployment-target-descriptor.unsigned.json \
+            --signature=descriptor-signature \
+            --key-id="${EXPECTED_KEY_ID}" \
+            --output=deployment-target-descriptor.json
+          rm -f sign-request.json sign-response.json sign-headers descriptor-signature oidc-token
+
+      - name: Create claims from actual provenance and protected trust
+        shell: bash
+        env:
+          EXPECTED_KEY_ID: ${{ vars.SPX_DESCRIPTOR_KEY_ID }}
+          PUBLIC_KEY_B64: ${{ vars.SPX_DESCRIPTOR_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module -e '
+            import { createHash } from "node:crypto";
+            import { writeFileSync } from "node:fs";
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            import { canonicalJson } from "./src/services/release-manifest.ts";
+            import { deploymentTargetFactsSha256 } from "./src/services/deployment-target-descriptor.ts";
+            const artifactBytes = readStableRegularFile("deployment-target-descriptor.json", "signed descriptor artifact");
+            const artifact = JSON.parse(artifactBytes);
+            const descriptor = artifact.descriptor;
+            const provenance = JSON.parse(readStableRegularFile("signer-provenance.json", "signer provenance").toString("utf8"));
+            const protectedFacts = JSON.parse(readStableRegularFile("target-facts.json", "protected target facts").toString("utf8"));
+            const release = JSON.parse(readStableRegularFile("release/release-manifest.json", "release manifest").toString("utf8"));
+            const attestation = { schemaVersion: 1, artifactSha256: createHash("sha256").update(artifactBytes).digest("hex"), ...provenance, signingWorkflowSourceSha: provenance.jobWorkflowSha, signingWorkflowFileSha256: descriptor.signingWorkflowFileSha256, issuedAt: descriptor.issuedAt };
+            const trust = {
+              keyId: process.env.EXPECTED_KEY_ID,
+              repository: provenance.repository,
+              workflowRef: provenance.workflowRef,
+              environment: provenance.environment,
+              subject: provenance.subject,
+              audience: provenance.audience,
+              issuer: provenance.issuer,
+              jobWorkflowRef: provenance.jobWorkflowRef,
+              signingWorkflowSourceSha: provenance.jobWorkflowSha,
+              signingWorkflowFileSha256: descriptor.signingWorkflowFileSha256,
+              releaseSourceSha: release.sourceSha,
+              imageId: release.imageId,
+              imageTag: release.imageTag,
+              targetFactsSha256: deploymentTargetFactsSha256(protectedFacts),
+            };
+            writeFileSync("deployment-target-descriptor.attestation-claims.json", canonicalJson(attestation), { mode: 0o444 });
+            writeFileSync("descriptor-trust.json", canonicalJson(trust), { mode: 0o600 });
+            writeFileSync("descriptor-public-key.pem", Buffer.from(process.env.PUBLIC_KEY_B64, "base64"), { mode: 0o600 });
+          '
+
+      - name: Attest signed descriptor and claims
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: |
+            deployment-target-descriptor.json
+            deployment-target-descriptor.attestation-claims.json
+
+      - name: Perform only full attested verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OPERATOR_TEMP_ROOT="$(mktemp -d)"
+          cleanup_operator_root() {
+            chmod -R u+w -- "${OPERATOR_TEMP_ROOT}" 2>/dev/null || true
+            rm -rf -- "${OPERATOR_TEMP_ROOT}"
+          }
+          trap cleanup_operator_root EXIT
+          node scripts/build-operator-bundle.mjs materialize \
+            --archive=release/operator-bundle.tar \
+            --index=release/operator-bundle.index.json \
+            --root="${OPERATOR_TEMP_ROOT}/root"
+          node scripts/deployment-target-descriptor.mjs verify \
+            --artifact=deployment-target-descriptor.json \
+            --attestation=deployment-target-descriptor.attestation-claims.json \
+            --trust=descriptor-trust.json \
+            --public-key=descriptor-public-key.pem \
+            --release-manifest=release/release-manifest.json \
+            --operator-bundle=release/operator-bundle.tar \
+            --operator-index=release/operator-bundle.index.json \
+            --operator-root="${OPERATOR_TEMP_ROOT}/root"
+          rm -f descriptor-trust.json descriptor-public-key.pem signer-provenance.json target-facts.json deployment-target-descriptor.unsigned.json
+
+      - name: Upload immutable descriptor artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-target-descriptor-${{ inputs.target }}-${{ inputs.release_source_sha }}
+          path: |
+            deployment-target-descriptor.json
+            deployment-target-descriptor.attestation-claims.json
+          if-no-files-found: error
+          retention-days: 30

@@ -71,6 +71,10 @@ async function testSuccessfulDeliveryMarksSentOnce() {
   await resetAndCreateOutbox("40288114");
   const sent: string[] = [];
   const result = await dispatchWith(async (targetId, text) => {
+    const [fenced] = await getDb().select().from(notificationOutbox);
+    assert.equal(fenced.status, "provider_sending", "fence must commit before provider call");
+    assert.ok(fenced.providerRequestId);
+    assert.ok(fenced.providerStartedAt);
     sent.push(`${targetId}:${text}`);
     return { ok: true, providerMessageId: "msg-1" };
   });
@@ -87,7 +91,7 @@ async function testSuccessfulDeliveryMarksSentOnce() {
 async function testFailedSendResultMarksRetryable() {
   await resetAndCreateOutbox("failed-result");
 
-  const result = await dispatchWith(async () => ({ ok: false, error: "line down" }));
+  const result = await dispatchWith(async () => ({ ok: false, error: "line down", deliveryCertainty: "not_sent" }));
 
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1 });
   const retry = await claimRetryableLater();
@@ -96,7 +100,7 @@ async function testFailedSendResultMarksRetryable() {
   assert.equal(retry[0].lastError, "line down");
 }
 
-async function testThrownSendMarksRetryable() {
+async function testThrownSendIsAmbiguous() {
   await resetAndCreateOutbox("thrown-send");
 
   const result = await dispatchWith(async () => {
@@ -105,15 +109,16 @@ async function testThrownSendMarksRetryable() {
 
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1 });
   const retry = await claimRetryableLater();
-  assert.equal(retry.length, 1);
-  assert.equal(retry[0].attempts, 1);
-  assert.equal(retry[0].lastError, "line exploded");
+  assert.equal(retry.length, 0);
+  const [row] = await getDb().select().from(notificationOutbox);
+  assert.equal(row.status, "delivery_ambiguous");
+  assert.ok(row.providerRequestId);
 }
 
 async function testPermanentSendResultIsNotRetried() {
   await resetAndCreateOutbox("permanent-result");
 
-  const result = await dispatchWith(async () => ({ ok: false, error: "bad line-service config", retryable: false }));
+  const result = await dispatchWith(async () => ({ ok: false, error: "bad line-service config", retryable: false, deliveryCertainty: "not_sent" }));
 
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1 });
   const retry = await claimRetryableLater();
@@ -129,6 +134,18 @@ async function testPermanentSendResultIsNotRetried() {
   assert.equal(row?.lastError, "bad line-service config");
 }
 
+async function testUnknownFailureIsNotRetried() {
+  await resetAndCreateOutbox("unknown-failure");
+  await dispatchWith(async () => ({ ok: false, error: "request timed out", retryable: true }));
+  assert.equal((await claimRetryableLater()).length, 0);
+  const [row] = await getDb().select().from(notificationOutbox);
+  assert.equal(row.status, "delivery_ambiguous");
+  await resetAndCreateOutbox("unknown-permanent");
+  await dispatchWith(async () => ({ ok: false, error: "invalid response after provider call", retryable: false }));
+  const [unknown] = await getDb().select().from(notificationOutbox);
+  assert.equal(unknown.status, "delivery_ambiguous", "retry classification is not delivery certainty");
+}
+
 async function testStaleDeliveredMarkIsNotCounted() {
   await resetAndCreateOutbox("stale-delivered");
   let reclaimed = 0;
@@ -139,8 +156,8 @@ async function testStaleDeliveredMarkIsNotCounted() {
     return { ok: true, providerMessageId: "late-msg" };
   });
 
-  assert.equal(reclaimed, 1);
-  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0 });
+  assert.equal(reclaimed, 0);
+  assert.deepEqual(result, { claimed: 1, sent: 1, failed: 0 });
 }
 
 async function testBlankNodeIdThrows() {
@@ -190,9 +207,10 @@ async function main() {
   const tests: Array<[string, () => Promise<void>]> = [
     ["successful delivery marks sent once", testSuccessfulDeliveryMarksSentOnce],
     ["failed send result marks retryable", testFailedSendResultMarksRetryable],
-    ["thrown send marks retryable", testThrownSendMarksRetryable],
+    ["thrown send stays ambiguous without retry", testThrownSendIsAmbiguous],
     ["permanent send result is not retried", testPermanentSendResultIsNotRetried],
-    ["stale delivered mark is not counted", testStaleDeliveredMarkIsNotCounted],
+    ["unknown failure is not retried", testUnknownFailureIsNotRetried],
+    ["provider attempt cannot be reclaimed after lease expiry", testStaleDeliveredMarkIsNotCounted],
     ["blank nodeId throws", testBlankNodeIdThrows],
     ["batchSize non-positive returns zeros", testBatchSizeNonPositiveReturnsZeros],
     ["lockMs non-positive throws", testLockMsNonPositiveThrows],

@@ -27,6 +27,26 @@ export interface CreateNotificationPublisherOptions {
   publish(envelope: PublishEnvelope): Promise<{ ok: boolean; error?: string }>;
 }
 
+/**
+ * Resolves the outbound node secret for signed internal calls. Production
+ * requires the process-local node key and refuses the legacy shared secret;
+ * non-production environments keep the legacy fallback for local runs.
+ */
+export function resolveOutboundNodeSecret(input: {
+  nodeSecret: string;
+  legacySharedSecret: string;
+  nodeEnv: string;
+}): { secret: string; source: "node" | "legacy" } {
+  const nodeSecret = input.nodeSecret.trim();
+  const legacySharedSecret = input.legacySharedSecret.trim();
+  if (input.nodeEnv === "production") {
+    if (nodeSecret === "") throw new Error("process-local node secret is required in production");
+    return { secret: nodeSecret, source: "node" };
+  }
+  if (nodeSecret !== "") return { secret: nodeSecret, source: "node" };
+  return { secret: legacySharedSecret, source: "legacy" };
+}
+
 function requireRequestIds(requestIds: Array<number | string>): string[] {
   if (requestIds.length === 0) throw new Error("requestIds must contain at least one id");
   return requestIds.map((requestId) => String(requestId));
@@ -83,7 +103,11 @@ function startWorkerSpoolDrainLoop(spool: NotificationSpool): void {
     await spool.flush(async (entry) => {
       const result = await sendSpooledNotificationEvent({
         entry,
-        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        sharedSecret: resolveOutboundNodeSecret({
+          nodeSecret: env.NOTIFICATION_NODE_SECRET,
+          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+          nodeEnv: env.NODE_ENV,
+        }).secret,
         nodeId: env.SPX_NODE_ID,
         requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
       });
@@ -109,7 +133,11 @@ export function createWorkerNotificationPublisher(): NotificationPublisher {
     publish: async (envelope) => {
       const result = await publishNotificationEvent({
         url: env.NOTIFIER_API_URL,
-        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        sharedSecret: resolveOutboundNodeSecret({
+          nodeSecret: env.NOTIFICATION_NODE_SECRET,
+          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+          nodeEnv: env.NODE_ENV,
+        }).secret,
         nodeId: env.SPX_NODE_ID,
         eventKey: envelope.eventKey,
         event: envelope.event,

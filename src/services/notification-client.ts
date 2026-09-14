@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { signedJsonPost } from "./internal-service-client.js";
 import type { NotificationEventInput } from "./notification-events.js";
 import type { NotificationSpool, NotificationSpoolEntry } from "./notification-spool.js";
@@ -73,6 +74,7 @@ export async function publishNotificationEvent(
     body: input.event,
     nodeId: input.nodeId,
     eventKey: input.eventKey,
+    requestId: randomUUID(),
     fetchImpl: input.fetchImpl,
     requestTimeoutMs: input.requestTimeoutMs,
   });
@@ -108,6 +110,7 @@ export async function sendSpooledNotificationEvent(
     body,
     nodeId,
     eventKey: input.entry.eventKey,
+    requestId: randomUUID(),
     fetchImpl: input.fetchImpl,
     requestTimeoutMs: input.requestTimeoutMs,
   });

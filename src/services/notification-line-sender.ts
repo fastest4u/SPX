@@ -1,4 +1,4 @@
-import type { SendLineMessageResult } from "./notification-dispatcher.js";
+import type { NotificationSendContext, SendLineMessageResult } from "./notification-dispatcher.js";
 import {
   sendLineServiceMessage,
   type LineServiceClientOptions,
@@ -32,9 +32,9 @@ export function createNotificationLineSender(
 ): (
   targetId: string,
   text: string,
-  context?: { outboxId: number; eventKey: string },
+  context?: NotificationSendContext,
 ) => Promise<SendLineMessageResult & { retryable?: boolean }> {
-  return async (targetId: string, text: string, context?: { outboxId: number; eventKey: string }) => {
+  return async (targetId: string, text: string, context?: NotificationSendContext) => {
     const lineServiceUrl = options.lineServiceUrl.trim();
     const remoteSender = options.sendRemoteLineMessage ?? sendLineServiceMessage;
     if (lineServiceUrl) {
@@ -45,7 +45,8 @@ export function createNotificationLineSender(
           nodeId: options.nodeId,
           requestTimeoutMs: options.requestTimeoutMs,
         },
-        { targetId, text, outboxId: context?.outboxId, traceId: context?.eventKey },
+        { targetId, text, outboxId: context?.outboxId, traceId: context?.eventKey,
+          providerRequestId: context?.providerRequestId, providerStartedAt: context?.providerStartedAt },
       );
       return result;
     }
@@ -59,6 +60,7 @@ export function createNotificationLineSender(
       ok: false,
       error: "LINE_SERVICE_URL is required",
       retryable: false,
+      deliveryCertainty: "not_sent",
     };
   };
 }

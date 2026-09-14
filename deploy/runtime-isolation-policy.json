@@ -1,0 +1,1408 @@
+{
+  "version": 1,
+  "services": {
+    "migrator": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "notifier": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "JWT_SECRET_FILE",
+        "COOKIE_SECRET_FILE",
+        "ADMIN_PASSWORD_FILE",
+        "NOTIFICATION_NODE_SECRETS_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "JWT_SECRET_FILE",
+        "COOKIE_SECRET_FILE",
+        "ADMIN_PASSWORD_FILE",
+        "NOTIFICATION_NODE_SECRETS_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-legacy",
+          "path": "/app/data/line-state",
+          "access": "read-write",
+          "kind": "directory"
+        },
+        {
+          "id": "line-images",
+          "resource": "line-images-legacy",
+          "path": "/app/data/line-images",
+          "access": "read-write",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "web-api": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "JWT_SECRET_FILE",
+        "COOKIE_SECRET_FILE",
+        "ADMIN_PASSWORD_FILE",
+        "LINE_SERVICE_ADMIN_SECRET_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "JWT_SECRET_FILE",
+        "COOKIE_SECRET_FILE",
+        "ADMIN_PASSWORD_FILE",
+        "LINE_SERVICE_ADMIN_SECRET_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "line-images-split",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "notification-service": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "LINE_SERVICE_SEND_SECRET_FILE",
+        "NOTIFICATION_NODE_SECRETS_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "LINE_SERVICE_SEND_SECRET_FILE",
+        "NOTIFICATION_NODE_SECRETS_FILE",
+        "REALTIME_SHARED_SECRET_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "line-service": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "LINE_SERVICE_SEND_NODE_SECRETS_FILE",
+        "LINE_SERVICE_ADMIN_SECRET_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "GATE6_CONTROL_NODE_SECRET_FILE",
+        "GATE6_LINE_PERMIT_PUBLIC_KEY_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "LINE_SERVICE_SEND_NODE_SECRETS_FILE",
+        "LINE_SERVICE_ADMIN_SECRET_FILE",
+        "OCR_NODE_SECRET_FILE",
+        "GATE6_CONTROL_NODE_SECRET_FILE",
+        "GATE6_LINE_PERMIT_PUBLIC_KEY_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-split",
+          "path": "/app/data/line-state",
+          "access": "read-write",
+          "kind": "directory"
+        },
+        {
+          "id": "line-images",
+          "resource": "line-images-split",
+          "path": "/app/data/line-images",
+          "access": "read-write",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "ocr-service": {
+      "requiredSecretFiles": [
+        "OCR_NODE_SECRETS_FILE",
+        "GATE6_CONTROL_NODE_SECRET_FILE",
+        "GATE6_OCR_PERMIT_PUBLIC_KEY_FILE"
+      ],
+      "allowedSecretFiles": [
+        "OCR_NODE_SECRETS_FILE",
+        "GATE6_CONTROL_NODE_SECRET_FILE",
+        "GATE6_OCR_PERMIT_PUBLIC_KEY_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "line-images-split",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data",
+          "access": "read-write",
+          "kind": "directory"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "worker-ifn-split": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-worker-ifn-split",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "worker-ptwl-split": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-worker-ptwl-split",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "worker-ifn": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-worker-ifn",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "worker-ptwl": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-worker-ptwl",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "poller-ifn-phase3": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-poller-ifn-phase3",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "auto-accept-ifn-phase3": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-auto-accept-ifn-phase3",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "poller-ptwl-phase3": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-poller-ptwl-phase3",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "auto-accept-ptwl-phase3": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "NOTIFICATION_NODE_SECRET_FILE",
+        "REALTIME_SHARED_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "spool-auto-accept-ptwl-phase3",
+          "path": "/app/spool",
+          "access": "read-write",
+          "kind": "directory"
+        }
+      ]
+    },
+    "realtime-service": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "SECRETS_KEY_FILE",
+        "REALTIME_NODE_SECRETS_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "gate6-control": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "GATE6_LINE_NODE_SECRETS_FILE",
+        "GATE6_OCR_NODE_SECRETS_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "GATE6_LINE_NODE_SECRETS_FILE",
+        "GATE6_OCR_NODE_SECRETS_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "gate6-task9-controller": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "GATE6_TASK9_LINE_CALLER_SECRET_FILE",
+        "GATE6_TASK9_OCR_CALLER_SECRET_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE",
+        "GATE6_TASK9_LINE_CALLER_SECRET_FILE",
+        "GATE6_TASK9_OCR_CALLER_SECRET_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "gate6-production-keyring",
+          "resource": "gate6-production-keyring",
+          "path": "/run/config/gate6-production-keyring.json",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "gate6-task9-request-config",
+          "resource": "gate6-task9-request-config",
+          "path": "/run/config/gate6-task9-requests.json",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "gate6-artifacts",
+          "resource": "gate6-artifacts",
+          "path": "/run/gate6/artifacts",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "gate6-actions",
+          "resource": "gate6-actions",
+          "path": "/run/gate6/actions",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "gate6-permits",
+          "resource": "gate6-permits",
+          "path": "/run/gate6/permits",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "gate6-db-proxy": {
+      "requiredSecretFiles": [],
+      "allowedSecretFiles": [],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    },
+    "gate6-monitor-probe": {
+      "requiredSecretFiles": [
+        "DB_PASSWORD_FILE"
+      ],
+      "allowedSecretFiles": [
+        "DB_PASSWORD_FILE"
+      ],
+      "mounts": [
+        {
+          "id": "release-manifest",
+          "resource": "release-manifest",
+          "path": "/run/secrets/spx-release-manifest",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "target-descriptor",
+          "resource": "target-descriptor",
+          "path": "/run/secrets/spx-target-descriptor",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "deployment-context",
+          "resource": "deployment-context",
+          "path": "/run/secrets/spx-deployment-context",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "public-ca",
+          "resource": "public-ca",
+          "path": "/run/config/db-ca.pem",
+          "access": "read-only",
+          "kind": "file"
+        },
+        {
+          "id": "line-state",
+          "resource": "line-state-any",
+          "path": "/app/data/line-state/linejs-storage.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "line-images",
+          "resource": "image-root-line-images",
+          "path": "/app/data/line-images",
+          "access": "read-only",
+          "kind": "directory"
+        },
+        {
+          "id": "ocr-auth",
+          "resource": "ocr-auth",
+          "path": "/app/data/codex-device-auth.json",
+          "access": "absent",
+          "kind": "file"
+        },
+        {
+          "id": "notification-spool",
+          "resource": "notification-spool-any",
+          "path": "/app/spool/notification-spool.jsonl",
+          "access": "absent",
+          "kind": "file"
+        }
+      ]
+    }
+  }
+}

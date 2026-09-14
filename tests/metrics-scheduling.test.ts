@@ -99,3 +99,23 @@ import { MetricsCollector } from "../src/services/metrics.js";
 }
 
 console.log("metrics-scheduling: all assertions passed");
+
+{
+  const stages = ['biddingListPage1', 'page1ToDetailStart', 'firstMatchToAcceptStart', 'verificationQueueWait'] as const;
+  const one = new MetricsCollector({ teamId: 1 });
+  const two = new MetricsCollector({ teamId: 2 });
+  for (const stage of stages) {
+    assert.equal(one.snapshot().operations[stage].count, 0);
+    for (const invalid of [-1, NaN, Infinity, -Infinity]) {
+      one.recordOperation(stage, invalid);
+      one.recordInterval(stage, invalid, 1000);
+    }
+    one.recordInterval(stage, 2000, 1000);
+    assert.equal(one.snapshot().operations[stage].count, 0);
+    for (let i = 0; i < 1100; i++) one.recordOperation(stage, i);
+    two.recordOperation(stage, 5000);
+    assert.equal(one.snapshot().operations[stage].count, 1000);
+    assert.equal(one.snapshot().operations[stage].min, 100);
+    assert.equal(two.snapshot().operations[stage].avg, 5000);
+  }
+}

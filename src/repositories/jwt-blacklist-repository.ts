@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { getPool } from "../db/client.js";
+import { runtimeSchemaMutationsAllowed } from "../db/runtime-schema-readiness.js";
 
 /**
  * Server-side JWT invalidation via jti (JWT ID) blacklist.
@@ -80,7 +81,8 @@ async function ensureTable(): Promise<void> {
     tableEnsurePromise = (async () => {
         const pool = getPool();
         if (!pool) return;
-        await pool.query(`
+        if (runtimeSchemaMutationsAllowed()) {
+            await pool.query(`
       CREATE TABLE IF NOT EXISTS jwt_blacklist (
         jti VARCHAR(64) NOT NULL PRIMARY KEY,
         revoked_at BIGINT NOT NULL,
@@ -88,6 +90,7 @@ async function ensureTable(): Promise<void> {
         KEY jwt_blacklist_expires_idx (expires_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     `);
+        }
         tableEnsured = true;
         ensureMysqlPruneTimer();
     })().catch((err) => {

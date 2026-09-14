@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { env } from "../src/config/env.js";
 import { closePool } from "../src/db/client.js";
 import { createHttpServer } from "../src/services/http-server.js";
@@ -58,8 +61,10 @@ async function main(): Promise<void> {
     LINE_SERVICE_REQUEST_TIMEOUT_MS: env.LINE_SERVICE_REQUEST_TIMEOUT_MS,
     OCR_SERVICE_REQUEST_TIMEOUT_MS: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
     NOTIFIER_SHARED_SECRET: env.NOTIFIER_SHARED_SECRET,
+    OCR_REPLAY_LEDGER_DIR: env.OCR_REPLAY_LEDGER_DIR,
   };
   const apps: App[] = [];
+  const replayRoot = await mkdtemp(join(tmpdir(), "spx-fault-drill-ocr-replay-"));
 
   try {
     Object.assign(mutableEnv(), {
@@ -71,6 +76,7 @@ async function main(): Promise<void> {
       LINE_SERVICE_REQUEST_TIMEOUT_MS: 100,
       OCR_SERVICE_REQUEST_TIMEOUT_MS: 100,
       NOTIFIER_SHARED_SECRET: "local-fault-drill-secret",
+      OCR_REPLAY_LEDGER_DIR: join(replayRoot, "ledger"),
     });
 
     const ocrService = await startSurface("ocr-service");
@@ -167,6 +173,7 @@ async function main(): Promise<void> {
   } finally {
     Object.assign(mutableEnv(), original);
     await closeAll(apps);
+    await rm(replayRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

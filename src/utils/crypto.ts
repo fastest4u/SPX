@@ -22,6 +22,10 @@ let cachedKey: Buffer | null = null;
 function deriveKey(): Buffer {
     if (cachedKey) return cachedKey;
     const explicit = process.env.SECRETS_KEY?.trim();
+    // Production must never silently fall back to JWT/COOKIE-derived keys.
+    if (process.env.NODE_ENV === "production" && (!explicit || explicit.length < 32)) {
+        throw new Error("SECRETS_KEY must be at least 32 characters in production");
+    }
     const fallback = `${process.env.JWT_SECRET ?? ""}::${process.env.COOKIE_SECRET ?? ""}`;
     const seed = explicit && explicit.length >= 16 ? explicit : fallback;
     if (!seed || seed === "::") {

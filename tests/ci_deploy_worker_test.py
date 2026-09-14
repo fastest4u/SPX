@@ -38,7 +38,8 @@ class WorkerDeploymentTests(unittest.TestCase):
         (self.root / '.env').write_text('fixture-bootstrap-must-remain-untouched')
         (self.release / 'image.tar.gz').write_bytes(b'test image archive')
         self.manifest = dict(commit=COMMIT, imageId=NEW_IMAGE, bundleSha256=BUNDLE,
-                             archiveSha256=hashlib.sha256(b'test image archive').hexdigest())
+                             archiveSha256=hashlib.sha256(b'test image archive').hexdigest(),
+                             deploymentContract={'schemaVersion': 1, 'mode': 'legacy'})
         self.write_manifest()
         self.commands = []
         self.team = '2'
@@ -52,6 +53,7 @@ class WorkerDeploymentTests(unittest.TestCase):
         self.configured_team = None
         self.drift_during_load = False
         self.export_environment_list = False
+        self.image_contract = {'schemaVersion': 1, 'mode': 'legacy'}
 
     def compose_model(self, command):
         merged = {}
@@ -108,6 +110,8 @@ class WorkerDeploymentTests(unittest.TestCase):
         if command[1] == 'exec' and 'node' in command:
             return json.dumps({'ready': not (self.new_running and self.fail_new_lease and not self.rollback_running)})
         if command[1] == 'run':
+            if command[-1] == '/app/dist/deployment-contract.json':
+                return json.dumps(self.image_contract)
             return self.bundle + '  /app/dist/app.js\n'
         if command[1:3] == ['image', 'load']:
             if self.drift_during_load:
@@ -297,6 +301,52 @@ class WorkerDeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(self.module.DeploymentError, 'release directory'):
             self.module.deploy_worker(self.root, self.root.parent, 2, 'worker-ifn',
                                       self.node, COMMIT, 'absent', runner=self.fake_runner)
+        self.assert_no_restart()
+
+    def test_a3_contract_is_rejected_before_any_docker_operation(self):
+        self.manifest['deploymentContract'] = {'schemaVersion': 1, 'mode': 'protected-a3'}
+        self.write_manifest()
+        with self.assertRaisesRegex(self.module.DeploymentError, 'protected A3'):
+            self.deploy()
+        self.assertEqual(self.commands, [])
+        self.assert_no_restart()
+        self.assertFalse((self.root / 'docker-compose.ci-worker.yml').exists())
+
+    def test_missing_or_unknown_contract_cannot_default_to_legacy(self):
+        for contract in [None, {}, {'schemaVersion': 2, 'mode': 'legacy'},
+                         {'schemaVersion': 1, 'mode': 'unknown'},
+                         {'schemaVersion': True, 'mode': 'legacy'},
+                         {'schemaVersion': 1, 'mode': 'legacy', 'unexpected': True}]:
+            with self.subTest(contract=contract):
+                self.manifest['deploymentContract'] = contract
+                self.write_manifest()
+                with self.assertRaisesRegex(self.module.DeploymentError, 'deployment contract'):
+                    self.deploy()
+                self.assertEqual(self.commands, [])
+                self.assert_no_restart()
+
+    def test_legacy_manifest_cannot_install_a3_image(self):
+        self.image_contract = {'schemaVersion': 1, 'mode': 'protected-a3'}
+        with self.assertRaisesRegex(self.module.DeploymentError, 'protected A3'):
+            self.deploy()
+        self.assert_no_restart()
+        self.assertFalse(any(command[1] == 'tag' for command in self.commands))
+        self.assertFalse((self.root / 'docker-compose.ci-worker.yml').exists())
+
+    def test_unreadable_or_unknown_image_contract_never_restarts(self):
+        for contract in [None, {}, {'schemaVersion': 2, 'mode': 'legacy'}]:
+            with self.subTest(contract=contract):
+                self.image_contract = contract
+                with self.assertRaisesRegex(self.module.DeploymentError, 'deployment contract'):
+                    self.deploy()
+                self.assert_no_restart()
+
+    def test_same_release_rechecks_image_contract_before_reporting_ready(self):
+        self.deploy()
+        self.commands.clear()
+        self.image_contract = {'schemaVersion': 1, 'mode': 'protected-a3'}
+        with self.assertRaisesRegex(self.module.DeploymentError, 'protected A3'):
+            self.deploy()
         self.assert_no_restart()
 
 

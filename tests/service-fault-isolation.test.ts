@@ -4,6 +4,7 @@ import { resetMemoryDb } from "../src/db/client-memory.js";
 import {
   claimNotificationOutboxBatch,
   createNotificationEventAndOutbox,
+  listNotificationProviderReconciliationCandidates,
 } from "../src/repositories/notification-repository.js";
 import { runNotificationDispatchOnce } from "../src/services/notification-dispatcher.js";
 import { createNotificationLineSender } from "../src/services/notification-line-sender.js";
@@ -109,7 +110,7 @@ async function testReadinessIsolationRules(): Promise<void> {
   );
 }
 
-async function testNotificationOutboxRetriesWhenRemoteLineServiceIsUnreachable(): Promise<void> {
+async function testNotificationOutboxRetainsAmbiguousRemoteLineTransportFailure(): Promise<void> {
   await resetDb();
   await createNotificationEventAndOutbox(buildEvent(), {
     targetType: "line_group",
@@ -141,14 +142,18 @@ async function testNotificationOutboxRetriesWhenRemoteLineServiceIsUnreachable()
     30_000,
     new Date(Date.now() + 3_000),
   );
-  assert.equal(retryableRows.length, 1);
-  assert.equal(retryableRows[0].attempts, 1);
-  assert.match(retryableRows[0].lastError ?? "", /fetch failed|ECONNREFUSED|bad port/i);
+  assert.equal(retryableRows.length, 0, "transport failure does not prove provider non-delivery");
+  const candidates = await listNotificationProviderReconciliationCandidates();
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].status, "delivery_ambiguous");
+  assert.equal(candidates[0].attempts, 1);
+  assert.ok(candidates[0].providerRequestId, "retain the exact request fence for reconciliation");
+  assert.ok(candidates[0].providerStartedAt);
 }
 
 async function main(): Promise<void> {
   await testReadinessIsolationRules();
-  await testNotificationOutboxRetriesWhenRemoteLineServiceIsUnreachable();
+  await testNotificationOutboxRetainsAmbiguousRemoteLineTransportFailure();
 }
 
 main()

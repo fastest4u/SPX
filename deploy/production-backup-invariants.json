@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "invariantSet": "spx-production-backup-isolated-restore-v1",
+  "invariants": [
+    {
+      "id": "schema-shape",
+      "expectation": "source-before-after-and-isolated-digests-identical"
+    },
+    {
+      "id": "foreign-key-shape",
+      "expectation": "source-before-after-and-isolated-digests-identical"
+    },
+    {
+      "id": "runtime-object-shape",
+      "expectation": "source-before-after-and-isolated-digests-identical"
+    }
+  ],
+  "rowCountDigest": {
+    "algorithm": "sha256",
+    "ordering": "identifier-ascending",
+    "disclosure": "digest-only"
+  }
+}

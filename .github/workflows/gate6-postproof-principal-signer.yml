@@ -1,0 +1,366 @@
+name: Sign Gate 6 post-proof principal actions
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      approval_artifact_id:
+        required: true
+        type: string
+      approval_run_id:
+        required: true
+        type: string
+      preclose_artifact_id:
+        required: true
+        type: string
+      preclose_run_id:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: spx-production-mutation
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      APPROVAL_ARTIFACT_ID: ${{ inputs.approval_artifact_id }}
+      APPROVAL_RUN_ID: ${{ inputs.approval_run_id }}
+      PRECLOSE_ARTIFACT_ID: ${{ inputs.preclose_artifact_id }}
+      PRECLOSE_RUN_ID: ${{ inputs.preclose_run_id }}
+      TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+      EXPECTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_POSTPROOF_SIGNER_SHA }}
+      ENVELOPE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
+      SIGNER_URL: ${{ vars.SPX_GATE6_POSTPROOF_SIGNER_URL }}
+      SIGNING_KEY_ID: ${{ vars.SPX_GATE6_POSTPROOF_KEY_ID }}
+      OIDC_AUDIENCE: spx-gate6-postproof-principal
+    steps:
+      - name: Checkout only the trusted signer definition
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/workflows/gate6-postproof-principal-signer.yml
+            deploy/protected-evidence-producers.json
+            scripts/lib/evidence-artifact.mjs
+            scripts/lib/github-attestation-run.mjs
+            scripts/lib/protected-evidence-producers.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve the exact accepted pre-close producer
+        id: protected-producer
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFile } from "node:fs/promises";
+          import { producerFor } from "./scripts/lib/protected-evidence-producers.mjs";
+          const producer = producerFor("accepted-pre-close");
+          if (
+            producer.bootstrapDenied !== false
+            || /^0{40}$/.test(producer.signerSha)
+            || /^0{64}$/.test(producer.workflowFileSha256)
+          ) throw new Error("accepted pre-close producer is bootstrap-denied");
+          await appendFile(process.env.GITHUB_OUTPUT, `workflow=${producer.workflow}\n`);
+          await appendFile(process.env.GITHUB_OUTPUT, `signer_sha=${producer.signerSha}\n`);
+          await appendFile(
+            process.env.GITHUB_OUTPUT,
+            `workflow_file_sha256=${producer.workflowFileSha256}\n`,
+          );
+          NODE
+
+      - name: Validate protected signer identity and selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${EXPECTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${ENVELOPE_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${TRUSTED_WORKFLOW_SHA}" = "${EXPECTED_WORKFLOW_SHA}"
+          test -n "${SIGNER_URL}"
+          [[ "${SIGNING_KEY_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          for value in \
+            "${APPROVAL_ARTIFACT_ID}" "${APPROVAL_RUN_ID}" \
+            "${PRECLOSE_ARTIFACT_ID}" "${PRECLOSE_RUN_ID}"; do
+            [[ "${value}" =~ ^[1-9][0-9]*$ ]]
+          done
+
+      - name: Download signed Gate 6 approval
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.approval_artifact_id }}
+          run-id: ${{ inputs.approval_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/approval
+
+      - name: Download immutable accepted pre-close evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.preclose_artifact_id }}
+          run-id: ${{ inputs.preclose_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/preclose
+
+      - name: Verify all immutable input attestations
+        id: verified-inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROTECTED_SIGNER_WORKFLOW: ${{ steps.protected-producer.outputs.workflow }}
+          PROTECTED_SIGNER_SHA: ${{ steps.protected-producer.outputs.signer_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          binding_dir="${RUNNER_TEMP}/spx-attestation-run-bindings"
+          install -d -m 0700 "${binding_dir}"
+          fetch_artifact_metadata() {
+            local artifact_id="$1"
+            local destination="$2"
+            local artifact_projection="${destination}.artifact"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" \
+              --jq '{artifactId:(.id|tostring),expired:.expired,workflowHeadSha:.workflow_run.head_sha,workflowRepositoryId:(.workflow_run.repository_id|tostring),workflowRunId:(.workflow_run.id|tostring)}' \
+              > "${artifact_projection}"
+            local authoritative_run_id
+            authoritative_run_id="$(jq -er '.workflowRunId' "${artifact_projection}")"
+            local workflow_run_attempt
+            workflow_run_attempt="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authoritative_run_id}" \
+                --jq '.run_attempt | tostring'
+            )"
+            [[ "${workflow_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+            jq -e --arg workflowRunAttempt "${workflow_run_attempt}" \
+              '. + {workflowRunAttempt:$workflowRunAttempt}' \
+              "${artifact_projection}" > "${destination}"
+            rm -f "${artifact_projection}"
+            chmod 0600 "${destination}"
+          }
+          verify_attested_file() {
+            local file="$1"
+            local artifact_id="$2"
+            local run_id="$3"
+            local signer_workflow="$4"
+            local signer_sha="$5"
+            local artifact_metadata="$6"
+            local attestation_results
+            attestation_results="$(mktemp "${binding_dir}/attestation.XXXXXX.json")"
+            if ! gh attestation verify "${file}" -R "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/${signer_workflow}" \
+              --signer-digest "${signer_sha}" --deny-self-hosted-runners \
+              --format json > "${attestation_results}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            if ! node scripts/lib/github-attestation-run.mjs \
+              --artifact="${file}" \
+              --artifact-id="${artifact_id}" \
+              --artifact-metadata="${artifact_metadata}" \
+              --attestation-results="${attestation_results}" \
+              --repository="${GITHUB_REPOSITORY}" \
+              --run-id="${run_id}" \
+              --signer-sha="${signer_sha}" \
+              --signer-workflow="${signer_workflow}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            rm -f "${attestation_results}"
+          }
+          approval_metadata="${binding_dir}/approval.metadata.json"
+          preclose_metadata="${binding_dir}/preclose.metadata.json"
+          fetch_artifact_metadata "${APPROVAL_ARTIFACT_ID}" "${approval_metadata}"
+          fetch_artifact_metadata "${PRECLOSE_ARTIFACT_ID}" "${preclose_metadata}"
+          mapfile -d '' -t approval_files < <(find inert-inputs/approval -type f -print0 | sort -z)
+          test "${#approval_files[@]}" -gt 0
+          for file in "${approval_files[@]}"; do
+            verify_attested_file \
+              "${file}" "${APPROVAL_ARTIFACT_ID}" "${APPROVAL_RUN_ID}" \
+              ".github/workflows/gate6-envelope-signer.yml" "${ENVELOPE_SIGNER_SHA}" \
+              "${approval_metadata}" >/dev/null
+          done
+          PROTECTED_SHA256="$(node --input-type=module <<'NODE'
+          import { assertProtectedEvidenceFileSet } from "./scripts/lib/protected-evidence-producers.mjs";
+          const result = await assertProtectedEvidenceFileSet("accepted-pre-close", "inert-inputs/preclose");
+          process.stdout.write(result.files[0].sha256);
+          NODE
+          )"
+          [[ "${PROTECTED_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          verify_attested_file \
+            inert-inputs/preclose/accepted-pre-close-evidence.json \
+            "${PRECLOSE_ARTIFACT_ID}" "${PRECLOSE_RUN_ID}" \
+            "${PROTECTED_SIGNER_WORKFLOW}" "${PROTECTED_SIGNER_SHA}" \
+            "${preclose_metadata}" >/dev/null
+          test "$(sha256sum inert-inputs/preclose/accepted-pre-close-evidence.json | cut -d' ' -f1)" = \
+            "${PROTECTED_SHA256}"
+          echo "protected_sha256=${PROTECTED_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build bounded paired-action signing request
+        shell: bash
+        env:
+          EXPECTED_PROTECTED_SHA256: ${{ steps.verified-inputs.outputs.protected_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { mkdir, readFile, writeFile } from "node:fs/promises";
+          import { assertProtectedEvidenceFileSet } from "./scripts/lib/protected-evidence-producers.mjs";
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const envelopeBytes = await readFile("inert-inputs/approval/gate6-envelope.json");
+          const envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(envelopeBytes));
+          if (
+            envelope.candidateSha !== process.env.CANDIDATE_SHA
+            || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(envelope.gate6Id ?? "")
+            || !Array.isArray(envelope.actionApprovals)
+          ) throw new Error("post-proof approval binding is invalid");
+          const approvalPaths = [
+            "gate6-envelope.json",
+            "release-manifest.json",
+            ...envelope.actionApprovals.map((action) => `actions/${action.scope}.json`),
+          ].sort();
+          const files = [];
+          for (const path of approvalPaths) {
+            const bytes = await readFile(`inert-inputs/approval/${path}`);
+            JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+            files.push({ path: `approval/${path}`, sha256: createHash("sha256").update(bytes).digest("hex"), contentBase64: bytes.toString("base64") });
+          }
+          const protectedSet = await assertProtectedEvidenceFileSet(
+            "accepted-pre-close",
+            "inert-inputs/preclose",
+          );
+          const accepted = protectedSet.files[0];
+          if (
+            accepted.sha256 !== process.env.EXPECTED_PROTECTED_SHA256
+            || accepted.value.candidateSha !== process.env.CANDIDATE_SHA
+            || accepted.value.gate6Id !== envelope.gate6Id
+            || accepted.value.phase !== "pre-close"
+            || accepted.value.scope !== "stage-accept-pre-close"
+            || accepted.value.expectedStage !== "final-baseline-stable"
+            || accepted.value.nextStage !== "pre-close-accepted"
+            || accepted.value.currentStage !== "pre-close-accepted"
+            || accepted.value.actionStatus !== "succeeded"
+            || accepted.value.acceptedCheckerName !== accepted.value.checkerName
+            || accepted.value.afterEvidenceSha256 !== accepted.value.acceptedCheckerSha256
+            || accepted.value.preCloseSafety?.activePermitCount !== 0
+            || accepted.value.preCloseSafety?.uncompensatedWork !== 0
+            || !/^[0-9a-f]{64}$/.test(accepted.value.receiptSha256 ?? "")
+          ) throw new Error("accepted pre-close evidence semantic binding is invalid");
+          files.push({ path: `preclose/${accepted.name}`, sha256: accepted.sha256, contentBase64: accepted.bytes.toString("base64") });
+          files.sort((left, right) => left.path.localeCompare(right.path));
+          if (files.length < 3 || files.length > 96) throw new Error("post-proof input set is not bounded");
+          const request = {
+            schemaVersion: 1,
+            candidateSha: process.env.CANDIDATE_SHA,
+            requestedPair: ["db-principal-revoke-legacy", "db-principal-restore-legacy"],
+            files,
+          };
+          await mkdir("signer-work", { mode: 0o700 });
+          await writeFile("signer-work/request.json", JSON.stringify(canonical(request)), { flag: "wx", mode: 0o400 });
+          NODE
+
+      - name: Request exact OIDC identity and KMS signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_response="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=spx-gate6-postproof-principal")"
+          oidc_token="$(jq -er '.value' <<<"${oidc_response}")"
+          echo "::add-mask::${oidc_token}"
+          OIDC_TOKEN="${oidc_token}" node --input-type=module <<'NODE'
+          const parts = process.env.OIDC_TOKEN.split(".");
+          if (parts.length !== 3) throw new Error("post-proof OIDC token is invalid");
+          const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+          const workflow = `${process.env.GITHUB_REPOSITORY}/.github/workflows/gate6-postproof-principal-signer.yml@${process.env.TRUSTED_WORKFLOW_SHA}`;
+          const callerPrefix = `${process.env.GITHUB_REPOSITORY}/.github/workflows/gate6-postproof-principal.yml@`;
+          if (claims.iss !== "https://token.actions.githubusercontent.com" || claims.aud !== process.env.OIDC_AUDIENCE
+            || claims.repository !== process.env.GITHUB_REPOSITORY
+            || claims.sub !== `repo:${process.env.GITHUB_REPOSITORY}:environment:production`
+            || claims.job_workflow_ref !== workflow || claims.job_workflow_sha !== process.env.TRUSTED_WORKFLOW_SHA
+            || !claims.workflow_ref?.startsWith(callerPrefix) || claims.workflow_sha !== process.env.CANDIDATE_SHA
+            || claims.event_name !== "workflow_dispatch") {
+            throw new Error("post-proof OIDC identity mismatch");
+          }
+          NODE
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer ${oidc_token}" -H "Content-Type: application/json" \
+            -H "X-SPX-Signing-Key-ID: ${SIGNING_KEY_ID}" \
+            --data-binary @signer-work/request.json "${SIGNER_URL}" > signer-work/response.json
+
+      - name: Validate and publish the exact paired actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { mkdir, readFile, writeFile } from "node:fs/promises";
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const canonicalJson = (value) => JSON.stringify(canonical(value));
+          const bytes = await readFile("signer-work/response.json");
+          if (bytes.length > 2 * 1024 * 1024) throw new Error("post-proof response is too large");
+          const bundle = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)).bundle;
+          const revoke = bundle?.revoke;
+          const restore = bundle?.restore;
+          const validSignature = (action) => {
+            const { signature, ...payload } = action ?? {};
+            return signature?.algorithm === "ed25519" && signature.keyId === process.env.SIGNING_KEY_ID
+              && signature.signedPayloadSha256 === createHash("sha256").update(canonicalJson(payload)).digest("hex");
+          };
+          const validAttestation = (action) => action?.githubAttestation?.repository === process.env.GITHUB_REPOSITORY
+            && action.githubAttestation.environment === "production"
+            && action.githubAttestation.jobWorkflowRef === `${process.env.GITHUB_REPOSITORY}/.github/workflows/gate6-postproof-principal-signer.yml@${process.env.TRUSTED_WORKFLOW_SHA}`
+            && action.githubAttestation.jobWorkflowSha === process.env.TRUSTED_WORKFLOW_SHA
+            && action.githubAttestation.issuer === "https://token.actions.githubusercontent.com"
+            && action.githubAttestation.audience === process.env.OIDC_AUDIENCE;
+          const paired = revoke?.scope === "db-principal-revoke-legacy" && revoke.kind === "forward"
+            && revoke.pairedActionId === null && restore?.scope === "db-principal-restore-legacy"
+            && restore.kind === "compensation" && restore.pairedActionId === revoke.actionId;
+          if (bundle?.schemaVersion !== 1 || !paired || revoke.actionId === restore.actionId
+            || revoke.candidateSha !== process.env.CANDIDATE_SHA || restore.candidateSha !== process.env.CANDIDATE_SHA
+            || revoke.gate6Id !== restore.gate6Id || revoke.gate6Nonce !== restore.gate6Nonce
+            || revoke.envelopeCoreSha256 !== restore.envelopeCoreSha256
+            || revoke.priorGrantsSha256 !== restore.priorGrantsSha256
+            || revoke.acceptedCheckerSha256 !== restore.acceptedCheckerSha256
+            || !validSignature(revoke) || !validSignature(restore)
+            || !validAttestation(revoke) || !validAttestation(restore)) {
+            throw new Error("post-proof paired response binding is invalid");
+          }
+          await mkdir("signer-output/actions-postproof", { recursive: true, mode: 0o700 });
+          await writeFile("signer-output/actions-postproof/db-principal-revoke-legacy.json", canonicalJson(revoke), { flag: "wx", mode: 0o444 });
+          await writeFile("signer-output/actions-postproof/db-principal-restore-legacy.json", canonicalJson(restore), { flag: "wx", mode: 0o444 });
+          await writeFile("signer-output/postproof-actions.json", canonicalJson(bundle), { flag: "wx", mode: 0o444 });
+          NODE
+          rm -rf signer-work
+
+      - name: Attest the inseparable post-proof pair
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: signer-output/**/*
+
+      - name: Upload the inseparable post-proof pair
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gate6-postproof-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: signer-output/
+          if-no-files-found: error
+          retention-days: 1

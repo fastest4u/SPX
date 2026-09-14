@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { MetricsSnapshot } from "./metrics.js";
 import { createInternalSignature } from "./internal-auth.js";
 
@@ -37,6 +38,7 @@ export async function publishRuntimeMetricsSnapshot(
 ): Promise<PublishRuntimeMetricsSnapshotResult> {
   const body = JSON.stringify(input.snapshot);
   const timestamp = new Date().toISOString();
+  const requestId = randomUUID();
   const path = new URL(input.url).pathname;
   const signature = createInternalSignature({
     body,
@@ -44,6 +46,7 @@ export async function publishRuntimeMetricsSnapshot(
     nodeId: input.nodeId,
     path,
     secret: input.sharedSecret,
+    requestId,
   });
   const fetchImpl = input.fetchImpl ?? fetch;
 
@@ -54,6 +57,7 @@ export async function publishRuntimeMetricsSnapshot(
       headers: {
         "content-type": "application/json",
         "x-spx-node-id": input.nodeId,
+        "x-spx-request-id": requestId,
         "x-spx-timestamp": timestamp,
         "x-spx-signature": signature,
       },

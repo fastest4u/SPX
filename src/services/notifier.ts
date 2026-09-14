@@ -1,6 +1,6 @@
 import { env, type RequestSelectionStrategy } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { metrics } from "./metrics.js";
+import { metrics, type MetricsCollector } from "./metrics.js";
 import { matchRules, getActiveAutoAcceptRules, matchAutoAcceptRuleTripsWithRules, applyAutoAcceptProgress, type NotifyRule, type RuleTripMatch, type TripLike } from "./notify-rules.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import {
@@ -310,6 +310,9 @@ const failureAlertLastSentByBooking = new Map<string, number>();
 const FAILURE_ALERT_THROTTLE_MS = 60_000;
 
 interface AutoAcceptOptions {
+  metricsCollector?: MetricsCollector;
+  firstMatchedAtMs?: number;
+  onAcceptDispatch?: () => void;
   teamId?: number;
   notificationContext?: TeamNotificationContext;
   deferSideEffects?: boolean;
@@ -886,7 +889,7 @@ interface AutoAcceptBookingEntry {
   ruleName: string;
 }
 
-type RecoveryOptions = Pick<AutoAcceptOptions, "teamId" | "notificationContext" | "needBudget" | "canVerify" | "onVerifiedTrips" | "onRetryableBooking">;
+type RecoveryOptions = Pick<AutoAcceptOptions, "teamId" | "notificationContext" | "needBudget" | "canVerify" | "onVerifiedTrips" | "onRetryableBooking" | "metricsCollector">;
 const verificationRunners = new Set<AutoAcceptVerificationRunner>();
 const verificationRunnersByClient = new WeakMap<ApiClient, Map<number, AutoAcceptVerificationRunner>>();
 const failedPreparationsByClient = new WeakMap<ApiClient, Map<string, {
@@ -962,8 +965,8 @@ export function getAutoAcceptVerificationRunner(apiClient: ApiClient, options: R
         options.onRetryableBooking?.(record.job.ruleId, record.job.bookingId);
       }
       for (const id of acceptedIds) rememberAcceptedRequest(record.job.ruleId, id);
-      for (const _id of acceptedIds) metrics.recordAutoAccept(true);
-      for (const _id of failedIds) metrics.recordAutoAccept(false);
+      for (const _id of acceptedIds) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(true);
+      for (const _id of failedIds) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(false);
       if (acceptedIds.length > 0) {
         await notifyAutoAcceptProgressCommitted(teamId);
       }
@@ -974,7 +977,7 @@ export function getAutoAcceptVerificationRunner(apiClient: ApiClient, options: R
       if (ids.size > 0) await options.onVerifiedTrips?.(outcome.job.trips.filter(trip => ids.has(Number(trip.request_id))));
       return publishDurableVerificationOutcome(outcome, options.notificationContext);
     },
-  });
+  }, { metricsCollector: options.metricsCollector ?? apiClient.metricsCollector });
   runners.set(teamId, runner);
   verificationRunners.add(runner);
   return runner;
@@ -1024,7 +1027,7 @@ async function publishDurableVerificationOutcome(outcome: AutoAcceptVerification
 }
 
 export async function submitDurableAutoAccept(
-  apiClient: ApiClient, job: AutoAcceptVerificationJob, options: RecoveryOptions,
+  apiClient: ApiClient, job: AutoAcceptVerificationJob, options: RecoveryOptions & Pick<AutoAcceptOptions, "firstMatchedAtMs" | "onAcceptDispatch">,
 ): Promise<Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>> {
   const runner = getAutoAcceptVerificationRunner(apiClient, options);
   const reservationCount = job.reservationCount ?? Math.max(job.requestIds.length, 1);
@@ -1047,6 +1050,10 @@ export async function submitDurableAutoAccept(
     throw error;
   }
   if (!created) return { ok: false, httpStatus: 0, response: null, error: "Verification already pending" };
+  const dispatchedAt = Date.now();
+  if (options.firstMatchedAtMs !== undefined) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics)
+    .recordInterval("firstMatchToAcceptStart", options.firstMatchedAtMs, dispatchedAt);
+  options.onAcceptDispatch?.();
   let result: Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>;
   try {
     result = job.acceptAll ? await apiClient.acceptAllBookingRequests(job.bookingId)
@@ -1238,6 +1245,7 @@ async function acceptAutoAcceptMatch(
   apiClient: ApiClient,
   options: AutoAcceptOptions
 ): Promise<AutoAcceptRuleRunResult> {
+  const firstMatchedAtMs = options.firstMatchedAtMs ?? Date.now();
   const strategy = options.selectionStrategy ?? env.REQUEST_SELECTION_STRATEGY;
   logger.info("auto-accept-rule-matched", {
     ruleId: match.ruleId,
@@ -1293,8 +1301,12 @@ async function acceptAutoAcceptMatch(
       listAgeMs: firstTripListAgeMs(entry.trips),
       ...(match.acceptAll ? { discovery: { bookingName: "", expectedAcceptedCount: requestIds.length } } : {}),
     };
+    if (options.verificationMode !== "detached") {
+      (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordInterval("firstMatchToAcceptStart", firstMatchedAtMs);
+      options.onAcceptDispatch?.();
+    }
     const result = options.verificationMode === "detached"
-      ? await submitDurableAutoAccept(apiClient, intent, options)
+      ? await submitDurableAutoAccept(apiClient, intent, { ...options, firstMatchedAtMs })
       : match.acceptAll ? await apiClient.acceptAllBookingRequests(bookingId)
         : await apiClient.acceptBookingRequests(bookingId, requestIds);
     const acceptFinishedAt = Date.now();
@@ -1711,8 +1723,8 @@ export async function acceptAndNotifyMatchedRules(
   const historyWrites = ruleResults.flatMap((result) => result.historyWrites);
 
   // Record auto-accept metrics
-  for (let i = 0; i < accepted.length; i++) metrics.recordAutoAccept(true);
-  for (let i = 0; i < failed.length; i++) metrics.recordAutoAccept(false);
+  for (let i = 0; i < accepted.length; i++) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(true);
+  for (let i = 0; i < failed.length; i++) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(false);
 
   // Settle each rule's claims the moment ITS decrement commits — a later
   // rule's UPDATE (or the broadcast) throwing must not strand the claims of

@@ -1,0 +1,65 @@
+name: Produce protected production backup restore evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable release artifact ID
+        required: true
+        type: string
+      release_run_id:
+        description: Immutable release workflow run ID
+        required: true
+        type: string
+      production_target_artifact_id:
+        description: Attested production target descriptor artifact ID
+        required: true
+        type: string
+      production_target_run_id:
+        description: Production target descriptor workflow run ID
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable release artifact ID
+        required: true
+        type: string
+      release_run_id:
+        description: Immutable release workflow run ID
+        required: true
+        type: string
+      production_target_artifact_id:
+        description: Attested production target descriptor artifact ID
+        required: true
+        type: string
+      production_target_run_id:
+        description: Production target descriptor workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  produce-backup-evidence:
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
+    uses: fastest4u/SPX/.github/workflows/trusted-production-backup-restore.yml@0000000000000000000000000000000000000000
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      release_artifact_id: ${{ inputs.release_artifact_id }}
+      release_run_id: ${{ inputs.release_run_id }}
+      production_target_artifact_id: ${{ inputs.production_target_artifact_id }}
+      production_target_run_id: ${{ inputs.production_target_run_id }}

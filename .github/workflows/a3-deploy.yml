@@ -1,0 +1,45 @@
+name: A3 Deploy (protected candidate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected deployment target (staging or production)
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable release artifact ID
+        required: true
+        type: string
+      target_descriptor_artifact_id:
+        description: Protected signed target-descriptor artifact ID
+        required: true
+        type: string
+      backup_evidence_artifact_id:
+        description: Production backup evidence artifact ID (production only)
+        required: false
+        default: ""
+        type: string
+      backup_evidence_run_id:
+        description: Production backup evidence workflow run ID (production only)
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  deploy:
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
+    uses: fastest4u/SPX/.github/workflows/trusted-deploy.yml@0000000000000000000000000000000000000000
+    with:
+      target: ${{ inputs.target }}
+      release_artifact_id: ${{ inputs.release_artifact_id }}
+      target_descriptor_artifact_id: ${{ inputs.target_descriptor_artifact_id }}
+      backup_evidence_artifact_id: ${{ inputs.backup_evidence_artifact_id }}
+      backup_evidence_run_id: ${{ inputs.backup_evidence_run_id }}

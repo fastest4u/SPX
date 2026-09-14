@@ -95,6 +95,10 @@ function toDateValue(value: Date | string | null | undefined): Date | null | und
   return value instanceof Date ? value : new Date(value);
 }
 
+export function autoAcceptHistoryInsertValues(teamId: number, record: AutoAcceptRecord): typeof autoAcceptHistory.$inferInsert {
+  return toInsertValues(teamId, record);
+}
+
 function toInsertValues(teamId: number, record: AutoAcceptRecord): typeof autoAcceptHistory.$inferInsert {
   return {
     teamId,

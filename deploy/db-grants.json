@@ -1,0 +1,1240 @@
+{
+  "accountHostInput": {
+    "cliOption": "--expected-account-host",
+    "fileEnvironment": "DB_EXPECTED_ACCOUNT_HOST_FILE"
+  },
+  "accountResourceLimits": {
+    "gate6-monitor": {
+      "maxUserConnections": 1
+    }
+  },
+  "roles": {
+    "auto-accept-ifn-phase3": {
+      "columns": {
+        "auto_accept_jobs": {
+          "UPDATE": [
+            "attempt_count",
+            "claim_expires_at",
+            "claim_owner",
+            "claim_token",
+            "claimed_at",
+            "completed_at",
+            "history_written_at",
+            "last_error",
+            "last_heartbeat_at",
+            "last_reason_code",
+            "next_run_at",
+            "notification_enqueued_at",
+            "progress_settled_at",
+            "result_reason_code",
+            "result_status",
+            "status",
+            "updated_at",
+            "verify_count",
+            "winning_attempt_trace_id"
+          ]
+        },
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_AUTO_ACCEPT_IFN_PHASE3",
+      "composeService": "auto-accept-ifn-phase3",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_attempts": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "SELECT",
+          "INSERT"
+        ],
+        "auto_accept_publication_active_epochs": [
+          "SELECT"
+        ],
+        "auto_accept_publication_controls": [
+          "SELECT"
+        ],
+        "auto_accept_results": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "auto-accept-ptwl-phase3": {
+      "columns": {
+        "auto_accept_jobs": {
+          "UPDATE": [
+            "attempt_count",
+            "claim_expires_at",
+            "claim_owner",
+            "claim_token",
+            "claimed_at",
+            "completed_at",
+            "history_written_at",
+            "last_error",
+            "last_heartbeat_at",
+            "last_reason_code",
+            "next_run_at",
+            "notification_enqueued_at",
+            "progress_settled_at",
+            "result_reason_code",
+            "result_status",
+            "status",
+            "updated_at",
+            "verify_count",
+            "winning_attempt_trace_id"
+          ]
+        },
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_AUTO_ACCEPT_PTWL_PHASE3",
+      "composeService": "auto-accept-ptwl-phase3",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_attempts": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "SELECT",
+          "INSERT"
+        ],
+        "auto_accept_publication_active_epochs": [
+          "SELECT"
+        ],
+        "auto_accept_publication_controls": [
+          "SELECT"
+        ],
+        "auto_accept_results": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "gate6-control": {
+      "columns": {},
+      "composePrincipalEnv": "SPX_DB_USERNAME_GATE6_CONTROL",
+      "composeService": "gate6-control",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "gate6_actions": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "gate6_environment_slots": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "gate6_fault_permits": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "gate6_runs": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ]
+      }
+    },
+    "gate6-monitor": {
+      "columns": {},
+      "composePrincipalEnv": "SPX_DB_USERNAME_GATE6_MONITOR",
+      "composeService": "gate6-monitor-probe",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "auto_accept_jobs": [
+          "SELECT"
+        ],
+        "notification_outbox": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT"
+        ]
+      }
+    },
+    "line-service": {
+      "columns": {
+        "spx_n_minus_one_probe_fixtures": {
+          "UPDATE": [
+            "probe_value"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_LINE_SERVICE",
+      "composeService": "line-service",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "internal_request_replays": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "line_bot_sessions": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "line_image_extractions": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notification_deliveries": [
+          "INSERT"
+        ],
+        "notification_outbox": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_n_minus_one_probe_fixtures": [
+          "SELECT"
+        ]
+      }
+    },
+    "migrator": {
+      "columns": {},
+      "composePrincipalEnv": "SPX_DB_USERNAME_MIGRATOR",
+      "composeService": "migrator",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "CREATE",
+        "ALTER",
+        "INDEX",
+        "DROP"
+      ],
+      "tables": {}
+    },
+    "notification-service": {
+      "columns": {
+        "spx_n_minus_one_probe_fixtures": {
+          "UPDATE": [
+            "probe_value"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_NOTIFICATION_SERVICE",
+      "composeService": "notification-service",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "internal_request_replays": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "notification_deliveries": [
+          "INSERT"
+        ],
+        "notification_events": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notification_outbox": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_n_minus_one_probe_fixtures": [
+          "SELECT"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "observer": {
+      "columns": {},
+      "composePrincipalEnv": "SPX_DB_USERNAME_GATE6_OBSERVER",
+      "composeService": null,
+      "principalType": "observer",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "operational_gate6_terminal_evidence": [
+          "SELECT"
+        ]
+      }
+    },
+    "phase3-control": {
+      "columns": {
+        "auto_accept_attempts": {
+          "SELECT": [
+            "accept_finished_at",
+            "ambiguous_accept",
+            "id",
+            "team_id",
+            "trace_id"
+          ]
+        },
+        "auto_accept_job_settlements": {
+          "SELECT": [
+            "completed_at",
+            "job_id",
+            "settlement_step",
+            "team_id"
+          ]
+        },
+        "auto_accept_jobs": {
+          "SELECT": [
+            "claim_expires_at",
+            "claim_owner",
+            "completed_at",
+            "created_at",
+            "cutover_epoch",
+            "history_written_at",
+            "id",
+            "last_heartbeat_at",
+            "notification_enqueued_at",
+            "progress_settled_at",
+            "publication_generation",
+            "result_status",
+            "status",
+            "team_id",
+            "updated_at",
+            "winning_attempt_trace_id"
+          ],
+          "UPDATE": [
+            "claim_expires_at",
+            "claim_owner",
+            "claim_token",
+            "claimed_at",
+            "completed_at",
+            "last_heartbeat_at",
+            "last_reason_code",
+            "status",
+            "updated_at"
+          ]
+        },
+        "auto_accept_publication_active_epochs": {
+          "UPDATE": [
+            "active_epoch",
+            "active_generation",
+            "updated_at"
+          ]
+        },
+        "auto_accept_publication_controls": {
+          "UPDATE": [
+            "ack_job_id",
+            "ack_node_id",
+            "acknowledged_at",
+            "fence_job_id",
+            "fence_requested_at",
+            "state",
+            "updated_at"
+          ]
+        },
+        "auto_accept_results": {
+          "SELECT": [
+            "id",
+            "resolved_at",
+            "status",
+            "team_id",
+            "winning_attempt_trace_id"
+          ]
+        },
+        "team_runtime_leases": {
+          "SELECT": [
+            "heartbeat_at",
+            "lease_expires_at",
+            "owner_node_id",
+            "owner_role",
+            "status",
+            "team_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_PHASE3_CONTROL",
+      "composeService": null,
+      "principalType": "controller",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "auto_accept_publication_active_epochs": [
+          "SELECT",
+          "INSERT"
+        ],
+        "auto_accept_publication_controls": [
+          "SELECT",
+          "INSERT"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ]
+      }
+    },
+    "phase3-observer": {
+      "columns": {
+        "auto_accept_attempts": {
+          "SELECT": [
+            "accept_finished_at",
+            "ambiguous_accept",
+            "created_at",
+            "id",
+            "team_id",
+            "trace_id",
+            "worker_node_id"
+          ]
+        },
+        "auto_accept_history": {
+          "SELECT": [
+            "booking_id",
+            "rule_id",
+            "team_id",
+            "trace_id"
+          ]
+        },
+        "auto_accept_job_settlements": {
+          "SELECT": [
+            "completed_at",
+            "job_id",
+            "settlement_step",
+            "team_id"
+          ]
+        },
+        "auto_accept_jobs": {
+          "SELECT": [
+            "booking_id",
+            "claim_expires_at",
+            "completed_at",
+            "created_at",
+            "cutover_epoch",
+            "id",
+            "publication_generation",
+            "request_id",
+            "result_status",
+            "rule_id",
+            "status",
+            "team_id",
+            "winning_attempt_trace_id"
+          ]
+        },
+        "auto_accept_results": {
+          "SELECT": [
+            "booking_id",
+            "request_id",
+            "team_id"
+          ]
+        },
+        "notification_events": {
+          "SELECT": [
+            "event_type",
+            "team_id",
+            "trace_id"
+          ]
+        },
+        "spx_booking_history": {
+          "SELECT": [
+            "request_id",
+            "team_id"
+          ]
+        },
+        "team_runtime_leases": {
+          "SELECT": [
+            "lease_expires_at",
+            "owner_node_id",
+            "status",
+            "team_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_PHASE3_OBSERVER",
+      "composeService": null,
+      "principalType": "observer",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "operational_phase3_control_evidence": [
+          "SELECT"
+        ],
+        "operational_phase3_evidence": [
+          "SELECT"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ]
+      }
+    },
+    "poller-ifn-phase3": {
+      "columns": {
+        "auto_accept_jobs": {
+          "SELECT": [
+            "cutover_epoch",
+            "id",
+            "publication_generation",
+            "team_id"
+          ]
+        },
+        "auto_accept_publication_controls": {
+          "UPDATE": [
+            "ack_job_id",
+            "ack_node_id",
+            "acknowledged_at",
+            "fence_job_id",
+            "fence_requested_at",
+            "state",
+            "updated_at"
+          ]
+        },
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_POLLER_IFN_PHASE3",
+      "composeService": "poller-ifn-phase3",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "INSERT"
+        ],
+        "auto_accept_publication_active_epochs": [
+          "SELECT"
+        ],
+        "auto_accept_publication_controls": [
+          "SELECT"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "poller-ptwl-phase3": {
+      "columns": {
+        "auto_accept_jobs": {
+          "SELECT": [
+            "cutover_epoch",
+            "id",
+            "publication_generation",
+            "team_id"
+          ]
+        },
+        "auto_accept_publication_controls": {
+          "UPDATE": [
+            "ack_job_id",
+            "ack_node_id",
+            "acknowledged_at",
+            "fence_job_id",
+            "fence_requested_at",
+            "state",
+            "updated_at"
+          ]
+        },
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_POLLER_PTWL_PHASE3",
+      "composeService": "poller-ptwl-phase3",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "INSERT"
+        ],
+        "auto_accept_publication_active_epochs": [
+          "SELECT"
+        ],
+        "auto_accept_publication_controls": [
+          "SELECT"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "realtime-service": {
+      "columns": {},
+      "composePrincipalEnv": "SPX_DB_USERNAME_REALTIME_SERVICE",
+      "composeService": "realtime-service",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT"
+        ],
+        "auto_accept_jobs": [
+          "SELECT"
+        ],
+        "internal_request_replays": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "line_image_extractions": [
+          "SELECT"
+        ],
+        "metrics_snapshots": [
+          "SELECT"
+        ],
+        "notification_deliveries": [
+          "SELECT"
+        ],
+        "notification_outbox": [
+          "SELECT"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "SELECT"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "team_runtime_leases": [
+          "SELECT"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "web-api": {
+      "columns": {
+        "spx_n_minus_one_probe_fixtures": {
+          "UPDATE": [
+            "probe_value"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_WEB_API",
+      "composeService": "web-api",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "audit_logs": [
+          "SELECT",
+          "INSERT"
+        ],
+        "auto_accept_attempts": [
+          "SELECT"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT"
+        ],
+        "auto_accept_jobs": [
+          "SELECT"
+        ],
+        "auto_accept_results": [
+          "SELECT"
+        ],
+        "internal_request_replays": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "jwt_blacklist": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "line_image_extractions": [
+          "SELECT"
+        ],
+        "metrics_snapshots": [
+          "SELECT"
+        ],
+        "notification_deliveries": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notification_events": [
+          "SELECT"
+        ],
+        "notification_outbox": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "notification_provider_reconciliations": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "SELECT"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT"
+        ],
+        "spx_n_minus_one_probe_fixtures": [
+          "SELECT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "team_runtime_leases": [
+          "SELECT"
+        ],
+        "teams": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "users": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ]
+      }
+    },
+    "worker-ifn-split": {
+      "columns": {
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        },
+        "spx_n_minus_one_probe_fixtures": {
+          "UPDATE": [
+            "probe_value"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_WORKER_IFN_SPLIT",
+      "composeService": "worker-ifn-split",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_attempts": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_results": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_verification_jobs": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "spx_n_minus_one_probe_fixtures": [
+          "SELECT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    },
+    "worker-ptwl-split": {
+      "columns": {
+        "runtime_nodes": {
+          "SELECT": [
+            "metadata_json",
+            "node_id"
+          ]
+        },
+        "spx_n_minus_one_probe_fixtures": {
+          "UPDATE": [
+            "probe_value"
+          ]
+        }
+      },
+      "composePrincipalEnv": "SPX_DB_USERNAME_WORKER_PTWL_SPLIT",
+      "composeService": "worker-ptwl-split",
+      "principalType": "compose",
+      "runtimeDdlFree": true,
+      "schemaPrivileges": [],
+      "tables": {
+        "app_settings": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_attempts": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_history": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "auto_accept_job_settlements": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_jobs": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_results": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "auto_accept_verification_jobs": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "metrics_snapshots": [
+          "SELECT",
+          "INSERT"
+        ],
+        "notify_rules": [
+          "SELECT",
+          "UPDATE"
+        ],
+        "realtime_events": [
+          "SELECT",
+          "INSERT",
+          "DELETE"
+        ],
+        "realtime_execution_metrics": [
+          "SELECT"
+        ],
+        "realtime_metrics_read_models": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "runtime_nodes": [
+          "INSERT",
+          "UPDATE"
+        ],
+        "schema_migrations": [
+          "SELECT"
+        ],
+        "spx_booking_history": [
+          "SELECT",
+          "INSERT"
+        ],
+        "spx_n_minus_one_probe_fixtures": [
+          "SELECT"
+        ],
+        "team_runtime_desired_state": [
+          "SELECT",
+          "INSERT",
+          "UPDATE"
+        ],
+        "team_runtime_leases": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
+        "teams": [
+          "SELECT"
+        ]
+      }
+    }
+  },
+  "schemaVersion": 1
+}

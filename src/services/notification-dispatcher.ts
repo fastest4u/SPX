@@ -1,10 +1,9 @@
 import { logger } from "../utils/logger.js";
+import { randomUUID } from "node:crypto";
 import {
+  beginNotificationProviderSend,
+  completeNotificationProviderSend,
   claimNotificationOutboxBatch,
-  getNotificationOutboxDeliveryState,
-  markNotificationDelivered,
-  markNotificationFailed,
-  markNotificationFailedPermanently,
   type NotificationOutboxRow,
 } from "../repositories/notification-repository.js";
 
@@ -13,6 +12,14 @@ export interface SendLineMessageResult {
   providerMessageId?: string;
   error?: string;
   retryable?: boolean;
+  deliveryCertainty?: "not_sent" | "ambiguous";
+}
+
+export interface NotificationSendContext {
+  outboxId: number;
+  eventKey: string;
+  providerRequestId?: string;
+  providerStartedAt?: string;
 }
 
 export interface NotificationDispatcherOptions {
@@ -22,7 +29,7 @@ export interface NotificationDispatcherOptions {
   sendLineMessage: (
     targetId: string,
     text: string,
-    context?: { outboxId: number; eventKey: string },
+    context?: NotificationSendContext,
   ) => Promise<SendLineMessageResult>;
 }
 
@@ -66,24 +73,6 @@ function logStaleLock(row: NotificationOutboxRow, nodeId: string, outcome: "deli
   });
 }
 
-async function markDeliveredOrAlreadySent(
-  row: NotificationOutboxRow,
-  nodeId: string,
-  providerMessageId?: string,
-): Promise<boolean> {
-  const marked = await markNotificationDelivered(row.id, nodeId, "linejs", providerMessageId);
-  if (marked) return true;
-  const state = await getNotificationOutboxDeliveryState(row.id);
-  return state === "sent";
-}
-
-async function markFailed(row: NotificationOutboxRow, nodeId: string, message: string, retryable: boolean): Promise<boolean> {
-  if (!retryable) {
-    return await markNotificationFailedPermanently(row.id, nodeId, message);
-  }
-  return await markNotificationFailed(row.id, nodeId, message, nextRetryDelayMs(row));
-}
-
 export async function runNotificationDispatchOnce(options: NotificationDispatcherOptions): Promise<{ claimed: number; sent: number; failed: number }> {
   const nodeId = validateOptions(options);
   if (options.batchSize <= 0) return EMPTY_DISPATCH_RESULT;
@@ -93,21 +82,35 @@ export async function runNotificationDispatchOnce(options: NotificationDispatche
   let failed = 0;
 
   for (const row of rows) {
+    const providerRequestId = randomUUID();
+    const startedAt = new Date();
+    if (!await beginNotificationProviderSend(row.id, nodeId, providerRequestId, startedAt)) continue;
+    const fence = {
+      outboxId: row.id, nodeId, providerRequestId,
+      providerStartedAt: startedAt.toISOString().slice(0, 19).replace("T", " "),
+    };
     const text = `${row.title}\n${row.message}`;
     try {
       const result = await options.sendLineMessage(row.targetId, text, {
         outboxId: row.id,
         eventKey: row.eventKey,
+        providerRequestId,
+        providerStartedAt: fence.providerStartedAt,
       });
       if (result.ok) {
-        const marked = await markDeliveredOrAlreadySent(row, nodeId, result.providerMessageId);
+        const marked = await completeNotificationProviderSend({ ...fence, outcome: "sent", providerMessageId: result.providerMessageId });
         if (marked) {
           sent += 1;
         } else {
           logStaleLock(row, nodeId, "delivered");
         }
       } else {
-        const marked = await markFailed(row, nodeId, result.error || "LINE send failed", result.retryable !== false);
+        const marked = await completeNotificationProviderSend({
+          ...fence,
+          outcome: result.deliveryCertainty === "not_sent" ? "not_sent" : "ambiguous",
+          error: result.error || "LINE send failed", retryable: result.retryable,
+          retryDelayMs: nextRetryDelayMs(row),
+        });
         if (marked) {
           failed += 1;
         } else {
@@ -116,7 +119,7 @@ export async function runNotificationDispatchOnce(options: NotificationDispatche
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const marked = await markNotificationFailed(row.id, nodeId, message, nextRetryDelayMs(row));
+      const marked = await completeNotificationProviderSend({ ...fence, outcome: "ambiguous", error: message });
       if (marked) {
         failed += 1;
       } else {

@@ -5,7 +5,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb, ensureDashboardTables } from "../db/client.js";
 import { notifyRules as notifyRulesTable, teams as teamsTable } from "../db/schema.js";
 import { env } from "../config/env.js";
-import { sseBroadcaster } from "./sse.js";
+import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
+import { createInProcessRealtimePublisher, type LegacyRealtimeEvent } from "./realtime-publisher.js";
 import { logger } from "../utils/logger.js";
 import { ruleReviewChanged, ruleReviewSnapshot } from "./rule-activation-review.js";
 
@@ -371,7 +372,11 @@ function writeRulesFile(rules: NotifyRule[]): void {
     }
   }
   setRulesCache(1, normalized, false);
-  sseBroadcaster.broadcast({ event: "rules", data: normalized });
+  try {
+    activeRulesRealtime().publisher.publishLegacy?.({ event: "rules", data: normalized });
+  } catch {
+    // Legacy fan-out is best-effort in dev JSON mode.
+  }
 }
 
 // ── DB-based operations (PROD mode) ──────────────────────────────────────
@@ -429,6 +434,40 @@ async function readRulesDbForCacheFill(teamId: number): Promise<NotifyRule[]> {
   return rules;
 }
 
+interface NotifyRulesRealtimeConfig {
+  publisher: RealtimePublisher & {
+    publishLegacy?: (event: LegacyRealtimeEvent) => void;
+  };
+  source: RealtimeSource;
+}
+
+let notifyRulesRealtime: NotifyRulesRealtimeConfig | null = null;
+let defaultNotifyRulesRealtime: NotifyRulesRealtimeConfig | null = null;
+
+function activeRulesRealtime(): NotifyRulesRealtimeConfig {
+  if (notifyRulesRealtime) return notifyRulesRealtime;
+  defaultNotifyRulesRealtime ??= {
+    publisher: createInProcessRealtimePublisher() as NotifyRulesRealtimeConfig["publisher"],
+    source: { service: "web-api", nodeId: "web-api", role: "web-api" },
+  };
+  return defaultNotifyRulesRealtime;
+}
+
+/**
+ * Injects the canonical realtime publisher for rules change fan-out. Rule
+ * mutations then publish a non-replayable team-scoped `rules.changed`
+ * envelope before the legacy `rules` SSE event; publisher failures are
+ * logged without error details and suppress the legacy event.
+ */
+export function configureNotifyRulesRealtime(config: NotifyRulesRealtimeConfig): void {
+  notifyRulesRealtime = config;
+}
+
+/** Test seam: clears the injected realtime publisher configuration. */
+export function resetNotifyRulesRealtime(): void {
+  notifyRulesRealtime = null;
+}
+
 async function broadcastAllRules(teamId: number): Promise<void> {
   // Called right after a writer commit. Invalidate first so no reader serves
   // pre-commit data, then refresh — but install the SELECT result only if no
@@ -441,7 +480,22 @@ async function broadcastAllRules(teamId: number): Promise<void> {
   if (rulesCacheGeneration === generationAtRefreshStart) {
     setRulesCache(teamId, rules, true);
   }
-  sseBroadcaster.broadcast({ event: "rules", teamId, data: rules });
+  const rulesRealtime = activeRulesRealtime();
+  const legacyEvent: LegacyRealtimeEvent = { event: "rules", teamId, data: rules };
+  try {
+    await rulesRealtime.publisher.publish({
+      type: "rules.changed",
+      payloadVersion: 1,
+      payload: rules,
+      source: rulesRealtime.source,
+      scope: { kind: "team", teamId },
+      subject: { type: "rules", id: String(teamId), teamId },
+      replayable: false,
+    });
+    rulesRealtime.publisher.publishLegacy?.(legacyEvent);
+  } catch {
+    logger.warn("notify-rules-realtime-publish-failed", { teamId });
+  }
 }
 
 /** Refresh after verification commits rule progress inside its DB transaction. */
@@ -973,5 +1027,18 @@ export async function migrateJsonToDb(): Promise<void> {
     logger.info("notify-rules-migrated", { count: rules.length, source: "notify-rules.json" });
   } catch (err) {
     logger.warn("notify-rules-migration-failed", { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/**
+ * Refreshes the cached rules view after a durable auto-accept settlement
+ * changed a rule's remaining need. Best-effort: settlement has already been
+ * committed durably when this runs.
+ */
+export async function refreshRulesAfterAutoAcceptSettlement(teamId: number): Promise<void> {
+  try {
+    await broadcastAllRules(teamId);
+  } catch {
+    logger.warn("notify-rules-settlement-refresh-failed", { teamId });
   }
 }

@@ -1,0 +1,84 @@
+name: Gate 6 production approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      release_artifact_id:
+        description: Trusted release artifact ID
+        required: true
+        type: string
+      release_run_id:
+        description: Trusted release workflow run ID
+        required: true
+        type: string
+      production_target_artifact_id:
+        description: Production target descriptor artifact ID
+        required: true
+        type: string
+      production_target_run_id:
+        description: Production target descriptor run ID
+        required: true
+        type: string
+      staging_target_artifact_id:
+        description: Staging target descriptor artifact ID
+        required: true
+        type: string
+      staging_target_run_id:
+        description: Staging target descriptor run ID
+        required: true
+        type: string
+      staging_evidence_artifact_id:
+        description: Completed staging gates artifact ID
+        required: true
+        type: string
+      staging_evidence_run_id:
+        description: Completed staging gates run ID
+        required: true
+        type: string
+      protected_install_artifact_id:
+        description: Protected install evidence artifact ID
+        required: true
+        type: string
+      protected_install_run_id:
+        description: Protected install evidence run ID
+        required: true
+        type: string
+      backup_evidence_artifact_id:
+        description: Backup and restore evidence artifact ID
+        required: true
+        type: string
+      backup_evidence_run_id:
+        description: Backup and restore evidence run ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    # BOOTSTRAP-DENY: Stage 2 replaces this coordinated zero SHA only after Stage 1 exists.
+    uses: fastest4u/SPX/.github/workflows/gate6-envelope-signer.yml@0000000000000000000000000000000000000000
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      release_artifact_id: ${{ inputs.release_artifact_id }}
+      release_run_id: ${{ inputs.release_run_id }}
+      production_target_artifact_id: ${{ inputs.production_target_artifact_id }}
+      production_target_run_id: ${{ inputs.production_target_run_id }}
+      staging_target_artifact_id: ${{ inputs.staging_target_artifact_id }}
+      staging_target_run_id: ${{ inputs.staging_target_run_id }}
+      staging_evidence_artifact_id: ${{ inputs.staging_evidence_artifact_id }}
+      staging_evidence_run_id: ${{ inputs.staging_evidence_run_id }}
+      protected_install_artifact_id: ${{ inputs.protected_install_artifact_id }}
+      protected_install_run_id: ${{ inputs.protected_install_run_id }}
+      backup_evidence_artifact_id: ${{ inputs.backup_evidence_artifact_id }}
+      backup_evidence_run_id: ${{ inputs.backup_evidence_run_id }}

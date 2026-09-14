@@ -129,6 +129,19 @@ export async function upsertRuntimeNode(input: UpsertRuntimeNodeInput): Promise<
   await ensureDashboardTables();
   const db = await getDb();
   const now = new Date();
+  // Metadata is durable node identity (release registration, assigned teams);
+  // a call that omits it must not erase what an earlier registration wrote.
+  let metadataJson: string | null = input.metadata === undefined
+    ? null
+    : JSON.stringify(input.metadata);
+  if (input.metadata === undefined) {
+    const [existing] = await db
+      .select({ metadataJson: runtimeNodes.metadataJson })
+      .from(runtimeNodes)
+      .where(eq(runtimeNodes.nodeId, input.nodeId))
+      .limit(1);
+    metadataJson = existing?.metadataJson ?? null;
+  }
   const values = {
     nodeId: input.nodeId,
     role: input.role,
@@ -136,7 +149,7 @@ export async function upsertRuntimeNode(input: UpsertRuntimeNodeInput): Promise<
     pid: input.pid ?? null,
     version: input.version ?? null,
     lastHeartbeatAt: dbTimestamp(now),
-    metadataJson: input.metadata === undefined ? null : JSON.stringify(input.metadata),
+    metadataJson,
     updatedAt: dbTimestamp(now),
   };
 
@@ -290,4 +303,29 @@ export async function listTeamRuntimeDesiredStates(): Promise<TeamRuntimeDesired
     }
     return { ...row, desiredState: row.desiredState };
   });
+}
+
+export interface RuntimeNodeHeartbeatInput {
+  nodeId: string;
+  now?: Date;
+}
+
+/**
+ * Touches a registered node's heartbeat. Returns false when the node row is
+ * gone so the caller can re-register instead of heartbeating a ghost node.
+ */
+export async function heartbeatRuntimeNode(input: RuntimeNodeHeartbeatInput): Promise<boolean> {
+  requireNonEmpty("nodeId", input.nodeId);
+  await ensureDashboardTables();
+  const db = await getDb();
+  const now = input.now ?? new Date();
+  const updateResult = await db
+    .update(runtimeNodes)
+    .set({
+      lastHeartbeatAt: dbTimestamp(now),
+      updatedAt: dbTimestamp(now),
+    })
+    .where(eq(runtimeNodes.nodeId, input.nodeId));
+  const rows = affectedRows(updateResult);
+  return rows !== null && rows > 0;
 }

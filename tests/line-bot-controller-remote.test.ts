@@ -60,10 +60,13 @@ async function testDefaultRemoteSendUsesLineServiceSendSecret(): Promise<void> {
 
     assert.equal(response.statusCode, 200);
     const timestamp = capturedHeaders?.get("x-spx-timestamp") ?? "";
+    const requestId = capturedHeaders?.get("x-spx-request-id") ?? "";
+    assert.match(requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     assert.deepEqual(
       verifyInternalSignature({
         body: capturedBody,
         timestamp,
+        requestId,
         nodeId: "web-api-test-node",
         path: LINE_INTERNAL_SEND_PATH,
         secret: sendSecret,

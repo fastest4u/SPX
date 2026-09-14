@@ -3,6 +3,9 @@ import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState, type SetTeamR
 import { logger } from "../utils/logger.js";
 import { pauseTeam as pausePollerTeam, resumeTeam as resumePollerTeam } from "./poller-control.js";
 import { acquireTeamLease, releaseTeamLease, renewTeamLease, type AcquireTeamLeaseInput, type ReleaseTeamLeaseInput, type RenewTeamLeaseInput } from "./runtime-lease.js";
+import type { RuntimeReleaseIdentity } from "./runtime-release-identity.js";
+import { createRuntimeRealtimePublisher, type RuntimeRealtimePublisherOptions } from "./realtime-publisher.js";
+import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
 import { TeamRuntime, type TeamRuntimeHandle, type TeamRuntimeStatus } from "./team-runtime.js";
 
 export interface TeamRuntimeLeaseOptions {
@@ -10,6 +13,8 @@ export interface TeamRuntimeLeaseOptions {
   role: string;
   ttlMs: number;
   renewIntervalMs?: number;
+  releaseIdentity?: RuntimeReleaseIdentity;
+  startedAt?: string;
   acquire?: (input: AcquireTeamLeaseInput) => Promise<{ acquired: boolean; leaseToken?: string }>;
   renew?: (input: RenewTeamLeaseInput) => Promise<boolean>;
   release?: (input: ReleaseTeamLeaseInput) => Promise<boolean>;
@@ -23,6 +28,10 @@ export interface TeamRuntimeManagerOptions {
   assignedTeamIds?: number[];
   lease?: TeamRuntimeLeaseOptions;
   desiredState?: TeamRuntimeDesiredStateOptions;
+  realtimePublisher?: RealtimePublisher;
+  realtimePublisherOptions?: RuntimeRealtimePublisherOptions;
+  realtimeSource?: RealtimeSource;
+  publishTeamRuntimeMetrics?: boolean;
 }
 
 interface RuntimeLeaseState {
@@ -57,16 +66,29 @@ export class TeamRuntimeManager {
   private readonly assignedTeamIds: Set<number> | null;
   private readonly lease: NormalizedTeamRuntimeLeaseOptions | null;
   private readonly desiredState: NormalizedTeamRuntimeDesiredStateOptions | null;
+  private readonly realtimePublisher: RealtimePublisher;
+  private readonly realtimeSource: RealtimeSource | undefined;
+  private readonly publishTeamRuntimeMetrics: boolean;
   private readonly runtimes = new Map<number, TeamRuntimeHandle>();
   private readonly lastStatuses = new Map<number, TeamRuntimeStatus>();
   private readonly teamConfigs = new Map<number, TeamRuntimeConfig>();
   private readonly leases = new Map<number, RuntimeLeaseState>();
+  private readonly teamOperations = new Map<number, Promise<void>>();
   private desiredStateLoop: TeamRuntimeDesiredStateLoop | null = null;
+  private desiredStateReconcile: Promise<void> | null = null;
 
   constructor(options: TeamRuntimeManagerOptions = {}) {
     this.loadEnabledTeams = options.loadEnabledTeams ?? listEnabledTeamRuntimeConfigs;
     this.loadTeam = options.loadTeam ?? getTeamRuntimeConfig;
-    this.createRuntime = options.createRuntime ?? ((team) => new TeamRuntime(team, { intervalSec: options.intervalSec }));
+    this.realtimePublisher = options.realtimePublisher
+      ?? createRuntimeRealtimePublisher(options.realtimePublisherOptions);
+    this.realtimeSource = options.realtimeSource;
+    this.publishTeamRuntimeMetrics = options.publishTeamRuntimeMetrics ?? false;
+    this.createRuntime = options.createRuntime ?? ((team) => new TeamRuntime(team, {
+      intervalSec: options.intervalSec,
+      realtimePublisher: this.realtimePublisher,
+      realtimeSource: this.realtimeSource,
+    }));
     this.assignedTeamIds = options.assignedTeamIds && options.assignedTeamIds.length > 0
       ? new Set(options.assignedTeamIds)
       : null;
@@ -94,29 +116,31 @@ export class TeamRuntimeManager {
     for (const team of teams) {
       if (!this.isAssigned(team.id)) continue;
 
-      this.teamConfigs.set(team.id, team);
-      const existing = this.runtimes.get(team.id);
-      if (existing) {
-        this.lastStatuses.set(team.id, existing.status());
-        continue;
-      }
-
       const desiredState = desiredStates.get(team.id);
-      if (desiredState === "stopped") {
-        resumePollerTeam(team.id);
-        this.lastStatuses.set(team.id, {
-          teamId: team.id,
-          teamName: team.name,
-          status: "stopped",
-          lastPollAt: null,
-          lastError: "Team is stopped by desired runtime state",
-        });
-        continue;
-      }
+      await this.runTeamOperation(team.id, async () => {
+        this.teamConfigs.set(team.id, team);
+        const existing = this.runtimes.get(team.id);
+        if (existing) {
+          this.lastStatuses.set(team.id, existing.status());
+          return;
+        }
 
-      await this.startTeamRuntime(team, {
-        startupState: desiredState === "paused" ? "paused" : "running",
-        throwOnStartError: false,
+        if (desiredState === "stopped") {
+          resumePollerTeam(team.id);
+          this.lastStatuses.set(team.id, {
+            teamId: team.id,
+            teamName: team.name,
+            status: "stopped",
+            lastPollAt: null,
+            lastError: "Team is stopped by desired runtime state",
+          });
+          return;
+        }
+
+        await this.startTeamRuntime(team, {
+          startupState: desiredState === "paused" ? "paused" : "running",
+          throwOnStartError: false,
+        });
       });
       if (desiredState === "restart") {
         await this.markDesiredStateApplied(team.id, "running", "restart satisfied by worker startup");
@@ -136,25 +160,37 @@ export class TeamRuntimeManager {
   }
 
   async pauseTeam(teamId: number): Promise<void> {
+    await this.runTeamOperation(teamId, () => this.pauseTeamNow(teamId));
+  }
+
+  private async pauseTeamNow(teamId: number): Promise<void> {
     const runtime = this.requireRuntime(teamId);
     await runtime.pause();
     this.lastStatuses.set(teamId, runtime.status());
   }
 
   async resumeTeam(teamId: number): Promise<void> {
+    await this.runTeamOperation(teamId, () => this.resumeTeamNow(teamId));
+  }
+
+  private async resumeTeamNow(teamId: number): Promise<void> {
     const runtime = this.requireRuntime(teamId);
     await runtime.resume();
     this.lastStatuses.set(teamId, runtime.status());
   }
 
   async restartTeam(teamId: number): Promise<void> {
+    await this.runTeamOperation(teamId, () => this.restartTeamNow(teamId));
+  }
+
+  private async restartTeamNow(teamId: number): Promise<void> {
     if (!this.isAssigned(teamId)) {
       throw new Error(`Team ${teamId} is not assigned to this runtime node`);
     }
 
     const existing = this.runtimes.get(teamId);
     if (existing) {
-      await this.stopTeam(teamId);
+      await this.stopTeamNow(teamId);
     }
 
     const team = await this.loadTeam(teamId);
@@ -181,12 +217,18 @@ export class TeamRuntimeManager {
   }
 
   async stopTeam(teamId: number): Promise<void> {
+    await this.runTeamOperation(teamId, () => this.stopTeamNow(teamId));
+  }
+
+  private async stopTeamNow(teamId: number): Promise<void> {
     const runtime = this.runtimes.get(teamId);
     if (runtime) {
       await runtime.stop();
-      this.runtimes.delete(teamId);
-      this.lastStatuses.set(teamId, runtime.status());
-      await this.releaseRuntimeLease(teamId);
+      if (this.runtimes.get(teamId) === runtime) {
+        this.runtimes.delete(teamId);
+        this.lastStatuses.set(teamId, runtime.status());
+        await this.releaseRuntimeLease(teamId);
+      }
       return;
     }
 
@@ -194,6 +236,19 @@ export class TeamRuntimeManager {
     const known = this.lastStatuses.get(teamId);
     if (known) {
       this.lastStatuses.set(teamId, { ...known, status: "stopped", lastError: null });
+    }
+  }
+
+  private async runTeamOperation(teamId: number, operation: () => Promise<void>): Promise<void> {
+    const previous = this.teamOperations.get(teamId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.teamOperations.set(teamId, current);
+    try {
+      await current;
+    } finally {
+      if (this.teamOperations.get(teamId) === current) {
+        this.teamOperations.delete(teamId);
+      }
     }
   }
 
@@ -208,8 +263,26 @@ export class TeamRuntimeManager {
   }
 
   async reconcileDesiredStates(): Promise<void> {
-    if (!this.desiredState) return;
-    const states = await this.desiredState.list();
+    const desiredState = this.desiredState;
+    if (!desiredState) return;
+    if (this.desiredStateReconcile) {
+      await this.desiredStateReconcile;
+      return;
+    }
+
+    const reconcile = this.reconcileDesiredStatesNow(desiredState);
+    this.desiredStateReconcile = reconcile;
+    try {
+      await reconcile;
+    } finally {
+      if (this.desiredStateReconcile === reconcile) {
+        this.desiredStateReconcile = null;
+      }
+    }
+  }
+
+  private async reconcileDesiredStatesNow(desiredState: NormalizedTeamRuntimeDesiredStateOptions): Promise<void> {
+    const states = await desiredState.list();
     for (const state of states.sort((a, b) => a.teamId - b.teamId)) {
       if (!this.isAssigned(state.teamId)) continue;
       await this.applyDesiredState(state.teamId, state.desiredState);
@@ -351,14 +424,18 @@ export class TeamRuntimeManager {
   }
 
   private async applyDesiredState(teamId: number, desiredState: TeamRuntimeDesiredStateValue): Promise<void> {
+    await this.runTeamOperation(teamId, () => this.applyDesiredStateNow(teamId, desiredState));
+  }
+
+  private async applyDesiredStateNow(teamId: number, desiredState: TeamRuntimeDesiredStateValue): Promise<void> {
     const status = this.getStatus(teamId)?.status;
     if (desiredState === "restart") {
-      await this.restartTeam(teamId);
+      await this.restartTeamNow(teamId);
       await this.markDesiredStateApplied(teamId, "running", "restart applied by worker");
       return;
     }
     if (desiredState === "stopped") {
-      if (status !== "stopped") await this.stopTeam(teamId);
+      if (status !== "stopped") await this.stopTeamNow(teamId);
       return;
     }
     if (desiredState === "paused") {
@@ -370,16 +447,16 @@ export class TeamRuntimeManager {
         await this.startTeamRuntime(team, { startupState: "paused", throwOnStartError: true });
         return;
       }
-      if (this.getStatus(teamId)?.status === "running") await this.pauseTeam(teamId);
+      if (this.getStatus(teamId)?.status === "running") await this.pauseTeamNow(teamId);
       return;
     }
     if (desiredState === "running") {
       if (status === "running") return;
       if (status === "paused") {
-        await this.resumeTeam(teamId);
+        await this.resumeTeamNow(teamId);
         return;
       }
-      await this.restartTeam(teamId);
+      await this.restartTeamNow(teamId);
     }
   }
 
@@ -393,12 +470,9 @@ export class TeamRuntimeManager {
   }
 
   private async stopAllRuntimes(): Promise<void> {
-    for (const [teamId, runtime] of [...this.runtimes]) {
-      await runtime.stop();
-      this.lastStatuses.set(teamId, runtime.status());
-      await this.releaseRuntimeLease(teamId);
+    for (const teamId of [...this.runtimes.keys()]) {
+      await this.stopTeam(teamId);
     }
-    this.runtimes.clear();
   }
 
   private async loadDesiredStateMap(): Promise<Map<number, TeamRuntimeDesiredStateValue>> {

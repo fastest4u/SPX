@@ -6,6 +6,7 @@ import {
   clearRuntimeMetricsSnapshots,
   recordRuntimeMetricsSnapshot,
   runtimeMetricsSnapshotFor,
+  runtimeMetricsSummaryReadModelFromRecords,
 } from "../src/services/runtime-metrics.js";
 
 function workerSnapshot(teamId: number, teamName: string, latencyMs: number, acceptRttMs: number): MetricsSnapshot {
@@ -28,6 +29,14 @@ async function main(): Promise<void> {
   const fallback = new MetricsCollector().snapshot();
   const ptwl = workerSnapshot(1, "PTWL", 80, 120);
   const ifn = workerSnapshot(2, "IFN", 100, 180);
+  const now = Date.now();
+  const records = [ptwl, ifn].map((snapshot) => ({
+    teamId: snapshot.teamId!, nodeId: `worker-${snapshot.teamId}`, snapshot,
+    emittedAt: now, receivedAt: now, updatedAt: now,
+  }));
+  const scoped = runtimeMetricsSummaryReadModelFromRecords(fallback, records, 1, { expectedTeamIds: [1, 2, 3], now });
+  assert.deepEqual(scoped.teams.map((team) => team.teamId), [1]);
+  assert.deepEqual(scoped.missingTeamIds, []);
 
   recordRuntimeMetricsSnapshot({ nodeId: "prod-worker-ptwl-1", snapshot: ptwl });
   recordRuntimeMetricsSnapshot({ nodeId: "prod-worker-ifn-1", snapshot: ifn });

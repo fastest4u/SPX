@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spx.internal/schemas/deployment-target-descriptor.schema.json",
+  "title": "Signed SPX deployment target descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "descriptor", "descriptorSha256", "signature"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "descriptor": { "$ref": "#/$defs/descriptor" },
+    "descriptorSha256": { "$ref": "#/$defs/sha256" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "$ref": "#/$defs/safeId" },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "minLength": 80,
+          "maxLength": 100
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha40": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "imageId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "imageTag": { "type": "string", "pattern": "^spx-app:[0-9a-f]{40}$" },
+    "safeId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+    "fingerprints": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sha256" }
+    },
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "descriptorId",
+        "releaseEnvironment",
+        "runtimeEnvironment",
+        "composeProject",
+        "topology",
+        "releaseManifestSha256",
+        "operatorBundleSha256",
+        "releaseSourceSha",
+        "imageId",
+        "imageTag",
+        "targetFactsSha256",
+        "target",
+        "database",
+        "providerTargetFingerprints",
+        "publishedPorts",
+        "volumeFingerprints",
+        "nodeIds",
+        "productionDenyTargetSha256",
+        "issuedAt",
+        "expiresAt",
+        "signingWorkflowSourceSha",
+        "signingWorkflowFileSha256",
+        "signing"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "descriptorId": { "$ref": "#/$defs/safeId" },
+        "releaseEnvironment": { "enum": ["staging", "production"] },
+        "runtimeEnvironment": { "enum": ["staging", "production"] },
+        "composeProject": { "enum": ["spx-staging", "spx-production"] },
+        "topology": { "enum": ["legacy", "split"] },
+        "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+        "operatorBundleSha256": { "$ref": "#/$defs/sha256" },
+        "releaseSourceSha": { "$ref": "#/$defs/sha40" },
+        "imageId": { "$ref": "#/$defs/imageId" },
+        "imageTag": { "$ref": "#/$defs/imageTag" },
+        "targetFactsSha256": { "$ref": "#/$defs/sha256" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hostIdentitySha256",
+            "networkIdentitySha256",
+            "approvedSourceCidrsSha256",
+            "dockerContext",
+            "productionObserverPolicySha256",
+            "canonicalPaths"
+          ],
+          "properties": {
+            "hostIdentitySha256": { "$ref": "#/$defs/sha256" },
+            "networkIdentitySha256": { "$ref": "#/$defs/sha256" },
+            "approvedSourceCidrsSha256": { "$ref": "#/$defs/sha256" },
+            "dockerContext": { "const": "unix:///var/run/docker.sock" },
+            "productionObserverPolicySha256": {
+              "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+            },
+            "canonicalPaths": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["releaseRoot", "environmentFile", "stateRoot"],
+              "properties": {
+                "releaseRoot": {
+                  "enum": ["/opt/spx-staging/release", "/opt/spx-production/release"]
+                },
+                "environmentFile": {
+                  "enum": ["/etc/spx-staging/runtime.env", "/etc/spx-production/runtime.env"]
+                },
+                "stateRoot": {
+                  "enum": ["/var/lib/spx-staging-rollout", "/var/lib/spx-production-rollout"]
+                }
+              }
+            }
+          }
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "tlsFingerprintSha256", "accountHosts"],
+          "properties": {
+            "name": { "enum": ["spx_staging", "spx"] },
+            "tlsFingerprintSha256": { "$ref": "#/$defs/sha256" },
+            "accountHosts": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 64,
+              "propertyNames": { "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "pattern": "^(?!.*[%_])[0-9A-Za-z.:-]+(?:/[0-9A-Za-z.:-]+)?$"
+              }
+            }
+          }
+        },
+        "providerTargetFingerprints": { "$ref": "#/$defs/fingerprints" },
+        "publishedPorts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "volumeFingerprints": { "$ref": "#/$defs/fingerprints" },
+        "nodeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,127}$" }
+        },
+        "productionDenyTargetSha256": { "$ref": "#/$defs/sha256" },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "signingWorkflowSourceSha": { "$ref": "#/$defs/sha40" },
+        "signingWorkflowFileSha256": { "$ref": "#/$defs/sha256" },
+        "signing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "workflowRef",
+            "environment",
+            "subject",
+            "audience",
+            "issuer",
+            "jobWorkflowRef",
+            "jobWorkflowSha"
+          ],
+          "properties": {
+            "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+            "workflowRef": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/.github/workflows/deployment-target-descriptor-signer\\.yml@[0-9a-f]{40}$"
+            },
+            "environment": { "enum": ["staging", "production"] },
+            "subject": {
+              "type": "string",
+              "pattern": "^repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:environment:(staging|production)$"
+            },
+            "audience": { "type": "string", "pattern": "^https://" },
+            "issuer": { "const": "https://token.actions.githubusercontent.com" },
+            "jobWorkflowRef": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/.github/workflows/deployment-target-descriptor-signer\\.yml@[0-9a-f]{40}$"
+            },
+            "jobWorkflowSha": { "$ref": "#/$defs/sha40" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "releaseEnvironment": { "const": "staging" } },
+            "required": ["releaseEnvironment"]
+          },
+          "then": {
+            "properties": {
+              "runtimeEnvironment": { "const": "staging" },
+              "composeProject": { "const": "spx-staging" },
+              "database": {
+                "properties": {
+                  "name": { "const": "spx_staging" },
+                  "accountHosts": {
+                    "required": [
+                      "auto-accept-ifn-phase3",
+                      "auto-accept-ptwl-phase3",
+                      "gate6-monitor",
+                      "line-service",
+                      "migrator",
+                      "notification-service",
+                      "phase3-control",
+                      "phase3-observer",
+                      "poller-ifn-phase3",
+                      "poller-ptwl-phase3",
+                      "realtime-service",
+                      "web-api",
+                      "worker-ifn",
+                      "worker-ifn-split",
+                      "worker-ptwl",
+                      "worker-ptwl-split"
+                    ],
+                    "propertyNames": {
+                      "enum": [
+                        "auto-accept-ifn-phase3",
+                        "auto-accept-ptwl-phase3",
+                        "gate6-monitor",
+                        "line-service",
+                        "migrator",
+                        "notification-service",
+                        "phase3-control",
+                        "phase3-observer",
+                        "poller-ifn-phase3",
+                        "poller-ptwl-phase3",
+                        "realtime-service",
+                        "web-api",
+                        "worker-ifn",
+                        "worker-ifn-split",
+                        "worker-ptwl",
+                        "worker-ptwl-split"
+                      ]
+                    }
+                  }
+                }
+              },
+              "target": {
+                "properties": {
+                  "productionObserverPolicySha256": { "$ref": "#/$defs/sha256" },
+                  "canonicalPaths": {
+                    "properties": {
+                      "releaseRoot": { "const": "/opt/spx-staging/release" },
+                      "environmentFile": { "const": "/etc/spx-staging/runtime.env" },
+                      "stateRoot": { "const": "/var/lib/spx-staging-rollout" }
+                    }
+                  }
+                }
+              },
+              "signing": { "properties": { "environment": { "const": "staging" } } }
+            }
+          },
+          "else": {
+            "properties": {
+              "runtimeEnvironment": { "const": "production" },
+              "composeProject": { "const": "spx-production" },
+              "database": { "properties": { "name": { "const": "spx" } } },
+              "target": {
+                "properties": {
+                  "productionObserverPolicySha256": { "type": "null" },
+                  "canonicalPaths": {
+                    "properties": {
+                      "releaseRoot": { "const": "/opt/spx-production/release" },
+                      "environmentFile": { "const": "/etc/spx-production/runtime.env" },
+                      "stateRoot": { "const": "/var/lib/spx-production-rollout" }
+                    }
+                  }
+                }
+              },
+              "signing": { "properties": { "environment": { "const": "production" } } }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

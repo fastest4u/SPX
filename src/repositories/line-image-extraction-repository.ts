@@ -1,7 +1,7 @@
 import { ensureDashboardTables, getDb } from "../db/client.js";
 import { lineImageExtractions } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
-import { and, asc, count, desc, eq, gte, like, lt, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, like, lt, lte, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 export interface LineImageExtractionRecord {
@@ -172,3 +172,21 @@ export async function getLineImageExtractionByTripNumber(tripNumber: string): Pr
   return rows[0] ?? null;
 }
 
+
+export interface LineImageExtractionSummary {
+  completedExtractions: number;
+  lastCompletedAt: string | null;
+}
+
+export async function getLineImageExtractionSummary(): Promise<LineImageExtractionSummary> {
+  await ensureDashboardTables();
+  const db = await getDb();
+  const [row] = await db.select({
+    completedExtractions: sql<number>`count(*)`,
+    lastCompletedAt: sql<string | null>`max(${lineImageExtractions.createdAt})`,
+  }).from(lineImageExtractions);
+  return {
+    completedExtractions: Number(row?.completedExtractions ?? 0),
+    lastCompletedAt: row?.lastCompletedAt ?? null,
+  };
+}

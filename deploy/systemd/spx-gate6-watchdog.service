@@ -1,0 +1,21 @@
+[Unit]
+Description=SPX Gate 6 host rollback watchdog
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/node /root/SPX/scripts/gate6-host-watchdog.mjs
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/run/spx /var/lib/spx-gate6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

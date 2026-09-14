@@ -1,0 +1,33 @@
+name: Export sealed Gate 6 final verifier
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      approval_artifact_id:
+        description: Signed Gate 6 approval artifact ID
+        required: true
+        type: string
+      approval_run_id:
+        description: Signed Gate 6 approval workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  export-final-verifier:
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
+    uses: fastest4u/SPX/.github/workflows/gate6-final-verifier-exporter.yml@0000000000000000000000000000000000000000
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      approval_artifact_id: ${{ inputs.approval_artifact_id }}
+      approval_run_id: ${{ inputs.approval_run_id }}

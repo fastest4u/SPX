@@ -4,8 +4,8 @@ import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
 import { saveBookingRequests } from "../services/db-service.js";
-import { acceptAndNotifyMatchedRules, getAutoAcceptVerificationRunner, stopAutoAcceptVerificationRecovery, recoverAutoAcceptPreparations, submitDurableAutoAccept, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, sendRateLimitNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
-import { metrics } from "../services/metrics.js";
+import { acceptAndNotifyMatchedRules, applyRequestSelectionStrategy, getAutoAcceptVerificationRunner, stopAutoAcceptVerificationRecovery, recoverAutoAcceptPreparations, submitDurableAutoAccept, routeAutoAcceptSuccessNotification, sendSessionExpiryNotification, sendRateLimitNotification, NeedBudget, OWN_ACCEPTED_STATUSES, type TeamNotificationContext } from "../services/notifier.js";
+import { metrics, type MetricsCollector } from "../services/metrics.js";
 import { startHttpServer, stopHttpServer } from "../services/http-server.js";
 import {
   applyAutoAcceptProgress,
@@ -35,8 +35,14 @@ import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import { extractAllRequestListTrips, filterTripsByBiddingVehicleType, formatTripInfo, isAdhocBookingName } from "../utils/booking-extractor.js";
 import type { ExtractedTripInfo } from "../utils/booking-extractor.js";
 import { classifyPollingError, formatClassifiedError } from "../utils/error-classifier.js";
-import { sseBroadcaster } from "../services/sse.js";
 import { buildAutoAcceptTraceId } from "../services/auto-accept-diagnostics.js";
+import { resolveOutboundNodeSecret } from "../services/notification-publisher.js";
+import {
+  closeInProcessRealtimeClients,
+  createInProcessRealtimePublisher,
+  type LegacyRealtimeEvent,
+} from "../services/realtime-publisher.js";
+import type { RealtimePublisher, RealtimeSource } from "../services/realtime-contract.js";
 import {
   publishRuntimeMetricsSnapshot,
   runtimeMetricsUrlFromNotificationUrl,
@@ -44,6 +50,13 @@ import {
 import type { MetricsSnapshot } from "../services/metrics.js";
 import type { Booking, PollingStats } from "../models/types.js";
 import { isTeamPaused } from "../services/poller-control.js";
+import { publishAutoAcceptJob, type PublishAutoAcceptJobInput } from "../services/auto-accept-job-publisher.js";
+import {
+  acknowledgePublicationFence,
+  getActivePublicationEpoch,
+  getPublicationControlHistory,
+  getPublicationJobWatermark,
+} from "../repositories/auto-accept-publication-control-repository.js";
 
 /**
  * Non-pending-tab statuses eligible for the one-shot accept attempt: 4 = taken
@@ -77,6 +90,7 @@ function isVerifiedFastAcceptAllTrip(trip: ExtractedTripInfo): boolean {
 }
 
 export interface TeamPollerContext {
+  metricsCollector?: MetricsCollector;
   teamId: number;
   teamName: string;
   apiClient: ApiClient;
@@ -86,8 +100,12 @@ export interface TeamPollerContext {
   manageProcessSignals?: boolean;
   closeSharedResourcesOnStop?: boolean;
   exitOnStop?: boolean;
-  realtimePublisher?: unknown;
-  realtimeSource?: unknown;
+  realtimePublisher?: RealtimePublisher;
+  realtimeSource?: RealtimeSource;
+  sessionExpiryNotifier?: (
+    message: string,
+    context: TeamNotificationContext,
+  ) => Promise<{ sent: boolean; skipped?: boolean; results: unknown[] }>;
   /** Per-team vehicle type filter. null = no filter (poll all types). */
   biddingVehicleType?: number | null;
   /** Returns false when a provider session cannot safely be used for this list poll. */
@@ -115,6 +133,7 @@ function collectAutoAcceptMatchedTrips(
 }
 
 export class Poller {
+  private readonly metrics: MetricsCollector;
   private apiClient: ApiClient;
   private dataProcessor: DataProcessor;
   private stats: PollingStats;
@@ -194,6 +213,7 @@ export class Poller {
   private static readonly RATE_LIMIT_BACKOFF_MS = 2_000;
 
   constructor(intervalSec?: number, context?: TeamPollerContext) {
+    this.metrics = context?.metricsCollector ?? context?.apiClient?.metricsCollector ?? metrics;
     this.cliIntervalMs = intervalSec !== undefined ? intervalSec * 1000 : null;
     this.teamId = context?.teamId ?? 1;
     this.teamName = context?.teamName ?? "Default Team";
@@ -214,13 +234,13 @@ export class Poller {
     };
     // Lazy provider: getIntervalMs() prefers the CLI override set below, so
     // the adaptive list-poll math always targets the poller's real cadence.
-    this.apiClient = context?.apiClient ?? new ApiClient({ pollIntervalMsProvider: () => this.getIntervalMs() });
+    this.apiClient = context?.apiClient ?? new ApiClient({ metricsCollector: this.metrics, pollIntervalMsProvider: () => this.getIntervalMs() });
     this.dataProcessor = new DataProcessor();
     this.historySaveQueue = new BookingHistorySaveQueue({
       teamId: this.teamId,
       onResult: (dbResult) => {
-        for (let i = 0; i < dbResult.inserted; i++) metrics.recordTrip("inserted");
-        for (let i = 0; i < dbResult.skipped; i++) metrics.recordTrip("skipped");
+        for (let i = 0; i < dbResult.inserted; i++) this.metrics.recordTrip("inserted");
+        for (let i = 0; i < dbResult.skipped; i++) this.metrics.recordTrip("skipped");
         if (dbResult.errors > 0) {
           logger.warn("booking-history-batch-save-failed", { errors: dbResult.errors, message: dbResult.message });
         }
@@ -232,7 +252,7 @@ export class Poller {
         });
       },
       onLatency: (latencyMs) => {
-        metrics.recordOperation("dbSave", latencyMs);
+        this.metrics.recordOperation("dbSave", latencyMs);
       },
       onDrop: (trips, reason) => {
         logger.warn("booking-history-queue-drop", { trips: trips.length, reason });
@@ -243,6 +263,82 @@ export class Poller {
       errorCount: 0,
       startTime: new Date(),
     };
+    this.realtimePublisher = context?.realtimePublisher ?? createInProcessRealtimePublisher();
+    this.realtimeSource = context?.realtimeSource ?? this.defaultRealtimeSource();
+    this.sessionExpiryNotifier = context?.sessionExpiryNotifier
+      ?? ((message, notificationContext) => sendSessionExpiryNotification(message, notificationContext));
+  }
+
+  private readonly realtimePublisher: RealtimePublisher;
+  private readonly realtimeSource: RealtimeSource;
+  private readonly sessionExpiryNotifier: (
+    message: string,
+    context: TeamNotificationContext,
+  ) => Promise<{ sent: boolean; skipped?: boolean; results: unknown[] }>;
+
+  /**
+   * Canonical realtime identity for this poller. Poller-capable roles report
+   * themselves as workers; anything else falls back to the web-api identity
+   * with the node name or a team-unique fallback so every emitted envelope
+   * still carries a stable, attributable source.
+   */
+  private defaultRealtimeSource(): RealtimeSource {
+    const role = env.SPX_ROLE || "web-api";
+    const service = role === "worker" || role === "poller-service" || role === "combined"
+      ? (role === "combined" ? "worker" : role)
+      : "web-api";
+    const nodeId = env.SPX_NODE_ID || env.SPX_NODE_NAME || `poller-team-${this.teamId}`;
+    return { service, nodeId, role } as RealtimeSource;
+  }
+
+  /**
+   * Publishes a canonical non-replayable team envelope first, then the legacy
+   * SSE event. A canonical publisher failure is logged without details and
+   * suppresses the legacy event so consumers never see a partial dual
+   * emission; the business path itself always continues.
+   */
+  private async publishCanonicalWithLegacy(
+    type: "metrics.snapshot" | "session.expired",
+    payload: unknown,
+    legacyEvent: LegacyRealtimeEvent,
+  ): Promise<void> {
+    try {
+      await this.realtimePublisher.publish({
+        type,
+        payloadVersion: 1,
+        payload,
+        source: this.realtimeSource,
+        scope: { kind: "team", teamId: this.teamId },
+        subject: { type: "team", id: String(this.teamId), teamId: this.teamId },
+        replayable: false,
+      });
+      const legacyPublisher = this.realtimePublisher as RealtimePublisher & {
+        publishLegacy?: (event: LegacyRealtimeEvent) => Promise<void> | void;
+      };
+      await legacyPublisher.publishLegacy?.(legacyEvent);
+    } catch (error) {
+      logger.warn("poller-realtime-publish-failed", {
+        teamId: this.teamId,
+        type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Legacy-only fan-out for events without a canonical envelope type yet.
+   * Routed through the realtime boundary so producers never touch the SSE
+   * transport directly; remote boundaries without legacy support drop it.
+   */
+  private publishLegacyOnly(legacyEvent: LegacyRealtimeEvent): void {
+    try {
+      const legacyPublisher = this.realtimePublisher as RealtimePublisher & {
+        publishLegacy?: (event: LegacyRealtimeEvent) => Promise<void> | void;
+      };
+      void legacyPublisher.publishLegacy?.(legacyEvent);
+    } catch {
+      // Legacy fan-out is best-effort; the canonical path carries the truth.
+    }
   }
 
   private getIntervalMs(): number {
@@ -259,7 +355,7 @@ export class Poller {
   }
 
   private recordDetailRuntime(): void {
-    metrics.recordRuntimeState({
+    this.metrics.recordRuntimeState({
       activeDetailJobs: this.detailInflight,
       activeDetailBookings: this.activeDetailBookingIds.size,
       detailConcurrency: env.BOOKING_DETAIL_CONCURRENCY,
@@ -304,7 +400,7 @@ export class Poller {
     // AUTO_ACCEPT_ENABLED alone: history rows are written whenever
     // auto-accept runs (no SAVE_TO_DB gate), AUTO_ACCEPT_ENABLED already
     // requires DB config, and the query degrades to [] on DB failure.
-    if (env.AUTO_ACCEPT_ENABLED) {
+    if (env.AUTO_ACCEPT_ENABLED && !this.isJobOnlyPoller()) {
       const seededKeys = await getRecentAutoAcceptRequestKeys(this.teamId);
       // Repository returns newest-first; insert oldest-first so the FIFO cap
       // evicts stale keys, never the freshest races.
@@ -318,7 +414,7 @@ export class Poller {
       logger.info("interactive-console-detected", { tty: true });
     }
 
-    if (env.AUTO_ACCEPT_ENABLED) {
+    if (env.AUTO_ACCEPT_ENABLED && !this.isJobOnlyPoller()) {
       // Restore durable holds before any fresh list can trigger another accept.
       await getAutoAcceptVerificationRunner(this.apiClient, this.verificationOptions()).start();
     }
@@ -340,12 +436,12 @@ export class Poller {
   }
 
   private metricsSnapshot() {
-    return metrics.snapshot({ teamId: this.teamId, teamName: this.teamName });
+    return this.metrics.snapshot({ teamId: this.teamId, teamName: this.teamName });
   }
 
   private publishRuntimeMetrics(snapshot: MetricsSnapshot): void {
-    if (env.SPX_ROLE !== "worker") return;
-    if (!env.NOTIFIER_API_URL || !env.NOTIFIER_SHARED_SECRET || !env.SPX_NODE_ID) return;
+    if (env.SPX_ROLE !== "worker" && env.SPX_ROLE !== "poller-service" && env.SPX_ROLE !== "combined") return;
+    if (!env.NOTIFIER_API_URL || !env.SPX_NODE_ID) return;
 
     const now = Date.now();
     if (this.runtimeMetricsPublishInFlight || now - this.lastRuntimeMetricsPublishAt < 1_000) return;
@@ -363,7 +459,11 @@ export class Poller {
 
     void publishRuntimeMetricsSnapshot({
       url,
-      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      sharedSecret: resolveOutboundNodeSecret({
+        nodeSecret: env.NOTIFICATION_NODE_SECRET,
+        legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+        nodeEnv: env.NODE_ENV,
+      }).secret,
       nodeId: env.SPX_NODE_ID,
       snapshot,
       requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
@@ -421,6 +521,8 @@ export class Poller {
   }
 
   private async tick(): Promise<void> {
+    // A rollback fence must be acknowledged even when no new bookings arrive.
+    if (this.isJobOnlyPoller() && !(await this.checkJobPublication())) return;
     if (this.beforePoll && !(await this.beforePoll())) return;
     // A paused/stopped intent may win while the provider-auth hook is awaiting
     // a lease or identity check. Do not start the list request after that race.
@@ -432,77 +534,109 @@ export class Poller {
 
     if (!env.HTTP_ENABLED) process.stdout.write(`${formatRequestLine(reqNum)}\n`);
 
-    const result = await this.apiClient.fetch(reqNum);
-
-    if (!result.success) {
-      this.stats.errorCount++;
-      const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
-      metrics.recordPoll(result.latencyMs, false, classified.category, null);
-      const snapshot = this.metricsSnapshot();
-      sseBroadcaster.broadcast({ event: "metrics", teamId: this.teamId, data: snapshot });
-      this.publishRuntimeMetrics(snapshot);
-      logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
-
-      // SPX rate-limit backoff: pause before the next tick so the
-      // upstream window resets (empirically measured at 1.8–2.0 s).
-      if (classified.category === "rate_limited") {
-        const backoffMs = classified.retryAfterMs ?? Poller.RATE_LIMIT_BACKOFF_MS;
-        this.rateLimitBackoffMs = backoffMs;
-        this.rateLimitPausedUntil = Date.now() + backoffMs + 500;
-        logger.warn("poll-rate-limited", {
-          teamId: this.teamId,
-          retcode: classified.retcode,
-          backoffMs: this.rateLimitBackoffMs,
-          pausedUntilMs: this.rateLimitPausedUntil,
-        });
-        await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs, "ดึงรายการงานหลัก (Bidding List)");
-      }
-
-      // Alert on session expiry — send notification once
-      if (classified.category === "session_expired") {
-        if (!this.stopped && !isTeamPaused(this.teamId)) {
-          try {
-            await this.onSessionRejected?.();
-          } catch (error) {
-            logger.warn("provider-session-recovery-failed", {
-              teamId: this.teamId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
+    let detailChain = Promise.resolve();
+    let prepared = false;
+    let schedulingFailed = false;
+    const admittedThisTick = new Set<number>();
+    const enqueueDetails = (bookings: Booking[], completeList: boolean, firstPageObservedAtMs?: number) => {
+      detailChain = detailChain.then(async () => {
+        if (schedulingFailed || this.stopped || isTeamPaused(this.teamId)) return;
+        if (!prepared) {
+          prepared = true;
+          await this.prepareBookingDetailTick();
         }
-        metrics.recordSessionWarning();
-        await this.sendSessionExpiryAlert(classified.message);
+        await this.schedulePreparedBookingDetails(bookings, {
+          completeList, firstPageObservedAtMs, admittedThisTick,
+        });
+      }).catch((error) => {
+        schedulingFailed = true;
+        logger.error("booking-detail-scheduling-failed", error instanceof Error ? error : new Error(String(error)));
+      });
+    };
+    const detailsEnabled = env.FETCH_DETAILS || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED;
+    try {
+      const result = await this.apiClient.fetch(reqNum, detailsEnabled ? {
+        onFirstPage: (page, observedAtMs) => enqueueDetails(page.data.list, false, observedAtMs),
+      } : {});
+
+      if (!result.success) {
+        this.stats.errorCount++;
+        const classified = classifyPollingError(result.httpStatus, result.error, result.retcode);
+        this.metrics.recordPoll(result.latencyMs, false, classified.category, null);
+        const snapshot = this.metricsSnapshot();
+        await this.publishCanonicalWithLegacy("metrics.snapshot", snapshot, {
+          event: "metrics",
+          teamId: this.teamId,
+          data: snapshot,
+        });
+        this.publishRuntimeMetrics(snapshot);
+        logger.error("poll-failed", { latencyMs: result.latencyMs, ...formatClassifiedError(classified) });
+
+        // SPX rate-limit backoff: pause before the next tick so the
+        // upstream window resets (empirically measured at 1.8–2.0 s).
+        if (classified.category === "rate_limited") {
+          const backoffMs = classified.retryAfterMs ?? Poller.RATE_LIMIT_BACKOFF_MS;
+          this.rateLimitBackoffMs = backoffMs;
+          this.rateLimitPausedUntil = Date.now() + backoffMs + 500;
+          logger.warn("poll-rate-limited", {
+            teamId: this.teamId,
+            retcode: classified.retcode,
+            backoffMs: this.rateLimitBackoffMs,
+            pausedUntilMs: this.rateLimitPausedUntil,
+          });
+          await this.sendRateLimitAlert("hit", classified.retcode, this.rateLimitBackoffMs, "ดึงรายการงานหลัก (Bidding List)");
+        }
+
+        // Alert on session expiry — send notification once
+        if (classified.category === "session_expired") {
+          if (!this.stopped && !isTeamPaused(this.teamId)) {
+            try {
+              await this.onSessionRejected?.();
+            } catch (error) {
+              logger.warn("provider-session-recovery-failed", {
+                teamId: this.teamId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+          this.metrics.recordSessionWarning();
+          await this.sendSessionExpiryAlert(classified.message);
+        }
+        return;
       }
-      return;
-    }
 
-    const change = this.dataProcessor.detectChange(result.data);
+      const change = this.dataProcessor.detectChange(result.data);
 
-    let status: "ok" | "changed" | "same" | "first" = "ok";
-    if (change.isFirst) status = "first";
-    else if (change.hasChanged) status = "changed";
-    else status = "same";
+      let status: "ok" | "changed" | "same" | "first" = "ok";
+      if (change.isFirst) status = "first";
+      else if (change.hasChanged) status = "changed";
+      else status = "same";
 
-    metrics.recordPoll(result.latencyMs, true, status, change.recordCount);
+      this.metrics.recordPoll(result.latencyMs, true, status, change.recordCount);
 
-    if (!env.HTTP_ENABLED) process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
+      if (!env.HTTP_ENABLED) process.stdout.write(`${formatStatus(result.latencyMs, status, change.recordCount)}\n`);
 
-    // Broadcast live metrics to SSE clients
-    const snapshot = this.metricsSnapshot();
-    sseBroadcaster.broadcast({
-      event: "metrics",
-      teamId: this.teamId,
-      data: snapshot,
-    });
-    this.publishRuntimeMetrics(snapshot);
+      // Broadcast live metrics to SSE clients
+      const snapshot = this.metricsSnapshot();
+      await this.publishCanonicalWithLegacy("metrics.snapshot", snapshot, {
+        event: "metrics",
+        teamId: this.teamId,
+        data: snapshot,
+      });
+      this.publishRuntimeMetrics(snapshot);
 
-    const summary = this.dataProcessor.extractSummary(result.data);
-    if (summary && !env.HTTP_ENABLED) {
-      logger.info("poll-summary", summary);
-    }
+      const summary = this.dataProcessor.extractSummary(result.data);
+      if (summary && !env.HTTP_ENABLED) {
+        logger.info("poll-summary", summary);
+      }
 
-    if ((env.FETCH_DETAILS || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED) && result.data.data?.list) {
-      void this.scheduleBookingDetails(result.data.data.list);
+      if (detailsEnabled && result.data.data?.list) {
+        enqueueDetails(result.data.data.list, true);
+      }
+    } finally {
+      // Preparation and launch pacing belong to this tick; independent booking
+      // jobs retain their existing drain. stop() already bounds activeTick waits.
+      await detailChain;
     }
   }
 
@@ -511,22 +645,12 @@ export class Poller {
    * priority is retained in a bounded ID set, without a work queue or Head-of-Line Blocking.
    */
   private async scheduleBookingDetails(bookings: Booking[]): Promise<void> {
-    if (this.stopped || bookings.length === 0) return;
+    if (this.stopped || isTeamPaused(this.teamId)) return;
+    await this.prepareBookingDetailTick();
+    await this.schedulePreparedBookingDetails(bookings);
+  }
 
-    // Filter to only bookings whose booking_name contains "ADHOC"
-    const adhocBookings = bookings.filter((b) => isAdhocBookingName(b.booking_name));
-    if (adhocBookings.length === 0) return;
-
-    // Pause detail scheduling if we are currently inside an active SPX rate-limit backoff window
-    const now = Date.now();
-    if (now < this.rateLimitPausedUntil) {
-      logger.info("booking-details-paused-for-rate-limit", {
-        teamId: this.teamId,
-        remainingMs: this.rateLimitPausedUntil - now,
-      });
-      return;
-    }
-
+  private async prepareBookingDetailTick(): Promise<void> {
     // New tick window for the long-lived budget: availability re-seeds from
     // this tick's rule snapshot minus claims still in flight from earlier
     // ticks (accept flows span ticks; without this each tick re-grants the
@@ -543,6 +667,28 @@ export class Poller {
         logger.error("auto-accept-rules-fetch-failed", err instanceof Error ? err : new Error(String(err)));
         this.tickAutoAcceptRules = [];
       }
+    }
+  }
+
+  private async detailLaunchDelay(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+
+  private async schedulePreparedBookingDetails(bookings: Booking[], options: {
+    completeList?: boolean;
+    firstPageObservedAtMs?: number;
+    admittedThisTick?: Set<number>;
+  } = {}): Promise<void> {
+    if (this.stopped || isTeamPaused(this.teamId)) return;
+
+    const adhocBookings = bookings.filter((b) => isAdhocBookingName(b.booking_name));
+    const now = Date.now();
+    if (now < this.rateLimitPausedUntil) {
+      logger.info("booking-details-paused-for-rate-limit", {
+        teamId: this.teamId,
+        remainingMs: this.rateLimitPausedUntil - now,
+      });
+      return;
     }
 
     // Priority sort: origin-matching bookings first
@@ -580,8 +726,10 @@ export class Poller {
       for (const booking of sortedBookings) {
         this.seenListBookingIds.add(booking.booking_id);
       }
-      this.listFreshnessPrimed = true;
-      logger.info("bidding-list-freshness-primed", { bookings: this.seenListBookingIds.size });
+      if (options.completeList !== false) {
+        this.listFreshnessPrimed = true;
+        logger.info("bidding-list-freshness-primed", { bookings: this.seenListBookingIds.size });
+      }
     } else {
       for (const booking of sortedBookings) {
         if (this.seenListBookingIds.has(booking.booking_id)) continue;
@@ -642,9 +790,10 @@ export class Poller {
     let backgroundBlocked = 0;
 
     for (const booking of orderedBookings) {
+      if (this.stopped || isTeamPaused(this.teamId)) break;
       const isFastLane = this.pendingFastLaneBookingIds.has(booking.booking_id);
       // Dedup: skip bookings already being processed
-      if (this.activeDetailBookingIds.has(booking.booking_id)) {
+      if (this.activeDetailBookingIds.has(booking.booking_id) || options.admittedThisTick?.has(booking.booking_id)) {
         skippedDuplicate++;
         continue;
       }
@@ -688,7 +837,15 @@ export class Poller {
         continue;
       }
 
+      // Keep background pacing, but let fresh arrivals dispatch immediately.
+      // Recheck stop/pause after yielding, before reserving any slot.
+      if (!isFastLane && (options.admittedThisTick?.size ?? launched) > 0) {
+        await this.detailLaunchDelay();
+        if (this.stopped || isTeamPaused(this.teamId)) break;
+      }
+
       // Reserve slot immediately (synchronous)
+      options.admittedThisTick?.add(booking.booking_id);
       this.activeDetailBookingIds.add(booking.booking_id);
       this.detailInflight++;
       if (isFastLane) {
@@ -701,13 +858,8 @@ export class Poller {
       }
       launched++;
 
-      // Stagger launching concurrent detail tasks by 15ms to prevent sub-millisecond network burst
-      if (launched > 1) {
-        await new Promise((resolve) => setTimeout(resolve, 15));
-      }
-
       // Fire-and-forget: each booking is independent
-      void this.processOneBooking(booking)
+      void this.processOneBooking(booking, options.firstPageObservedAtMs)
         .then((cooldownEligible) => {
           // Clean processing stamps the full cooldown. Non-clean (failed
           // detail fetch, failed/deferred accept) gets an escalating failure
@@ -769,7 +921,7 @@ export class Poller {
       });
     }
 
-    metrics.recordScheduling({ launched, skippedConcurrency, skippedCooldown });
+    this.metrics.recordScheduling({ launched, skippedConcurrency, skippedCooldown });
     this.recordDetailRuntime();
   }
 
@@ -780,7 +932,7 @@ export class Poller {
    * detail fetch failed or any accept attempt failed/was deferred, so the
    * booking is retried on the next tick instead of waiting out the cooldown.
    */
-  private async processOneBooking(booking: Booking): Promise<boolean> {
+  private async processOneBooking(booking: Booking, firstPageObservedAtMs?: number): Promise<boolean> {
     if (!isAdhocBookingName(booking.booking_name)) {
       return true;
     }
@@ -813,8 +965,11 @@ export class Poller {
       if (fastAcceptAllResult !== null) return fastAcceptAllResult;
     }
 
+    if (firstPageObservedAtMs !== undefined) {
+      this.metrics.recordInterval("page1ToDetailStart", firstPageObservedAtMs);
+    }
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
-      onPage: autoAcceptEnabled
+      onPage: autoAcceptEnabled && !this.requiresWholeBookingOwnershipCheck()
         ? (page) => {
             const pageTrips = filterTripsByBiddingVehicleType(
               extractAllRequestListTrips(page.data, context),
@@ -827,7 +982,7 @@ export class Poller {
               // flowing so later matching request_ids can be accepted too.
               if (!firstMatchRecorded) {
                 firstMatchRecorded = true;
-                metrics.recordOperation("detailToFirstMatch", Date.now() - startedAt);
+                this.metrics.recordOperation("detailToFirstMatch", Date.now() - startedAt);
               }
               autoAcceptHandledByPage = true;
               autoAcceptTasks.push(this.runAutoAcceptForTrips(matchedPageTrips, booking.booking_id));
@@ -849,7 +1004,7 @@ export class Poller {
           }
         : undefined,
     }).finally(() => {
-      metrics.recordOperation("detailFetch", Date.now() - startedAt);
+      this.metrics.recordOperation("detailFetch", Date.now() - startedAt);
     });
 
     if (!requestList) {
@@ -897,7 +1052,20 @@ export class Poller {
         for (const trip of filtered.trips) {
           historyTrips.set(trip.request_id, trip);
         }
-        if (autoAcceptEnabled) {
+        if (autoAcceptEnabled && this.isJobOnlyPoller()) {
+          const ownTrips = filtered.trips.filter((trip) => trip.acceptance_status === VERIFIED_OWN_ACCEPTANCE_STATUS);
+          const ownedRuleIds = new Set(matchAutoAcceptRuleTripsWithRules(ownTrips, this.tickAutoAcceptRules).map((match) => match.ruleId));
+          const probeTrips = filtered.trips.filter((trip) => NON_PENDING_ATTEMPT_STATUSES.has(trip.acceptance_status ?? -1)
+            && !matchAutoAcceptRuleTripsWithRules([trip], this.tickAutoAcceptRules).some((match) => ownedRuleIds.has(match.ruleId)));
+          autoAcceptTasks.push(this.publishTripJobs(probeTrips, "non_pending_probe"));
+          autoAcceptTasks.push(this.publishTripJobs(ownTrips, "own_status_reconcile"));
+        } else if (autoAcceptEnabled) {
+          if (env.AUTO_ACCEPT_JOB_SHADOW_ENABLED) {
+            // The shadow branch observes candidates before legacy settlement changes rule state.
+            const probesPublished = await this.publishTripJobs(filtered.trips.filter((trip) => NON_PENDING_ATTEMPT_STATUSES.has(trip.acceptance_status ?? -1)), "non_pending_probe");
+            const reconciliationPublished = await this.publishTripJobs(filtered.trips.filter((trip) => trip.acceptance_status === VERIFIED_OWN_ACCEPTANCE_STATUS), "own_status_reconcile");
+            if (env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH && (!probesPublished || !reconciliationPublished)) return false;
+          }
           const verificationRunner = getAutoAcceptVerificationRunner(this.apiClient, this.verificationOptions());
           await verificationRunner.restore();
           await recoverAutoAcceptPreparations(this.apiClient, this.teamId);
@@ -1081,8 +1249,126 @@ export class Poller {
     return nonPendingFetchOk;
   }
 
+  private isJobOnlyPoller(): boolean {
+    return env.SPX_ROLE === "poller-service";
+  }
+
+  private isFastAcceptAllJobCutoverEnabled(): boolean {
+    return env.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED
+      && env.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS.includes(this.teamId);
+  }
+
+  private isAutoAcceptKindJobCutoverEnabled(acceptAll: boolean): boolean {
+    return this.isJobOnlyPoller() || (acceptAll ? this.isFastAcceptAllJobCutoverEnabled()
+      : env.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED
+        && env.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS.includes(this.teamId));
+  }
+
+  private requiresWholeBookingOwnershipCheck(): boolean {
+    const active = this.tickAutoAcceptRules.filter((rule) => rule.enabled && !rule.fulfilled && rule.need > 0);
+    // A later page can reveal a whole-booking match. Only mixed ownership needs
+    // the full pending list before either side is allowed to act; ordinary
+    // inline and dedicated queue polling retain their streaming fast path.
+    return active.some((rule) => rule.accept_all)
+      && active.some((rule) => this.isAutoAcceptKindJobCutoverEnabled(rule.accept_all))
+      && active.some((rule) => !this.isAutoAcceptKindJobCutoverEnabled(rule.accept_all));
+  }
+
+  private jobRuleSnapshot(rule: NotifyRule) {
+    return { need: rule.need, accept_all: rule.accept_all, enabled: rule.enabled, fulfilled: rule.fulfilled };
+  }
+
+  /** The database owns the generation. A stale/mismatched producer never acknowledges another owner. */
+  private async checkJobPublication(): Promise<boolean> {
+    const epoch = env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH;
+    if (!epoch) return !this.isJobOnlyPoller();
+    try {
+      const active = await getActivePublicationEpoch(this.teamId);
+      if (!active || active.activeEpoch !== epoch) return false;
+      const control = (await getPublicationControlHistory(this.teamId)).find((row) => row.epoch === epoch);
+      if (!control || control.publicationGeneration !== active.activeGeneration
+        || control.pollerNodeId !== env.SPX_NODE_ID) return false;
+      if (control.state === "enabled") return true;
+      const watermark = await getPublicationJobWatermark({ teamId: this.teamId, epoch,
+        publicationGeneration: control.publicationGeneration });
+      await acknowledgePublicationFence({ teamId: this.teamId, epoch, pollerNodeId: env.SPX_NODE_ID, ackJobId: watermark });
+      return false;
+    } catch {
+      logger.warn("poller-auto-accept-publication-control-unavailable", { teamId: this.teamId });
+      return false;
+    }
+  }
+
+  private async publishJob(input: Omit<PublishAutoAcceptJobInput, "teamId" | "pollerNodeId" | "cutoverEpoch">): Promise<boolean> {
+    if (!(await this.checkJobPublication())) return false;
+    try {
+      const result = await publishAutoAcceptJob({ ...input, teamId: this.teamId,
+        pollerNodeId: env.SPX_NODE_ID || `combined-team-${this.teamId}`,
+        ...(env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH ? { cutoverEpoch: env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH } : {}),
+      });
+      // Fence can commit after the read above. Enqueue serializes with the fence;
+      // acknowledge its durable watermark after the rejected insert returns.
+      if (!result.published && result.reason === "publication-fenced") await this.checkJobPublication();
+      return result.published;
+    } catch {
+      logger.warn("poller-auto-accept-job-publish-failed", { teamId: this.teamId, bookingId: input.bookingId });
+      return false;
+    }
+  }
+
+  private async publishTripJobs(
+    trips: ExtractedTripInfo[],
+    kind: "pending_request" | "non_pending_probe" | "own_status_reconcile",
+    rules: NotifyRule[] = this.tickAutoAcceptRules,
+    matchedAtMs?: number,
+  ): Promise<boolean> {
+    const eligible = trips.filter((trip) => Number.isInteger(trip.request_id) && trip.request_id > 0
+      && (kind !== "pending_request" || trip.acceptance_status === 1));
+    const matches = matchAutoAcceptRuleTripsWithRules(eligible, rules);
+    const firstMatchedAtMs = matchedAtMs ?? Date.now();
+    if (matches.length === 0) return kind !== "pending_request";
+    const results: boolean[] = [];
+    for (const match of matches) {
+      const rule = rules.find((item) => item.id === match.ruleId)!;
+      const parentBookings = new Set<number>();
+      for (const candidate of applyRequestSelectionStrategy([...match.trips], env.REQUEST_SELECTION_STRATEGY)) {
+        const trip = candidate as ExtractedTripInfo;
+        const bookingId = trip.booking_id;
+        if (typeof bookingId !== "number" || !Number.isInteger(bookingId) || bookingId <= 0) {
+          results.push(false);
+          continue;
+        }
+        const parent = match.acceptAll && kind !== "own_status_reconcile";
+        if (parent && parentBookings.has(bookingId)) continue;
+        if (parent) parentBookings.add(bookingId);
+        // A request-list accept_all match is still a whole-booking operation.
+        // Never send an invalid pending_request payload that the consumer rejects.
+        if (parent && (!trip.booking_name || !(this.isJobOnlyPoller()
+          || this.isFastAcceptAllJobCutoverEnabled() || env.AUTO_ACCEPT_JOB_SHADOW_ENABLED))) {
+          results.push(false);
+          continue;
+        }
+        results.push(await this.publishJob({
+          firstMatchedAtMs,
+          executionMode: this.isJobOnlyPoller() || (kind === "pending_request" && this.isAutoAcceptKindJobCutoverEnabled(parent))
+            ? "cutover" : "shadow",
+          bookingId, requestId: parent ? 0 : trip.request_id,
+          ruleId: rule.id, ruleName: rule.name, attemptKind: parent ? "fast_accept_all" : kind,
+          acceptAll: parent,
+          source: parent ? "booking_name" : kind === "pending_request" ? "pending_tab"
+            : kind === "own_status_reconcile" ? "reconciliation" : "non_pending_tab",
+          ...(parent ? {} : { trip: trip as unknown as Record<string, unknown> }),
+          ...(trip.booking_name ? { bookingName: trip.booking_name } : {}),
+          ruleSnapshot: this.jobRuleSnapshot(rule),
+        }));
+      }
+    }
+    return results.length > 0 && results.every(Boolean);
+  }
+
   private verificationOptions() {
     return {
+      metricsCollector: this.metrics,
       teamId: this.teamId, notificationContext: this.notificationContext, needBudget: this.tickNeedBudget,
       canVerify: async () => !this.stopped && !isTeamPaused(this.teamId)
         && (!this.beforePoll || await this.beforePoll()) && !this.stopped && !isTeamPaused(this.teamId),
@@ -1099,6 +1385,22 @@ export class Poller {
   private async runFastAcceptAllForBookingName(booking: Booking): Promise<boolean | null> {
     const matches = matchAcceptAllBookingNameRules(booking.booking_name, this.tickAutoAcceptRules);
     if (matches.length === 0) return null;
+    const firstMatchedAtMs = Date.now();
+    const cutover = this.isJobOnlyPoller() || this.isFastAcceptAllJobCutoverEnabled();
+    if (cutover || env.AUTO_ACCEPT_JOB_SHADOW_ENABLED) {
+      const match = matches[0];
+      const rule = this.tickAutoAcceptRules.find((item) => item.id === match.ruleId)!;
+      const published = await this.publishJob({
+        firstMatchedAtMs,
+        executionMode: cutover ? "cutover" : "shadow",
+        bookingId: booking.booking_id, requestId: 0, ruleId: rule.id, ruleName: rule.name,
+        attemptKind: "fast_accept_all", acceptAll: true, source: "booking_name",
+        bookingName: booking.booking_name,
+        ...(booking.ctime > 0 ? { bookingCreatedAtMs: booking.ctime * 1000 } : {}),
+        ruleSnapshot: this.jobRuleSnapshot(rule),
+      });
+      if (cutover || (!published && env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH)) return published;
+    }
     const options = this.verificationOptions();
     const runner = getAutoAcceptVerificationRunner(this.apiClient, options);
     await runner.restore();
@@ -1124,7 +1426,7 @@ export class Poller {
           traceId: buildAutoAcceptTraceId({ teamId: this.teamId, bookingId: booking.booking_id,
             requestIds: [], acceptStartedAt: startedAt }),
           discovery: { bookingName: booking.booking_name, agencyName: booking.agency_name, expectedAcceptedCount: 1 },
-        }, options);
+        }, { ...options, firstMatchedAtMs });
         logger.info("auto-accept-list-name-submitted", { bookingId: booking.booking_id, ruleId: match.ruleId,
           httpStatus: result.httpStatus, verificationStatus: "indeterminate" });
         return result.ok || result.httpStatus === 200 || result.httpStatus === 0;
@@ -1132,7 +1434,7 @@ export class Poller {
         logger.warn("auto-accept-list-name-persistence-failed", { bookingId: booking.booking_id,
           ruleId: match.ruleId, error: String(error) });
         return false;
-      } finally { metrics.recordOperation("autoAccept", Date.now() - startedAt); }
+      } finally { this.metrics.recordOperation("autoAccept", Date.now() - startedAt); }
     }
     return true;
   }
@@ -1214,7 +1516,7 @@ export class Poller {
         });
 
         progress.push({ ruleId, acceptedCount: requestIds.length });
-        for (let i = 0; i < requestIds.length; i++) metrics.recordAutoAccept(true);
+        for (let i = 0; i < requestIds.length; i++) this.metrics.recordAutoAccept(true);
         for (const trip of acceptedTrips) {
           acceptedForNotification.set(trip.request_id, trip);
         }
@@ -1304,6 +1606,7 @@ export class Poller {
       const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
         teamId: this.teamId,
         notificationContext: this.notificationContext,
+        metricsCollector: this.metrics,
         autoAcceptRules: this.tickAutoAcceptRules,
         deferSideEffects: true,
       });
@@ -1326,7 +1629,7 @@ export class Poller {
       });
       return false;
     } finally {
-      metrics.recordOperation("autoAccept", Date.now() - startedAt);
+      this.metrics.recordOperation("autoAccept", Date.now() - startedAt);
     }
   }
 
@@ -1338,8 +1641,32 @@ export class Poller {
   private async runAutoAcceptForTrips(trips: ExtractedTripInfo[], bookingId: number): Promise<boolean> {
     const startedAt = Date.now();
     try {
+      const matches = matchAutoAcceptRuleTripsWithRules(trips, this.tickAutoAcceptRules);
+      const cutoverMatches = matches.filter((match) => this.isAutoAcceptKindJobCutoverEnabled(match.acceptAll));
+      const cutoverIds = new Set(cutoverMatches.map((match) => match.ruleId));
+      const legacyMatches = matches.filter((match) => !cutoverIds.has(match.ruleId));
+      // Whole-booking acceptance touches every request. Overlapping request IDs
+      // also cannot safely have both a queue consumer and an inline owner.
+      if (cutoverMatches.length > 0 && legacyMatches.length > 0) {
+        const cutoverRequestIds = new Set(cutoverMatches.flatMap((match) => match.trips.map((trip) => trip.request_id)));
+        if (matches.some((match) => match.acceptAll)
+          || legacyMatches.some((match) => match.trips.some((trip) => cutoverRequestIds.has(trip.request_id)))) {
+          logger.warn("poller-auto-accept-conflicting-owners", { teamId: this.teamId, bookingId,
+            cutoverRuleIds: [...cutoverIds], inlineRuleIds: legacyMatches.map((match) => match.ruleId) });
+          return false;
+        }
+      }
+      const cutoverRules = this.tickAutoAcceptRules.filter((rule) => cutoverIds.has(rule.id));
+      const legacyRules = this.tickAutoAcceptRules.filter((rule) => !cutoverIds.has(rule.id));
+      if (cutoverRules.length > 0 && !(await this.publishTripJobs(trips, "pending_request", cutoverRules, startedAt))) return false;
+      if (env.AUTO_ACCEPT_JOB_SHADOW_ENABLED && legacyMatches.length > 0) {
+        const published = await this.publishTripJobs(trips, "pending_request", legacyRules, startedAt);
+        if (!published && env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH) return false;
+      }
+      if (legacyMatches.length === 0 && (cutoverRules.length > 0 || this.isJobOnlyPoller())) return cutoverRules.length > 0;
       const result = await acceptAndNotifyMatchedRules(trips, this.apiClient, {
-        autoAcceptRules: this.tickAutoAcceptRules,
+        autoAcceptRules: legacyRules,
+        firstMatchedAtMs: startedAt,
         deferSideEffects: true,
         ...this.verificationOptions(),
         verificationMode: "detached",
@@ -1363,7 +1690,7 @@ export class Poller {
       });
       return false;
     } finally {
-      metrics.recordOperation("autoAccept", Date.now() - startedAt);
+      this.metrics.recordOperation("autoAccept", Date.now() - startedAt);
     }
   }
 
@@ -1374,7 +1701,7 @@ export class Poller {
     }
 
     this.stopped = true;
-    await stopAutoAcceptVerificationRecovery(this.apiClient, this.teamId);
+    if (!this.isJobOnlyPoller()) await stopAutoAcceptVerificationRecovery(this.apiClient, this.teamId);
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -1424,7 +1751,7 @@ export class Poller {
     formatFooter(this.stats);
 
     if (this.closeSharedResourcesOnStop) {
-      sseBroadcaster.closeAll();
+      closeInProcessRealtimeClients();
     }
 
     if (this.manageHttpServer) {
@@ -1480,7 +1807,7 @@ export class Poller {
     }
 
     // Always broadcast to SSE (no throttle — dashboard benefits from real-time)
-    sseBroadcaster.broadcast({
+    this.publishLegacyOnly({
       event: type === "hit" ? "rate-limit-hit" : "rate-limit-recovered",
       teamId: this.teamId,
       data: {
@@ -1524,7 +1851,10 @@ export class Poller {
     }
     this.lastSessionAlertTime = now;
 
-    sseBroadcaster.broadcast({
+    await this.publishCanonicalWithLegacy("session.expired", {
+      message: errorMessage,
+      timestamp: new Date(now).toISOString(),
+    }, {
       event: "session-expired",
       teamId: this.teamId,
       data: {
@@ -1534,10 +1864,10 @@ export class Poller {
     });
 
     try {
-      const result = await sendSessionExpiryNotification(errorMessage, this.notificationContext);
+      const result = await this.sessionExpiryNotifier(errorMessage, this.notificationContext);
       if (result.sent) {
         logger.warn("session-expiry-alert-sent", {
-          channels: result.results.filter((channel) => channel.ok).map((channel) => channel.channel),
+          channels: (result.results as Array<{ ok?: boolean; channel?: string }>).filter((c) => c.ok).map((c) => c.channel),
           errorMessage,
         });
         return;

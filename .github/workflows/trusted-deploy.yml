@@ -1,0 +1,2905 @@
+name: Trusted immutable release deployment
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: Protected deployment target
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable release artifact ID
+        required: true
+        type: string
+      target_descriptor_artifact_id:
+        description: Protected signed target-descriptor artifact ID
+        required: true
+        type: string
+      backup_evidence_artifact_id:
+        description: Production backup evidence artifact ID (production only)
+        required: false
+        default: ""
+        type: string
+      backup_evidence_run_id:
+        description: Production backup evidence workflow run ID (production only)
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: spx-production-mutation
+  queue: max
+  cancel-in-progress: false
+
+env:
+  SPX_PRODUCTION_COMPOSE_PROJECT: spx-production
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.target }}
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    outputs:
+      operation_id: ${{ steps.context.outputs.operation_id }}
+      payload_sha256: ${{ steps.context.outputs.payload_sha256 }}
+    steps:
+      - name: Validate immutable inputs and protected trust
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+          BACKUP_EVIDENCE_ARTIFACT_ID: ${{ inputs.backup_evidence_artifact_id }}
+          BACKUP_EVIDENCE_RUN_ID: ${{ inputs.backup_evidence_run_id }}
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          TRUSTED_DEPLOY_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_DEPLOY_WORKFLOW_SHA }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+          DESCRIPTOR_SIGNER_FILE_SHA256: ${{ vars.SPX_DESCRIPTOR_SIGNER_FILE_SHA256 }}
+          DESCRIPTOR_KEY_ID: ${{ vars.SPX_DESCRIPTOR_KEY_ID }}
+          DESCRIPTOR_PUBLIC_KEY_B64: ${{ vars.SPX_DESCRIPTOR_PUBLIC_KEY_B64 }}
+          DESCRIPTOR_OIDC_AUDIENCE: ${{ vars.SPX_DESCRIPTOR_OIDC_AUDIENCE }}
+          TARGET_FACTS_SHA256: ${{ vars.SPX_TARGET_FACTS_SHA256 }}
+          TARGET_HOST_IDENTITY_SHA256: ${{ vars.SPX_TARGET_HOST_IDENTITY_SHA256 }}
+          KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+          APPROVED_PRODUCTION_TOPOLOGY: ${{ vars.SPX_APPROVED_PRODUCTION_TOPOLOGY }}
+          CANDIDATE_IDENTITY_APPROVAL_SHA256: ${{ vars.SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256 }}
+          STAGING_CAPABILITY_BUNDLE_SHA256: ${{ vars.SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256 }}
+        run: |
+          set -euo pipefail
+          case "${TARGET}" in staging|production) ;; *) exit 1 ;; esac
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          [[ "${TARGET_DESCRIPTOR_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          test "${RELEASE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
+          if [ "${TARGET}" = production ]; then
+            [[ "${BACKUP_EVIDENCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${BACKUP_EVIDENCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${RELEASE_ARTIFACT_ID}"
+            test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
+          else
+            test -z "${BACKUP_EVIDENCE_ARTIFACT_ID}"
+            test -z "${BACKUP_EVIDENCE_RUN_ID}"
+          fi
+          [[ "${CALLED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_DEPLOY_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${CALLED_WORKFLOW_SHA}" = "${TRUSTED_DEPLOY_WORKFLOW_SHA}"
+          [[ "${TRUSTED_RELEASE_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_DESCRIPTOR_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${DESCRIPTOR_SIGNER_FILE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${TARGET_FACTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${TARGET_HOST_IDENTITY_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${KNOWN_HOSTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${DESCRIPTOR_KEY_ID}" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]
+          [[ "${DESCRIPTOR_OIDC_AUDIENCE}" =~ ^https:// ]]
+          case "${APPROVED_PRODUCTION_TOPOLOGY}" in split) ;; *) exit 1 ;; esac
+          test -n "${DESCRIPTOR_PUBLIC_KEY_B64}"
+          if [ "${TARGET}" = production ]; then
+            [[ "${CANDIDATE_IDENTITY_APPROVAL_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          else
+            [[ "${STAGING_CAPABILITY_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          fi
+
+      - name: Download artifacts by immutable artifact ID
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 downloads verified/release verified/target
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${RELEASE_ARTIFACT_ID}/zip" > downloads/release.zip
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${TARGET_DESCRIPTOR_ARTIFACT_ID}/zip" > downloads/target.zip
+          test "$(stat -c %s downloads/release.zip)" -le 2147483648
+          test "$(stat -c %s downloads/target.zip)" -le 10485760
+          for archive in release target; do
+            unzip -Z1 "downloads/${archive}.zip" | node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const paths = readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean);
+              if (paths.length === 0 || paths.length > 64) throw new Error("unsafe artifact entry count");
+              for (const path of paths) {
+                if (path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("unsafe artifact path");
+              }
+            '
+            unzip -q "downloads/${archive}.zip" -d "verified/${archive}"
+            test -z "$(find "verified/${archive}" -type l -print -quit)"
+          done
+
+      - name: Download exact production backup evidence artifact
+        if: inputs.target == 'production'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.backup_evidence_artifact_id }}
+          run-id: ${{ inputs.backup_evidence_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: verified/backup
+
+      - name: Enforce exact release and descriptor file sets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { readdirSync, statSync } from "node:fs";
+          import { join, relative } from "node:path";
+          function files(root) {
+            const result = [];
+            const visit = (directory) => {
+              for (const name of readdirSync(directory).sort()) {
+                const path = join(directory, name);
+                const stat = statSync(path);
+                if (stat.isDirectory()) visit(path);
+                else if (stat.isFile()) result.push(relative(root, path).replaceAll("\\", "/"));
+                else throw new Error("artifact contains a non-regular entry");
+              }
+            };
+            visit(root);
+            return result;
+          }
+          const expectedRelease = [
+            "bootstrap/scripts/build-operator-bundle.mjs",
+            "bootstrap/scripts/deployment-target-descriptor.mjs",
+            "bootstrap/scripts/lib/safe-file.mjs",
+            "bootstrap/src/services/deployment-target-descriptor.ts",
+            "bootstrap/src/services/release-manifest.ts",
+            "build-manifest.json",
+            "operator-bundle.index.json",
+            "operator-bundle.tar",
+            "release-artifact.index.json",
+            "release-manifest.json",
+            "spx-dist.tar",
+            "spx-image.tar",
+          ].sort();
+          const expectedTarget = [
+            "deployment-target-descriptor.attestation-claims.json",
+            "deployment-target-descriptor.json",
+          ].sort();
+          if (JSON.stringify(files("verified/release")) !== JSON.stringify(expectedRelease)) throw new Error("release artifact file set mismatch");
+          if (JSON.stringify(files("verified/target")) !== JSON.stringify(expectedTarget)) throw new Error("target descriptor artifact file set mismatch");
+          NODE
+
+      - name: Verify trusted release and descriptor attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            verified/release/bootstrap/scripts/build-operator-bundle.mjs \
+            verified/release/bootstrap/scripts/deployment-target-descriptor.mjs \
+            verified/release/bootstrap/scripts/lib/safe-file.mjs \
+            verified/release/bootstrap/src/services/deployment-target-descriptor.ts \
+            verified/release/bootstrap/src/services/release-manifest.ts \
+            verified/release/build-manifest.json \
+            verified/release/operator-bundle.index.json \
+            verified/release/operator-bundle.tar \
+            verified/release/release-artifact.index.json \
+            verified/release/release-manifest.json \
+            verified/release/spx-dist.tar \
+            verified/release/spx-image.tar; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
+              --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}" \
+              --deny-self-hosted-runners >/dev/null
+          done
+          for artifact in \
+            verified/target/deployment-target-descriptor.json \
+            verified/target/deployment-target-descriptor.attestation-claims.json; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/deployment-target-descriptor-signer.yml" \
+              --signer-digest "${TRUSTED_DESCRIPTOR_SIGNER_SHA}" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Enforce and attest the exact production backup evidence pair
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED_BACKUP_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${TRUSTED_BACKUP_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          node --input-type=module - <<'NODE'
+          import { lstatSync, readdirSync } from "node:fs";
+          const expected = [
+            "production-backup-restore-evidence.json",
+            "production-backup-restore-signature.json",
+          ];
+          const actual = readdirSync("verified/backup").sort();
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("backup evidence file set mismatch");
+          for (const name of actual) {
+            const status = lstatSync(`verified/backup/${name}`);
+            if (!status.isFile() || status.isSymbolicLink() || status.size > 1024 * 1024) throw new Error("backup evidence entry is unsafe");
+          }
+          NODE
+          for artifact in \
+            verified/backup/production-backup-restore-evidence.json \
+            verified/backup/production-backup-restore-signature.json; do
+            gh attestation verify "${artifact}" --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-production-backup-restore.yml" \
+              --signer-digest "${TRUSTED_BACKUP_WORKFLOW_SHA}" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Checkout immutable trusted backup verifier source
+        if: inputs.target == 'production'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
+          path: trusted-backup-verifier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove trusted backup verifier source and bytes
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          TRUSTED_BACKUP_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
+          TRUSTED_BACKUP_WORKFLOW_FILE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_WORKFLOW_FILE_SHA256 }}
+          TRUSTED_BACKUP_EVIDENCE_VERIFIER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_EVIDENCE_VERIFIER_SHA256 }}
+        run: |
+          set -euo pipefail
+          [[ "${TRUSTED_BACKUP_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${TRUSTED_BACKUP_WORKFLOW_SHA}" != 0000000000000000000000000000000000000000
+          for digest in \
+            "${TRUSTED_BACKUP_WORKFLOW_FILE_SHA256}" \
+            "${TRUSTED_BACKUP_EVIDENCE_VERIFIER_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+            test "${digest}" != 0000000000000000000000000000000000000000000000000000000000000000
+          done
+          test "$(git -C trusted-backup-verifier rev-parse HEAD)" = \
+            "${TRUSTED_BACKUP_WORKFLOW_SHA}"
+          test -z "$(git -C trusted-backup-verifier status --short --untracked-files=no)"
+          test "$(sha256sum trusted-backup-verifier/.github/workflows/trusted-production-backup-restore.yml | cut -d' ' -f1)" = \
+            "${TRUSTED_BACKUP_WORKFLOW_FILE_SHA256}"
+          test "$(sha256sum trusted-backup-verifier/scripts/production-backup-restore-evidence.mjs | cut -d' ' -f1)" = \
+            "${TRUSTED_BACKUP_EVIDENCE_VERIFIER_SHA256}"
+
+      - name: Checkout immutable trusted install evidence source
+        if: inputs.target == 'production'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          path: trusted-install-evidence
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove and package immutable trusted install evidence producer
+        id: install-evidence-producer
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          EXPECTED_WORKFLOW_FILE_SHA256: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_WORKFLOW_FILE_SHA256 }}
+          EXPECTED_ASSEMBLER_SHA256: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_ASSEMBLER_SHA256 }}
+          EXPECTED_SCHEMA_SHA256: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_SCHEMA_SHA256 }}
+          EVIDENCE_SIGNING_KEY_ID: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" != 0000000000000000000000000000000000000000
+          for digest in \
+            "${EXPECTED_WORKFLOW_FILE_SHA256}" \
+            "${EXPECTED_ASSEMBLER_SHA256}" \
+            "${EXPECTED_SCHEMA_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+            test "${digest}" != 0000000000000000000000000000000000000000000000000000000000000000
+          done
+          [[ "${EVIDENCE_SIGNING_KEY_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          test "$(git -C trusted-install-evidence rev-parse HEAD)" = "${WORKFLOW_SHA}"
+          test -z "$(git -C trusted-install-evidence status --short --untracked-files=no)"
+          test "$(sha256sum trusted-install-evidence/.github/workflows/trusted-deploy.yml | cut -d' ' -f1)" = \
+            "${EXPECTED_WORKFLOW_FILE_SHA256}"
+          test "$(sha256sum trusted-install-evidence/scripts/protected-install-evidence.mjs | cut -d' ' -f1)" = \
+            "${EXPECTED_ASSEMBLER_SHA256}"
+          test "$(sha256sum trusted-install-evidence/deploy/protected-install-evidence.schema.json | cut -d' ' -f1)" = \
+            "${EXPECTED_SCHEMA_SHA256}"
+
+          PRODUCER=verified/protected-install-evidence-producer
+          test ! -e "${PRODUCER}"
+          install -d -m 0700 "${PRODUCER}/context" "${PRODUCER}/deploy" "${PRODUCER}/scripts/lib"
+          for path in \
+            scripts/protected-install-evidence.mjs \
+            scripts/protected-install-watchdog.mjs \
+            scripts/production-mutation-host-lock.mjs \
+            scripts/lib/evidence-artifact.mjs \
+            scripts/lib/mysql-connection-config.mjs \
+            scripts/lib/safe-file.mjs \
+            deploy/protected-install-evidence.schema.json; do
+            install -m 0400 "trusted-install-evidence/${path}" "${PRODUCER}/${path}"
+          done
+          PRODUCER="${PRODUCER}" \
+          WORKFLOW_SHA="${WORKFLOW_SHA}" \
+          WORKFLOW_FILE_SHA256="${EXPECTED_WORKFLOW_FILE_SHA256}" \
+          node --input-type=module <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+          const producer = canonical({
+            repository: "fastest4u/SPX",
+            environment: "production",
+            workflow: ".github/workflows/trusted-deploy.yml",
+            workflowSha: process.env.WORKFLOW_SHA,
+            workflowFileSha256: process.env.WORKFLOW_FILE_SHA256,
+          });
+          await writeFile(
+            process.env.PRODUCER + "/context/verified-producer-context.json",
+            JSON.stringify(producer),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf verified/protected-install-evidence-producer.tar -C "${PRODUCER}" .
+          echo "payload_sha256=$(sha256sum verified/protected-install-evidence-producer.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify release index and materialize the operator bundle
+        shell: bash
+        env:
+          EXPECTED_RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const bytes = readFileSync("verified/release/release-artifact.index.json");
+          const index = JSON.parse(bytes.toString("utf8"));
+          if (!bytes.equals(Buffer.from(JSON.stringify(canonical(index))))) throw new Error("release index is not canonical");
+          if (Object.keys(index).sort().join(",") !== "files,releaseRunAttempt,releaseRunId,repository,schemaVersion,sourceSha") throw new Error("release index fields mismatch");
+          if (index.schemaVersion !== 1 || index.repository !== process.env.GITHUB_REPOSITORY || !/^[0-9a-f]{40}$/.test(index.sourceSha)) throw new Error("release index identity mismatch");
+          if (!/^[0-9]+$/.test(index.releaseRunId) || !/^[0-9]+$/.test(index.releaseRunAttempt)) throw new Error("release run identity mismatch");
+          const expected = [
+            "bootstrap/scripts/build-operator-bundle.mjs", "bootstrap/scripts/deployment-target-descriptor.mjs",
+            "bootstrap/scripts/lib/safe-file.mjs", "bootstrap/src/services/deployment-target-descriptor.ts",
+            "bootstrap/src/services/release-manifest.ts",
+            "build-manifest.json", "operator-bundle.index.json", "operator-bundle.tar",
+            "release-manifest.json", "spx-dist.tar", "spx-image.tar",
+          ];
+          if (JSON.stringify(index.files.map((entry) => entry.path)) !== JSON.stringify(expected)) throw new Error("release index paths mismatch");
+          for (const entry of index.files) {
+            if (Object.keys(entry).sort().join(",") !== "path,sha256,size" || !/^[0-9a-f]{64}$/.test(entry.sha256) || !Number.isSafeInteger(entry.size) || entry.size < 0) throw new Error("release index entry invalid");
+            const value = readFileSync(`verified/release/${entry.path}`);
+            if (value.length !== entry.size || sha256(value) !== entry.sha256) throw new Error(`release index mismatch: ${entry.path}`);
+          }
+          const manifest = JSON.parse(readFileSync("verified/release/release-manifest.json", "utf8"));
+          if (manifest.sourceSha !== index.sourceSha) throw new Error("release source SHA mismatch");
+          NODE
+          node verified/release/bootstrap/scripts/build-operator-bundle.mjs verify-archive \
+            --archive=verified/release/operator-bundle.tar \
+            --index=verified/release/operator-bundle.index.json
+          node verified/release/bootstrap/scripts/build-operator-bundle.mjs materialize \
+            --archive=verified/release/operator-bundle.tar \
+            --index=verified/release/operator-bundle.index.json \
+            --root=verified/operator
+
+      - name: Verify signed target descriptor against protected trust
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.target }}
+          DESCRIPTOR_SIGNER_FILE_SHA256: ${{ vars.SPX_DESCRIPTOR_SIGNER_FILE_SHA256 }}
+          DESCRIPTOR_KEY_ID: ${{ vars.SPX_DESCRIPTOR_KEY_ID }}
+          DESCRIPTOR_PUBLIC_KEY_B64: ${{ vars.SPX_DESCRIPTOR_PUBLIC_KEY_B64 }}
+          DESCRIPTOR_OIDC_AUDIENCE: ${{ vars.SPX_DESCRIPTOR_OIDC_AUDIENCE }}
+          TARGET_FACTS_SHA256: ${{ vars.SPX_TARGET_FACTS_SHA256 }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const release = JSON.parse(readFileSync("verified/release/release-manifest.json", "utf8"));
+          const workflowRef = `${process.env.GITHUB_REPOSITORY}/.github/workflows/deployment-target-descriptor-signer.yml@${process.env.TRUSTED_DESCRIPTOR_SIGNER_SHA}`;
+          const trust = {
+            keyId: process.env.DESCRIPTOR_KEY_ID,
+            repository: process.env.GITHUB_REPOSITORY,
+            workflowRef,
+            environment: process.env.TARGET,
+            subject: `repo:${process.env.GITHUB_REPOSITORY}:environment:${process.env.TARGET}`,
+            audience: process.env.DESCRIPTOR_OIDC_AUDIENCE,
+            issuer: "https://token.actions.githubusercontent.com",
+            jobWorkflowRef: workflowRef,
+            signingWorkflowSourceSha: process.env.TRUSTED_DESCRIPTOR_SIGNER_SHA,
+            signingWorkflowFileSha256: process.env.DESCRIPTOR_SIGNER_FILE_SHA256,
+            releaseSourceSha: release.sourceSha,
+            imageId: release.imageId,
+            imageTag: release.imageTag,
+            targetFactsSha256: process.env.TARGET_FACTS_SHA256,
+          };
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          writeFileSync("verified/descriptor-trust.json", JSON.stringify(canonical(trust)), { mode: 0o400, flag: "wx" });
+          writeFileSync("verified/descriptor-public-key.pem", Buffer.from(process.env.DESCRIPTOR_PUBLIC_KEY_B64, "base64"), { mode: 0o400, flag: "wx" });
+          NODE
+          node verified/release/bootstrap/scripts/deployment-target-descriptor.mjs verify \
+            --artifact=verified/target/deployment-target-descriptor.json \
+            --attestation=verified/target/deployment-target-descriptor.attestation-claims.json \
+            --trust=verified/descriptor-trust.json \
+            --public-key=verified/descriptor-public-key.pem \
+            --release-manifest=verified/release/release-manifest.json \
+            --operator-bundle=verified/release/operator-bundle.tar \
+            --operator-index=verified/release/operator-bundle.index.json \
+            --operator-root=verified/operator
+
+      - name: Verify selected production backup evidence before mutation
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          TRUSTED_BACKUP_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
+          TRUSTED_BACKUP_WORKFLOW_FILE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_WORKFLOW_FILE_SHA256 }}
+          TRUSTED_BACKUP_CONTROLLER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_CONTROLLER_SHA256 }}
+          TRUSTED_BACKUP_LIVE_ADAPTER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_LIVE_ADAPTER_SHA256 }}
+          TRUSTED_BACKUP_INVARIANTS_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_INVARIANTS_SHA256 }}
+          TRUSTED_BACKUP_ISOLATED_COMPOSE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_ISOLATED_COMPOSE_SHA256 }}
+          BACKUP_EVIDENCE_SIGNING_KEY_ID: ${{ vars.SPX_PRODUCTION_BACKUP_EVIDENCE_SIGNING_KEY_ID }}
+          BACKUP_MAXIMUM_AGE_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_AGE_MINUTES }}
+          BACKUP_MAXIMUM_RPO_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_RPO_MINUTES }}
+          BACKUP_MAXIMUM_RTO_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_RTO_MINUTES }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile, writeFile } from "node:fs/promises";
+          import { resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
+
+          const sha256 = /^[0-9a-f]{64}$/;
+          const commit = /^[0-9a-f]{40}$/;
+          for (const [label, value, pattern] of [
+            ["workflow SHA", process.env.TRUSTED_BACKUP_WORKFLOW_SHA, commit],
+            ["workflow file hash", process.env.TRUSTED_BACKUP_WORKFLOW_FILE_SHA256, sha256],
+            ["controller hash", process.env.TRUSTED_BACKUP_CONTROLLER_SHA256, sha256],
+            ["live adapter hash", process.env.TRUSTED_BACKUP_LIVE_ADAPTER_SHA256, sha256],
+            ["invariant definitions hash", process.env.TRUSTED_BACKUP_INVARIANTS_SHA256, sha256],
+            ["isolated Compose hash", process.env.TRUSTED_BACKUP_ISOLATED_COMPOSE_SHA256, sha256],
+          ]) if (!pattern.test(value ?? "")) throw new Error(`protected backup ${label} is invalid`);
+          if (!/^[A-Za-z0-9._:-]{1,128}$/.test(process.env.BACKUP_EVIDENCE_SIGNING_KEY_ID ?? "")) throw new Error("backup evidence signing key ID is invalid");
+          const bounded = (name) => {
+            const value = Number(process.env[name]);
+            if (!Number.isSafeInteger(value) || value < 0 || value > 24 * 60) throw new Error(`protected ${name} is invalid`);
+            return value;
+          };
+
+          const release = JSON.parse(await readFile("verified/release/release-manifest.json", "utf8"));
+          const signedTarget = JSON.parse(await readFile("verified/target/deployment-target-descriptor.json", "utf8"));
+          const descriptor = signedTarget.descriptor;
+          if (descriptor?.releaseEnvironment !== "production" || !sha256.test(descriptor?.database?.tlsFingerprintSha256 ?? "")) throw new Error("production database target fingerprint is invalid");
+          const evidence = JSON.parse(await readFile("verified/backup/production-backup-restore-evidence.json", "utf8"));
+          const signature = JSON.parse(await readFile("verified/backup/production-backup-restore-signature.json", "utf8"));
+          const targetBytes = await readFile("verified/target/deployment-target-descriptor.json");
+          const releaseBytes = await readFile("verified/release/release-manifest.json");
+          const targetDescriptorSha256 = createHash("sha256").update(targetBytes).digest("hex");
+          const releaseManifestSha256 = createHash("sha256").update(releaseBytes).digest("hex");
+          const modulePath = resolve("trusted-backup-verifier/scripts/production-backup-restore-evidence.mjs");
+          const { verifyProductionBackupRestoreEvidence } = await import(pathToFileURL(modulePath).href);
+          const producer = {
+            repository: process.env.GITHUB_REPOSITORY,
+            environment: "production",
+            workflow: ".github/workflows/trusted-production-backup-restore.yml",
+            workflowSha: process.env.TRUSTED_BACKUP_WORKFLOW_SHA,
+            workflowFileSha256: process.env.TRUSTED_BACKUP_WORKFLOW_FILE_SHA256,
+          };
+          const result = verifyProductionBackupRestoreEvidence(evidence, signature, {
+            candidateSha: release.sourceSha,
+            releaseManifestSha256,
+            targetDescriptorSha256,
+            databaseFingerprint: `sha256:${descriptor.database.tlsFingerprintSha256}`,
+            maximumAgeMinutes: bounded("BACKUP_MAXIMUM_AGE_MINUTES"),
+            maximumRpoMinutes: bounded("BACKUP_MAXIMUM_RPO_MINUTES"),
+            maximumRtoMinutes: bounded("BACKUP_MAXIMUM_RTO_MINUTES"),
+            now: new Date(),
+            evidenceSigningKeyId: process.env.BACKUP_EVIDENCE_SIGNING_KEY_ID,
+            invariantDefinitionsSha256: process.env.TRUSTED_BACKUP_INVARIANTS_SHA256,
+            producer,
+          });
+          if (result?.ok !== true || !sha256.test(result.evidenceSha256 ?? "")) throw new Error("production backup evidence verification failed");
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+          const backupEvidenceSummary = canonical({
+            evidenceSha256: result.evidenceSha256,
+            candidateSha: evidence.candidateSha,
+            releaseManifestSha256: evidence.releaseManifestSha256,
+            targetDescriptorSha256: evidence.targetDescriptorSha256,
+            databaseFingerprint: evidence.databaseFingerprint,
+            backupSha256: evidence.backupSha256,
+            beforeDdl: evidence.beforeDdl,
+            encrypted: evidence.encrypted,
+            isolatedRestore:
+              evidence.isolatedRestore?.environment === "isolated" &&
+              evidence.isolatedRestore.productionRoutesPresent === false &&
+              evidence.isolatedRestore.providerCredentialsPresent === false &&
+              evidence.isolatedRestore.backgroundServicesPresent === false &&
+              evidence.isolatedRestore.sharedWritableVolumesPresent === false,
+            teardownProven: evidence.isolatedRestore?.teardownProven,
+          });
+          if (
+            backupEvidenceSummary.beforeDdl !== true ||
+            backupEvidenceSummary.encrypted !== true ||
+            backupEvidenceSummary.isolatedRestore !== true ||
+            backupEvidenceSummary.teardownProven !== true
+          ) throw new Error("production backup evidence summary is incomplete");
+          await writeFile(
+            "verified/backup-verification.json",
+            JSON.stringify(backupEvidenceSummary),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+
+      - name: Materialize protected candidate production identity approval
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          APPROVAL_B64: ${{ secrets.SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64 }}
+          APPROVAL_SHA256: ${{ vars.SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ "${TARGET}" = production ]; then
+            test -n "${APPROVAL_B64}"
+            printf '%s' "${APPROVAL_B64}" | base64 --decode > verified/production-identity-approval.json
+            test "$(sha256sum verified/production-identity-approval.json | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
+            node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!value || typeof value!=="object" || Array.isArray(value)) process.exit(1)' verified/production-identity-approval.json
+          else
+            printf '{}' > verified/production-identity-approval.json
+          fi
+          chmod 0400 verified/production-identity-approval.json
+
+      - name: Materialize protected staging action capability bundle
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          STAGING_CAPABILITY_BUNDLE_B64: ${{ secrets.SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64 }}
+          STAGING_CAPABILITY_BUNDLE_SHA256: ${{ vars.SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ "${TARGET}" = staging ]; then
+            test -n "${STAGING_CAPABILITY_BUNDLE_B64}"
+            [[ "${STAGING_CAPABILITY_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            printf '%s' "${STAGING_CAPABILITY_BUNDLE_B64}" | base64 --decode > verified/staging-action-capability.tar
+            test "$(stat -c %s verified/staging-action-capability.tar)" -le 1048576
+            test "$(sha256sum verified/staging-action-capability.tar | cut -d' ' -f1)" = "${STAGING_CAPABILITY_BUNDLE_SHA256}"
+            chmod 0400 verified/staging-action-capability.tar
+          fi
+
+      - name: Freeze verified deployment context and payload
+        id: context
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+          APPROVED_PRODUCTION_TOPOLOGY: ${{ vars.SPX_APPROVED_PRODUCTION_TOPOLOGY }}
+          TARGET_HOST_IDENTITY_SHA256: ${{ vars.SPX_TARGET_HOST_IDENTITY_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export OPERATION_ID="deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${TARGET}"
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+          const read = (path) => readFileSync(path);
+          const sha256 = (path) => createHash("sha256").update(read(path)).digest("hex");
+          const release = JSON.parse(read("verified/release/release-manifest.json"));
+          const signed = JSON.parse(read("verified/target/deployment-target-descriptor.json"));
+          const descriptor = signed.descriptor;
+          if (descriptor.releaseEnvironment !== process.env.TARGET || descriptor.runtimeEnvironment !== process.env.TARGET) throw new Error("descriptor target mismatch");
+          const expectedProject = process.env.TARGET === "production" ? "spx-production" : "spx-staging";
+          if (descriptor.composeProject !== expectedProject) throw new Error("descriptor compose project mismatch");
+          if (descriptor.topology !== process.env.APPROVED_PRODUCTION_TOPOLOGY) throw new Error("descriptor topology is not the approved production topology");
+          if (descriptor.target.hostIdentitySha256 !== process.env.TARGET_HOST_IDENTITY_SHA256) throw new Error("descriptor host identity mismatch");
+          if (!/^(legacy|split)$/.test(descriptor.topology)) throw new Error("descriptor topology invalid");
+          if (descriptor.releaseSourceSha !== release.sourceSha || descriptor.imageId !== release.imageId || descriptor.imageTag !== release.imageTag || descriptor.operatorBundleSha256 !== release.operatorBundleSha256) throw new Error("descriptor release tuple mismatch");
+          const backupVerification = process.env.TARGET === "production"
+            ? JSON.parse(read("verified/backup-verification.json"))
+            : null;
+          if (
+            process.env.TARGET === "production" &&
+            (!/^[0-9a-f]{64}$/.test(backupVerification?.evidenceSha256 ?? "") ||
+              backupVerification.databaseFingerprint !== `sha256:${descriptor.database.tlsFingerprintSha256}`)
+          ) throw new Error("verified backup binding is invalid");
+          const context = {
+            schemaVersion: 1,
+            operationId: process.env.OPERATION_ID,
+            target: process.env.TARGET,
+            releaseArtifactId: process.env.RELEASE_ARTIFACT_ID,
+            targetDescriptorArtifactId: process.env.TARGET_DESCRIPTOR_ARTIFACT_ID,
+            sourceSha: release.sourceSha,
+            imageId: release.imageId,
+            imageTag: release.imageTag,
+            topology: descriptor.topology,
+            composeProject: descriptor.composeProject,
+            environmentFile: descriptor.target.canonicalPaths.environmentFile,
+            databaseAccountHosts: descriptor.database.accountHosts,
+            releaseRoot: descriptor.target.canonicalPaths.releaseRoot,
+            activeProjection: process.env.TARGET === "production" ? "/root/SPX" : `${descriptor.target.canonicalPaths.releaseRoot}/current`,
+            hostIdentitySha256: descriptor.target.hostIdentitySha256,
+            readinessPort: Math.min(...descriptor.publishedPorts),
+            releaseManifestSha256: sha256("verified/release/release-manifest.json"),
+            operatorBundleSha256: sha256("verified/release/operator-bundle.tar"),
+            operatorIndexSha256: sha256("verified/release/operator-bundle.index.json"),
+            imageArchiveSha256: sha256("verified/release/spx-image.tar"),
+            descriptorArtifactSha256: sha256("verified/target/deployment-target-descriptor.json"),
+            descriptorClaimsSha256: sha256("verified/target/deployment-target-descriptor.attestation-claims.json"),
+            identityApprovalSha256: sha256("verified/production-identity-approval.json"),
+            backupEvidenceSha256: backupVerification?.evidenceSha256 ?? null,
+          };
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          writeFileSync("verified/deployment-context.json", JSON.stringify(canonical(context)), { mode: 0o444, flag: "wx" });
+          NODE
+          PAYLOAD_MEMBERS=(release target deployment-context.json production-identity-approval.json)
+          if [ "${TARGET}" = production ]; then
+            PAYLOAD_MEMBERS+=(backup-verification.json)
+          fi
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf verified/deploy-payload.tar \
+            -C verified "${PAYLOAD_MEMBERS[@]}"
+          PAYLOAD_SHA256="$(sha256sum verified/deploy-payload.tar | cut -d' ' -f1)"
+          echo "operation_id=${OPERATION_ID}" >> "${GITHUB_OUTPUT}"
+          echo "payload_sha256=${PAYLOAD_SHA256}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned SSH host identity
+        shell: bash
+        env:
+          SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          EXPECTED_KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SPX_KNOWN_HOSTS}"
+          test -n "${SPX_SSH_KEY}"
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_deploy_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_deploy_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${EXPECTED_KNOWN_HOSTS_SHA256}"
+          KNOWN_HOST_LOOKUP="${SPX_HOST}"
+          if [ "${SPX_PORT}" != 22 ]; then KNOWN_HOST_LOOKUP="[${SPX_HOST}]:${SPX_PORT}"; fi
+          ssh-keygen -F "${KNOWN_HOST_LOOKUP}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload verified immutable payload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${OPERATION_ID}" =~ ^[A-Za-z0-9._-]+$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            verified/deploy-payload.tar \
+            "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.tar"
+          if [ "${TARGET}" = staging ]; then
+            scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              verified/staging-action-capability.tar \
+              "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.staging-capability.tar"
+          fi
+
+      - name: Upload trusted install evidence producer
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${OPERATION_ID}" =~ ^[A-Za-z0-9._-]+$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            verified/protected-install-evidence-producer.tar \
+            "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.protected-install-producer.tar"
+
+      - name: Install only the verified release tuple
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          TARGET: ${{ inputs.target }}
+          OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.context.outputs.payload_sha256 }}
+          STAGING_CAPABILITY_BUNDLE_SHA256: ${{ vars.SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256 }}
+          PROTECTED_INSTALL_PRODUCER_SHA256: ${{ steps.install-evidence-producer.outputs.payload_sha256 }}
+          EVIDENCE_SIGNING_KEY_ID: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" \
+            bash -s -- "${TARGET}" "${OPERATION_ID}" "${PAYLOAD_SHA256}" \
+              "${STAGING_CAPABILITY_BUNDLE_SHA256}" "${PROTECTED_INSTALL_PRODUCER_SHA256}" \
+              "${EVIDENCE_SIGNING_KEY_ID}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          TARGET="$1"
+          OPERATION_ID="$2"
+          PAYLOAD_SHA256="$3"
+          STAGING_CAPABILITY_BUNDLE_SHA256="$4"
+          PROTECTED_INSTALL_PRODUCER_SHA256="$5"
+          EVIDENCE_SIGNING_KEY_ID="$6"
+          case "${TARGET}" in staging|production) ;; *) exit 1 ;; esac
+          [[ "${OPERATION_ID}" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "${PAYLOAD_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          if [ "${TARGET}" = staging ]; then
+            [[ "${STAGING_CAPABILITY_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            test -z "${PROTECTED_INSTALL_PRODUCER_SHA256}"
+          else
+            [[ "${PROTECTED_INSTALL_PRODUCER_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            [[ "${EVIDENCE_SIGNING_KEY_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          fi
+          test "$(id -u)" -eq 0
+
+          PAYLOAD="/tmp/${OPERATION_ID}.tar"
+          STAGING_CAPABILITY_PAYLOAD="/tmp/${OPERATION_ID}.staging-capability.tar"
+          PROTECTED_INSTALL_PRODUCER_PAYLOAD="/tmp/${OPERATION_ID}.protected-install-producer.tar"
+          test "$(sha256sum "${PAYLOAD}" | cut -d' ' -f1)" = "${PAYLOAD_SHA256}"
+          INCOMING="$(mktemp -d "/tmp/${OPERATION_ID}.XXXXXX")"
+          cleanup() {
+            rm -rf -- "${INCOMING}" "${PAYLOAD}" \
+              "${STAGING_CAPABILITY_PAYLOAD}" "${PROTECTED_INSTALL_PRODUCER_PAYLOAD}"
+          }
+          trap cleanup EXIT
+          tar -xf "${PAYLOAD}" -C "${INCOMING}" --no-same-owner --no-same-permissions
+          test -z "$(find "${INCOMING}" -type l -print -quit)"
+
+          PROTECTED_INSTALL_PRODUCERS_ROOT=/var/lib/spx-protected-install/producers
+          PROTECTED_INSTALL_PRODUCER_ROOT="${PROTECTED_INSTALL_PRODUCERS_ROOT}/${PROTECTED_INSTALL_PRODUCER_SHA256}"
+          PROTECTED_INSTALL_PRODUCER_STAGE="${PROTECTED_INSTALL_PRODUCERS_ROOT}/.${PROTECTED_INSTALL_PRODUCER_SHA256}.${OPERATION_ID}.new"
+          PROTECTED_INSTALL_CONTEXT_ROOT=/var/lib/spx-protected-install/context
+          PROTECTED_INSTALL_PRODUCER_CONTEXT="${PROTECTED_INSTALL_CONTEXT_ROOT}/verified-producer-context.json"
+          PROTECTED_INSTALL_BASE_CONTEXT_FILES="verified-install-context.json verified-producer-context.json verified-backup-evidence-summary.json verified-migration-receipt.json verified-online-ddl-receipts.json verified-grant-evidence.json verified-service-activation-journal.json verified-watchdog-journal.json verified-health-evidence.json verified-watermark-evidence.json verified-rollback-readiness.json verified-signing-context.json"
+          if [ "${TARGET}" = production ]; then
+            test -f "${PROTECTED_INSTALL_PRODUCER_PAYLOAD}"
+            test "$(sha256sum "${PROTECTED_INSTALL_PRODUCER_PAYLOAD}" | cut -d' ' -f1)" = \
+              "${PROTECTED_INSTALL_PRODUCER_SHA256}"
+            PRODUCER_STAGE="${INCOMING}/protected-install-evidence-producer"
+            install -d -m 0700 "${PRODUCER_STAGE}"
+            tar -xf "${PROTECTED_INSTALL_PRODUCER_PAYLOAD}" -C "${PRODUCER_STAGE}" \
+              --no-same-owner --no-same-permissions
+            test -z "$(find "${PRODUCER_STAGE}" -type l -print -quit)"
+            PRODUCER_STAGE="${PRODUCER_STAGE}" node --input-type=module <<'NODE'
+            import { readdirSync, statSync } from "node:fs";
+            import { join, relative } from "node:path";
+            const root = process.env.PRODUCER_STAGE;
+            const files = [];
+            const visit = (directory) => {
+              for (const name of readdirSync(directory).sort()) {
+                const path = join(directory, name);
+                const status = statSync(path);
+                if (status.isDirectory()) visit(path);
+                else if (status.isFile()) files.push(relative(root, path).replaceAll("\\", "/"));
+                else throw new Error("trusted install evidence payload has an unsafe entry");
+              }
+            };
+            visit(root);
+            const expected = [
+              "context/verified-producer-context.json",
+              "deploy/protected-install-evidence.schema.json",
+              "scripts/lib/evidence-artifact.mjs",
+              "scripts/lib/mysql-connection-config.mjs",
+              "scripts/lib/safe-file.mjs",
+              "scripts/production-mutation-host-lock.mjs",
+              "scripts/protected-install-evidence.mjs",
+              "scripts/protected-install-watchdog.mjs",
+            ].sort();
+            if (JSON.stringify(files) !== JSON.stringify(expected)) {
+              throw new Error("trusted install evidence payload file set changed");
+            }
+            NODE
+            for root in \
+              /var/lib/spx-protected-install \
+              "${PROTECTED_INSTALL_PRODUCERS_ROOT}" \
+              "${PROTECTED_INSTALL_CONTEXT_ROOT}" \
+              /var/lib/spx-protected-install/prepared \
+              /var/lib/spx-protected-install/committed \
+              /var/lib/spx-protected-install/export; do
+              if [ -e "${root}" ]; then
+                test -d "${root}"
+                test ! -L "${root}"
+                test "$(stat -c %u "${root}")" -eq 0
+                test "$(stat -c %a "${root}")" = 700
+              else
+                install -d -m 0700 "${root}"
+              fi
+            done
+            install_trusted_producer_file() {
+              local source="$1"
+              local target="$2"
+              if [ -e "${target}" ]; then
+                test -f "${target}"
+                test ! -L "${target}"
+                test "$(stat -c %u "${target}")" -eq 0
+                test "$(stat -c %a "${target}")" = 400
+                cmp -s "${source}" "${target}"
+              else
+                install -m 0400 "${source}" "${target}"
+              fi
+            }
+            PROTECTED_INSTALL_PRODUCER_FILES="context/verified-producer-context.json deploy/protected-install-evidence.schema.json scripts/protected-install-evidence.mjs scripts/protected-install-watchdog.mjs scripts/production-mutation-host-lock.mjs scripts/lib/evidence-artifact.mjs scripts/lib/mysql-connection-config.mjs scripts/lib/safe-file.mjs"
+            verify_installed_producer() {
+              local path
+              test -d "${PROTECTED_INSTALL_PRODUCER_ROOT}"
+              test ! -L "${PROTECTED_INSTALL_PRODUCER_ROOT}"
+              test "$(stat -c %u "${PROTECTED_INSTALL_PRODUCER_ROOT}")" -eq 0
+              test "$(stat -c %a "${PROTECTED_INSTALL_PRODUCER_ROOT}")" = 700
+              test "$(find "${PROTECTED_INSTALL_PRODUCER_ROOT}" -type f | wc -l)" -eq 8
+              test -z "$(find "${PROTECTED_INSTALL_PRODUCER_ROOT}" -type l -print -quit)"
+              for path in ${PROTECTED_INSTALL_PRODUCER_FILES}; do
+                test -f "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}"
+                test ! -L "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}"
+                test "$(stat -c %u "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}")" -eq 0
+                test "$(stat -c %a "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}")" = 400
+                test "$(stat -c %h "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}")" = 1
+                cmp -s "${PRODUCER_STAGE}/${path}" "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}"
+              done
+            }
+            if [ -e "${PROTECTED_INSTALL_PRODUCER_ROOT}" ]; then
+              verify_installed_producer
+            else
+              test ! -e "${PROTECTED_INSTALL_PRODUCER_STAGE}"
+              install -d -m 0700 \
+                "${PROTECTED_INSTALL_PRODUCER_STAGE}/context" \
+                "${PROTECTED_INSTALL_PRODUCER_STAGE}/deploy" \
+                "${PROTECTED_INSTALL_PRODUCER_STAGE}/scripts/lib"
+              for path in ${PROTECTED_INSTALL_PRODUCER_FILES}; do
+                install -m 0400 \
+                  "${PRODUCER_STAGE}/${path}" "${PROTECTED_INSTALL_PRODUCER_STAGE}/${path}"
+              done
+              PROTECTED_INSTALL_PRODUCER_STAGE="${PROTECTED_INSTALL_PRODUCER_STAGE}" node --input-type=module - <<'NODE'
+              import { closeSync, fsyncSync, openSync, readdirSync, statSync } from "node:fs";
+              import { join } from "node:path";
+              const visit = (path) => {
+                if (statSync(path).isDirectory()) for (const name of readdirSync(path)) visit(join(path, name));
+                const descriptor = openSync(path, 0);
+                try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+              };
+              visit(process.env.PROTECTED_INSTALL_PRODUCER_STAGE);
+              NODE
+              mv "${PROTECTED_INSTALL_PRODUCER_STAGE}" "${PROTECTED_INSTALL_PRODUCER_ROOT}"
+              PROTECTED_INSTALL_PRODUCERS_ROOT="${PROTECTED_INSTALL_PRODUCERS_ROOT}" node --input-type=module -e '
+                import { closeSync, fsyncSync, openSync } from "node:fs";
+                const descriptor = openSync(process.env.PROTECTED_INSTALL_PRODUCERS_ROOT, 0);
+                try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+              '
+              verify_installed_producer
+            fi
+            for path in \
+              deploy/protected-install-evidence.schema.json \
+              scripts/protected-install-evidence.mjs \
+              scripts/protected-install-watchdog.mjs \
+              scripts/production-mutation-host-lock.mjs \
+              scripts/lib/evidence-artifact.mjs \
+              scripts/lib/mysql-connection-config.mjs \
+              scripts/lib/safe-file.mjs; do
+              cmp -s "${PRODUCER_STAGE}/${path}" "${PROTECTED_INSTALL_PRODUCER_ROOT}/${path}"
+            done
+            install_trusted_producer_file \
+              "${PRODUCER_STAGE}/context/verified-producer-context.json" \
+              "${PROTECTED_INSTALL_PRODUCER_CONTEXT}"
+          fi
+
+          CONTEXT="${INCOMING}/deployment-context.json"
+          read_context() { node -e 'const v=require(process.argv[1]); const x=v[process.argv[2]]; if(typeof x!=="string") process.exit(1); process.stdout.write(x)' "${CONTEXT}" "$1"; }
+          read_context_number() { node -e 'const v=require(process.argv[1]); const x=v[process.argv[2]]; if(!Number.isSafeInteger(x)) process.exit(1); process.stdout.write(String(x))' "${CONTEXT}" "$1"; }
+          SOURCE_SHA="$(read_context sourceSha)"
+          IMAGE_ID="$(read_context imageId)"
+          IMAGE_TAG="$(read_context imageTag)"
+          TOPOLOGY="$(read_context topology)"
+          COMPOSE_PROJECT="$(read_context composeProject)"
+          ENVIRONMENT_FILE="$(read_context environmentFile)"
+          DESCRIPTOR_RELEASE_ROOT="$(read_context releaseRoot)"
+          ACTIVE_PROJECTION="$(read_context activeProjection)"
+          READINESS_PORT="$(read_context_number readinessPort)"
+          RELEASE_MANIFEST_SHA256="$(read_context releaseManifestSha256)"
+          TARGET_SHA256="$(read_context descriptorArtifactSha256)"
+          OPERATOR_BUNDLE_SHA256="$(read_context operatorBundleSha256)"
+          BACKUP_EVIDENCE_SHA256=""
+          RUNTIME_ENVIRONMENT="${TARGET}"
+          if [ "${TARGET}" = staging ]; then
+            STAGING_RUN_ID="${OPERATION_ID}"
+            node -e 'const v=require(process.argv[1]); if(v.backupEvidenceSha256!==null) process.exit(1)' "${CONTEXT}"
+          else
+            STAGING_RUN_ID=not-staging
+            BACKUP_EVIDENCE_SHA256="$(read_context backupEvidenceSha256)"
+            [[ "${BACKUP_EVIDENCE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          fi
+          test "$(read_context operationId)" = "${OPERATION_ID}"
+          test "$(read_context target)" = "${TARGET}"
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "${IMAGE_TAG}" = "spx-app:${SOURCE_SHA}"
+          case "${TOPOLOGY}" in split) ;; *) exit 1 ;; esac
+          if [ "${TARGET}" = production ]; then
+            test "${DESCRIPTOR_RELEASE_ROOT}" = /opt/spx-production/release
+            test "${ACTIVE_PROJECTION}" = /root/SPX
+          else
+            test "${DESCRIPTOR_RELEASE_ROOT}" = /opt/spx-staging/release
+            test "${ACTIVE_PROJECTION}" = /opt/spx-staging/release/current
+          fi
+          test "${READINESS_PORT}" -ge 1
+          test "${READINESS_PORT}" -le 65535
+          test -f "${ENVIRONMENT_FILE}"
+          test ! -L "${ENVIRONMENT_FILE}"
+          test "$(stat -c %U "${ENVIRONMENT_FILE}")" = root
+          case "$(stat -c %a "${ENVIRONMENT_FILE}")" in 400|440|600|640) ;; *) exit 1 ;; esac
+
+          verify_payload_file() {
+            expected="$(read_context "$1")"
+            test "$(sha256sum "${INCOMING}/$2" | cut -d' ' -f1)" = "${expected}"
+          }
+          verify_payload_file releaseManifestSha256 release/release-manifest.json
+          verify_payload_file operatorBundleSha256 release/operator-bundle.tar
+          verify_payload_file operatorIndexSha256 release/operator-bundle.index.json
+          verify_payload_file imageArchiveSha256 release/spx-image.tar
+          verify_payload_file descriptorArtifactSha256 target/deployment-target-descriptor.json
+          verify_payload_file descriptorClaimsSha256 target/deployment-target-descriptor.attestation-claims.json
+          verify_payload_file identityApprovalSha256 production-identity-approval.json
+
+          node "${INCOMING}/release/bootstrap/scripts/build-operator-bundle.mjs" verify-archive \
+            --archive="${INCOMING}/release/operator-bundle.tar" \
+            --index="${INCOMING}/release/operator-bundle.index.json"
+          node "${INCOMING}/release/bootstrap/scripts/build-operator-bundle.mjs" materialize \
+            --archive="${INCOMING}/release/operator-bundle.tar" \
+            --index="${INCOMING}/release/operator-bundle.index.json" \
+            --root="${INCOMING}/operator"
+
+          PRODUCTION_BINDING=""
+          if [ "${TARGET}" = production ]; then
+            PRODUCTION_BINDING="${INCOMING}/verified-release-binding.json"
+            EVIDENCE_MODULE="${INCOMING}/operator/scripts/lib/evidence-artifact.mjs" \
+            BINDING_PATH="${PRODUCTION_BINDING}" \
+            BINDING_SOURCE_SHA="${SOURCE_SHA}" \
+            BINDING_IMAGE_DIGEST="${IMAGE_ID}" \
+            BINDING_RELEASE_MANIFEST_SHA256="${RELEASE_MANIFEST_SHA256}" \
+            BINDING_TOPOLOGY="${TOPOLOGY}" \
+            BINDING_COMPOSE_PROJECT="${COMPOSE_PROJECT}" \
+            BINDING_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" \
+            BINDING_OPERATOR_BUNDLE_SHA256="$(read_context operatorBundleSha256)" \
+            BINDING_IDENTITY_APPROVAL_SHA256="$(read_context identityApprovalSha256)" \
+              node --input-type=module - <<'NODE'
+            import { writeFileSync } from "node:fs";
+            import { pathToFileURL } from "node:url";
+            const { canonicalJson, validateReleaseBinding } = await import(
+              pathToFileURL(process.env.EVIDENCE_MODULE).href
+            );
+            const binding = validateReleaseBinding({
+              candidateSha: process.env.BINDING_SOURCE_SHA,
+              imageDigest: process.env.BINDING_IMAGE_DIGEST,
+              releaseManifestSha256: process.env.BINDING_RELEASE_MANIFEST_SHA256,
+              environment: "supervised-production",
+              topology: process.env.BINDING_TOPOLOGY,
+              composeProject: process.env.BINDING_COMPOSE_PROJECT,
+              targetDescriptorSha256: process.env.BINDING_TARGET_DESCRIPTOR_SHA256,
+              operatorBundleSha256: process.env.BINDING_OPERATOR_BUNDLE_SHA256,
+              productionIdentityApprovalSha256: process.env.BINDING_IDENTITY_APPROVAL_SHA256,
+            });
+            writeFileSync(process.env.BINDING_PATH, canonicalJson(binding), { flag: "wx", mode: 0o400 });
+          NODE
+          fi
+
+          CURRENT_RELEASE=""
+          if [ -L "${ACTIVE_PROJECTION}" ]; then CURRENT_RELEASE="$(readlink -f "${ACTIVE_PROJECTION}")"; fi
+          CURRENT_PARENT=""
+          ROLLBACK_IMAGE=""
+          ROLLBACK_RELEASE_MANIFEST_SHA256=""
+          ROLLBACK_SERVICE_SET_SHA256=""
+          ROLLBACK_CONFIG_SHA256=""
+          ROLLBACK_RUNTIME_COMPATIBLE=false
+          PROTECTED_ADOPTION_PRECONDITION=/var/lib/spx-production-mutation
+          if [ "${TARGET}" = production ]; then
+            test -d "${PROTECTED_ADOPTION_PRECONDITION}"
+            test ! -L "${PROTECTED_ADOPTION_PRECONDITION}"
+            test "$(stat -c %U "${PROTECTED_ADOPTION_PRECONDITION}")" = root
+            test "$(( $(stat -c %a "${PROTECTED_ADOPTION_PRECONDITION}") % 100 ))" -eq 0
+            test -n "${CURRENT_RELEASE}"
+            case "${CURRENT_RELEASE}" in /root/spx-releases/*/operator) ;; *) exit 1 ;; esac
+            CURRENT_PARENT="$(dirname "${CURRENT_RELEASE}")"
+            test -f "${CURRENT_PARENT}/deployment-context.json"
+            test -f "${CURRENT_PARENT}/release-manifest.json"
+            test -f "${CURRENT_PARENT}/production-identity-approval.json"
+            ROLLBACK_IMAGE="$(node -p 'require(process.argv[1]).imageId' "${CURRENT_PARENT}/release-manifest.json")"
+            [[ "${ROLLBACK_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            ROLLBACK_RELEASE_MANIFEST_SHA256="$(sha256sum "${CURRENT_PARENT}/release-manifest.json" | cut -d' ' -f1)"
+            ROLLBACK_CONFIG_SHA256="$(sha256sum "${CURRENT_PARENT}/deployment-context.json" | cut -d' ' -f1)"
+            previous_topology="$(node -p 'require(process.argv[1]).topology' "${CURRENT_PARENT}/deployment-context.json")"
+            ROLLBACK_SERVICE_SET_SHA256="$(printf '%s' "${previous_topology}|web-api|notification-service|line-service|ocr-service|worker-ifn-split|worker-ptwl-split" | sha256sum | cut -d' ' -f1)"
+            node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const previous=JSON.parse(readFileSync(process.argv[1],"utf8"));
+              const candidate=JSON.parse(readFileSync(process.argv[2],"utf8"));
+              const classification=JSON.parse(readFileSync(process.argv[3],"utf8"));
+              const previousContext=JSON.parse(readFileSync(process.argv[4],"utf8"));
+              const previousApproval=JSON.parse(readFileSync(process.argv[5],"utf8"));
+              for(const release of [previous,candidate]) {
+                if(!Number.isSafeInteger(release.schema?.min) || !Number.isSafeInteger(release.schema?.max) || release.schema.min < 0 || release.schema.min > release.schema.max) throw new Error("release schema range is invalid");
+              }
+              if(candidate.schema.max < previous.schema.max || candidate.schema.min > previous.schema.max) throw new Error("candidate schema transition would require an unsafe downgrade or gap");
+              if(previous.schema.max < candidate.schema.max) throw new Error("previous runtime cannot roll back on the candidate schema; install a compatible baseline first");
+              const requiredServices=["line-service","notification-service","ocr-service","web-api","worker-ifn-split","worker-ptwl-split"];
+              if(previousContext.topology!=="split" || !Array.isArray(previousApproval.services) || JSON.stringify([...previousApproval.services].sort())!==JSON.stringify(requiredServices)) throw new Error("protected upgrade requires the complete existing same-host split baseline; legacy or separate-host adoption requires coordinated producer retirement");
+              for(const [name, item] of Object.entries(classification.migrations ?? {})) {
+                const version=Number.parseInt(name.slice(0,3),10);
+                if(version > previous.schema.max && version <= candidate.schema.max && !["expand","control-plane"].includes(item?.class)) throw new Error("forward migration is not rollback-safe expansion");
+              }
+            ' "${CURRENT_PARENT}/release-manifest.json" "${INCOMING}/release/release-manifest.json" "${INCOMING}/operator/deploy/migration-classification.json" "${CURRENT_PARENT}/deployment-context.json" "${CURRENT_PARENT}/production-identity-approval.json"
+            ROLLBACK_RUNTIME_COMPATIBLE=true
+            (cd "${INCOMING}/operator" && node scripts/production-project-identity.mjs --action=verify \
+              --approval="${CURRENT_PARENT}/production-identity-approval.json" \
+              --release-manifest="${CURRENT_PARENT}/release-manifest.json")
+          elif [ -n "${CURRENT_RELEASE}" ]; then
+            case "${CURRENT_RELEASE}" in /opt/spx-staging/release/*/operator) ;; *) exit 1 ;; esac
+          fi
+          if [ "${TARGET}" = production ]; then
+            RELEASE_PARENT="/root/spx-releases/${SOURCE_SHA}"
+          else
+            RELEASE_PARENT="${DESCRIPTOR_RELEASE_ROOT}/${SOURCE_SHA}"
+          fi
+          RELEASE_DIR="${RELEASE_PARENT}/operator"
+          ROLLBACK_STATE_ROOT=/var/lib/spx-protected-install/rollback
+          if [ "${TARGET}" = staging ]; then ROLLBACK_STATE_ROOT=/var/lib/spx-staging-rollout/rollback; fi
+          ROLLBACK_STATE_DIR="${ROLLBACK_STATE_ROOT}/${OPERATION_ID}"
+          ROLLBACK_JOURNAL="${ROLLBACK_STATE_DIR}/rollback-journal.json"
+          install -d -m 0700 "${ROLLBACK_STATE_ROOT}"
+          test ! -e "${ROLLBACK_STATE_DIR}"
+          install -d -m 0700 "${ROLLBACK_STATE_DIR}"
+          OPERATION_ID="${OPERATION_ID}" ROLLBACK_JOURNAL="${ROLLBACK_JOURNAL}" ROLLBACK_STATE_DIR="${ROLLBACK_STATE_DIR}" CURRENT_RELEASE="${CURRENT_RELEASE}" ROLLBACK_IMAGE="${ROLLBACK_IMAGE}" ROLLBACK_RELEASE_MANIFEST_SHA256="${ROLLBACK_RELEASE_MANIFEST_SHA256}" ROLLBACK_CONFIG_SHA256="${ROLLBACK_CONFIG_SHA256}" ROLLBACK_SERVICE_SET_SHA256="${ROLLBACK_SERVICE_SET_SHA256}" ROLLBACK_RUNTIME_COMPATIBLE="${ROLLBACK_RUNTIME_COMPATIBLE}" node --input-type=module - <<'NODE'
+          import { closeSync, constants, fsyncSync, openSync, writeSync } from "node:fs";
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const value=canonical({
+            schemaVersion:2,
+            operationId:process.env.OPERATION_ID,
+            previousRelease:process.env.CURRENT_RELEASE || null,
+            previousImageDigest:process.env.ROLLBACK_IMAGE || null,
+            previousReleaseManifestSha256:process.env.ROLLBACK_RELEASE_MANIFEST_SHA256 || null,
+            previousConfigSha256:process.env.ROLLBACK_CONFIG_SHA256 || null,
+            previousServiceSetSha256:process.env.ROLLBACK_SERVICE_SET_SHA256 || null,
+            runtimeRollbackCompatible:process.env.ROLLBACK_RUNTIME_COMPATIBLE === "true",
+            recordedAt:new Date().toISOString(),
+          });
+          const path=process.env.ROLLBACK_JOURNAL;
+          const descriptor=openSync(path, constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|(constants.O_NOFOLLOW??0), 0o400);
+          try { writeSync(descriptor, `${JSON.stringify(value)}\n`); fsyncSync(descriptor); } finally { closeSync(descriptor); }
+          const directory=openSync(process.env.ROLLBACK_STATE_DIR, constants.O_RDONLY);
+          try { fsyncSync(directory); } finally { closeSync(directory); }
+          NODE
+          ROLLBACK_SHA256="$(sha256sum "${ROLLBACK_JOURNAL}" | cut -d' ' -f1)"
+          LOCKED=false
+          SLOT_CLAIM_ATTEMPTED=false
+          PROTECTED_INSTALL_COMMIT_STARTED=false
+          RUNTIME_DEPS_CONTAINER=""
+          PROTECTED_PREPARED=false
+          PROTECTED_RESTORED=false
+          PROTECTED_CONTENT_RESTORED=false
+          PROTECTED_DEPLOYMENT_COMMITTED=false
+          PROTECTED_MUTATED=false
+          CAPABILITY_BACKUP=""
+          CA_BACKUP=""
+          DATABASE_BACKUP=""
+          FINAL_POLICY_BACKUP=""
+          FINAL_TOKEN_BACKUP=""
+          CAPABILITY_CAPTURED=false
+          CA_CAPTURED=false
+          DATABASE_CAPTURED=false
+          FINAL_POLICY_CAPTURED=false
+          FINAL_TOKEN_CAPTURED=false
+          protected_path_hash() {
+            protected_path="$1"
+            if [ -d "${protected_path}" ]; then
+              (cd "${protected_path}" && {
+                find . -mindepth 1 -printf '%y %m %P\n' | LC_ALL=C sort || exit $?
+                find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum || exit $?
+              } | sha256sum | cut -d' ' -f1) || return $?
+            else
+              sha256sum "${protected_path}" | cut -d' ' -f1 || return $?
+            fi
+          }
+          assert_protected_path_absent() {
+            if [ -e "$1" ] || [ -L "$1" ]; then return 1; fi
+          }
+          capture_protected_prior() {
+            protected_key="$1"
+            protected_path="$2"
+            protected_backup="$3"
+            protected_kind="$4"
+            if [ -e "${protected_path}" ] || [ -L "${protected_path}" ]; then
+              test ! -L "${protected_path}" || return $?
+              if [ "${protected_kind}" = directory ]; then
+                test -d "${protected_path}" || return $?
+              else
+                test -f "${protected_path}" || return $?
+              fi
+              protected_owner="$(stat -c %U "${protected_path}")" || return $?
+              test "${protected_owner}" = root || return $?
+              protected_mode_value="$(stat -c %a "${protected_path}")" || return $?
+              protected_hash_value="$(protected_path_hash "${protected_path}")" || return $?
+              printf -v "${protected_key}_EXISTED" '%s' true || return $?
+              printf -v "${protected_key}_MODE" '%s' "${protected_mode_value}" || return $?
+              printf -v "${protected_key}_HASH" '%s' "${protected_hash_value}" || return $?
+              assert_protected_path_absent "${protected_backup}" || return $?
+              cp -a --reflink=auto -- "${protected_path}" "${protected_backup}" || return $?
+              sync -f "${protected_backup}" || return $?
+            else
+              printf -v "${protected_key}_EXISTED" '%s' false || return $?
+              printf -v "${protected_key}_MODE" '%s' absent || return $?
+              printf -v "${protected_key}_HASH" '%s' absent || return $?
+            fi
+            printf -v "${protected_key}_CAPTURED" '%s' true || return $?
+          }
+          restore_protected_object() {
+            protected_key="$1"
+            protected_path="$2"
+            protected_backup="$3"
+            protected_kind="$4"
+            protected_captured="${protected_key}_CAPTURED"
+            if [ "${!protected_captured}" != true ]; then return 0; fi
+            protected_existed="${protected_key}_EXISTED"
+            protected_mode="${protected_key}_MODE"
+            protected_hash="${protected_key}_HASH"
+            protected_restore="${protected_path}.${OPERATION_ID}.restore"
+            rm -rf -- "${protected_restore}" || return $?
+            assert_protected_path_absent "${protected_restore}" || return $?
+            if [ "${!protected_existed}" = true ]; then
+              test -e "${protected_backup}" || return $?
+              test ! -L "${protected_backup}" || return $?
+              cp -a --reflink=auto -- "${protected_backup}" "${protected_restore}" || return $?
+              test ! -L "${protected_restore}" || return $?
+              if [ "${protected_kind}" = directory ]; then
+                test -d "${protected_restore}" || return $?
+                rm -rf -- "${protected_path}" || return $?
+                assert_protected_path_absent "${protected_path}" || return $?
+                mv -T "${protected_restore}" "${protected_path}" || return $?
+              else
+                test -f "${protected_restore}" || return $?
+                mv -Tf "${protected_restore}" "${protected_path}" || return $?
+              fi
+              test ! -L "${protected_path}" || return $?
+              if [ "${protected_kind}" = directory ]; then
+                test -d "${protected_path}" || return $?
+              else
+                test -f "${protected_path}" || return $?
+              fi
+              protected_actual_mode="$(stat -c %a "${protected_path}")" || return $?
+              test "${protected_actual_mode}" = "${!protected_mode}" || return $?
+              protected_actual_owner="$(stat -c %U "${protected_path}")" || return $?
+              test "${protected_actual_owner}" = root || return $?
+              protected_actual_hash="$(protected_path_hash "${protected_path}")" || return $?
+              test "${protected_actual_hash}" = "${!protected_hash}" || return $?
+            else
+              rm -rf -- "${protected_path}" || return $?
+              assert_protected_path_absent "${protected_path}" || return $?
+            fi
+          }
+          cleanup_protected_residues() {
+            for protected_residue in \
+              "${CAPABILITY_NEW:-}" "${CA_NEW:-}" "${STAGING_SECRET_STAGE:-}" \
+              "${FINAL_POLICY_NEW:-}" "${FINAL_TOKEN_NEW:-}" "${DATABASE_RETIRED:-}" \
+              "${DATABASE_BACKUP:-}" "${CA_BACKUP:-}" "${FINAL_POLICY_BACKUP:-}" \
+              "${FINAL_TOKEN_BACKUP:-}" "${CAPABILITY_BACKUP:-}"; do
+              if [ -n "${protected_residue}" ]; then
+                rm -rf -- "${protected_residue}" || return $?
+                assert_protected_path_absent "${protected_residue}" || return $?
+              fi
+            done
+          }
+          restore_protected_files() {
+            if [ "${TARGET}" != staging ] || [ "${PROTECTED_PREPARED}" != true ] || [ "${PROTECTED_RESTORED}" = true ]; then return 0; fi
+            if [ "${PROTECTED_DEPLOYMENT_COMMITTED}" = true ]; then return 1; fi
+            if [ "${PROTECTED_CONTENT_RESTORED}" != true ]; then
+              restore_protected_object DATABASE /run/spx-staging-actions/database "${DATABASE_BACKUP}" directory || return $?
+              restore_protected_object CA /etc/spx-staging/db-ca.pem "${CA_BACKUP}" file || return $?
+              restore_protected_object FINAL_POLICY /etc/spx-staging/phase3-production-observer-policy.json "${FINAL_POLICY_BACKUP}" file || return $?
+              restore_protected_object FINAL_TOKEN /run/spx-staging-actions/phase3-production-observer-token "${FINAL_TOKEN_BACKUP}" file || return $?
+              restore_protected_object CAPABILITY /etc/spx-staging/action-capability.json "${CAPABILITY_BACKUP}" file || return $?
+              sync -f /etc/spx-staging || return $?
+              sync -f /run/spx-staging-actions || return $?
+              PROTECTED_CONTENT_RESTORED=true
+            fi
+            cleanup_protected_residues || return $?
+            sync -f /etc/spx-staging || return $?
+            sync -f /run/spx-staging-actions || return $?
+            PROTECTED_RESTORED=true
+            PROTECTED_PREPARED=false
+          }
+          discard_protected_backups() {
+            if [ "${TARGET}" != staging ] || [ "${PROTECTED_PREPARED}" != true ]; then return 0; fi
+            if [ "${PROTECTED_DEPLOYMENT_COMMITTED}" != true ]; then return 1; fi
+            cleanup_protected_residues || return $?
+            sync -f /etc/spx-staging || return $?
+            sync -f /run/spx-staging-actions || return $?
+            PROTECTED_PREPARED=false
+          }
+          early_on_error() {
+            status=$?
+            trap - ERR
+            if [ -n "${RUNTIME_DEPS_CONTAINER}" ]; then
+              docker rm -f "${RUNTIME_DEPS_CONTAINER}" >/dev/null 2>&1 || true
+            fi
+            case "${RELEASE_PARENT}.new" in /root/spx-releases/*.new|/opt/spx-staging/release/*.new) rm -rf -- "${RELEASE_PARENT}.new" 2>/dev/null || true ;; esac
+            if [ "${PROTECTED_DEPLOYMENT_COMMITTED}" = true ]; then
+              discard_protected_backups || true
+            else
+              restore_protected_files || restore_protected_files || true
+            fi
+            if [ "${TARGET}" = production ] && [ "${LOCKED}" = true ]; then
+              node "${INCOMING}/operator/scripts/production-mutation-host-lock.mjs" --action=terminal \
+                --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_MANIFEST_SHA256}" \
+                --target-sha256="${TARGET_SHA256}" --postcondition=rolled-back \
+                --postcondition-sha256="${ROLLBACK_SHA256}" || true
+            fi
+            exit "${status}"
+          }
+          trap early_on_error ERR
+          if [ "${TARGET}" = production ]; then
+            (cd "${INCOMING}/operator" && node scripts/production-mutation-host-lock.mjs --action=acquire \
+              --operation-id="${OPERATION_ID}" --operation-type=install \
+              --release-sha256="${RELEASE_MANIFEST_SHA256}" --target-sha256="${TARGET_SHA256}" \
+              --rollback-journal-sha256="${ROLLBACK_SHA256}" --rollback-image="${ROLLBACK_IMAGE}" \
+              --rollback-release-sha256="${ROLLBACK_RELEASE_MANIFEST_SHA256}" \
+              --rollback-service-set-sha256="${ROLLBACK_SERVICE_SET_SHA256}" \
+              --rollback-config-sha256="${ROLLBACK_CONFIG_SHA256}" \
+              --lease-seconds=1800)
+            LOCKED=true
+            systemctl is-enabled --quiet spx-production-mutation-reconciler.service
+            systemctl start spx-production-mutation-reconciler.service
+            (cd "${INCOMING}/operator" && node scripts/production-mutation-host-lock.mjs --action=verify \
+              --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_MANIFEST_SHA256}" \
+              --target-sha256="${TARGET_SHA256}")
+          fi
+
+          docker load --input "${INCOMING}/release/spx-image.tar" >/dev/null
+          test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "${IMAGE_ID}"
+
+          if [ -e "${RELEASE_PARENT}" ]; then
+            test -d "${RELEASE_DIR}"
+            node "${INCOMING}/release/bootstrap/scripts/build-operator-bundle.mjs" verify \
+              --archive="${INCOMING}/release/operator-bundle.tar" \
+              --index="${INCOMING}/release/operator-bundle.index.json" \
+              --root="${RELEASE_DIR}"
+            test "$(sha256sum "${RELEASE_PARENT}/release-manifest.json" | cut -d' ' -f1)" = "${RELEASE_MANIFEST_SHA256}"
+            test "$(sha256sum "${RELEASE_PARENT}/deployment-target-descriptor.json" | cut -d' ' -f1)" = "${TARGET_SHA256}"
+            test "$(sha256sum "${RELEASE_PARENT}/production-identity-approval.json" | cut -d' ' -f1)" = "$(read_context identityApprovalSha256)"
+            if [ "${TARGET}" = production ]; then
+              test -f "${RELEASE_PARENT}/verified-release-binding.json"
+              test ! -L "${RELEASE_PARENT}/verified-release-binding.json"
+              cmp -s "${RELEASE_PARENT}/verified-release-binding.json" "${PRODUCTION_BINDING}"
+            fi
+            test -f "${RELEASE_DIR}/node_modules/mysql2/package.json"
+          else
+            test ! -e "${RELEASE_PARENT}.new"
+            install -d -m 0700 "$(dirname "${RELEASE_PARENT}")" "${RELEASE_PARENT}.new"
+            cp -a "${INCOMING}/operator" "${RELEASE_PARENT}.new/operator"
+            RUNTIME_DEPS_CONTAINER="$(docker create --entrypoint /bin/true "${IMAGE_ID}")"
+            [[ "${RUNTIME_DEPS_CONTAINER}" =~ ^[0-9a-f]{64}$ ]]
+            docker cp "${RUNTIME_DEPS_CONTAINER}:/app/node_modules" "${RELEASE_PARENT}.new/operator/node_modules"
+            docker rm "${RUNTIME_DEPS_CONTAINER}" >/dev/null
+            RUNTIME_DEPS_CONTAINER=""
+            test -f "${RELEASE_PARENT}.new/operator/node_modules/mysql2/package.json"
+            install -m 0444 "${INCOMING}/release/release-manifest.json" "${RELEASE_PARENT}.new/release-manifest.json"
+            install -m 0444 "${CONTEXT}" "${RELEASE_PARENT}.new/deployment-context.json"
+            install -m 0444 "${INCOMING}/target/deployment-target-descriptor.json" "${RELEASE_PARENT}.new/deployment-target-descriptor.json"
+            install -m 0444 "${INCOMING}/target/deployment-target-descriptor.attestation-claims.json" "${RELEASE_PARENT}.new/deployment-target-descriptor.attestation-claims.json"
+            install -m 0400 "${INCOMING}/production-identity-approval.json" "${RELEASE_PARENT}.new/production-identity-approval.json"
+            if [ "${TARGET}" = production ]; then
+              install -m 0400 "${PRODUCTION_BINDING}" "${RELEASE_PARENT}.new/verified-release-binding.json"
+            fi
+            chmod -R a-w "${RELEASE_PARENT}.new"
+            mv "${RELEASE_PARENT}.new" "${RELEASE_PARENT}"
+          fi
+          if [ "${TARGET}" = staging ]; then
+            test -f "${STAGING_CAPABILITY_PAYLOAD}"
+            test ! -L "${STAGING_CAPABILITY_PAYLOAD}"
+            test "$(sha256sum "${STAGING_CAPABILITY_PAYLOAD}" | cut -d' ' -f1)" = "${STAGING_CAPABILITY_BUNDLE_SHA256}"
+            node "${RELEASE_DIR}/scripts/lib/staging-protected-capability-archive.mjs" validate-archive \
+              --archive="${STAGING_CAPABILITY_PAYLOAD}"
+            STAGING_CAPABILITY_ROOT="${INCOMING}/staging-capability"
+            install -d -m 0700 "${STAGING_CAPABILITY_ROOT}"
+            tar -xf "${STAGING_CAPABILITY_PAYLOAD}" -C "${STAGING_CAPABILITY_ROOT}" --no-same-owner --no-same-permissions
+            node "${RELEASE_DIR}/scripts/lib/staging-protected-capability-archive.mjs" validate-extracted \
+              --root="${STAGING_CAPABILITY_ROOT}" \
+              --target-descriptor="${INCOMING}/target/deployment-target-descriptor.json" \
+              --continuous-policy="/etc/spx-staging/production-observer.json"
+            STAGING_CAPABILITY_ROOT="${STAGING_CAPABILITY_ROOT}" RELEASE_MANIFEST_SHA256="${RELEASE_MANIFEST_SHA256}" SOURCE_SHA="${SOURCE_SHA}" IMAGE_ID="${IMAGE_ID}" TARGET_SHA256="${TARGET_SHA256}" OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" OPERATION_ID="${OPERATION_ID}" node --input-type=module - <<'NODE'
+            import { readFileSync } from "node:fs";
+            const root=process.env.STAGING_CAPABILITY_ROOT;
+            const capability=JSON.parse(readFileSync(`${root}/action-capability.json`,"utf8"));
+            const binding=capability.releaseBinding;
+            if(binding.candidateSha!==process.env.SOURCE_SHA || binding.imageDigest!==process.env.IMAGE_ID || binding.releaseManifestSha256!==process.env.RELEASE_MANIFEST_SHA256 || binding.environment!=="staging" || binding.topology!=="split" || binding.composeProject!=="spx-staging" || binding.stagingTargetDescriptorSha256!==process.env.TARGET_SHA256 || binding.operatorBundleSha256!==process.env.OPERATOR_BUNDLE_SHA256 || binding.stagingRunId!==process.env.OPERATION_ID) throw new Error("staging capability release binding mismatch");
+            NODE
+            mapfile -t STAGING_DATABASE_ROLES < <(
+              node "${RELEASE_DIR}/scripts/lib/staging-protected-capability-archive.mjs" list-roles
+            )
+            test "${#STAGING_DATABASE_ROLES[@]}" -gt 0
+            printf '%s\n' "${STAGING_DATABASE_ROLES[@]}" | grep -Fx phase3-observer >/dev/null
+            install -d -m 0700 /etc/spx-staging /run/spx-staging-actions
+            test ! -L /etc/spx-staging
+            test ! -L /run/spx-staging-actions
+            CAPABILITY_NEW="/etc/spx-staging/.action-capability.${OPERATION_ID}.new"
+            CA_NEW="/etc/spx-staging/.db-ca.${OPERATION_ID}.new"
+            FINAL_POLICY_NEW="/etc/spx-staging/.phase3-production-observer-policy.${OPERATION_ID}.new"
+            FINAL_TOKEN_NEW="/run/spx-staging-actions/.phase3-production-observer-token.${OPERATION_ID}.new"
+            STAGING_SECRET_STAGE="/run/spx-staging-actions/.database.${OPERATION_ID}.new"
+            DATABASE_RETIRED="/run/spx-staging-actions/.database.${OPERATION_ID}.retired"
+            CAPABILITY_BACKUP="/etc/spx-staging/.action-capability.${OPERATION_ID}.backup"
+            CA_BACKUP="/etc/spx-staging/.db-ca.${OPERATION_ID}.backup"
+            FINAL_POLICY_BACKUP="/etc/spx-staging/.phase3-production-observer-policy.${OPERATION_ID}.backup"
+            FINAL_TOKEN_BACKUP="/run/spx-staging-actions/.phase3-production-observer-token.${OPERATION_ID}.backup"
+            DATABASE_BACKUP="/run/spx-staging-actions/.database.${OPERATION_ID}.backup"
+            assert_protected_path_absent "${CAPABILITY_NEW}"
+            assert_protected_path_absent "${CA_NEW}"
+            assert_protected_path_absent "${FINAL_POLICY_NEW}"
+            assert_protected_path_absent "${FINAL_TOKEN_NEW}"
+            assert_protected_path_absent "${STAGING_SECRET_STAGE}"
+            assert_protected_path_absent "${DATABASE_RETIRED}"
+            assert_protected_path_absent "${CAPABILITY_BACKUP}"
+            assert_protected_path_absent "${CA_BACKUP}"
+            assert_protected_path_absent "${FINAL_POLICY_BACKUP}"
+            assert_protected_path_absent "${FINAL_TOKEN_BACKUP}"
+            assert_protected_path_absent "${DATABASE_BACKUP}"
+            PROTECTED_PREPARED=true
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/action-capability.json" "${CAPABILITY_NEW}"
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/db-ca.pem" "${CA_NEW}"
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/phase3-production-observer-policy.json" "${FINAL_POLICY_NEW}"
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/phase3-production-observer-token" "${FINAL_TOKEN_NEW}"
+            install -d -m 0700 "${STAGING_SECRET_STAGE}"
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/database/bootstrap.password" "${STAGING_SECRET_STAGE}/bootstrap.password"
+            install -m 0400 "${STAGING_CAPABILITY_ROOT}/database/phase3-control.password" "${STAGING_SECRET_STAGE}/phase3-control.password"
+            for role in "${STAGING_DATABASE_ROLES[@]}"; do
+              install -m 0400 "${STAGING_CAPABILITY_ROOT}/database/principal-${role}.password" "${STAGING_SECRET_STAGE}/principal-${role}.password"
+            done
+            prepare_protected_files() {
+              capture_protected_prior CAPABILITY /etc/spx-staging/action-capability.json "${CAPABILITY_BACKUP}" file
+              capture_protected_prior CA /etc/spx-staging/db-ca.pem "${CA_BACKUP}" file
+              capture_protected_prior DATABASE /run/spx-staging-actions/database "${DATABASE_BACKUP}" directory
+              capture_protected_prior FINAL_POLICY /etc/spx-staging/phase3-production-observer-policy.json "${FINAL_POLICY_BACKUP}" file
+              capture_protected_prior FINAL_TOKEN /run/spx-staging-actions/phase3-production-observer-token "${FINAL_TOKEN_BACKUP}" file
+            }
+            prepare_protected_files
+            protected_swap_checkpoint() {
+              if [ "${SPX_TEST_FAIL_AFTER_PROTECTED_SWAP:-}" = "$1" ]; then return 97; fi
+            }
+            activate_protected_files() {
+              PROTECTED_MUTATED=true
+              if [ -e /run/spx-staging-actions/database ]; then
+                mv -T /run/spx-staging-actions/database "${DATABASE_RETIRED}"
+              fi
+              mv -T "${STAGING_SECRET_STAGE}" /run/spx-staging-actions/database
+              protected_swap_checkpoint DATABASE
+              mv -Tf "${CA_NEW}" /etc/spx-staging/db-ca.pem
+              protected_swap_checkpoint CA
+              mv -Tf "${FINAL_POLICY_NEW}" /etc/spx-staging/phase3-production-observer-policy.json
+              protected_swap_checkpoint FINAL_POLICY
+              mv -Tf "${FINAL_TOKEN_NEW}" /run/spx-staging-actions/phase3-production-observer-token
+              protected_swap_checkpoint FINAL_TOKEN
+              mv -Tf "${CAPABILITY_NEW}" /etc/spx-staging/action-capability.json
+              protected_swap_checkpoint CAPABILITY
+              sync -f /etc/spx-staging
+              sync -f /run/spx-staging-actions
+            }
+            activate_protected_files
+            /usr/bin/node "${RELEASE_DIR}/scripts/install-staging-action-handlers.mjs"
+          fi
+
+          candidate_compose() {
+            if [ "${TARGET}" = production ]; then
+              SPX_IMAGE="${IMAGE_TAG}" SPX_RELEASE_SHA="${SOURCE_SHA}" SPX_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" SPX_OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" SPX_RUNTIME_ENVIRONMENT="${RUNTIME_ENVIRONMENT}" SPX_STAGING_RUN_ID="${STAGING_RUN_ID}" SPX_RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" SPX_TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" SPX_DEPLOYMENT_CONTEXT_PATH="${RELEASE_PARENT}/deployment-context.json" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${RELEASE_DIR}/docker-compose.yml" "$@"
+            else
+              SPX_IMAGE="${IMAGE_TAG}" SPX_RELEASE_SHA="${SOURCE_SHA}" SPX_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" SPX_OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" SPX_RUNTIME_ENVIRONMENT="${RUNTIME_ENVIRONMENT}" SPX_STAGING_RUN_ID="${STAGING_RUN_ID}" SPX_RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" SPX_TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" SPX_DEPLOYMENT_CONTEXT_PATH="${RELEASE_PARENT}/deployment-context.json" docker compose -p spx-staging --env-file "${ENVIRONMENT_FILE}" -f "${RELEASE_DIR}/docker-compose.yml" -f "${RELEASE_DIR}/docker-compose.staging.yml" "$@"
+            fi
+          }
+          MIGRATOR_CONTAINER=""
+          MIGRATION_COMPLETED=false
+          ROLLBACK_EVIDENCE_SHA256=""
+          remove_candidate_labeled_containers() {
+            while IFS= read -r candidate_id; do
+              [ -n "${candidate_id}" ] || continue
+              [[ "${candidate_id}" =~ ^[0-9a-f]{12,64}$ ]]
+              test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "${candidate_id}")" = "${COMPOSE_PROJECT}"
+              test "$(docker inspect --format '{{index .Config.Labels "com.spx.release-sha"}}' "${candidate_id}")" = "${SOURCE_SHA}"
+              docker rm -f "${candidate_id}" >/dev/null
+            done < <(docker ps -aq \
+              --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \
+              --filter "label=com.spx.release-sha=${SOURCE_SHA}")
+            test -z "$(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" --filter "label=com.spx.release-sha=${SOURCE_SHA}")"
+          }
+          cleanup_candidate_containers() {
+            candidate_compose --profile "*" stop --timeout 120
+            remove_candidate_labeled_containers
+          }
+          previous_compose() {
+            if [ "${TARGET}" = production ]; then
+              SPX_IMAGE="${previous_image}" SPX_RELEASE_SHA="${previous_release_sha}" SPX_TARGET_DESCRIPTOR_SHA256="${previous_target_sha}" SPX_OPERATOR_BUNDLE_SHA256="${previous_bundle_sha}" SPX_RUNTIME_ENVIRONMENT=production SPX_STAGING_RUN_ID=not-staging SPX_RELEASE_MANIFEST_PATH="${previous_manifest}" SPX_TARGET_DESCRIPTOR_PATH="${previous_descriptor}" SPX_DEPLOYMENT_CONTEXT_PATH="${previous_context}" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${CURRENT_RELEASE}/docker-compose.yml" "$@"
+            else
+              SPX_IMAGE="${previous_image}" SPX_RELEASE_SHA="${previous_release_sha}" SPX_TARGET_DESCRIPTOR_SHA256="${previous_target_sha}" SPX_OPERATOR_BUNDLE_SHA256="${previous_bundle_sha}" SPX_RUNTIME_ENVIRONMENT=staging SPX_STAGING_RUN_ID="${previous_staging_run_id}" SPX_RELEASE_MANIFEST_PATH="${previous_manifest}" SPX_TARGET_DESCRIPTOR_PATH="${previous_descriptor}" SPX_DEPLOYMENT_CONTEXT_PATH="${previous_context}" docker compose -p spx-staging --env-file "${ENVIRONMENT_FILE}" -f "${CURRENT_RELEASE}/docker-compose.yml" -f "${CURRENT_RELEASE}/docker-compose.staging.yml" "$@"
+            fi
+          }
+          rollback_runtime() {
+            if [ -n "${CURRENT_RELEASE}" ] && [ -d "${CURRENT_RELEASE}" ]; then
+              if [ "${TARGET}" = production ] && [ "${MIGRATION_COMPLETED}" = true ] && [ "${ROLLBACK_RUNTIME_COMPATIBLE}" != true ]; then
+                return 86
+              fi
+              cleanup_candidate_containers
+              ln -sfn "${CURRENT_RELEASE}" "${ACTIVE_PROJECTION}.rollback"
+              mv -Tf "${ACTIVE_PROJECTION}.rollback" "${ACTIVE_PROJECTION}"
+              previous_parent="$(dirname "${CURRENT_RELEASE}")"
+              previous_context="${previous_parent}/deployment-context.json"
+              previous_manifest="${previous_parent}/release-manifest.json"
+              previous_descriptor="${previous_parent}/deployment-target-descriptor.json"
+              test -f "${previous_context}"
+              test -f "${previous_manifest}"
+              test -f "${previous_descriptor}"
+              test "$(sha256sum "${previous_manifest}" | cut -d' ' -f1)" = "${ROLLBACK_RELEASE_MANIFEST_SHA256}"
+              test "$(sha256sum "${previous_context}" | cut -d' ' -f1)" = "${ROLLBACK_CONFIG_SHA256}"
+              previous_image="$(node -p 'require(process.argv[1]).imageTag' "${previous_context}")"
+              previous_image_id="$(node -p 'require(process.argv[1]).imageId' "${previous_manifest}")"
+              previous_topology="$(node -p 'require(process.argv[1]).topology' "${previous_context}")"
+              previous_release_sha="$(node -p 'require(process.argv[1]).sourceSha' "${previous_context}")"
+              previous_target_sha="$(node -p 'require(process.argv[1]).descriptorArtifactSha256' "${previous_context}")"
+              previous_bundle_sha="$(node -p 'require(process.argv[1]).operatorBundleSha256' "${previous_context}")"
+              previous_staging_run_id="$(node -p 'require(process.argv[1]).operationId' "${previous_context}")"
+              previous_compose --profile "*" stop --timeout 120
+              if [ "${previous_topology}" = split ]; then
+                ROLLBACK_SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+                previous_compose --profile split up -d ${ROLLBACK_SERVICES}
+              else
+                ROLLBACK_SERVICES="notifier worker-ifn worker-ptwl"
+                previous_compose up -d ${ROLLBACK_SERVICES}
+              fi
+              if [ "${TARGET}" = production ] && [ -n "${WATCHDOG_UNIT:-}" ]; then
+                systemctl disable --now "${WATCHDOG_UNIT}" >/dev/null 2>&1 || true
+                if [ -n "${WATCHDOG_UNIT_FILE:-}" ] && [ -f "${WATCHDOG_UNIT_FILE}" ]; then rm -f "${WATCHDOG_UNIT_FILE}"; fi
+                if [ -n "${PREVIOUS_WATCHDOG_UNIT:-}" ]; then systemctl enable --now "${PREVIOUS_WATCHDOG_UNIT}"; fi
+                systemctl daemon-reload
+              fi
+            else
+              cleanup_candidate_containers
+              test -z "$(candidate_compose --profile "*" ps -q)"
+              if [ -L "${ACTIVE_PROJECTION}" ] && [ "$(readlink -f "${ACTIVE_PROJECTION}")" = "${RELEASE_DIR}" ]; then
+                rm -f "${ACTIVE_PROJECTION}"
+              fi
+              test ! -e "${ACTIVE_PROJECTION}"
+            fi
+          }
+          verify_rollback_runtime() {
+            test -z "$(docker ps -aq --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" --filter "label=com.spx.release-sha=${SOURCE_SHA}")"
+            if [ -n "${CURRENT_RELEASE}" ]; then
+              deadline=$(( $(date +%s) + 180 ))
+              while :; do
+                rollback_ready=true
+                for service in ${ROLLBACK_SERVICES}; do
+                  container="$(previous_compose ps -q "${service}")"
+                  if [ -z "${container}" ] || [ "$(docker inspect --format '{{.State.Running}}' "${container}")" != true ]; then rollback_ready=false; break; fi
+                  test "$(docker inspect --format '{{index .Config.Labels "com.spx.release-sha"}}' "${container}")" = "${previous_release_sha}"
+                  test "$(docker inspect --format '{{index .Config.Labels "com.spx.target-descriptor-sha256"}}' "${container}")" = "${previous_target_sha}"
+                  test "$(docker inspect --format '{{index .Config.Labels "com.spx.operator-bundle-sha256"}}' "${container}")" = "${previous_bundle_sha}"
+                  test "$(docker inspect --format '{{.Image}}' "${container}")" = "${previous_image_id}"
+                  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}")"
+                  if [ "${health}" != healthy ] && [ "${health}" != none ]; then rollback_ready=false; break; fi
+                done
+                if [ "${rollback_ready}" = true ] && curl -fsS --connect-timeout 5 --max-time 10 "http://127.0.0.1:${READINESS_PORT}/ready" >/dev/null; then break; fi
+                test "$(date +%s)" -lt "${deadline}"
+                sleep 5
+              done
+              if [ "${TARGET}" = production ]; then
+                (cd "${CURRENT_RELEASE}" && node scripts/production-project-identity.mjs --action=verify --approval="${previous_parent}/production-identity-approval.json" --release-manifest="${previous_manifest}")
+              fi
+            fi
+            ROLLBACK_EVIDENCE="${ROLLBACK_STATE_DIR}/rollback-evidence.json"
+            ROLLBACK_EVIDENCE="${ROLLBACK_EVIDENCE}" OPERATION_ID="${OPERATION_ID}" PREVIOUS_RELEASE="${CURRENT_RELEASE}" PREVIOUS_RELEASE_SHA="${previous_release_sha:-none}" PREVIOUS_IMAGE_ID="${previous_image_id:-none}" node --input-type=module - <<'NODE'
+            import { closeSync, constants, fsyncSync, openSync, writeSync } from "node:fs";
+            const value={schemaVersion:1,operationId:process.env.OPERATION_ID,postcondition:"rollback-restored",previousRelease:process.env.PREVIOUS_RELEASE||null,previousReleaseSha:process.env.PREVIOUS_RELEASE_SHA,previousImageId:process.env.PREVIOUS_IMAGE_ID,verifiedAt:new Date().toISOString()};
+            const descriptor=openSync(process.env.ROLLBACK_EVIDENCE,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|(constants.O_NOFOLLOW??0),0o400);
+            try{writeSync(descriptor,`${JSON.stringify(value)}\n`);fsyncSync(descriptor);}finally{closeSync(descriptor);}
+            NODE
+            ROLLBACK_EVIDENCE_SHA256="$(sha256sum "${ROLLBACK_EVIDENCE}" | cut -d' ' -f1)"
+          }
+          on_error() {
+            status=$?
+            trap - ERR
+            if [[ "${MIGRATOR_CONTAINER}" =~ ^[0-9a-f]{12,64}$ ]]; then
+              docker rm -f "${MIGRATOR_CONTAINER}" >/dev/null 2>&1 || true
+              MIGRATOR_CONTAINER=""
+            fi
+            if [ "${PROTECTED_DEPLOYMENT_COMMITTED}" = true ]; then
+              committed_cleanup_status=0
+              discard_protected_backups || committed_cleanup_status=$?
+              exit "${status}"
+            fi
+            if [ "${PROTECTED_INSTALL_COMMIT_STARTED}" = true ]; then exit "${status}"; fi
+            rollback_status=0
+            rollback_runtime || rollback_status=$?
+            protected_restore_status=0
+            restore_protected_files || protected_restore_status=$?
+            if [ "${protected_restore_status}" -ne 0 ]; then
+              protected_restore_status=0
+              restore_protected_files || protected_restore_status=$?
+            fi
+            if [ "${rollback_status}" -ne 0 ] || [ "${protected_restore_status}" -ne 0 ]; then exit "${status}"; fi
+            if [ "${TARGET}" = production ] && [ "${SLOT_CLAIM_ATTEMPTED}" = true ]; then
+              candidate_compose --profile gate6 up -d gate6-db-proxy
+              COMPENSATED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+              COMPENSATION_RESULT="$(candidate_compose --profile gate6 run --rm --no-deps \
+                -v "${RELEASE_DIR}/scripts:/app/scripts:ro" \
+                gate6-control node /app/scripts/protected-install-watchdog.mjs --action=compensate-slot \
+                --operation-id="${OPERATION_ID}" --transfer-token-sha256="${TRANSFER_TOKEN_SHA256}" \
+                --compensated-at="${COMPENSATED_AT}")"
+              COMPENSATION_RESULT="${COMPENSATION_RESULT}" node -e 'const v=JSON.parse(process.env.COMPENSATION_RESULT);if(v.ok!==true||v.status!=="released")process.exit(1)'
+              remove_candidate_labeled_containers
+            fi
+            verify_rollback_runtime
+            if [ "${LOCKED}" = true ]; then
+              node "${INCOMING}/operator/scripts/production-mutation-host-lock.mjs" --action=terminal \
+                --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_MANIFEST_SHA256}" \
+                --target-sha256="${TARGET_SHA256}" --postcondition=rolled-back \
+                --postcondition-sha256="${ROLLBACK_EVIDENCE_SHA256}"
+            fi
+            exit "${status}"
+          }
+          trap on_error ERR
+
+          INVENTORY_ROOT="${INCOMING}/inventory"
+          COMPOSE_INVENTORY="${INVENTORY_ROOT}/compose.json"
+          install -d -m 0700 "${INVENTORY_ROOT}"
+          INVENTORY_FACTS="${INVENTORY_ROOT}/container-inventory.ndjson"
+          ISOLATION_FACTS="${INVENTORY_ROOT}/container-isolation.ndjson"
+          GRANT_PREFLIGHT_FACTS="${INVENTORY_ROOT}/grant-preflight.ndjson"
+          REPLAY_PREFLIGHT_FACTS="${INVENTORY_ROOT}/replay-preflight.ndjson"
+          LIVE_SERVICE_FACTS="${INVENTORY_ROOT}/live-services.tsv"
+          for facts in \
+            "${INVENTORY_FACTS}" "${ISOLATION_FACTS}" "${GRANT_PREFLIGHT_FACTS}" \
+            "${REPLAY_PREFLIGHT_FACTS}" "${LIVE_SERVICE_FACTS}"; do
+            : > "${facts}"
+            chmod 0600 "${facts}"
+          done
+          candidate_compose --profile "*" config --format json > "${COMPOSE_INVENTORY}"
+          chmod 0400 "${COMPOSE_INVENTORY}"
+          verify_isolation_result() {
+            local expected_service="$1"
+            local isolation_json="$2"
+            local evidence_kind="${3:-isolation}"
+            EXPECTED_SERVICE="${expected_service}" ISOLATION_JSON="${isolation_json}" node --input-type=module -e '
+              const isolation = JSON.parse(process.env.ISOLATION_JSON ?? "");
+              if (
+                isolation.ok !== true ||
+                isolation.service !== process.env.EXPECTED_SERVICE ||
+                !Array.isArray(isolation.failureCodes) ||
+                isolation.failureCodes.length !== 0
+              ) process.exit(1);
+            '
+            if [ "${evidence_kind}" = isolation ]; then
+              printf '%s\t%s\n' "${expected_service}" "$(printf '%s' "${isolation_json}" | base64 -w0)" \
+                >> "${ISOLATION_FACTS}"
+            else
+              test "${evidence_kind}" = inventory
+            fi
+          }
+          verify_host_inventory() {
+            local service="$1"
+            local container="$2"
+            local inventory_json
+            [[ "${container}" =~ ^[0-9a-f]{12,64}$ ]]
+            inventory_json="$(node "${INCOMING}/operator/scripts/container-inventory-check.mjs" \
+              --service="${service}" \
+              --project="${COMPOSE_PROJECT}" \
+              --compose-json="${COMPOSE_INVENTORY}" \
+              --policy="${INCOMING}/operator/deploy/runtime-isolation-policy.json" \
+              --container-id="${container}")"
+            verify_isolation_result "${service}" "${inventory_json}" inventory
+            printf '%s\t%s\n' "${service}" "$(printf '%s' "${inventory_json}" | base64 -w0)" \
+              >> "${INVENTORY_FACTS}"
+          }
+          if [ "${TARGET}" = production ]; then
+            GATE6_CAPABILITY_CONFIG=/var/lib/spx-gate6/gate6-control-db.json
+            GATE6_CAPABILITY_PASSWORD=/var/lib/spx-gate6/secrets/gate6-control-db-password
+            GATE6_CAPABILITY_CA=/var/lib/spx-gate6/config/db-ca.pem
+            WATCHDOG_PARENT=/var/lib/spx-protected-install/watchdogs
+            WATCHDOG_ROOT="${WATCHDOG_PARENT}/${SOURCE_SHA}"
+            WATCHDOG_UNIT="spx-protected-install-watchdog@${SOURCE_SHA}.service"
+            WATCHDOG_UNIT_FILE="/etc/systemd/system/${WATCHDOG_UNIT}"
+            PREVIOUS_WATCHDOG_UNIT=""
+            WATCHDOG_FILES="scripts/protected-install-watchdog.mjs scripts/production-mutation-host-lock.mjs scripts/lib/mysql-connection-config.mjs scripts/lib/file-backed-secret.mjs scripts/lib/safe-file.mjs deploy/systemd/spx-protected-install-watchdog@.service"
+            verify_watchdog_file() {
+              local relative_path="$1"
+              local expected_sha
+              expected_sha="$(BUNDLE_INDEX="${INCOMING}/release/operator-bundle.index.json" BUNDLE_PATH="${relative_path}" node -e '
+                const index = require(process.env.BUNDLE_INDEX);
+                const matches = index.files.filter((entry) => entry.path === process.env.BUNDLE_PATH);
+                if (matches.length !== 1 || !/^[0-9a-f]{64}$/.test(matches[0].sha256)) process.exit(1);
+                process.stdout.write(matches[0].sha256);
+              ')"
+              test "$(sha256sum "${RELEASE_DIR}/${relative_path}" | cut -d' ' -f1)" = "${expected_sha}"
+            }
+            install_protected_watchdog() {
+              local relative_path
+              install -d -m 0700 "${WATCHDOG_PARENT}"
+              for relative_path in ${WATCHDOG_FILES}; do verify_watchdog_file "${relative_path}"; done
+              verify_watchdog_file "deploy/systemd/spx-protected-install-watchdog@.service"
+              if [ -e "${WATCHDOG_ROOT}" ]; then
+                test -d "${WATCHDOG_ROOT}"
+                test ! -L "${WATCHDOG_ROOT}"
+                test "$(find "${WATCHDOG_ROOT}" -type f | wc -l)" -eq 6
+                test -z "$(find "${WATCHDOG_ROOT}" -type l -print -quit)"
+                for relative_path in ${WATCHDOG_FILES}; do
+                  test -f "${WATCHDOG_ROOT}/${relative_path}"
+                  test ! -L "${WATCHDOG_ROOT}/${relative_path}"
+                  test "$(stat -c %U "${WATCHDOG_ROOT}/${relative_path}")" = root
+                  test "$(stat -c %a "${WATCHDOG_ROOT}/${relative_path}")" = 400
+                  test "$(stat -c %h "${WATCHDOG_ROOT}/${relative_path}")" = 1
+                  cmp -s "${RELEASE_DIR}/${relative_path}" "${WATCHDOG_ROOT}/${relative_path}"
+                done
+              else
+                test ! -e "${WATCHDOG_ROOT}.new"
+                install -d -m 0500 "${WATCHDOG_ROOT}.new/scripts/lib" "${WATCHDOG_ROOT}.new/deploy/systemd"
+                for relative_path in ${WATCHDOG_FILES}; do
+                  install -D -m 0400 "${RELEASE_DIR}/${relative_path}" "${WATCHDOG_ROOT}.new/${relative_path}"
+                  cmp -s "${RELEASE_DIR}/${relative_path}" "${WATCHDOG_ROOT}.new/${relative_path}"
+                done
+                WATCHDOG_STAGE="${WATCHDOG_ROOT}.new" node --input-type=module - <<'NODE'
+                import { closeSync, fsyncSync, openSync, readdirSync, statSync } from "node:fs";
+                import { join } from "node:path";
+                const visit = (path) => {
+                  if (statSync(path).isDirectory()) for (const name of readdirSync(path)) visit(join(path, name));
+                  const descriptor = openSync(path, 0);
+                  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+                };
+                visit(process.env.WATCHDOG_STAGE);
+          NODE
+                mv "${WATCHDOG_ROOT}.new" "${WATCHDOG_ROOT}"
+                WATCHDOG_PARENT="${WATCHDOG_PARENT}" node --input-type=module -e '
+                  import { closeSync, fsyncSync, openSync } from "node:fs";
+                  const descriptor = openSync(process.env.WATCHDOG_PARENT, 0);
+                  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+                '
+              fi
+              node "${WATCHDOG_ROOT}/scripts/protected-install-watchdog.mjs" \
+                --action=validate-host-capability --target-descriptor-sha256="${TARGET_SHA256}" >/dev/null
+              if [ -e "${WATCHDOG_UNIT_FILE}" ]; then
+                test -f "${WATCHDOG_UNIT_FILE}"
+                test ! -L "${WATCHDOG_UNIT_FILE}"
+                cmp -s "${WATCHDOG_ROOT}/deploy/systemd/spx-protected-install-watchdog@.service" "${WATCHDOG_UNIT_FILE}"
+              else
+                install -m 0444 "${WATCHDOG_ROOT}/deploy/systemd/spx-protected-install-watchdog@.service" "${WATCHDOG_UNIT_FILE}"
+              fi
+              systemctl daemon-reload
+              systemctl disable --now spx-protected-install-watchdog.service >/dev/null 2>&1 || true
+              for unit_link in /etc/systemd/system/multi-user.target.wants/spx-protected-install-watchdog@*.service; do
+                [ -e "${unit_link}" ] || continue
+                previous_unit="$(basename "${unit_link}")"
+                [[ "${previous_unit}" =~ ^spx-protected-install-watchdog@[0-9a-f]{40}\.service$ ]]
+                if [ "${previous_unit}" != "${WATCHDOG_UNIT}" ]; then
+                  test -z "${PREVIOUS_WATCHDOG_UNIT}"
+                  PREVIOUS_WATCHDOG_UNIT="${previous_unit}"
+                fi
+              done
+              systemctl enable "${WATCHDOG_UNIT}"
+              systemctl start "${WATCHDOG_UNIT}"
+              systemctl is-active --quiet "${WATCHDOG_UNIT}"
+              WATCHDOG_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+              if [ -n "${PREVIOUS_WATCHDOG_UNIT}" ]; then systemctl disable --now "${PREVIOUS_WATCHDOG_UNIT}"; fi
+            }
+            install_protected_watchdog
+
+            INSTALL_EVIDENCE_ROOT=/var/lib/spx-protected-install/evidence
+            INSTALL_INTENT_EVIDENCE="${INSTALL_EVIDENCE_ROOT}/${OPERATION_ID}.intent.json"
+            install -d -m 0700 "${INSTALL_EVIDENCE_ROOT}"
+            EVIDENCE_PATH="${INSTALL_INTENT_EVIDENCE}" EVIDENCE_OPERATION_ID="${OPERATION_ID}" EVIDENCE_RELEASE_SHA="${SOURCE_SHA}" EVIDENCE_TARGET_SHA256="${TARGET_SHA256}" EVIDENCE_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" EVIDENCE_BACKUP_SHA256="${BACKUP_EVIDENCE_SHA256}" EVIDENCE_RELEASE_MANIFEST="${RELEASE_PARENT}/release-manifest.json" node --input-type=module - <<'NODE'
+            import { createHash, randomBytes } from "node:crypto";
+            import { closeSync, constants, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+            import { dirname } from "node:path";
+            const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+            const release = JSON.parse(readFileSync(process.env.EVIDENCE_RELEASE_MANIFEST, "utf8"));
+            const path = process.env.EVIDENCE_PATH;
+            const expected = {
+              schemaVersion: 1,
+              operationId: process.env.EVIDENCE_OPERATION_ID,
+              state: "installing",
+              backupEvidenceSha256: process.env.EVIDENCE_BACKUP_SHA256,
+              releaseSha: process.env.EVIDENCE_RELEASE_SHA,
+              targetDescriptorSha256: process.env.EVIDENCE_TARGET_SHA256,
+              operatorBundleSha256: process.env.EVIDENCE_BUNDLE_SHA256,
+              installedMigrationSetSha256: release.migrationSetSha256,
+              installedSchemaVersion: release.schema.max,
+            };
+            let evidence;
+            if (existsSync(path)) {
+              evidence = JSON.parse(readFileSync(path, "utf8"));
+              for (const [key, value] of Object.entries(expected)) if (evidence[key] !== value) throw new Error("protected install intent binding mismatch");
+            } else {
+              const heartbeatAt = new Date().toISOString();
+              evidence = canonical({
+                ...expected,
+                transferTokenSha256: createHash("sha256").update(randomBytes(32)).digest("hex"),
+                heartbeatAt,
+                expiresAt: new Date(Date.parse(heartbeatAt) + 24 * 60 * 60 * 1000).toISOString(),
+              });
+              mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+              const descriptor = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), 0o400);
+              try { writeSync(descriptor, `${JSON.stringify(evidence)}\n`); fsyncSync(descriptor); } finally { closeSync(descriptor); }
+              const directory = openSync(dirname(path), constants.O_RDONLY);
+              try { fsyncSync(directory); } finally { closeSync(directory); }
+            }
+          NODE
+            INSTALL_INTENT_EVIDENCE_SHA256="$(sha256sum "${INSTALL_INTENT_EVIDENCE}" | cut -d' ' -f1)"
+            TRANSFER_TOKEN_SHA256="$(node -p 'require(process.argv[1]).transferTokenSha256' "${INSTALL_INTENT_EVIDENCE}")"
+            INSTALLED_MIGRATION_SET_SHA256="$(node -p 'require(process.argv[1]).installedMigrationSetSha256' "${INSTALL_INTENT_EVIDENCE}")"
+            INSTALLED_SCHEMA_VERSION="$(node -p 'require(process.argv[1]).installedSchemaVersion' "${INSTALL_INTENT_EVIDENCE}")"
+            INSTALL_HEARTBEAT_AT="$(node -p 'require(process.argv[1]).heartbeatAt' "${INSTALL_INTENT_EVIDENCE}")"
+            INSTALL_EXPIRES_AT="$(node -p 'require(process.argv[1]).expiresAt' "${INSTALL_INTENT_EVIDENCE}")"
+            candidate_compose --profile gate6 up -d gate6-db-proxy
+          fi
+          candidate_compose --profile migration create --force-recreate migrator
+          MIGRATOR_CONTAINER="$(candidate_compose --profile migration ps -a -q migrator)"
+          verify_host_inventory migrator "${MIGRATOR_CONTAINER}"
+          migrator_isolation="$(candidate_compose --profile migration run --rm --no-deps \
+            -v "${RELEASE_DIR}/scripts:/tmp/spx-isolation/scripts:ro" \
+            -v "${RELEASE_DIR}/deploy:/tmp/spx-isolation/deploy:ro" \
+            migrator node /tmp/spx-isolation/scripts/container-isolation-probe.mjs --service=migrator)"
+          verify_isolation_result migrator "${migrator_isolation}"
+          MIGRATION_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          docker start "${MIGRATOR_CONTAINER}" >/dev/null
+          MIGRATOR_STATUS="$(docker wait "${MIGRATOR_CONTAINER}")"
+          test "${MIGRATOR_STATUS}" = 0
+          MIGRATION_FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          MIGRATION_RESULT_JSON="$(docker logs "${MIGRATOR_CONTAINER}" 2>/dev/null)"
+          MIGRATION_RESULT_JSON="${MIGRATION_RESULT_JSON}" node -e '
+            const value=JSON.parse(process.env.MIGRATION_RESULT_JSON);
+            if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["applied","ok","skipped"]) || value.ok !== true || !Array.isArray(value.applied) || !Array.isArray(value.skipped)) process.exit(1);
+          '
+          MIGRATION_COMPLETED=true
+          docker rm "${MIGRATOR_CONTAINER}" >/dev/null
+          MIGRATOR_CONTAINER=""
+          if [ "${TARGET}" = production ]; then
+            SLOT_CLAIM_ATTEMPTED=true
+            BOOTSTRAP_SLOT_RESULT="$(candidate_compose --profile gate6 run --rm --no-deps \
+              -v "${RELEASE_DIR}/scripts:/app/scripts:ro" \
+              gate6-control node /app/scripts/protected-install-watchdog.mjs --action=claim-bootstrap-slot \
+              --operation-id="${OPERATION_ID}" --transfer-token-sha256="${TRANSFER_TOKEN_SHA256}" \
+              --install-intent-evidence-sha256="${INSTALL_INTENT_EVIDENCE_SHA256}" \
+              --release-sha="${SOURCE_SHA}" --target-descriptor-sha256="${TARGET_SHA256}" \
+              --operator-bundle-sha256="${OPERATOR_BUNDLE_SHA256}" \
+              --installed-migration-set-sha256="${INSTALLED_MIGRATION_SET_SHA256}" \
+              --installed-schema-version="${INSTALLED_SCHEMA_VERSION}" \
+              --heartbeat-at="${INSTALL_HEARTBEAT_AT}" --expires-at="${INSTALL_EXPIRES_AT}")"
+            BOOTSTRAP_SLOT_VERSION="$(SLOT_RESULT="${BOOTSTRAP_SLOT_RESULT}" node -e 'const v=JSON.parse(process.env.SLOT_RESULT); if(v.ok!==true||v.status!=="installing"||!Number.isSafeInteger(v.slotVersion))process.exit(1); process.stdout.write(String(v.slotVersion))')"
+            node "${RELEASE_DIR}/scripts/production-mutation-host-lock.mjs" --action=install-bootstrap \
+              --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_MANIFEST_SHA256}" \
+              --target-sha256="${TARGET_SHA256}" --source-sha="${SOURCE_SHA}" \
+              --transfer-token-sha256="${TRANSFER_TOKEN_SHA256}" \
+              --install-intent-evidence-sha256="${INSTALL_INTENT_EVIDENCE_SHA256}" \
+              --operator-bundle-sha256="${OPERATOR_BUNDLE_SHA256}" \
+              --installed-migration-set-sha256="${INSTALLED_MIGRATION_SET_SHA256}" \
+              --installed-schema-version="${INSTALLED_SCHEMA_VERSION}" --slot-version="${BOOTSTRAP_SLOT_VERSION}" \
+              --heartbeat-at="${INSTALL_HEARTBEAT_AT}" --expires-at="${INSTALL_EXPIRES_AT}"
+          fi
+          install -d -m 0700 "$(dirname "${ACTIVE_PROJECTION}")"
+          ln -sfn "${RELEASE_DIR}" "${ACTIVE_PROJECTION}.next"
+          mv -Tf "${ACTIVE_PROJECTION}.next" "${ACTIVE_PROJECTION}"
+          verify_replay_preflight_result() {
+            REPLAY_PREFLIGHT_JSON="$1" node --input-type=module -e '
+              const result = JSON.parse(process.env.REPLAY_PREFLIGHT_JSON ?? "");
+              const keys = Object.keys(result).sort();
+              if (
+                JSON.stringify(keys) !== JSON.stringify(["failureCodes", "mode", "ok"]) ||
+                result.ok !== true ||
+                result.mode !== "live" ||
+                !Array.isArray(result.failureCodes) ||
+                result.failureCodes.length !== 0
+              ) process.exit(1);
+            '
+          }
+          run_replay_preflight() {
+            local service="$1"
+            local replay_preflight_json
+            replay_preflight_json="$(candidate_compose --profile "*" run --rm --no-deps \
+              -v "${INCOMING}/operator/scripts:/app/scripts:ro" \
+              "${service}" node /app/scripts/internal-replay-grant-preflight.mjs 2>/dev/null)"
+            verify_replay_preflight_result "${replay_preflight_json}"
+            printf '%s\t%s\n' "${service}" "$(printf '%s' "${replay_preflight_json}" | base64 -w0)" \
+              >> "${REPLAY_PREFLIGHT_FACTS}"
+          }
+          read_account_host() {
+            local service="$1"
+            node -e '
+              const context = require(process.argv[1]);
+              const host = context.databaseAccountHosts?.[process.argv[2]];
+              if (
+                typeof host !== "string" ||
+                host.length < 1 ||
+                host.length > 255 ||
+                host !== host.trim() ||
+                /[%_]/.test(host) ||
+                !/^[0-9A-Za-z.:-]+(?:\/[0-9A-Za-z.:-]+)?$/.test(host)
+              ) process.exit(1);
+              process.stdout.write(host);
+            ' "${CONTEXT}" "${service}"
+          }
+          verify_grant_preflight_result() {
+            EXPECTED_ROLE="$1" GRANT_PREFLIGHT_JSON="$2" node --input-type=module -e '
+              const result = JSON.parse(process.env.GRANT_PREFLIGHT_JSON ?? "");
+              const keys = Object.keys(result).sort();
+              if (
+                JSON.stringify(keys) !== JSON.stringify(["failureCodes", "mode", "ok", "role"]) ||
+                result.ok !== true ||
+                result.mode !== "live" ||
+                result.role !== process.env.EXPECTED_ROLE ||
+                !Array.isArray(result.failureCodes) ||
+                result.failureCodes.length !== 0
+              ) process.exit(1);
+            '
+          }
+          run_grant_preflight() {
+            local service="$1"
+            local expected_account_host
+            local grant_preflight_json
+            expected_account_host="$(read_account_host "${service}")"
+            grant_preflight_json="$(candidate_compose --profile "*" run --rm --no-deps \
+              -v "${INCOMING}/operator/scripts:/app/scripts:ro" \
+              -v "${INCOMING}/operator/deploy:/app/deploy:ro" \
+              "${service}" node /app/scripts/db-grants-check.mjs \
+                --role="${service}" \
+                --contract=/app/deploy/db-grants.json \
+                --expected-account-host="${expected_account_host}" 2>/dev/null)"
+            verify_grant_preflight_result "${service}" "${grant_preflight_json}"
+            printf '%s\t%s\n' "${service}" "$(printf '%s' "${grant_preflight_json}" | base64 -w0)" \
+              >> "${GRANT_PREFLIGHT_FACTS}"
+          }
+          SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+          GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ifn-split worker-ptwl-split"
+          REPLAY_PREFLIGHT_SERVICES="web-api notification-service line-service"
+          if [[ " ${SERVICES} " == *" realtime-service "* ]]; then
+            GRANT_PREFLIGHT_SERVICES="${GRANT_PREFLIGHT_SERVICES} realtime-service"
+            REPLAY_PREFLIGHT_SERVICES="${REPLAY_PREFLIGHT_SERVICES} realtime-service"
+          fi
+          for service in ${GRANT_PREFLIGHT_SERVICES}; do
+            run_grant_preflight "${service}"
+          done
+          for service in ${REPLAY_PREFLIGHT_SERVICES}; do
+            run_replay_preflight "${service}"
+          done
+          candidate_compose stop notifier worker-ifn worker-ptwl
+          candidate_compose --profile split up -d web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split
+          for service in ${SERVICES}; do
+            container="$(candidate_compose ps -a -q "${service}")"
+            verify_host_inventory "${service}" "${container}"
+          done
+          deadline=$(( $(date +%s) + 180 ))
+          while :; do
+            ready=true
+            for service in ${SERVICES}; do
+              container="$(candidate_compose ps -q "${service}")"
+              if [ -z "${container}" ] || [ "$(docker inspect --format '{{.State.Running}}' "${container}")" != true ]; then ready=false; break; fi
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}")"
+              if [ "${health}" != healthy ] && [ "${health}" != none ]; then ready=false; break; fi
+            done
+            if [ "${ready}" = true ] && curl -fsS --connect-timeout 5 --max-time 10 "http://127.0.0.1:${READINESS_PORT}/ready" >/dev/null; then break; fi
+            test "$(date +%s)" -lt "${deadline}"
+            sleep 5
+          done
+          READINESS_VERIFIED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          for service in ${SERVICES}; do
+            container="$(candidate_compose ps -q "${service}")"
+            probe_root="/tmp/spx-isolation-${OPERATION_ID}"
+            docker exec --user 0 "${container}" mkdir -p "${probe_root}/scripts" "${probe_root}/deploy"
+            docker exec --user 0 "${container}" chmod 0555 "${probe_root}" "${probe_root}/scripts" "${probe_root}/deploy"
+            docker cp "${RELEASE_DIR}/scripts/container-isolation-probe.mjs" "${container}:${probe_root}/scripts/container-isolation-probe.mjs"
+            docker cp "${RELEASE_DIR}/deploy/runtime-isolation-policy.json" "${container}:${probe_root}/deploy/runtime-isolation-policy.json"
+            isolation_json="$(docker exec --user node "${container}" node "${probe_root}/scripts/container-isolation-probe.mjs" --service="${service}")"
+            verify_isolation_result "${service}" "${isolation_json}"
+          done
+          if [ "${TARGET}" = production ]; then
+            (cd "${RELEASE_DIR}" && node scripts/production-project-identity.mjs --action=verify \
+              --approval="${RELEASE_PARENT}/production-identity-approval.json" \
+              --release-manifest="${RELEASE_PARENT}/release-manifest.json")
+
+            PHASE34_STOPPED_SERVICES="poller-ifn-phase3 auto-accept-ifn-phase3 poller-ptwl-phase3 auto-accept-ptwl-phase3 gate6-control gate6-task9-controller gate6-monitor-probe"
+            for stopped_service in ${PHASE34_STOPPED_SERVICES}; do
+              test -z "$(candidate_compose --profile "*" ps -q "${stopped_service}")"
+            done
+            : > "${LIVE_SERVICE_FACTS}"
+            for service in ${SERVICES}; do
+              container="$(candidate_compose ps -q "${service}")"
+              [[ "${container}" =~ ^[0-9a-f]{12,64}$ ]]
+              printf '%s|%s|' "${service}" "${container}" >> "${LIVE_SERVICE_FACTS}"
+              docker inspect --format '{{index .Config.Labels "com.spx.environment"}}|{{index .Config.Labels "com.spx.release-sha"}}|{{index .Config.Labels "com.spx.target-descriptor-sha256"}}|{{index .Config.Labels "com.spx.operator-bundle-sha256"}}|{{index .Config.Labels "com.spx.staging-run-id"}}|{{.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}" \
+                >> "${LIVE_SERVICE_FACTS}"
+            done
+            chmod 0400 "${LIVE_SERVICE_FACTS}"
+            LIVE_HEALTH_SHA256="$(sha256sum "${LIVE_SERVICE_FACTS}" | cut -d' ' -f1)"
+            systemctl is-active --quiet "${WATCHDOG_UNIT}"
+            test "$(readlink -f "${ACTIVE_PROJECTION}")" = "${RELEASE_DIR}"
+            install_trusted_producer_file \
+              "${INCOMING}/backup-verification.json" \
+              "${PROTECTED_INSTALL_CONTEXT_ROOT}/verified-backup-evidence-summary.json"
+            PROTECTED_INSTALL_FACT_ROOT="/var/lib/spx-protected-install/facts/${OPERATION_ID}"
+            PROTECTED_INSTALL_CONTEXT_ROOT="${PROTECTED_INSTALL_CONTEXT_ROOT}" \
+            PROTECTED_INSTALL_BASE_CONTEXT_FILES="${PROTECTED_INSTALL_BASE_CONTEXT_FILES}" \
+            PROTECTED_INSTALL_PRODUCER_ROOT="${PROTECTED_INSTALL_PRODUCER_ROOT}" \
+            PROTECTED_INSTALL_FACT_ROOT="${PROTECTED_INSTALL_FACT_ROOT}" \
+            OPERATION_ID="${OPERATION_ID}" SOURCE_SHA="${SOURCE_SHA}" IMAGE_ID="${IMAGE_ID}" \
+            RELEASE_MANIFEST_SHA256="${RELEASE_MANIFEST_SHA256}" TARGET_SHA256="${TARGET_SHA256}" \
+            OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" \
+            RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" \
+            ROLLBACK_MANIFEST_PATH="${CURRENT_PARENT}/release-manifest.json" \
+            ROLLBACK_JOURNAL="${ROLLBACK_JOURNAL}" ROLLBACK_IMAGE="${ROLLBACK_IMAGE}" \
+            ROLLBACK_RELEASE_MANIFEST_SHA256="${ROLLBACK_RELEASE_MANIFEST_SHA256}" \
+            ROLLBACK_RUNTIME_COMPATIBLE="${ROLLBACK_RUNTIME_COMPATIBLE}" \
+            TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" \
+            BACKUP_SUMMARY_PATH="${PROTECTED_INSTALL_CONTEXT_ROOT}/verified-backup-evidence-summary.json" \
+            PRODUCER_CONTEXT_PATH="${PROTECTED_INSTALL_PRODUCER_CONTEXT}" \
+            MIGRATION_RESULT_JSON="${MIGRATION_RESULT_JSON}" \
+            MIGRATION_STARTED_AT="${MIGRATION_STARTED_AT}" MIGRATION_FINISHED_AT="${MIGRATION_FINISHED_AT}" \
+            GRANT_PREFLIGHT_FACTS="${GRANT_PREFLIGHT_FACTS}" \
+            REPLAY_PREFLIGHT_FACTS="${REPLAY_PREFLIGHT_FACTS}" \
+            INVENTORY_FACTS="${INVENTORY_FACTS}" ISOLATION_FACTS="${ISOLATION_FACTS}" \
+            LIVE_SERVICE_FACTS="${LIVE_SERVICE_FACTS}" \
+            BOOTSTRAP_SLOT_RESULT="${BOOTSTRAP_SLOT_RESULT}" \
+            WATCHDOG_STARTED_AT="${WATCHDOG_STARTED_AT}" WATCHDOG_UNIT="${WATCHDOG_UNIT}" \
+            READINESS_VERIFIED_AT="${READINESS_VERIFIED_AT}" \
+            ACTIVE_PROJECTION="${ACTIVE_PROJECTION}" RELEASE_DIR="${RELEASE_DIR}" \
+            EVIDENCE_SIGNING_KEY_ID="${EVIDENCE_SIGNING_KEY_ID}" \
+              /usr/bin/node --input-type=module - <<'NODE'
+            import { createHash } from "node:crypto";
+            import {
+              closeSync,
+              constants,
+              existsSync,
+              fstatSync,
+              fsyncSync,
+              lstatSync,
+              mkdirSync,
+              openSync,
+              readFileSync,
+              realpathSync,
+              readdirSync,
+              statSync,
+              writeSync,
+            } from "node:fs";
+            import { dirname, join } from "node:path";
+            import { pathToFileURL } from "node:url";
+
+            const SHA256 = /^[0-9a-f]{64}$/;
+            const COMMIT = /^[0-9a-f]{40}$/;
+            const IMAGE = /^sha256:[0-9a-f]{64}$/;
+            const BASELINE_SERVICES = [
+              "web-api",
+              "notification-service",
+              "line-service",
+              "ocr-service",
+              "worker-ifn-split",
+              "worker-ptwl-split",
+            ];
+            const producerRoot = process.env.PROTECTED_INSTALL_PRODUCER_ROOT;
+            const contextRoot = process.env.PROTECTED_INSTALL_CONTEXT_ROOT;
+            const factRoot = process.env.PROTECTED_INSTALL_FACT_ROOT;
+            const { canonicalJson, sha256Canonical } = await import(
+              pathToFileURL(join(producerRoot, "scripts/lib/evidence-artifact.mjs")).href
+            );
+            const { previewPreparedGate6SlotWithMysqlClient } = await import(
+              pathToFileURL(join(producerRoot, "scripts/protected-install-watchdog.mjs")).href
+            );
+            const {
+              previewProductionInstallHostLockCommit,
+              readProductionMutationLock,
+            } = await import(
+              pathToFileURL(join(producerRoot, "scripts/production-mutation-host-lock.mjs")).href
+            );
+            const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+            const timestamp = (value, label) => {
+              const milliseconds = Date.parse(value);
+              if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) {
+                throw new Error(`${label} is not an exact ISO timestamp`);
+              }
+              return milliseconds;
+            };
+            const exactKeys = (value, fields, label) => {
+              if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} is invalid`);
+              if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...fields].sort())) {
+                throw new Error(`${label} fields changed`);
+              }
+              return value;
+            };
+            const assertPrivateDirectory = (path) => {
+              const status = lstatSync(path);
+              if (!status.isDirectory() || status.isSymbolicLink() || status.uid !== 0 || (status.mode & 0o777) !== 0o700) {
+                throw new Error(`${path} is not a root-private directory`);
+              }
+            };
+            const assertPrivateFile = (path) => {
+              const status = lstatSync(path);
+              if (
+                !status.isFile() ||
+                status.isSymbolicLink() ||
+                status.uid !== 0 ||
+                status.nlink !== 1 ||
+                (status.mode & 0o777) !== 0o400 ||
+                status.size < 1 ||
+                status.size > 512 * 1024
+              ) throw new Error(`${path} is not a fixed root-private fact`);
+              return status;
+            };
+            const readCanonical = (path) => {
+              assertPrivateFile(path);
+              const bytes = readFileSync(path);
+              const value = JSON.parse(bytes.toString("utf8"));
+              if (!bytes.equals(Buffer.from(canonicalJson(value)))) throw new Error(`${path} is not canonical JSON`);
+              assertPrivateFile(path);
+              return value;
+            };
+            const writeCanonical = (path, value) => {
+              const bytes = Buffer.from(canonicalJson(value));
+              const descriptor = openSync(
+                path,
+                constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+                0o400,
+              );
+              try { writeSync(descriptor, bytes); fsyncSync(descriptor); } finally { closeSync(descriptor); }
+              assertPrivateFile(path);
+              if (!readFileSync(path).equals(bytes)) throw new Error(`${path} changed after durable creation`);
+              return hash(bytes);
+            };
+            const syncDirectory = (path) => {
+              const descriptor = openSync(path, constants.O_RDONLY);
+              try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+            };
+            const trustedFileSha256 = (path, options) => {
+              const before = lstatSync(path, { bigint: true });
+              const mode = Number(before.mode & 0o777n);
+              if (
+                !before.isFile() || before.isSymbolicLink() || before.uid !== 0n || before.nlink !== 1n ||
+                before.size < 1n || before.size > BigInt(options.maximumBytes) ||
+                (options.mode !== undefined ? mode !== options.mode : (mode & 0o022) !== 0) ||
+                (options.executable === true && (mode & 0o100) === 0)
+              ) throw new Error("fixed KMS file metadata is invalid");
+              const descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+              try {
+                const opened = fstatSync(descriptor, { bigint: true });
+                const bytes = readFileSync(descriptor);
+                const after = fstatSync(descriptor, { bigint: true });
+                for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"]) {
+                  if (opened[field] !== before[field] || after[field] !== opened[field]) {
+                    throw new Error("fixed KMS file changed while hashed");
+                  }
+                }
+                return hash(bytes);
+              } finally { closeSync(descriptor); }
+            };
+            const parseEncodedFacts = (path) =>
+              readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((line) => {
+                const [service, encoded, ...extra] = line.split("\t");
+                if (!service || !encoded || extra.length !== 0) throw new Error(`${path} fact line is invalid`);
+                return { service, result: JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) };
+              });
+
+            assertPrivateDirectory(contextRoot);
+            const initialContextNames = readdirSync(contextRoot).sort();
+            if (JSON.stringify(initialContextNames) !== JSON.stringify([
+              "verified-backup-evidence-summary.json",
+              "verified-producer-context.json",
+            ])) throw new Error("protected install context was not empty for this trusted producer operation");
+            const backupEvidence = readCanonical(process.env.BACKUP_SUMMARY_PATH);
+            const producer = readCanonical(process.env.PRODUCER_CONTEXT_PATH);
+            exactKeys(producer, ["repository", "environment", "workflow", "workflowSha", "workflowFileSha256"], "producer context");
+
+            const releaseDocument = JSON.parse(readFileSync(process.env.RELEASE_MANIFEST_PATH, "utf8"));
+            const rollbackDocument = JSON.parse(readFileSync(process.env.ROLLBACK_MANIFEST_PATH, "utf8"));
+            const targetDocument = JSON.parse(readFileSync(process.env.TARGET_DESCRIPTOR_PATH, "utf8"));
+            const rollbackJournal = JSON.parse(readFileSync(process.env.ROLLBACK_JOURNAL, "utf8"));
+            const release = {
+              sourceSha: releaseDocument.sourceSha,
+              imageId: releaseDocument.imageId,
+              operatorBundleSha256: releaseDocument.operatorBundleSha256,
+              schema: releaseDocument.schema,
+              migrations: releaseDocument.migrations,
+              migrationSetSha256: releaseDocument.migrationSetSha256,
+            };
+            const rollback = {
+              releaseManifestSha256: process.env.ROLLBACK_RELEASE_MANIFEST_SHA256,
+              sourceSha: rollbackDocument.sourceSha,
+              imageId: rollbackDocument.imageId,
+              schema: rollbackDocument.schema,
+            };
+            if (
+              !COMMIT.test(release.sourceSha) || !IMAGE.test(release.imageId) ||
+              release.sourceSha !== process.env.SOURCE_SHA || release.imageId !== process.env.IMAGE_ID ||
+              !COMMIT.test(rollback.sourceSha) || !IMAGE.test(rollback.imageId) ||
+              rollback.imageId !== process.env.ROLLBACK_IMAGE ||
+              hash(readFileSync(process.env.RELEASE_MANIFEST_PATH)) !== process.env.RELEASE_MANIFEST_SHA256 ||
+              hash(readFileSync(process.env.ROLLBACK_MANIFEST_PATH)) !== rollback.releaseManifestSha256 ||
+              rollbackJournal.previousReleaseManifestSha256 !== rollback.releaseManifestSha256 ||
+              rollbackJournal.previousImageDigest !== rollback.imageId ||
+              rollbackJournal.runtimeRollbackCompatible !== true ||
+              process.env.ROLLBACK_RUNTIME_COMPATIBLE !== "true" ||
+              release.schema.max < rollback.schema.min || release.schema.max > rollback.schema.max
+            ) throw new Error("verified rollback release is not ready for this install");
+            const descriptor = targetDocument.descriptor;
+            const target = {
+              descriptorSha256: process.env.TARGET_SHA256,
+              releaseManifestSha256: process.env.RELEASE_MANIFEST_SHA256,
+              releaseSourceSha: release.sourceSha,
+              imageId: release.imageId,
+              operatorBundleSha256: process.env.OPERATOR_BUNDLE_SHA256,
+              databaseFingerprint: `sha256:${descriptor.database.tlsFingerprintSha256}`,
+            };
+            if (!IMAGE.test(target.databaseFingerprint) || descriptor.releaseEnvironment !== "production") {
+              throw new Error("verified production target is invalid");
+            }
+
+            const migrationResult = exactKeys(
+              JSON.parse(process.env.MIGRATION_RESULT_JSON),
+              ["ok", "applied", "skipped"],
+              "migration result",
+            );
+            if (migrationResult.ok !== true || !Array.isArray(migrationResult.applied) || !Array.isArray(migrationResult.skipped)) {
+              throw new Error("migration result did not prove success");
+            }
+            const releasedNames = release.migrations.map((item) => item.name);
+            const observedNames = [...migrationResult.applied, ...migrationResult.skipped];
+            if (
+              new Set(observedNames).size !== observedNames.length ||
+              JSON.stringify([...observedNames].sort()) !== JSON.stringify([...releasedNames].sort())
+            ) throw new Error("migration result does not cover the exact released set");
+            const classifiedPendingAlters = migrationResult.applied.filter((name) => {
+              const sql = readFileSync(join(dirname(process.env.RELEASE_MANIFEST_PATH), "operator/migrations", name), "utf8")
+                .replace(/^\s*--.*$/gm, "");
+              return sql.split(";").some((statement) => /^\s*ALTER\s+TABLE\b/i.test(statement));
+            });
+            if (classifiedPendingAlters.length !== 0) {
+              throw new Error("verified online DDL receipts are unavailable for applied ALTER migrations");
+            }
+            const beforeSchema = migrationResult.skipped.length === 0
+              ? 0
+              : Math.max(...migrationResult.skipped.map((name) => Number.parseInt(name.slice(0, 3), 10)));
+            if (!Number.isSafeInteger(beforeSchema) || beforeSchema > release.schema.max) {
+              throw new Error("observed pre-install schema is invalid");
+            }
+            const migrationReceipt = {
+              ok: true,
+              beforeSchema,
+              afterSchema: release.schema.max,
+              installedMigrationSetSha256: release.migrationSetSha256,
+              pendingReleasedMigrationCount: 0,
+              backupRestoreEvidenceSha256: backupEvidence.evidenceSha256,
+              rollbackSchemaCompatible: true,
+              checksumSetExact: true,
+            };
+            const onlineDdl = { classifiedPendingAlters: [], onlineDdlReceipts: [] };
+
+            const identity = {
+              operationId: process.env.OPERATION_ID,
+              releaseSha: release.sourceSha,
+              targetDescriptorSha256: target.descriptorSha256,
+              operatorBundleSha256: release.operatorBundleSha256,
+            };
+            const databaseIdentity = {
+              ...identity,
+              installedMigrationSetSha256: release.migrationSetSha256,
+              installedSchemaVersion: release.schema.max,
+            };
+            const databasePreview = previewPreparedGate6SlotWithMysqlClient(databaseIdentity);
+            const hostPreview = await previewProductionInstallHostLockCommit({ identity });
+            for (const [label, preview] of [["database", databasePreview], ["host", hostPreview]]) {
+              exactKeys(preview, ["current", "next"], `${label} preview`);
+              if (
+                preview.current.operationId !== process.env.OPERATION_ID ||
+                preview.current.state !== "installing" ||
+                !Number.isSafeInteger(preview.current.version) || preview.current.version < 1 ||
+                preview.next.operationId !== process.env.OPERATION_ID ||
+                preview.next.state !== "installed-awaiting-gate6" ||
+                preview.next.version !== preview.current.version + 1
+              ) throw new Error(`${label} preview is not the actual installing state`);
+            }
+            const lock = await readProductionMutationLock();
+            if (
+              lock.operationId !== process.env.OPERATION_ID || lock.state !== "installing" ||
+              lock.revision !== hostPreview.current.version || lock.installBootstrap === null ||
+              lock.installBootstrap.releaseSha !== release.sourceSha ||
+              lock.installBootstrap.targetDescriptorSha256 !== target.descriptorSha256 ||
+              lock.installBootstrap.operatorBundleSha256 !== release.operatorBundleSha256
+            ) throw new Error("host-lock installing fact changed before evidence preparation");
+
+            const liveServices = readFileSync(process.env.LIVE_SERVICE_FACTS, "utf8").trim().split("\n").map((line) => {
+              const fields = line.split("|");
+              if (fields.length !== 10) throw new Error("live service fact is invalid");
+              const [service, containerId, environment, releaseSha, targetSha256, bundleSha256, stagingRunId, imageId, state, health] = fields;
+              return { service, containerId, environment, releaseSha, targetSha256, bundleSha256, stagingRunId, imageId, state, health };
+            });
+            if (JSON.stringify(liveServices.map((item) => item.service)) !== JSON.stringify(BASELINE_SERVICES)) {
+              throw new Error("live service facts do not cover the ordered baseline");
+            }
+            for (const item of liveServices) {
+              if (
+                !/^[0-9a-f]{12,64}$/.test(item.containerId) || item.environment !== "production" ||
+                item.releaseSha !== release.sourceSha || item.targetSha256 !== target.descriptorSha256 ||
+                item.bundleSha256 !== release.operatorBundleSha256 || item.stagingRunId !== "not-staging" ||
+                item.imageId !== release.imageId || item.state !== "running" ||
+                !["healthy", "none"].includes(item.health)
+              ) throw new Error(`live service identity failed for ${item.service}`);
+            }
+            const inventoryFacts = parseEncodedFacts(process.env.INVENTORY_FACTS);
+            const isolationFacts = parseEncodedFacts(process.env.ISOLATION_FACTS);
+            for (const service of BASELINE_SERVICES) {
+              for (const [label, facts] of [["inventory", inventoryFacts], ["isolation", isolationFacts]]) {
+                const matches = facts.filter((item) => item.service === service);
+                if (matches.length !== 1 || matches[0].result.ok !== true) {
+                  throw new Error(`${label} fact is incomplete for ${service}`);
+                }
+              }
+            }
+            const grantFacts = parseEncodedFacts(process.env.GRANT_PREFLIGHT_FACTS);
+            const replayFacts = parseEncodedFacts(process.env.REPLAY_PREFLIGHT_FACTS);
+            if (grantFacts.length < BASELINE_SERVICES.length || replayFacts.length < 3) {
+              throw new Error("grant or replay preflight facts are incomplete");
+            }
+            for (const item of [...grantFacts, ...replayFacts]) {
+              if (item.result.ok !== true || item.result.mode !== "live" || item.result.failureCodes?.length !== 0) {
+                throw new Error(`grant fact failed for ${item.service}`);
+              }
+            }
+            const bootstrapResult = JSON.parse(process.env.BOOTSTRAP_SLOT_RESULT);
+            if (
+              bootstrapResult.ok !== true || bootstrapResult.status !== "installing" ||
+              !Number.isSafeInteger(bootstrapResult.slotVersion) ||
+              bootstrapResult.slotVersion > databasePreview.current.version
+            ) throw new Error("bootstrap principal fact is invalid");
+
+            mkdirSync(dirname(factRoot), { recursive: true, mode: 0o700 });
+            assertPrivateDirectory(dirname(factRoot));
+            if (existsSync(factRoot)) throw new Error("protected install fact root already exists");
+            mkdirSync(factRoot, { mode: 0o700 });
+            assertPrivateDirectory(factRoot);
+            writeCanonical(join(factRoot, "migration-run.json"), {
+              operationId: process.env.OPERATION_ID,
+              startedAt: process.env.MIGRATION_STARTED_AT,
+              finishedAt: process.env.MIGRATION_FINISHED_AT,
+              result: migrationResult,
+              releasedMigrations: release.migrations,
+            });
+            const positiveGrantProofSha256 = writeCanonical(join(factRoot, "positive-grants.json"), {
+              kind: "required-grants-present",
+              operationId: process.env.OPERATION_ID,
+              checks: grantFacts,
+            });
+            const forbiddenGrantProofSha256 = writeCanonical(join(factRoot, "forbidden-grants.json"), {
+              kind: "forbidden-grants-absent",
+              operationId: process.env.OPERATION_ID,
+              checks: grantFacts,
+              replayChecks: replayFacts,
+            });
+            const bootstrapPrincipalEvidenceSha256 = writeCanonical(join(factRoot, "bootstrap-principals.json"), {
+              kind: "bootstrap-principals-bound",
+              operationId: process.env.OPERATION_ID,
+              slotClaim: bootstrapResult,
+              databaseState: databasePreview.current,
+              hostState: hostPreview.current,
+            });
+            const grantEvidence = {
+              operationId: process.env.OPERATION_ID,
+              positiveGrantProofSha256,
+              forbiddenGrantProofSha256,
+              bootstrapPrincipalEvidenceSha256,
+            };
+
+            const serviceFacts = BASELINE_SERVICES.map((service) => ({
+              identity: liveServices.find((item) => item.service === service),
+              inventory: inventoryFacts.find((item) => item.service === service).result,
+              isolation: isolationFacts.find((item) => item.service === service).result,
+            }));
+            writeCanonical(join(factRoot, "service-activation.json"), {
+              operationId: process.env.OPERATION_ID,
+              phase34ProfilesStopped: true,
+              readinessVerifiedAt: process.env.READINESS_VERIFIED_AT,
+              services: serviceFacts,
+            });
+            const serviceJournalCore = {
+              operationId: process.env.OPERATION_ID,
+              phase34ProfilesStopped: true,
+              entries: BASELINE_SERVICES.map((service) => ({
+                service,
+                activated: true,
+                identityVerified: true,
+                ready: true,
+                watermarkPassed: true,
+              })),
+            };
+            const serviceActivationJournal = {
+              ...serviceJournalCore,
+              journalSha256: sha256Canonical(serviceJournalCore),
+            };
+            const healthEvidenceSha256 = writeCanonical(join(factRoot, "health.json"), {
+              operationId: process.env.OPERATION_ID,
+              readinessVerifiedAt: process.env.READINESS_VERIFIED_AT,
+              services: liveServices.map(({ service, containerId, imageId, state, health }) => ({ service, containerId, imageId, state, health })),
+            });
+            const watermarkEvidenceSha256 = writeCanonical(join(factRoot, "watermark.json"), {
+              operationId: process.env.OPERATION_ID,
+              activeProjection: realpathSync(process.env.ACTIVE_PROJECTION),
+              services: liveServices.map(({ service, releaseSha, targetSha256, bundleSha256 }) => ({ service, releaseSha, targetSha256, bundleSha256 })),
+            });
+            const healthEvidence = {
+              operationId: process.env.OPERATION_ID,
+              candidateSha: release.sourceSha,
+              imageDigest: release.imageId,
+              activatedServices: BASELINE_SERVICES,
+              evidenceSha256: healthEvidenceSha256,
+              passed: true,
+            };
+            const watermarkEvidence = {
+              operationId: process.env.OPERATION_ID,
+              activatedServices: BASELINE_SERVICES,
+              evidenceSha256: watermarkEvidenceSha256,
+              passed: true,
+            };
+
+            const startedAt = process.env.WATCHDOG_STARTED_AT;
+            const firstMutationAt = process.env.MIGRATION_STARTED_AT;
+            const lastHeartbeatAt = lock.lease.heartbeatAt;
+            const finalizedAt = new Date().toISOString();
+            if (
+              timestamp(startedAt, "watchdog start") >= timestamp(firstMutationAt, "first mutation") ||
+              timestamp(firstMutationAt, "first mutation") > timestamp(lastHeartbeatAt, "watchdog heartbeat") ||
+              timestamp(lastHeartbeatAt, "watchdog heartbeat") > timestamp(finalizedAt, "watchdog finalization")
+            ) throw new Error("watchdog did not continuously cover the protected install");
+            writeCanonical(join(factRoot, "watchdog.json"), {
+              operationId: process.env.OPERATION_ID,
+              unit: process.env.WATCHDOG_UNIT,
+              startedAt,
+              firstMutationAt,
+              lastHeartbeatAt,
+              finalizedAt,
+              observedState: lock.state,
+            });
+            const watchdogCore = {
+              operationId: process.env.OPERATION_ID,
+              startedAt,
+              firstMutationAt,
+              lastHeartbeatAt,
+              finalizedAt,
+              startedBeforeMutation: true,
+              continuous: true,
+              terminal: true,
+            };
+            const watchdogJournal = { ...watchdogCore, journalSha256: sha256Canonical(watchdogCore) };
+            const rollbackReadinessSha256 = writeCanonical(join(factRoot, "rollback-readiness.json"), {
+              operationId: process.env.OPERATION_ID,
+              rollbackJournalSha256: hash(readFileSync(process.env.ROLLBACK_JOURNAL)),
+              rollbackReleaseManifestSha256: rollback.releaseManifestSha256,
+              rollbackSha: rollback.sourceSha,
+              rollbackImageDigest: rollback.imageId,
+              rollbackSchema: rollback.schema,
+              candidateSchema: release.schema,
+            });
+            const rollbackReadiness = {
+              operationId: process.env.OPERATION_ID,
+              rollbackSha: rollback.sourceSha,
+              rollbackImageDigest: rollback.imageId,
+              evidenceSha256: rollbackReadinessSha256,
+              schemaCompatible: true,
+              ready: true,
+            };
+            syncDirectory(factRoot);
+
+            const finalHeartbeatMs = Math.max(Date.now(), timestamp(finalizedAt, "watchdog finalization")) + 1_000;
+            if (timestamp(lock.lease.expiresAt, "current watchdog expiry") < finalHeartbeatMs) {
+              throw new Error("watchdog lease cannot cover protected evidence preparation");
+            }
+            const finalHeartbeat = new Date(finalHeartbeatMs).toISOString();
+            const finalExpiry = new Date(finalHeartbeatMs + 30 * 60 * 1_000).toISOString();
+            const installed = {
+              candidateSha: release.sourceSha,
+              imageDigest: release.imageId,
+              targetDescriptorSha256: target.descriptorSha256,
+              operatorBundleSha256: release.operatorBundleSha256,
+              databaseFingerprint: target.databaseFingerprint,
+              schemaVersion: release.schema.max,
+              migrationSetSha256: release.migrationSetSha256,
+            };
+            const installContext = {
+              schemaVersion: 1,
+              releaseEnvironment: "production",
+              operationId: process.env.OPERATION_ID,
+              releaseManifestSha256: process.env.RELEASE_MANIFEST_SHA256,
+              release,
+              rollback,
+              target,
+              installed,
+              hostLock: { ...identity, state: "installing", version: hostPreview.current.version },
+              databaseSlot: { ...databaseIdentity, state: "installing", version: databasePreview.current.version },
+              finalLease: { heartbeatAt: finalHeartbeat, expiresAt: finalExpiry },
+              issuedAt: finalHeartbeat,
+            };
+            const signingContext = {
+              schemaVersion: 1,
+              kmsExecutableSha256: trustedFileSha256("/usr/local/libexec/spx-kms-envelope", {
+                maximumBytes: 512 * 1024 * 1024,
+                executable: true,
+              }),
+              kmsCapabilitySha256: trustedFileSha256("/run/credentials/spx-protected-install-evidence-kms.json", {
+                maximumBytes: 512 * 1024,
+                mode: 0o400,
+              }),
+              evidenceSigningKeyId: process.env.EVIDENCE_SIGNING_KEY_ID,
+              signedAt: finalHeartbeat,
+            };
+            if (!SHA256.test(signingContext.kmsExecutableSha256) || !SHA256.test(signingContext.kmsCapabilitySha256)) {
+              throw new Error("fixed KMS facts are invalid");
+            }
+            const contexts = new Map([
+              ["verified-install-context.json", installContext],
+              ["verified-migration-receipt.json", migrationReceipt],
+              ["verified-online-ddl-receipts.json", onlineDdl],
+              ["verified-grant-evidence.json", grantEvidence],
+              ["verified-service-activation-journal.json", serviceActivationJournal],
+              ["verified-watchdog-journal.json", watchdogJournal],
+              ["verified-health-evidence.json", healthEvidence],
+              ["verified-watermark-evidence.json", watermarkEvidence],
+              ["verified-rollback-readiness.json", rollbackReadiness],
+              ["verified-signing-context.json", signingContext],
+            ]);
+            for (const [name, value] of contexts) writeCanonical(join(contextRoot, name), value);
+            syncDirectory(contextRoot);
+            const expectedContextNames = process.env.PROTECTED_INSTALL_BASE_CONTEXT_FILES.split(" ").sort();
+            if (JSON.stringify(readdirSync(contextRoot).sort()) !== JSON.stringify(expectedContextNames)) {
+              throw new Error("protected install base context file set is incomplete");
+            }
+            for (const name of expectedContextNames) assertPrivateFile(join(contextRoot, name));
+            NODE
+            PROTECTED_INSTALL_COMMIT_STARTED=true
+            /usr/bin/node "${PROTECTED_INSTALL_PRODUCER_ROOT}/scripts/protected-install-evidence.mjs"
+            PROTECTED_INSTALL_EXPORT_ROOT=/var/lib/spx-protected-install/export
+            test "$(find "${PROTECTED_INSTALL_EXPORT_ROOT}" -maxdepth 1 -type f | wc -l)" -eq 2
+            test -z "$(find "${PROTECTED_INSTALL_EXPORT_ROOT}" -mindepth 1 ! -type f -print -quit)"
+            for output in protected-install-evidence.json protected-install-signature.json; do
+              test -f "${PROTECTED_INSTALL_EXPORT_ROOT}/${output}"
+              test ! -L "${PROTECTED_INSTALL_EXPORT_ROOT}/${output}"
+              test "$(stat -c %u "${PROTECTED_INSTALL_EXPORT_ROOT}/${output}")" -eq 0
+              test "$(stat -c %a "${PROTECTED_INSTALL_EXPORT_ROOT}/${output}")" = 400
+            done
+          fi
+          PROTECTED_DEPLOYMENT_COMMITTED=true
+          discard_protected_backups
+          trap - ERR
+          REMOTE
+
+      - name: Retrieve exact protected install evidence exports
+        id: protected-install-state
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+          PROTECTED_INSTALL_PRODUCER_SHA256: ${{ steps.install-evidence-producer.outputs.payload_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 protected-install-output
+          for output in protected-install-evidence.json protected-install-signature.json; do
+            scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "${SPX_USER}@${SPX_HOST}:/var/lib/spx-protected-install/export/${output}" \
+              "protected-install-output/${output}"
+            chmod 0400 "protected-install-output/${output}"
+          done
+          test "$(find protected-install-output -maxdepth 1 -type f | wc -l)" -eq 2
+          test -z "$(find protected-install-output -mindepth 1 ! -type f -print -quit)"
+          SOURCE_SHA="$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)"
+          TARGET_SHA256="$(sha256sum verified/target/deployment-target-descriptor.json | cut -d' ' -f1)"
+          OPERATOR_BUNDLE_SHA256="$(node -p 'require(process.argv[1]).operatorBundleSha256' verified/release/release-manifest.json)"
+          INSTALLED_MIGRATION_SET_SHA256="$(node -p 'require(process.argv[1]).migrationSetSha256' verified/release/release-manifest.json)"
+          INSTALLED_SCHEMA_VERSION="$(node -p 'require(process.argv[1]).schema.max' verified/release/release-manifest.json)"
+          VERIFIER_EXPECTATION_B64="$(
+            ssh -p "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "${SPX_USER}@${SPX_HOST}" bash -s -- \
+                "${OPERATION_ID}" "${SOURCE_SHA}" "${TARGET_SHA256}" \
+                "${OPERATOR_BUNDLE_SHA256}" "${INSTALLED_MIGRATION_SET_SHA256}" \
+                "${INSTALLED_SCHEMA_VERSION}" "${PROTECTED_INSTALL_PRODUCER_SHA256}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          test "$(id -u)" -eq 0
+          OPERATION_ID="$1"
+          SOURCE_SHA="$2"
+          TARGET_SHA256="$3"
+          OPERATOR_BUNDLE_SHA256="$4"
+          INSTALLED_MIGRATION_SET_SHA256="$5"
+          INSTALLED_SCHEMA_VERSION="$6"
+          PROTECTED_INSTALL_PRODUCER_SHA256="$7"
+          [[ "${OPERATION_ID}" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          for digest in \
+            "${TARGET_SHA256}" "${OPERATOR_BUNDLE_SHA256}" \
+            "${INSTALLED_MIGRATION_SET_SHA256}" "${PROTECTED_INSTALL_PRODUCER_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+          done
+          [[ "${INSTALLED_SCHEMA_VERSION}" =~ ^[1-9][0-9]*$ ]]
+          PRODUCER_ROOT="/var/lib/spx-protected-install/producers/${PROTECTED_INSTALL_PRODUCER_SHA256}"
+          OPERATION_ID="${OPERATION_ID}" SOURCE_SHA="${SOURCE_SHA}" \
+          TARGET_SHA256="${TARGET_SHA256}" OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" \
+          INSTALLED_MIGRATION_SET_SHA256="${INSTALLED_MIGRATION_SET_SHA256}" \
+          INSTALLED_SCHEMA_VERSION="${INSTALLED_SCHEMA_VERSION}" PRODUCER_ROOT="${PRODUCER_ROOT}" \
+            /usr/bin/node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { lstatSync, readFileSync } from "node:fs";
+          import { dirname, join } from "node:path";
+          import { pathToFileURL } from "node:url";
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const secureJson = (path) => {
+            const status = lstatSync(path);
+            if (!status.isFile() || status.isSymbolicLink() || status.uid !== 0 || status.nlink !== 1 || (status.mode & 0o777) !== 0o400) {
+              throw new Error("protected verifier state boundary changed");
+            }
+            return JSON.parse(readFileSync(path, "utf8"));
+          };
+          const producerRoot = process.env.PRODUCER_ROOT;
+          const { readGate6SlotWithMysqlClient } = await import(
+            pathToFileURL(join(producerRoot, "scripts/protected-install-watchdog.mjs")).href
+          );
+          const { readProductionMutationLock } = await import(
+            pathToFileURL(join(producerRoot, "scripts/production-mutation-host-lock.mjs")).href
+          );
+          const lock = await readProductionMutationLock();
+          const slot = readGate6SlotWithMysqlClient(process.env.TARGET_SHA256);
+          const installedSchemaVersion = Number(process.env.INSTALLED_SCHEMA_VERSION);
+          if (
+            lock.operationId !== process.env.OPERATION_ID || lock.state !== "installed-awaiting-gate6" ||
+            lock.protectedInstall === null || lock.protectedInstall.releaseSha !== process.env.SOURCE_SHA ||
+            lock.protectedInstall.targetDescriptorSha256 !== process.env.TARGET_SHA256 ||
+            lock.protectedInstall.operatorBundleSha256 !== process.env.OPERATOR_BUNDLE_SHA256 ||
+            slot?.environment !== "production" || slot.owner_type !== "protected-install" ||
+            slot.owner_id !== process.env.OPERATION_ID || slot.operation_id !== process.env.OPERATION_ID ||
+            slot.state !== "installed-awaiting-gate6" || slot.release_sha !== process.env.SOURCE_SHA ||
+            slot.target_descriptor_sha256 !== process.env.TARGET_SHA256 ||
+            slot.operator_bundle_sha256 !== process.env.OPERATOR_BUNDLE_SHA256 ||
+            slot.installed_migration_set_sha256 !== process.env.INSTALLED_MIGRATION_SET_SHA256 ||
+            slot.installed_schema_version !== installedSchemaVersion ||
+            slot.protected_install_evidence_sha256 !== lock.protectedInstall.protectedInstallEvidenceSha256
+          ) throw new Error("protected verifier host/DB state does not match the installed release");
+          const rollbackJournal = secureJson(
+            `/var/lib/spx-protected-install/rollback/${process.env.OPERATION_ID}/rollback-journal.json`,
+          );
+          if (
+            typeof rollbackJournal.previousRelease !== "string" ||
+            !/^\/root\/spx-releases\/[0-9a-f]{40}\/operator$/.test(rollbackJournal.previousRelease)
+          ) throw new Error("protected verifier rollback root is invalid");
+          const rollbackManifestPath = join(dirname(rollbackJournal.previousRelease), "release-manifest.json");
+          const rollbackManifestBytes = readFileSync(rollbackManifestPath);
+          const rollbackManifest = JSON.parse(rollbackManifestBytes.toString("utf8"));
+          if (
+            hash(rollbackManifestBytes) !== rollbackJournal.previousReleaseManifestSha256 ||
+            rollbackManifest.imageId !== rollbackJournal.previousImageDigest ||
+            !/^[0-9a-f]{40}$/.test(rollbackManifest.sourceSha ?? "") ||
+            !/^sha256:[0-9a-f]{64}$/.test(rollbackManifest.imageId ?? "")
+          ) throw new Error("protected verifier rollback identity changed");
+          const expectation = canonical({
+            rollbackSha: rollbackManifest.sourceSha,
+            rollbackImageDigest: rollbackManifest.imageId,
+            rollbackReleaseManifestSha256: rollbackJournal.previousReleaseManifestSha256,
+            hostLock: {
+              operationId: lock.operationId,
+              state: lock.state,
+              version: lock.revision,
+            },
+            databaseSlot: {
+              operationId: slot.operation_id,
+              state: slot.state,
+              version: slot.version,
+            },
+          });
+          process.stdout.write(Buffer.from(JSON.stringify(expectation)).toString("base64"));
+          NODE
+          REMOTE
+          )"
+          [[ "${VERIFIER_EXPECTATION_B64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]
+          echo "verifier_expectation_b64=${VERIFIER_EXPECTATION_B64}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify exact protected install evidence locally
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_FILE_SHA256: ${{ vars.SPX_PROTECTED_INSTALL_EVIDENCE_WORKFLOW_FILE_SHA256 }}
+          EXPECTED_OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+          EXPECTED_STATE_B64: ${{ steps.protected-install-state.outputs.verifier_expectation_b64 }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+          import { resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
+
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+          const readCanonical = async (path) => {
+            const bytes = await readFile(path);
+            const value = JSON.parse(bytes.toString("utf8"));
+            if (!bytes.equals(Buffer.from(JSON.stringify(canonical(value))))) {
+              throw new Error(path + " is not canonical JSON");
+            }
+            return value;
+          };
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const evidence = await readCanonical(
+            "protected-install-output/protected-install-evidence.json",
+          );
+          const signatureFile = await readCanonical(
+            "protected-install-output/protected-install-signature.json",
+          );
+          const releaseBytes = await readFile("verified/release/release-manifest.json");
+          const targetBytes = await readFile(
+            "verified/target/deployment-target-descriptor.json",
+          );
+          const release = JSON.parse(releaseBytes.toString("utf8"));
+          const target = JSON.parse(targetBytes.toString("utf8")).descriptor;
+          const backupEvidence = JSON.parse(
+            await readFile("verified/backup-verification.json", "utf8"),
+          );
+          const expectedState = JSON.parse(
+            Buffer.from(process.env.EXPECTED_STATE_B64, "base64").toString("utf8"),
+          );
+          const expectedStateKeys = [
+            "databaseSlot",
+            "hostLock",
+            "rollbackImageDigest",
+            "rollbackReleaseManifestSha256",
+            "rollbackSha",
+          ];
+          if (
+            JSON.stringify(Object.keys(expectedState).sort())
+              !== JSON.stringify(expectedStateKeys)
+            || JSON.stringify(Object.keys(expectedState.hostLock ?? {}).sort())
+              !== JSON.stringify(["operationId", "state", "version"])
+            || JSON.stringify(Object.keys(expectedState.databaseSlot ?? {}).sort())
+              !== JSON.stringify(["operationId", "state", "version"])
+          ) {
+            throw new Error("protected install independent verifier expectation is invalid");
+          }
+          const producer = {
+            repository: "fastest4u/SPX",
+            environment: "production",
+            workflow: ".github/workflows/trusted-deploy.yml",
+            workflowSha: process.env.WORKFLOW_SHA,
+            workflowFileSha256: process.env.WORKFLOW_FILE_SHA256,
+          };
+          if (
+            evidence.operationId !== process.env.EXPECTED_OPERATION_ID
+            || evidence.candidateSha !== release.sourceSha
+            || evidence.candidateImageDigest !== release.imageId
+            || evidence.releaseManifestSha256 !== sha256(releaseBytes)
+            || evidence.productionTargetDescriptorSha256 !== sha256(targetBytes)
+            || evidence.releaseOperatorBundleSha256 !== release.operatorBundleSha256
+            || evidence.installedOperatorBundleSha256 !== release.operatorBundleSha256
+            || evidence.databaseFingerprint !== "sha256:" + target.database.tlsFingerprintSha256
+            || evidence.backupRestoreEvidenceSha256 !== backupEvidence.evidenceSha256
+            || evidence.pendingReleasedMigrationCount !== 0
+          ) {
+            throw new Error("protected install evidence does not match verified deployment inputs");
+          }
+          const modulePath = resolve(
+            "trusted-install-evidence/scripts/protected-install-evidence.mjs",
+          );
+          const { verifyProtectedInstallEvidence } = await import(
+            pathToFileURL(modulePath).href
+          );
+          const result = verifyProtectedInstallEvidence(evidence, {
+            operationId: process.env.EXPECTED_OPERATION_ID,
+            candidateSha: release.sourceSha,
+            candidateImageDigest: release.imageId,
+            rollbackSha: expectedState.rollbackSha,
+            rollbackImageDigest: expectedState.rollbackImageDigest,
+            releaseManifestSha256: sha256(releaseBytes),
+            rollbackReleaseManifestSha256: expectedState.rollbackReleaseManifestSha256,
+            productionTargetDescriptorSha256: sha256(targetBytes),
+            releaseOperatorBundleSha256: release.operatorBundleSha256,
+            installedOperatorBundleSha256: release.operatorBundleSha256,
+            databaseFingerprint: "sha256:" + target.database.tlsFingerprintSha256,
+            backupRestoreEvidenceSha256: backupEvidence.evidenceSha256,
+            producer,
+            hostLock: expectedState.hostLock,
+            databaseSlot: expectedState.databaseSlot,
+            signatureFile,
+          });
+          if (
+            result?.ok !== true
+            || result.installedSchemaVersion !== release.schema.max
+            || result.installedMigrationSetSha256 !== release.migrationSetSha256
+          ) {
+            throw new Error("protected install evidence semantic verification failed");
+          }
+          NODE
+
+      - name: Attest protected install evidence
+        if: inputs.target == 'production'
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: protected-install-output/protected-install-evidence.json
+
+      - name: Attest protected install signature
+        if: inputs.target == 'production'
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: protected-install-output/protected-install-signature.json
+
+      - name: Upload protected install evidence artifact
+        id: protected-install-artifact
+        if: inputs.target == 'production'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-protected-install-evidence-${{ steps.context.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            protected-install-output/protected-install-evidence.json
+            protected-install-output/protected-install-signature.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Record protected install artifact identity
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.protected-install-artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.protected-install-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ "${ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${ARTIFACT_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'protected_install_artifact_id=%s\nprotected_install_artifact_digest=%s\n' \
+            "${ARTIFACT_ID}" "${ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove protected install exports after successful upload
+        if: inputs.target == 'production'
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s <<'REMOTE'
+          set -eEuo pipefail
+          test "$(id -u)" -eq 0
+          /usr/bin/node --input-type=module <<'NODE'
+          import { constants } from "node:fs";
+          import { lstat, open, readdir, unlink } from "node:fs/promises";
+          import { join } from "node:path";
+          const exportRoot = "/var/lib/spx-protected-install/export";
+          const names = [
+            "protected-install-evidence.json",
+            "protected-install-signature.json",
+          ].sort();
+          if (JSON.stringify((await readdir(exportRoot)).sort()) !== JSON.stringify(names)) {
+            throw new Error("protected install export file set changed before cleanup");
+          }
+          for (const name of names) {
+            const status = await lstat(join(exportRoot, name));
+            if (
+              !status.isFile()
+              || status.isSymbolicLink()
+              || status.uid !== 0
+              || (status.mode & 0o777) !== 0o400
+            ) throw new Error("protected install export boundary changed before cleanup");
+          }
+          for (const name of names) await unlink(join(exportRoot, name));
+          const directory = await open(exportRoot, constants.O_RDONLY);
+          try { await directory.sync(); } finally { await directory.close(); }
+          const contextRoot = "/var/lib/spx-protected-install/context";
+          const contextNames = [
+            "verified-install-context.json",
+            "verified-producer-context.json",
+            "verified-backup-evidence-summary.json",
+            "verified-migration-receipt.json",
+            "verified-online-ddl-receipts.json",
+            "verified-grant-evidence.json",
+            "verified-service-activation-journal.json",
+            "verified-watchdog-journal.json",
+            "verified-health-evidence.json",
+            "verified-watermark-evidence.json",
+            "verified-rollback-readiness.json",
+            "verified-signing-context.json",
+            "protected-install-signing-intent.json",
+            "protected-install-signature.json",
+          ].sort();
+          if (JSON.stringify((await readdir(contextRoot)).sort()) !== JSON.stringify(contextNames)) {
+            throw new Error("protected install fixed context changed before cleanup");
+          }
+          for (const name of contextNames) {
+            const path = join(contextRoot, name);
+            const status = await lstat(path);
+            if (
+              !status.isFile()
+              || status.isSymbolicLink()
+              || status.uid !== 0
+              || status.nlink !== 1
+              || (status.mode & 0o777) !== 0o400
+            ) throw new Error("protected install fixed context boundary changed before cleanup");
+          }
+          for (const name of contextNames) await unlink(join(contextRoot, name));
+          const contextDirectory = await open(contextRoot, constants.O_RDONLY);
+          try { await contextDirectory.sync(); } finally { await contextDirectory.close(); }
+          NODE
+          REMOTE
+
+      - name: Report verified deployed identity
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+          OPERATION_ID: ${{ steps.context.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.context.outputs.payload_sha256 }}
+        run: |
+          set -euo pipefail
+          printf 'target=%s\nrelease_artifact_id=%s\ntarget_descriptor_artifact_id=%s\noperation_id=%s\npayload_sha256=%s\n' \
+            "${TARGET}" "${RELEASE_ARTIFACT_ID}" "${TARGET_DESCRIPTOR_ARTIFACT_ID}" \
+            "${OPERATION_ID}" "${PAYLOAD_SHA256}" >> "${GITHUB_STEP_SUMMARY}"

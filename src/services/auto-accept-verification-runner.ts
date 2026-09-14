@@ -1,3 +1,4 @@
+import { metrics, type MetricsCollector } from "./metrics.js";
 import type { ApiClient } from "./api-client.js";
 import { verifyAutoAcceptJob, type AutoAcceptVerificationJob, type AutoAcceptVerificationOutcome } from "./auto-accept-verifier.js";
 import {
@@ -42,7 +43,7 @@ export class AutoAcceptVerificationRunner {
     readonly teamId: number,
     private readonly apiClient: ApiClient,
     private readonly hooks: VerificationHooks,
-    private readonly options: { retryDelayMs?: number; jitter?: () => number } = {},
+    private readonly options: { retryDelayMs?: number; jitter?: () => number; metricsCollector?: MetricsCollector } = {},
   ) {}
 
   restore(): Promise<void> {
@@ -170,12 +171,19 @@ export class AutoAcceptVerificationRunner {
       if (verificationHoldCount(updated) > 0) {
         const job = updated.job.discovery ? updated.job : { ...updated.job, requestIds: updated.unresolvedRequestIds };
         const settledRequestIds = updated.settledRequestIds;
+        let readStarted = false;
+        const onReadStarted = () => {
+          if (readStarted || job.teamId !== this.teamId) return;
+          readStarted = true;
+          (this.options.metricsCollector ?? this.apiClient.metricsCollector ?? metrics)
+            .recordInterval("verificationQueueWait", job.acceptFinishedAt);
+        };
         const read = () => verifyAutoAcceptJob(this.apiClient, job, {
           skipAmbiguousRecheck: true, settledRequestIds,
         });
         const outcome = this.apiClient.withVerificationPriority
           ? await this.apiClient.withVerificationPriority(read, async () => !this.stopped
-            && Date.now() < (record.leaseUntil ?? 0) && await this.hooks.canRun() && !this.stopped)
+            && Date.now() < (record.leaseUntil ?? 0) && await this.hooks.canRun() && !this.stopped, onReadStarted)
           : await read();
         if (this.stopped || !(await this.hooks.canRun())) return;
         const result = await settleAutoAcceptVerificationJob(this.teamId, traceId, record.leaseToken, outcome,

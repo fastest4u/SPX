@@ -1,0 +1,51 @@
+name: spx-backup-restore
+
+services:
+  isolated-mysql:
+    image: ${SPX_BACKUP_ISOLATED_MYSQL_IMAGE:?protected digest required}
+    restart: "no"
+    init: true
+    environment:
+      MYSQL_DATABASE: spx
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/isolated-root-password
+    command:
+      - --skip-name-resolve
+      - --local-infile=OFF
+      - --secure-file-priv=NULL
+    secrets:
+      - isolated-root-password
+      - isolated-client
+    networks:
+      - isolated-only
+    volumes:
+      - isolated-data:/var/lib/mysql
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /run/mysqld:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin --defaults-extra-file=/run/secrets/isolated-client.cnf ping --silent
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 10s
+
+secrets:
+  isolated-root-password:
+    file: /var/lib/spx-production-backup/runtime/isolated-root-password
+  isolated-client:
+    file: /var/lib/spx-production-backup/runtime/isolated-client.cnf
+
+networks:
+  isolated-only:
+    name: ${SPX_BACKUP_ISOLATED_NETWORK:?isolated network required}
+    internal: true
+
+volumes:
+  isolated-data:
+    name: ${SPX_BACKUP_ISOLATED_VOLUME:?isolated volume required}
