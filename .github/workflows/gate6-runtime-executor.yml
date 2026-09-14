@@ -32,7 +32,6 @@ jobs:
     environment: production
     concurrency:
       group: spx-production-mutation
-      queue: max
       cancel-in-progress: false
     permissions:
       actions: read
@@ -45,7 +44,6 @@ jobs:
       ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
       FINAL_VERIFIER_ARTIFACT_ID: ${{ inputs.final_verifier_artifact_id }}
       FINAL_VERIFIER_RUN_ID: ${{ inputs.final_verifier_run_id }}
-      TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
       EXPECTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_RUNTIME_EXECUTOR_SHA }}
       ENVELOPE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
       LINE_PERMIT_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_LINE_PERMIT_SIGNER_SHA }}
@@ -67,6 +65,8 @@ jobs:
 
       - name: Validate the hard-coded delivery selector
         shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           [[ "${OPERATION}" =~ ^(admit|permit-register-line|permit-register-ocr|postproof-register|abort|seal-close|release)$ ]]

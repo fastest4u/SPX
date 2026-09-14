@@ -100,8 +100,9 @@ for (const name of ["phase", "candidate_sha", "approval_artifact_id", "approval_
 assert.match(reusable, /environment:\s*production/);
 assert.match(
   reusable,
-  /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*queue:\s*max[\s\S]*cancel-in-progress:\s*false/,
+  /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*cancel-in-progress:\s*false/,
 );
+assert.doesNotMatch(reusable, /^\s+queue:/m);
 assert.deepEqual(jobPermissions(reusable, "export-accepted-evidence"), {
   actions: "read",
   attestations: "write",

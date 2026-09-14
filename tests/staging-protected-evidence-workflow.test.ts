@@ -70,7 +70,7 @@ assert.doesNotMatch(trusted, /workflow_dispatch:/);
 assert.match(trusted, /^permissions:\s*\{\}\s*$/m);
 assert.match(trusted, /environment:\s*staging/);
 assert.match(trusted, /group:\s*spx-staging-a3/);
-assert.match(trusted, /queue:\s*max/);
+assert.doesNotMatch(trusted, /^\s+queue:/m);
 assert.match(trusted, /cancel-in-progress:\s*false/);
 assert.match(trusted, /ref:\s*\$\{\{\s*job\.workflow_sha\s*\}\}/);
 assert.match(trusted, /WORKFLOW_SHA:\s*\$\{\{\s*job\.workflow_sha\s*\}\}/);

@@ -161,8 +161,9 @@ function assertProtectedOidcSigner(
   assert.match(source, /environment:\s*production/);
   assert.match(
     source,
-    /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*queue:\s*max[\s\S]*cancel-in-progress:\s*false/,
+    /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*cancel-in-progress:\s*false/,
   );
+  assert.doesNotMatch(source, /^\s+queue:/m);
   assert.match(source, /id-token:\s*write/);
   assert.match(source, /attestations:\s*write/);
   assert.match(source, /\$\{\{\s*job\.workflow_sha\s*\}\}/);
@@ -383,8 +384,9 @@ assert.match(runtimeExecutor, /environment:\s*production/);
 assert.match(runtimeExecutor, /group:\s*spx-production-mutation/);
 assert.match(
   runtimeExecutor,
-  /group:\s*spx-production-mutation[\s\S]*queue:\s*max[\s\S]*cancel-in-progress:\s*false/,
+  /group:\s*spx-production-mutation[\s\S]*cancel-in-progress:\s*false/,
 );
+assert.doesNotMatch(runtimeExecutor, /^\s+queue:/m);
 assert.match(runtimeExecutor, /cancel-in-progress:\s*false/);
 assert.match(
   runtimeExecutor,

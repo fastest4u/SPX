@@ -62,8 +62,9 @@ assert.match(exporter, /^permissions:\s*\{\}\s*$/m);
 assert.match(exporter, /environment:\s*production/);
 assert.match(
   exporter,
-  /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*queue:\s*max[\s\S]*cancel-in-progress:\s*false/,
+  /concurrency:[\s\S]*group:\s*spx-production-mutation[\s\S]*cancel-in-progress:\s*false/,
 );
+assert.doesNotMatch(exporter, /^\s+queue:/m);
 for (const input of ["candidate_sha", "approval_artifact_id", "approval_run_id"]) {
   assert.match(
     exporter,

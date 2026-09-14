@@ -36,7 +36,6 @@ permissions: {}
 
 concurrency:
   group: spx-staging-a3
-  queue: max
   cancel-in-progress: false
 
 jobs:
