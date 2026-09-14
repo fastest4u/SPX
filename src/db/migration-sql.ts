@@ -351,6 +351,26 @@ CREATE TABLE IF NOT EXISTS realtime_metrics_read_models (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;
 
+export const autoAcceptJobSettlementsMigrationSql = `
+CREATE TABLE IF NOT EXISTS auto_accept_job_settlements (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  settlement_key VARCHAR(512) NOT NULL,
+  job_id BIGINT UNSIGNED NOT NULL,
+  team_id INT NOT NULL,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  request_id BIGINT UNSIGNED NOT NULL,
+  rule_id VARCHAR(255) NOT NULL,
+  settlement_step VARCHAR(32) NOT NULL,
+  side_effect_id BIGINT UNSIGNED NULL,
+  metadata_json TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY aajs_settlement_key_uidx (settlement_key),
+  UNIQUE KEY aajs_job_step_uidx (job_id, settlement_step),
+  KEY aajs_team_step_completed_idx (team_id, settlement_step, completed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
 export const gate6ControlPlaneMigrationSql = `
 CREATE TABLE IF NOT EXISTS gate6_environment_slots (
   environment VARCHAR(32) NOT NULL,
@@ -483,5 +503,55 @@ CREATE TABLE IF NOT EXISTS auto_accept_verification_jobs (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (team_id, trace_id),
   KEY aavj_team_due_idx (team_id, status, next_attempt_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const notificationProviderReconciliationsMigrationSql = `
+CREATE TABLE IF NOT EXISTS notification_provider_reconciliations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  outbox_id BIGINT UNSIGNED NOT NULL,
+  provider_request_id VARCHAR(128) NOT NULL,
+  provider_started_at DATETIME NOT NULL,
+  expected_status VARCHAR(32) NOT NULL,
+  action VARCHAR(32) NOT NULL,
+  result_status VARCHAR(32) NOT NULL,
+  actor_user_id INT NOT NULL,
+  actor_username VARCHAR(50) NOT NULL,
+  actor_team_id INT NULL,
+  target_team_id INT NOT NULL,
+  evidence_reference VARCHAR(255) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  provider_message_id VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY npr_outbox_provider_fence_uidx (outbox_id, provider_request_id, provider_started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`;
+
+export const notificationProviderExecutionFenceMigrationSql = `
+SET @notification_provider_execution_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'notification_outbox'
+    AND COLUMN_NAME = 'provider_execution_started_at'
+);
+SET @notification_provider_execution_sql := IF(
+  @notification_provider_execution_exists = 0,
+  'ALTER TABLE notification_outbox ADD COLUMN provider_execution_started_at DATETIME NULL',
+  'SELECT 1'
+);
+PREPARE notification_provider_execution_stmt FROM @notification_provider_execution_sql;
+EXECUTE notification_provider_execution_stmt;
+DEALLOCATE PREPARE notification_provider_execution_stmt;
+`;
+
+export const internalRequestReplaysMigrationSql = `
+CREATE TABLE IF NOT EXISTS internal_request_replays (
+  replay_key CHAR(64) NOT NULL,
+  partition_name VARCHAR(64) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (replay_key),
+  KEY internal_request_replays_partition_expires_idx (partition_name, expires_at),
+  KEY internal_request_replays_expires_idx (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 `;

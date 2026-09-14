@@ -77,9 +77,9 @@ function safeParseRuntimeRoleSetting(): unknown {
   }
 }
 
-function safeParseRunTeamIdsSetting(): unknown[] {
+function safeParseRunTeamIdsSetting(value: string | undefined = process.env.RUN_TEAM_IDS): unknown[] {
   try {
-    return parseRunTeamIds(process.env.RUN_TEAM_IDS);
+    return parseRunTeamIds(value);
   } catch {
     return [];
   }
@@ -130,6 +130,61 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.NOTIFY_VEHICLE_TYPES = parseCommaSeparatedSetting(process.env.NOTIFY_VEHICLE_TYPES);
   mutableEnv.NOTIFY_MIN_TRIPS = readIntegerSetting("NOTIFY_MIN_TRIPS", 1);
   mutableEnv.AUTO_ACCEPT_ENABLED = process.env.AUTO_ACCEPT_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_CUTOVER_EPOCH = process.env.AUTO_ACCEPT_JOB_CUTOVER_EPOCH || "";
+  mutableEnv.AUTO_ACCEPT_JOB_SHADOW_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_SHADOW_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_DRY_RUN_INTERVAL_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_DRY_RUN_INTERVAL_MS",
+    1000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_DRY_RUN_BATCH_SIZE = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_DRY_RUN_BATCH_SIZE",
+    10,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_DRY_RUN_LEASE_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_DRY_RUN_LEASE_MS",
+    300_000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_REAL_INTERVAL_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_REAL_INTERVAL_MS",
+    1000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_REAL_BATCH_SIZE = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_REAL_BATCH_SIZE",
+    10,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_REAL_LEASE_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_REAL_LEASE_MS",
+    300_000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_SETTLEMENT_INTERVAL_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_SETTLEMENT_INTERVAL_MS",
+    1000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_SETTLEMENT_BATCH_SIZE = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_SETTLEMENT_BATCH_SIZE",
+    10,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_SETTLEMENT_LEASE_MS = readIntegerSetting(
+    "AUTO_ACCEPT_JOB_SETTLEMENT_LEASE_MS",
+    300_000,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS = safeParseRunTeamIdsSetting(
+    process.env.AUTO_ACCEPT_JOB_PENDING_REQUEST_CUTOVER_TEAM_IDS,
+  );
+  mutableEnv.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED =
+    process.env.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_ENABLED === "true";
+  mutableEnv.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS = safeParseRunTeamIdsSetting(
+    process.env.AUTO_ACCEPT_JOB_FAST_ACCEPT_ALL_CUTOVER_TEAM_IDS,
+  );
   mutableEnv.HTTP_ENABLED = process.env.HTTP_ENABLED === "true";
   mutableEnv.HTTP_PORT = readIntegerSetting("HTTP_PORT", 3000);
   mutableEnv.HTTP_ALLOWED_ORIGINS = parseCommaSeparatedSetting(process.env.HTTP_ALLOWED_ORIGINS);

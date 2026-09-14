@@ -6,6 +6,10 @@ import {
   upsertRuntimeNode,
   type LeaseAcquireResult,
 } from "../repositories/runtime-repository.js";
+import {
+  runtimeNodeRegistration,
+  type RuntimeReleaseIdentity,
+} from "./runtime-release-identity.js";
 
 export interface AcquireTeamLeaseInput {
   teamId: number;
@@ -13,6 +17,8 @@ export interface AcquireTeamLeaseInput {
   role: string;
   ttlMs: number;
   now?: Date;
+  releaseIdentity?: RuntimeReleaseIdentity;
+  startedAt?: string;
 }
 
 export interface RenewTeamLeaseInput {
@@ -30,11 +36,15 @@ export interface ReleaseTeamLeaseInput {
 }
 
 export async function acquireTeamLease(input: AcquireTeamLeaseInput): Promise<LeaseAcquireResult> {
+  const registration = input.releaseIdentity === undefined
+    ? undefined
+    : runtimeNodeRegistration(input.releaseIdentity, input.startedAt);
   await upsertRuntimeNode({
     nodeId: input.nodeId,
     role: input.role,
     hostname: hostname(),
     pid: process.pid,
+    ...(registration ?? {}),
   });
 
   return await tryAcquireLease(input);

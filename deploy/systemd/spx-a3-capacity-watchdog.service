@@ -1,0 +1,28 @@
+[Unit]
+Description=SPX A3 staging independent capacity watchdog
+After=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=spx-staging-rollout
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/node /opt/spx-staging/release/current/operator/scripts/a3-capacity-watchdog.mjs run
+Restart=always
+RestartSec=3s
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/run/spx-staging-rollout /var/lib/spx-staging-rollout
+
+[Install]
+WantedBy=multi-user.target

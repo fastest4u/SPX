@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   LINE_INTERNAL_GROUPS_PATH,
   LINE_INTERNAL_LOGIN_PATH,
@@ -9,6 +12,7 @@ import {
   LINE_INTERNAL_STORAGE_PATH,
 } from "../src/services/line-service-contract.js";
 import { createHttpServer } from "../src/services/http-server.js";
+import { env } from "../src/config/env.js";
 
 const lineInternalPaths = [
   LINE_INTERNAL_SEND_PATH,
@@ -25,11 +29,20 @@ async function withServer<T>(
   fn: (app: Awaited<ReturnType<typeof createHttpServer>>) => Promise<T>,
   role?: Parameters<typeof createHttpServer>[0]["role"],
 ): Promise<T> {
+  const originalReplayLedgerDir = env.OCR_REPLAY_LEDGER_DIR;
+  const replayRoot = surface === "ocr-service"
+    ? await mkdtemp(join(tmpdir(), "spx-http-surface-ocr-replay-"))
+    : undefined;
+  if (replayRoot) env.OCR_REPLAY_LEDGER_DIR = join(replayRoot, "ledger");
   const app = await createHttpServer({ surface, role });
   try {
     return await fn(app);
   } finally {
     await app.close();
+    env.OCR_REPLAY_LEDGER_DIR = originalReplayLedgerDir;
+    if (replayRoot) {
+      await rm(replayRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   }
 }
 

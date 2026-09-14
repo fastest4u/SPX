@@ -1,4 +1,8 @@
 import { MetricsCollector, type MetricsSnapshot } from "../src/services/metrics.js";
+import {
+  executionMetricsSnapshot,
+  mergeExecutionMetricsRecords,
+} from "../src/services/execution-metrics.js";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { createServer } from "vite";
@@ -141,10 +145,39 @@ async function run() {
     await page.getByLabel("selected").filter({ hasText: "73:false:false" }).waitFor();
     const poll = new MetricsCollector({ teamId: 73 });
     poll.recordPoll(10, true, "ok", 1);
-    const merged = poll.snapshot();
+    const execution = new MetricsCollector({ teamId: 73 });
+    execution.recordOperation("firstMatchToAcceptStart", 123);
+    execution.recordOperation("acceptRtt", 45);
+    const now = Date.now();
+    const merged = mergeExecutionMetricsRecords(
+      [
+        {
+          teamId: 73,
+          nodeId: "poll",
+          snapshot: poll.snapshot(),
+          emittedAt: now,
+          receivedAt: now,
+          updatedAt: now,
+        },
+      ],
+      [
+        {
+          teamId: 73,
+          nodeId: "execution",
+          snapshot: executionMetricsSnapshot(
+            execution.snapshot(),
+            "fixture",
+            new Date(now).toISOString(),
+          ),
+          emittedAt: now,
+          receivedAt: now,
+        },
+      ],
+      now,
+    )[0].snapshot;
     await page.evaluate((snapshot) => window.__metricsFixture.emitPayload(snapshot), merged);
     await page.getByLabel("selected").filter({ hasText: "73:false:true" }).waitFor();
-    assert.equal(await page.getByText("ยังไม่มีข้อมูลสังเกต", { exact: true }).count(), 4, "current production metrics without A3 stage observations remain usable");
+    await page.getByText("123 ms · p95 123 ms", { exact: true }).waitFor();
     console.log(
       "metrics-observation-browser: mounted SSE silence/recovery, auth/team/admin isolation, bell/shared selection and compact rendering passed",
     );

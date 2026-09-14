@@ -6,6 +6,7 @@ export interface SignedJsonRequestInput<TBody> {
   nodeId: string;
   body: TBody;
   eventKey?: string;
+  requestId?: string;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
   requestTimeoutMs?: number;
 }
@@ -52,6 +53,7 @@ export async function signedJsonPost<TBody, TData>(
 
   const body = JSON.stringify(input.body);
   const timestamp = new Date().toISOString();
+  const requestId = input.requestId;
   const signature = createInternalSignature({
     body,
     timestamp,
@@ -59,6 +61,7 @@ export async function signedJsonPost<TBody, TData>(
     path,
     secret: input.sharedSecret,
     eventKey: input.eventKey,
+    ...(requestId !== undefined ? { requestId } : {}),
   });
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -66,6 +69,9 @@ export async function signedJsonPost<TBody, TData>(
     "x-spx-timestamp": timestamp,
     "x-spx-signature": signature,
   };
+  if (requestId !== undefined) {
+    headers["x-spx-request-id"] = requestId;
+  }
   if (input.eventKey !== undefined) {
     headers["idempotency-key"] = input.eventKey;
   }

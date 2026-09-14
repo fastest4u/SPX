@@ -1,0 +1,100 @@
+name: Prepare deployment target descriptor request
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected deployment target
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      release_artifact_id:
+        description: Immutable, attested release artifact ID
+        required: true
+        type: string
+      release_run_id:
+        description: Workflow run that produced the release artifact
+        required: true
+        type: string
+      source_sha:
+        description: Exact release source SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: spx-descriptor-request-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-request:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      request_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Create unprivileged descriptor request
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+          REQUEST_WORKFLOW_SHA: ${{ github.sha }}
+          REQUEST_REPOSITORY: ${{ github.repository }}
+          REQUEST_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            if (!/^[0-9a-f]{40}$/.test(process.env.RELEASE_SOURCE_SHA)) throw new Error("invalid release source SHA");
+            if (!/^[0-9]+$/.test(process.env.RELEASE_ARTIFACT_ID)) throw new Error("invalid release artifact id");
+            if (!/^[0-9]+$/.test(process.env.RELEASE_RUN_ID)) throw new Error("invalid release run id");
+            if (!/^(staging|production)$/.test(process.env.TARGET)) throw new Error("invalid target");
+            const request = {
+              schemaVersion: 1,
+              repository: process.env.REQUEST_REPOSITORY,
+              target: process.env.TARGET,
+              releaseArtifactId: process.env.RELEASE_ARTIFACT_ID,
+              releaseRunId: process.env.RELEASE_RUN_ID,
+              releaseSourceSha: process.env.RELEASE_SOURCE_SHA,
+              requestRunId: process.env.REQUEST_RUN_ID,
+              requestWorkflowSha: process.env.REQUEST_WORKFLOW_SHA,
+            };
+            const sorted = Object.fromEntries(Object.entries(request).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+            writeFileSync("descriptor-request.json", JSON.stringify(sorted), { mode: 0o444 });
+          '
+
+      - name: Upload descriptor-request artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: descriptor-request-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: descriptor-request.json
+          if-no-files-found: error
+          retention-days: 7
+
+  sign-request:
+    needs: prepare-request
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    # BOOTSTRAP-DENY: replace the zero SHA only in the reviewed stage-two pin commit.
+    uses: fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml@0000000000000000000000000000000000000000
+    with:
+      target: ${{ inputs.target }}
+      request_artifact_id: ${{ needs.prepare-request.outputs.request_artifact_id }}
+      request_run_id: ${{ github.run_id }}
+      release_artifact_id: ${{ inputs.release_artifact_id }}
+      release_run_id: ${{ inputs.release_run_id }}
+      release_source_sha: ${{ inputs.source_sha }}

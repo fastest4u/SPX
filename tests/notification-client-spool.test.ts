@@ -166,8 +166,10 @@ async function main(): Promise<void> {
     assert.equal(capturedHeaders?.get("content-type"), "application/json");
 
     const timestamp = capturedHeaders?.get("x-spx-timestamp");
+    const requestId = capturedHeaders?.get("x-spx-request-id");
     const signature = capturedHeaders?.get("x-spx-signature");
     assert.equal(typeof timestamp, "string");
+    assert.match(requestId ?? "", /^[0-9a-f-]{36}$/i);
     assert.equal(typeof signature, "string");
     assert.deepEqual(
       verifyInternalSignature({
@@ -177,6 +179,7 @@ async function main(): Promise<void> {
         path: "/internal/notification-events",
         secret: sharedSecret,
         eventKey,
+        requestId: requestId ?? "",
         signature: signature ?? "",
         now: new Date(timestamp ?? ""),
       }),
@@ -391,8 +394,10 @@ async function main(): Promise<void> {
     assert.equal(capturedHeaders?.get("content-type"), "application/json");
 
     const timestamp = capturedHeaders?.get("x-spx-timestamp");
+    const requestId = capturedHeaders?.get("x-spx-request-id");
     const signature = capturedHeaders?.get("x-spx-signature");
     assert.equal(typeof timestamp, "string");
+    assert.match(requestId ?? "", /^[0-9a-f-]{36}$/i);
     assert.equal(typeof signature, "string");
     assert.deepEqual(
       verifyInternalSignature({
@@ -402,11 +407,40 @@ async function main(): Promise<void> {
         path: "/internal/notification-events",
         secret: sharedSecret,
         eventKey,
+        requestId: requestId ?? "",
         signature: signature ?? "",
         now: new Date(timestamp ?? ""),
       }),
       { ok: true },
     );
+  });
+
+  await withTempSpool(async (spool) => {
+    await spool.append({
+      eventKey,
+      url,
+      headers: {
+        "content-type": "application/json",
+        "x-spx-node-id": nodeId,
+        "idempotency-key": eventKey,
+      },
+      body: expectedBody,
+    });
+    const entry = (await spool.readAll())[0];
+    assert.ok(entry);
+    const requestIds: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await sendSpooledNotificationEvent({
+        entry,
+        sharedSecret,
+        fetchImpl: async (_url, init) => {
+          requestIds.push(new Headers(init?.headers).get("x-spx-request-id") ?? "");
+          return okResponse({ data: { duplicate: false } });
+        },
+      });
+    }
+    assert.equal(requestIds.every((value) => /^[0-9a-f-]{36}$/i.test(value)), true);
+    assert.equal(new Set(requestIds).size, 2, "each transport retry must use a fresh request id");
   });
 }
 

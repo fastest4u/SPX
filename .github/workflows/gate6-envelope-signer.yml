@@ -1,0 +1,769 @@
+name: Sign Gate 6 production envelope
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      release_artifact_id:
+        required: true
+        type: string
+      release_run_id:
+        required: true
+        type: string
+      production_target_artifact_id:
+        required: true
+        type: string
+      production_target_run_id:
+        required: true
+        type: string
+      staging_target_artifact_id:
+        required: true
+        type: string
+      staging_target_run_id:
+        required: true
+        type: string
+      staging_evidence_artifact_id:
+        required: true
+        type: string
+      staging_evidence_run_id:
+        required: true
+        type: string
+      protected_install_artifact_id:
+        required: true
+        type: string
+      protected_install_run_id:
+        required: true
+        type: string
+      backup_evidence_artifact_id:
+        required: true
+        type: string
+      backup_evidence_run_id:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: spx-production-mutation
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+      RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+      PRODUCTION_TARGET_ARTIFACT_ID: ${{ inputs.production_target_artifact_id }}
+      PRODUCTION_TARGET_RUN_ID: ${{ inputs.production_target_run_id }}
+      STAGING_TARGET_ARTIFACT_ID: ${{ inputs.staging_target_artifact_id }}
+      STAGING_TARGET_RUN_ID: ${{ inputs.staging_target_run_id }}
+      STAGING_EVIDENCE_ARTIFACT_ID: ${{ inputs.staging_evidence_artifact_id }}
+      STAGING_EVIDENCE_RUN_ID: ${{ inputs.staging_evidence_run_id }}
+      PROTECTED_INSTALL_ARTIFACT_ID: ${{ inputs.protected_install_artifact_id }}
+      PROTECTED_INSTALL_RUN_ID: ${{ inputs.protected_install_run_id }}
+      BACKUP_EVIDENCE_ARTIFACT_ID: ${{ inputs.backup_evidence_artifact_id }}
+      BACKUP_EVIDENCE_RUN_ID: ${{ inputs.backup_evidence_run_id }}
+      TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+      EXPECTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
+      SIGNER_URL: ${{ vars.SPX_GATE6_ENVELOPE_SIGNER_URL }}
+      SIGNING_KEY_ID: ${{ vars.SPX_GATE6_ENVELOPE_KEY_ID }}
+      TRUSTED_RELEASE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+      TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+    steps:
+      - name: Checkout only the trusted signer definition
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/workflows/gate6-envelope-signer.yml
+            deploy/protected-evidence-producers.json
+            scripts/lib/evidence-artifact.mjs
+            scripts/lib/github-attestation-run.mjs
+            scripts/lib/protected-evidence-producers.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve the exact protected evidence producers
+        id: protected-producers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFile } from "node:fs/promises";
+          import { producerFor } from "./scripts/lib/protected-evidence-producers.mjs";
+          for (const [prefix, kind] of [
+            ["staging", "staging-gates"],
+            ["backup", "production-backup-restore"],
+            ["install", "protected-install"],
+          ]) {
+            const producer = producerFor(kind);
+            if (
+              producer.bootstrapDenied !== false
+              || /^0{40}$/.test(producer.signerSha)
+              || /^0{64}$/.test(producer.workflowFileSha256)
+            ) throw new Error(`${kind} producer is bootstrap-denied`);
+            await appendFile(process.env.GITHUB_OUTPUT, `${prefix}_workflow=${producer.workflow}\n`);
+            await appendFile(process.env.GITHUB_OUTPUT, `${prefix}_sha=${producer.signerSha}\n`);
+            await appendFile(
+              process.env.GITHUB_OUTPUT,
+              `${prefix}_workflow_file_sha256=${producer.workflowFileSha256}\n`,
+            );
+          }
+          NODE
+
+      - name: Validate protected signer identity and selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${EXPECTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_RELEASE_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_DESCRIPTOR_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${TRUSTED_WORKFLOW_SHA}" = "${EXPECTED_WORKFLOW_SHA}"
+          test -n "${SIGNER_URL}"
+          [[ "${SIGNING_KEY_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          for value in \
+            "${RELEASE_ARTIFACT_ID}" "${RELEASE_RUN_ID}" \
+            "${PRODUCTION_TARGET_ARTIFACT_ID}" "${PRODUCTION_TARGET_RUN_ID}" \
+            "${STAGING_TARGET_ARTIFACT_ID}" "${STAGING_TARGET_RUN_ID}" \
+            "${STAGING_EVIDENCE_ARTIFACT_ID}" "${STAGING_EVIDENCE_RUN_ID}" \
+            "${PROTECTED_INSTALL_ARTIFACT_ID}" "${PROTECTED_INSTALL_RUN_ID}" \
+            "${BACKUP_EVIDENCE_ARTIFACT_ID}" "${BACKUP_EVIDENCE_RUN_ID}"; do
+            [[ "${value}" =~ ^[1-9][0-9]*$ ]]
+          done
+
+      - name: Download immutable release evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.release_artifact_id }}
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/release
+
+      - name: Download immutable production target evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.production_target_artifact_id }}
+          run-id: ${{ inputs.production_target_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/production-target
+
+      - name: Download immutable staging target evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.staging_target_artifact_id }}
+          run-id: ${{ inputs.staging_target_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/staging-target
+
+      - name: Download immutable staging gate evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.staging_evidence_artifact_id }}
+          run-id: ${{ inputs.staging_evidence_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/staging-gates
+
+      - name: Download immutable protected-install evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.protected_install_artifact_id }}
+          run-id: ${{ inputs.protected_install_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/protected-install
+
+      - name: Download immutable backup evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.backup_evidence_artifact_id }}
+          run-id: ${{ inputs.backup_evidence_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/backup
+
+      - name: Verify every downloaded artifact attestation
+        id: verified-inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_PRODUCER_WORKFLOW: ${{ steps.protected-producers.outputs.staging_workflow }}
+          STAGING_PRODUCER_SHA: ${{ steps.protected-producers.outputs.staging_sha }}
+          BACKUP_PRODUCER_WORKFLOW: ${{ steps.protected-producers.outputs.backup_workflow }}
+          BACKUP_PRODUCER_SHA: ${{ steps.protected-producers.outputs.backup_sha }}
+          INSTALL_PRODUCER_WORKFLOW: ${{ steps.protected-producers.outputs.install_workflow }}
+          INSTALL_PRODUCER_SHA: ${{ steps.protected-producers.outputs.install_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile, readdir } from "node:fs/promises";
+          import { assertProtectedEvidenceFileSet } from "./scripts/lib/protected-evidence-producers.mjs";
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const assertExactTree = async (root, expected) => {
+            const files = [];
+            const walk = async (directory, prefix = "") => {
+              for (const entry of await readdir(directory, { withFileTypes: true })) {
+                if (entry.isSymbolicLink()) throw new Error(`${root} contains a symlink`);
+                const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+                if (entry.isDirectory()) await walk(`${directory}/${entry.name}`, relative);
+                else if (entry.isFile()) files.push(relative);
+                else throw new Error(`${root} contains a non-regular entry`);
+              }
+            };
+            await walk(root);
+            files.sort();
+            if (JSON.stringify(files) !== JSON.stringify([...expected].sort())) {
+              throw new Error(`${root} does not contain the exact trusted artifact tree`);
+            }
+          };
+          const assertCanonicalFile = async (root, name) => {
+            const bytes = await readFile(`${root}/${name}`);
+            if (bytes.length === 0 || bytes.length > 4 * 1024 * 1024) {
+              throw new Error(`${name} is empty or oversized`);
+            }
+            const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+            if (!bytes.equals(Buffer.from(JSON.stringify(canonical(value))))) {
+              throw new Error(`${name} is not canonical JSON`);
+            }
+          };
+          await Promise.all([
+            assertExactTree("inert-inputs/release", [
+              "bootstrap/scripts/build-operator-bundle.mjs",
+              "bootstrap/scripts/deployment-target-descriptor.mjs",
+              "bootstrap/scripts/lib/safe-file.mjs",
+              "bootstrap/src/services/deployment-target-descriptor.ts",
+              "bootstrap/src/services/release-manifest.ts",
+              "build-manifest.json",
+              "operator-bundle.index.json",
+              "operator-bundle.tar",
+              "release-artifact.index.json",
+              "release-manifest.json",
+              "spx-dist.tar",
+              "spx-image.tar",
+            ]),
+            assertCanonicalFile("inert-inputs/release", "release-manifest.json"),
+            assertExactTree("inert-inputs/production-target", [
+              "deployment-target-descriptor.attestation-claims.json",
+              "deployment-target-descriptor.json",
+            ]),
+            assertCanonicalFile(
+              "inert-inputs/production-target",
+              "deployment-target-descriptor.json",
+            ),
+            assertExactTree("inert-inputs/staging-target", [
+              "deployment-target-descriptor.attestation-claims.json",
+              "deployment-target-descriptor.json",
+            ]),
+            assertCanonicalFile(
+              "inert-inputs/staging-target",
+              "deployment-target-descriptor.json",
+            ),
+            assertProtectedEvidenceFileSet("staging-gates", "inert-inputs/staging-gates"),
+            assertProtectedEvidenceFileSet("production-backup-restore", "inert-inputs/backup"),
+            assertProtectedEvidenceFileSet("protected-install", "inert-inputs/protected-install"),
+          ]);
+          NODE
+          umask 077
+          binding_dir="${RUNNER_TEMP}/spx-attestation-run-bindings"
+          install -d -m 0700 "${binding_dir}"
+          fetch_artifact_metadata() {
+            local artifact_id="$1"
+            local destination="$2"
+            local artifact_projection="${destination}.artifact"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" \
+              --jq '{artifactId:(.id|tostring),expired:.expired,workflowHeadSha:.workflow_run.head_sha,workflowRepositoryId:(.workflow_run.repository_id|tostring),workflowRunId:(.workflow_run.id|tostring)}' \
+              > "${artifact_projection}"
+            local authoritative_run_id
+            authoritative_run_id="$(jq -er '.workflowRunId' "${artifact_projection}")"
+            local workflow_run_attempt
+            workflow_run_attempt="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authoritative_run_id}" \
+                --jq '.run_attempt | tostring'
+            )"
+            [[ "${workflow_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+            jq -e --arg workflowRunAttempt "${workflow_run_attempt}" \
+              '. + {workflowRunAttempt:$workflowRunAttempt}' \
+              "${artifact_projection}" > "${destination}"
+            rm -f "${artifact_projection}"
+            chmod 0600 "${destination}"
+          }
+          verify_attested_file() {
+            local file="$1"
+            local artifact_id="$2"
+            local run_id="$3"
+            local signer_workflow="$4"
+            local signer_sha="$5"
+            local artifact_metadata="$6"
+            local attestation_results
+            attestation_results="$(mktemp "${binding_dir}/attestation.XXXXXX.json")"
+            if ! gh attestation verify "${file}" -R "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/${signer_workflow}" \
+              --signer-digest "${signer_sha}" --deny-self-hosted-runners \
+              --format json > "${attestation_results}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            if ! node scripts/lib/github-attestation-run.mjs \
+              --artifact="${file}" \
+              --artifact-id="${artifact_id}" \
+              --artifact-metadata="${artifact_metadata}" \
+              --attestation-results="${attestation_results}" \
+              --repository="${GITHUB_REPOSITORY}" \
+              --run-id="${run_id}" \
+              --signer-sha="${signer_sha}" \
+              --signer-workflow="${signer_workflow}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            rm -f "${attestation_results}"
+          }
+          release_metadata="${binding_dir}/release.metadata.json"
+          production_target_metadata="${binding_dir}/production-target.metadata.json"
+          staging_target_metadata="${binding_dir}/staging-target.metadata.json"
+          staging_evidence_metadata="${binding_dir}/staging-evidence.metadata.json"
+          backup_metadata="${binding_dir}/backup.metadata.json"
+          install_metadata="${binding_dir}/install.metadata.json"
+          fetch_artifact_metadata "${RELEASE_ARTIFACT_ID}" "${release_metadata}"
+          fetch_artifact_metadata \
+            "${PRODUCTION_TARGET_ARTIFACT_ID}" "${production_target_metadata}"
+          fetch_artifact_metadata "${STAGING_TARGET_ARTIFACT_ID}" "${staging_target_metadata}"
+          fetch_artifact_metadata "${STAGING_EVIDENCE_ARTIFACT_ID}" "${staging_evidence_metadata}"
+          fetch_artifact_metadata "${BACKUP_EVIDENCE_ARTIFACT_ID}" "${backup_metadata}"
+          fetch_artifact_metadata "${PROTECTED_INSTALL_ARTIFACT_ID}" "${install_metadata}"
+          find inert-inputs -type f -print0 | sort -z | xargs -0 sha256sum > signer-inputs.sha256
+          found=0
+          while IFS= read -r -d '' file; do
+            found=1
+            case "${file}" in
+              inert-inputs/release/*)
+                artifact_id="${RELEASE_ARTIFACT_ID}"
+                run_id="${RELEASE_RUN_ID}"
+                artifact_metadata="${release_metadata}"
+                signer_workflow=".github/workflows/trusted-release-artifact.yml"
+                signer_sha="${TRUSTED_RELEASE_SIGNER_SHA}"
+                ;;
+              inert-inputs/production-target/*)
+                artifact_id="${PRODUCTION_TARGET_ARTIFACT_ID}"
+                run_id="${PRODUCTION_TARGET_RUN_ID}"
+                artifact_metadata="${production_target_metadata}"
+                signer_workflow=".github/workflows/deployment-target-descriptor-signer.yml"
+                signer_sha="${TRUSTED_DESCRIPTOR_SIGNER_SHA}"
+                ;;
+              inert-inputs/staging-target/*)
+                artifact_id="${STAGING_TARGET_ARTIFACT_ID}"
+                run_id="${STAGING_TARGET_RUN_ID}"
+                artifact_metadata="${staging_target_metadata}"
+                signer_workflow=".github/workflows/deployment-target-descriptor-signer.yml"
+                signer_sha="${TRUSTED_DESCRIPTOR_SIGNER_SHA}"
+                ;;
+              inert-inputs/staging-gates/*)
+                artifact_id="${STAGING_EVIDENCE_ARTIFACT_ID}"
+                run_id="${STAGING_EVIDENCE_RUN_ID}"
+                artifact_metadata="${staging_evidence_metadata}"
+                signer_workflow="${STAGING_PRODUCER_WORKFLOW}"
+                signer_sha="${STAGING_PRODUCER_SHA}"
+                ;;
+              inert-inputs/backup/*)
+                artifact_id="${BACKUP_EVIDENCE_ARTIFACT_ID}"
+                run_id="${BACKUP_EVIDENCE_RUN_ID}"
+                artifact_metadata="${backup_metadata}"
+                signer_workflow="${BACKUP_PRODUCER_WORKFLOW}"
+                signer_sha="${BACKUP_PRODUCER_SHA}"
+                ;;
+              inert-inputs/protected-install/*)
+                artifact_id="${PROTECTED_INSTALL_ARTIFACT_ID}"
+                run_id="${PROTECTED_INSTALL_RUN_ID}"
+                artifact_metadata="${install_metadata}"
+                signer_workflow="${INSTALL_PRODUCER_WORKFLOW}"
+                signer_sha="${INSTALL_PRODUCER_SHA}"
+                ;;
+              *) exit 1 ;;
+            esac
+            verify_attested_file \
+              "${file}" "${artifact_id}" "${run_id}" "${signer_workflow}" "${signer_sha}" \
+              "${artifact_metadata}" >/dev/null
+          done < <(find inert-inputs -type f -print0 | sort -z)
+          test "${found}" = 1
+          sha256sum --check --strict signer-inputs.sha256 >/dev/null
+          printf 'subject_set_sha256=%s\n' "$(sha256sum signer-inputs.sha256 | cut -d' ' -f1)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Build bounded inert signing request
+        env:
+          EXPECTED_SUBJECT_SET_SHA256: ${{ steps.verified-inputs.outputs.subject_set_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "${EXPECTED_SUBJECT_SET_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum signer-inputs.sha256 | cut -d' ' -f1)" = \
+            "${EXPECTED_SUBJECT_SET_SHA256}"
+          sha256sum --check --strict signer-inputs.sha256 >/dev/null
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+          import { assertProtectedEvidenceFileSet } from "./scripts/lib/protected-evidence-producers.mjs";
+
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const canonicalJson = (value) => JSON.stringify(canonical(value));
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const assertExactTree = async (root, expected) => {
+            const rootBefore = await lstat(root, { bigint: true });
+            if (rootBefore.isSymbolicLink() || !rootBefore.isDirectory()) {
+              throw new Error(`${root} is not a regular directory`);
+            }
+            const files = [];
+            const walk = async (directory, prefix = "") => {
+              for (const entry of await readdir(directory, { withFileTypes: true })) {
+                if (entry.isSymbolicLink()) throw new Error(`${root} contains a symlink`);
+                const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+                if (entry.isDirectory()) await walk(`${directory}/${entry.name}`, relative);
+                else if (entry.isFile()) files.push(relative);
+                else throw new Error(`${root} contains a non-regular entry`);
+              }
+            };
+            await walk(root);
+            files.sort();
+            if (canonicalJson(files) !== canonicalJson([...expected].sort())) {
+              throw new Error(`${root} does not contain the exact trusted artifact tree`);
+            }
+            const rootAfter = await lstat(root, { bigint: true });
+            for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"]) {
+              if (rootBefore[field] !== rootAfter[field]) {
+                throw new Error(`${root} changed during validation`);
+              }
+            }
+          };
+          const readExactCanonicalFile = async (root, name) => {
+            const path = `${root}/${name}`;
+            const before = await lstat(path, { bigint: true });
+            if (before.isSymbolicLink() || !before.isFile() || before.size <= 0n
+              || before.size > BigInt(4 * 1024 * 1024)) {
+              throw new Error(`${name} is not a bounded regular file`);
+            }
+            const bytes = await readFile(path);
+            const after = await lstat(path, { bigint: true });
+            for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"]) {
+              if (before[field] !== after[field]) throw new Error(`${name} changed during validation`);
+            }
+            const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+            if (!bytes.equals(Buffer.from(canonicalJson(value)))) {
+              throw new Error(`${name} is not canonical JSON`);
+            }
+            return { bytes, value, sha256: sha256(bytes) };
+          };
+
+          const releaseTree = [
+            "bootstrap/scripts/build-operator-bundle.mjs",
+            "bootstrap/scripts/deployment-target-descriptor.mjs",
+            "bootstrap/scripts/lib/safe-file.mjs",
+            "bootstrap/src/services/deployment-target-descriptor.ts",
+            "bootstrap/src/services/release-manifest.ts",
+            "build-manifest.json",
+            "operator-bundle.index.json",
+            "operator-bundle.tar",
+            "release-artifact.index.json",
+            "release-manifest.json",
+            "spx-dist.tar",
+            "spx-image.tar",
+          ];
+          const releaseRequestNames = [
+            "build-manifest.json",
+            "operator-bundle.index.json",
+            "release-artifact.index.json",
+            "release-manifest.json",
+          ];
+          const targetRequestNames = [
+            "deployment-target-descriptor.attestation-claims.json",
+            "deployment-target-descriptor.json",
+          ];
+          await Promise.all([
+            assertExactTree("inert-inputs/release", releaseTree),
+            assertExactTree("inert-inputs/production-target", targetRequestNames),
+            assertExactTree("inert-inputs/staging-target", targetRequestNames),
+          ]);
+          const releaseFiles = await Promise.all(releaseRequestNames.map(async (name) => ({
+            name,
+            ...await readExactCanonicalFile("inert-inputs/release", name),
+          })));
+          const productionTargetFiles = await Promise.all(targetRequestNames.map(async (name) => ({
+            name,
+            ...await readExactCanonicalFile("inert-inputs/production-target", name),
+          })));
+          const stagingTargetFiles = await Promise.all(targetRequestNames.map(async (name) => ({
+            name,
+            ...await readExactCanonicalFile("inert-inputs/staging-target", name),
+          })));
+          const release = releaseFiles.find((file) => file.name === "release-manifest.json");
+          const productionTarget = productionTargetFiles.find(
+            (file) => file.name === "deployment-target-descriptor.json",
+          );
+          const stagingTarget = stagingTargetFiles.find(
+            (file) => file.name === "deployment-target-descriptor.json",
+          );
+          const productionTargetClaims = productionTargetFiles.find(
+            (file) => file.name === "deployment-target-descriptor.attestation-claims.json",
+          );
+          const stagingTargetClaims = stagingTargetFiles.find(
+            (file) => file.name === "deployment-target-descriptor.attestation-claims.json",
+          );
+          const staging = await assertProtectedEvidenceFileSet(
+            "staging-gates",
+            "inert-inputs/staging-gates",
+          );
+          const backup = await assertProtectedEvidenceFileSet(
+            "production-backup-restore",
+            "inert-inputs/backup",
+          );
+          const install = await assertProtectedEvidenceFileSet(
+            "protected-install",
+            "inert-inputs/protected-install",
+          );
+
+          const releaseValue = release.value;
+          const productionDescriptor = productionTarget.value?.descriptor;
+          const stagingDescriptor = stagingTarget.value?.descriptor;
+          const stagingEvidence = staging.files[0]?.value;
+          const backupEvidenceFile = backup.files.find(
+            (file) => file.name === "production-backup-restore-evidence.json",
+          );
+          const backupSignatureFile = backup.files.find(
+            (file) => file.name === "production-backup-restore-signature.json",
+          );
+          const installEvidenceFile = install.files.find(
+            (file) => file.name === "protected-install-evidence.json",
+          );
+          const installSignatureFile = install.files.find(
+            (file) => file.name === "protected-install-signature.json",
+          );
+          if (
+            releaseValue?.sourceSha !== process.env.CANDIDATE_SHA
+            || !/^[0-9a-f]{64}$/.test(releaseValue?.operatorBundleSha256 ?? "")
+            || productionDescriptor?.releaseEnvironment !== "production"
+            || productionDescriptor?.runtimeEnvironment !== "production"
+            || productionDescriptor?.releaseManifestSha256 !== release.sha256
+            || productionDescriptor?.operatorBundleSha256 !== releaseValue.operatorBundleSha256
+            || stagingDescriptor?.releaseEnvironment !== "staging"
+            || stagingDescriptor?.runtimeEnvironment !== "staging"
+            || stagingDescriptor?.releaseManifestSha256 !== release.sha256
+            || stagingDescriptor?.operatorBundleSha256 !== releaseValue.operatorBundleSha256
+            || productionTarget.value?.descriptorSha256 !== sha256(Buffer.from(canonicalJson(productionDescriptor)))
+            || stagingTarget.value?.descriptorSha256 !== sha256(Buffer.from(canonicalJson(stagingDescriptor)))
+            || productionTargetClaims?.value?.artifactSha256 !== productionTarget.sha256
+            || productionTargetClaims?.value?.signingWorkflowSourceSha !== productionDescriptor?.signingWorkflowSourceSha
+            || productionTargetClaims?.value?.signingWorkflowFileSha256 !== productionDescriptor?.signingWorkflowFileSha256
+            || stagingTargetClaims?.value?.artifactSha256 !== stagingTarget.sha256
+            || stagingTargetClaims?.value?.signingWorkflowSourceSha !== stagingDescriptor?.signingWorkflowSourceSha
+            || stagingTargetClaims?.value?.signingWorkflowFileSha256 !== stagingDescriptor?.signingWorkflowFileSha256
+          ) throw new Error("release and target descriptor binding mismatch");
+          if (
+            stagingEvidence?.candidateSha !== process.env.CANDIDATE_SHA
+            || stagingEvidence?.releaseManifestSha256 !== release.sha256
+            || stagingEvidence?.stagingTargetDescriptorSha256 !== stagingTarget.sha256
+            || stagingEvidence?.operatorBundleSha256 !== releaseValue.operatorBundleSha256
+          ) throw new Error("staging protected evidence binding mismatch");
+          const backupEvidence = backupEvidenceFile?.value;
+          const backupSignature = backupSignatureFile?.value;
+          const backupCore = backupEvidence && Object.fromEntries(
+            Object.entries(backupEvidence).filter(([key]) => key !== "signatureSha256"),
+          );
+          if (
+            backupEvidence?.candidateSha !== process.env.CANDIDATE_SHA
+            || backupEvidence?.releaseManifestSha256 !== release.sha256
+            || backupEvidence?.targetDescriptorSha256 !== productionTarget.sha256
+            || backupEvidence?.databaseFingerprint !== `sha256:${productionDescriptor?.database?.tlsFingerprintSha256}`
+            || backupEvidence?.signatureSha256 !== backupSignatureFile?.sha256
+            || backupSignature?.subjectSha256 !== sha256(Buffer.from(canonicalJson(backupCore)))
+          ) throw new Error("backup protected evidence binding mismatch");
+          const installEvidence = installEvidenceFile?.value;
+          const installSignature = installSignatureFile?.value;
+          const installCore = installEvidence && Object.fromEntries(
+            Object.entries(installEvidence).filter(([key]) => key !== "signatureSha256"),
+          );
+          if (
+            installEvidence?.candidateSha !== process.env.CANDIDATE_SHA
+            || installEvidence?.releaseManifestSha256 !== release.sha256
+            || installEvidence?.productionTargetDescriptorSha256 !== productionTarget.sha256
+            || installEvidence?.releaseOperatorBundleSha256 !== releaseValue.operatorBundleSha256
+            || installEvidence?.installedOperatorBundleSha256 !== releaseValue.operatorBundleSha256
+            || installEvidence?.databaseFingerprint !== `sha256:${productionDescriptor?.database?.tlsFingerprintSha256}`
+            || installEvidence?.backupRestoreEvidenceSha256 !== backupEvidenceFile?.sha256
+            || installEvidence?.signatureSha256 !== installSignatureFile?.sha256
+            || installSignature?.subjectSha256 !== sha256(Buffer.from(canonicalJson(installCore)))
+          ) throw new Error("protected-install evidence binding mismatch");
+
+          const files = [
+            ...releaseFiles.map((file) => ({ path: `release/${file.name}`, ...file })),
+            ...productionTargetFiles.map((file) => ({
+              path: `production-target/${file.name}`,
+              ...file,
+            })),
+            ...stagingTargetFiles.map((file) => ({
+              path: `staging-target/${file.name}`,
+              ...file,
+            })),
+            ...staging.files.map((file) => ({ path: `staging-gates/${file.name}`, ...file })),
+            ...backup.files.map((file) => ({ path: `backup/${file.name}`, ...file })),
+            ...install.files.map((file) => ({ path: `protected-install/${file.name}`, ...file })),
+          ].map(({ path, bytes, sha256: digest }) => ({
+            path,
+            sha256: digest,
+            contentBase64: bytes.toString("base64"),
+          }));
+          files.sort((left, right) => left.path.localeCompare(right.path));
+          if (files.length !== 13) throw new Error("signer JSON input set is not exact");
+          const subjectManifestBytes = await readFile("signer-inputs.sha256");
+          if (sha256(subjectManifestBytes) !== process.env.EXPECTED_SUBJECT_SET_SHA256) {
+            throw new Error("attested subject manifest changed before request construction");
+          }
+          const expectedSubjectDigests = new Map(
+            subjectManifestBytes.toString("utf8").trimEnd().split("\n").map((line) => {
+              const match = /^([0-9a-f]{64})  (inert-inputs\/[A-Za-z0-9._\/-]+)$/.exec(line);
+              if (!match) throw new Error("attested subject manifest is invalid");
+              return [match[2], match[1]];
+            }),
+          );
+          if (expectedSubjectDigests.size !== 21) {
+            throw new Error("attested subject manifest set is not exact");
+          }
+          for (const file of files) {
+            if (expectedSubjectDigests.get(`inert-inputs/${file.path}`) !== file.sha256) {
+              throw new Error(`signer request bytes changed after attestation: ${file.path}`);
+            }
+          }
+          const request = { schemaVersion: 1, candidateSha: process.env.CANDIDATE_SHA, files };
+          await mkdir("signer-work", { mode: 0o700 });
+          await writeFile("signer-work/request.json", JSON.stringify(canonical(request)), { flag: "wx", mode: 0o400 });
+          NODE
+
+      - name: Request exact OIDC identity and KMS signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_response="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=spx-gate6")"
+          oidc_token="$(jq -er '.value' <<<"${oidc_response}")"
+          echo "::add-mask::${oidc_token}"
+          OIDC_TOKEN="${oidc_token}" node --input-type=module <<'NODE'
+          const parts = process.env.OIDC_TOKEN.split(".");
+          if (parts.length !== 3) throw new Error("Gate 6 OIDC token is invalid");
+          const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+          const workflow = `${process.env.GITHUB_REPOSITORY}/.github/workflows/gate6-envelope-signer.yml@${process.env.TRUSTED_WORKFLOW_SHA}`;
+          const callerPrefix = `${process.env.GITHUB_REPOSITORY}/.github/workflows/gate6-approval.yml@`;
+          if (claims.iss !== "https://token.actions.githubusercontent.com"
+            || claims.aud !== "spx-gate6"
+            || claims.repository !== process.env.GITHUB_REPOSITORY
+            || claims.sub !== `repo:${process.env.GITHUB_REPOSITORY}:environment:production`
+            || claims.job_workflow_ref !== workflow
+            || claims.job_workflow_sha !== process.env.TRUSTED_WORKFLOW_SHA
+            || !claims.workflow_ref?.startsWith(callerPrefix)
+            || claims.workflow_sha !== process.env.CANDIDATE_SHA
+            || claims.event_name !== "workflow_dispatch") {
+            throw new Error("Gate 6 OIDC signer identity mismatch");
+          }
+          NODE
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer ${oidc_token}" \
+            -H "Content-Type: application/json" \
+            -H "X-SPX-Signing-Key-ID: ${SIGNING_KEY_ID}" \
+            --data-binary @signer-work/request.json \
+            "${SIGNER_URL}" > signer-work/response.json
+
+      - name: Validate and publish only canonical signed artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const canonicalJson = (value) => JSON.stringify(canonical(value));
+          const responseBytes = await readFile("signer-work/response.json");
+          if (responseBytes.length > 16 * 1024 * 1024) throw new Error("Gate 6 signer response is too large");
+          const response = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBytes));
+          const envelope = response.gate6Envelope;
+          if (!envelope || envelope.schemaVersion !== 1 || envelope.candidateSha !== process.env.CANDIDATE_SHA
+            || envelope.releaseEnvironment !== "production" || envelope.runtimeEnvironment !== "production"
+            || envelope.drillMode !== "supervised-production" || !Array.isArray(envelope.actionApprovals)
+            || envelope.actionApprovals.length === 0 || envelope.signature?.keyId !== process.env.SIGNING_KEY_ID) {
+            throw new Error("Gate 6 signed envelope response is invalid");
+          }
+          const scopes = new Set();
+          for (const action of envelope.actionApprovals) {
+            if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(action?.scope ?? "")
+              || scopes.has(action.scope) || action.signature?.keyId !== process.env.SIGNING_KEY_ID
+              || action.gate6Id !== envelope.gate6Id || action.candidateSha !== envelope.candidateSha
+              || action.envelopeCoreSha256 !== envelope.envelopeCoreSha256) {
+              throw new Error("Gate 6 signed action response is invalid");
+            }
+            scopes.add(action.scope);
+          }
+          await mkdir("signer-output/actions", { recursive: true, mode: 0o700 });
+          const writeCanonical = async (path, value) => {
+            const bytes = Buffer.from(canonicalJson(value));
+            await writeFile(path, bytes, { flag: "wx", mode: 0o444 });
+            return createHash("sha256").update(bytes).digest("hex");
+          };
+          const releaseBytes = await readFile("inert-inputs/release/release-manifest.json");
+          const releaseText = new TextDecoder("utf-8", { fatal: true }).decode(releaseBytes);
+          const release = JSON.parse(releaseText);
+          if (releaseText !== canonicalJson(release)
+            || release.sourceSha !== envelope.candidateSha
+            || release.imageId !== envelope.candidateImageDigest
+            || createHash("sha256").update(releaseBytes).digest("hex") !== envelope.releaseManifestSha256) {
+            throw new Error("Gate 6 release manifest binding is invalid");
+          }
+          await writeCanonical("signer-output/gate6-envelope.json", envelope);
+          await writeFile("signer-output/release-manifest.json", releaseBytes, { flag: "wx", mode: 0o444 });
+          for (const action of envelope.actionApprovals) {
+            await writeCanonical(`signer-output/actions/${action.scope}.json`, action);
+          }
+          NODE
+          rm -rf signer-work
+
+      - name: Attest signed Gate 6 artifacts
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: signer-output/**/*
+
+      - name: Upload signed Gate 6 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gate6-approval-${{ inputs.candidate_sha }}
+          path: signer-output/
+          if-no-files-found: error
+          retention-days: 7

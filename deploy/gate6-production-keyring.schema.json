@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastest4u.github.io/SPX/schemas/gate6-production-keyring.schema.json",
+  "title": "SPX Gate 6 production public-key ring",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repository",
+    "workflowFileSha256",
+    "signerWorkflowShas",
+    "keyIds",
+    "keys"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "workflowFileSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "signerWorkflowShas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelope", "linePermit", "ocrPermit", "postproof"],
+      "properties": {
+        "envelope": { "$ref": "#/$defs/commitSha" },
+        "linePermit": { "$ref": "#/$defs/commitSha" },
+        "ocrPermit": { "$ref": "#/$defs/commitSha" },
+        "postproof": { "$ref": "#/$defs/commitSha" }
+      }
+    },
+    "keyIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelope", "linePermit", "ocrPermit", "postproof"],
+      "properties": {
+        "envelope": { "$ref": "#/$defs/keyId" },
+        "linePermit": { "$ref": "#/$defs/keyId" },
+        "ocrPermit": { "$ref": "#/$defs/keyId" },
+        "postproof": { "$ref": "#/$defs/keyId" }
+      }
+    },
+    "keys": {
+      "type": "object",
+      "minProperties": 4,
+      "maxProperties": 4,
+      "propertyNames": { "$ref": "#/$defs/keyId" },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^-----BEGIN PUBLIC KEY-----\\n[A-Za-z0-9+/=\\n]+-----END PUBLIC KEY-----\\n$"
+      }
+    }
+  },
+  "$defs": {
+    "commitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+name: Export accepted Gate 6 evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Accepted Gate 6 phase to export
+        required: true
+        type: choice
+        options:
+          - db-transition
+          - pre-close
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      approval_artifact_id:
+        description: Signed Gate 6 approval artifact ID
+        required: true
+        type: string
+      approval_run_id:
+        description: Signed Gate 6 approval workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  export-accepted-evidence:
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
+    uses: fastest4u/SPX/.github/workflows/gate6-accepted-evidence-exporter.yml@0000000000000000000000000000000000000000
+    with:
+      phase: ${{ inputs.phase }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      approval_artifact_id: ${{ inputs.approval_artifact_id }}
+      approval_run_id: ${{ inputs.approval_run_id }}

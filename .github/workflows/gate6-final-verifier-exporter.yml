@@ -1,0 +1,581 @@
+name: Trusted sealed Gate 6 final verifier exporter
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      approval_artifact_id:
+        description: Signed Gate 6 approval artifact ID
+        required: true
+        type: string
+      approval_run_id:
+        description: Signed Gate 6 approval workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  export-final-verifier:
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: spx-production-mutation
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      APPROVAL_ARTIFACT_ID: ${{ inputs.approval_artifact_id }}
+      APPROVAL_RUN_ID: ${{ inputs.approval_run_id }}
+      WORKFLOW_SHA: ${{ job.workflow_sha }}
+    steps:
+      - name: Validate immutable selectors and protected workflow identity
+        shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_FINAL_VERIFIER_EXPORTER_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${CANDIDATE_SHA}" != 0000000000000000000000000000000000000000
+          for selector in "${APPROVAL_ARTIFACT_ID}" "${APPROVAL_RUN_ID}"; do
+            [[ "${selector}" =~ ^[1-9][0-9]*$ ]]
+          done
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" != 0000000000000000000000000000000000000000
+          test "${WORKFLOW_SHA}" = "${TRUSTED_WORKFLOW_SHA}"
+
+      - name: Checkout only immutable trusted final-verifier source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            .github/workflows/gate6-final-verifier-exporter.yml
+            scripts/gate6-final-verifier-export.mjs
+            scripts/production-canary-evidence-check.mjs
+            scripts/lib/evidence-artifact.mjs
+            scripts/lib/gate6-mysql-ledger.mjs
+            scripts/lib/gate6-semantic-receipt.mjs
+            scripts/lib/github-attestation-run.mjs
+            scripts/lib/mysql-connection-config.mjs
+            scripts/lib/safe-file.mjs
+            src/services/gate6-approval-runtime.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Prove immutable trusted final-verifier bytes
+        id: trusted
+        shell: bash
+        env:
+          EXPECTED_WORKFLOW_FILE_SHA256: ${{ vars.SPX_GATE6_FINAL_VERIFIER_EXPORTER_WORKFLOW_SHA256 }}
+          EXPECTED_EXPORTER_MODULE_SHA256: ${{ vars.SPX_GATE6_FINAL_VERIFIER_EXPORTER_MODULE_SHA256 }}
+        run: |
+          set -euo pipefail
+          for digest in "${EXPECTED_WORKFLOW_FILE_SHA256}" "${EXPECTED_EXPORTER_MODULE_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+            test "${digest}" != 0000000000000000000000000000000000000000000000000000000000000000
+          done
+          test "$(git -C trusted rev-parse HEAD)" = "${WORKFLOW_SHA}"
+          test -z "$(git -C trusted status --short --untracked-files=no)"
+          WORKFLOW_FILE=trusted/.github/workflows/gate6-final-verifier-exporter.yml
+          EXPORTER_MODULE=trusted/scripts/gate6-final-verifier-export.mjs
+          test -f "${WORKFLOW_FILE}"
+          test -f "${EXPORTER_MODULE}"
+          WORKFLOW_FILE_SHA256="$(sha256sum "${WORKFLOW_FILE}" | cut -d' ' -f1)"
+          EXPORTER_MODULE_SHA256="$(sha256sum "${EXPORTER_MODULE}" | cut -d' ' -f1)"
+          test "${WORKFLOW_FILE_SHA256}" = "${EXPECTED_WORKFLOW_FILE_SHA256}"
+          test "${EXPORTER_MODULE_SHA256}" = "${EXPECTED_EXPORTER_MODULE_SHA256}"
+          echo "workflow_file_sha256=${WORKFLOW_FILE_SHA256}" >> "${GITHUB_OUTPUT}"
+          echo "exporter_module_sha256=${EXPORTER_MODULE_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download the exact signed Gate 6 approval artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.approval_artifact_id }}
+          run-id: ${{ inputs.approval_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/approval
+
+      - name: Enforce the exact approval set and sealed candidate binding
+        id: approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(find inert-inputs/approval -type l -print -quit)"
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { appendFile, readFile, readdir } from "node:fs/promises";
+          import { relative, resolve } from "node:path";
+
+          const root = resolve("inert-inputs/approval");
+          const files = [];
+          const visit = async (directory) => {
+            for (const entry of await readdir(directory, { withFileTypes: true })) {
+              const path = resolve(directory, entry.name);
+              if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+                throw new Error("unsafe Gate 6 approval entry");
+              }
+              if (entry.isDirectory()) await visit(path);
+              else files.push(relative(root, path).replaceAll("\\", "/"));
+            }
+          };
+          await visit(root);
+          const envelopeBytes = await readFile(resolve(root, "gate6-envelope.json"));
+          const releaseBytes = await readFile(resolve(root, "release-manifest.json"));
+          const envelope = JSON.parse(envelopeBytes.toString("utf8"));
+          const release = JSON.parse(releaseBytes.toString("utf8"));
+          if (
+            envelope?.candidateSha !== process.env.CANDIDATE_SHA
+            || release?.sourceSha !== process.env.CANDIDATE_SHA
+            || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(envelope?.gate6Id ?? "")
+            || !/^[0-9a-f]{64}$/.test(envelope?.productionTargetDescriptorSha256 ?? "")
+            || !Array.isArray(envelope.actionApprovals)
+          ) throw new Error("Gate 6 approval candidate binding is invalid");
+          const actionFiles = [];
+          const scopes = new Set();
+          for (const action of envelope.actionApprovals) {
+            if (
+              !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(action?.scope ?? "")
+              || scopes.has(action.scope)
+              || action.gate6Id !== envelope.gate6Id
+              || action.candidateSha !== envelope.candidateSha
+            ) throw new Error("Gate 6 approval action binding is invalid");
+            scopes.add(action.scope);
+            actionFiles.push(`actions/${action.scope}.json`);
+          }
+          if (!scopes.has("gate6-release")) {
+            throw new Error("Gate 6 approval lacks the release action");
+          }
+          const expected = ["gate6-envelope.json", "release-manifest.json", ...actionFiles].sort();
+          if (JSON.stringify(files.sort()) !== JSON.stringify(expected)) {
+            throw new Error("Gate 6 approval artifact file set changed");
+          }
+          const envelopeSha256 = createHash("sha256").update(envelopeBytes).digest("hex");
+          await appendFile(process.env.GITHUB_OUTPUT, `gate6_id=${envelope.gate6Id}\n`);
+          await appendFile(
+            process.env.GITHUB_OUTPUT,
+            `target_sha256=${envelope.productionTargetDescriptorSha256}\n`,
+          );
+          await appendFile(process.env.GITHUB_OUTPUT, `envelope_sha256=${envelopeSha256}\n`);
+          NODE
+
+      - name: Verify every approval subject against the exact envelope signer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVELOPE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${ENVELOPE_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${ENVELOPE_SIGNER_SHA}" != 0000000000000000000000000000000000000000
+          umask 077
+          binding_dir="${RUNNER_TEMP}/spx-final-verifier-attestation-bindings"
+          install -d -m 0700 "${binding_dir}"
+          fetch_artifact_metadata() {
+            local artifact_id="$1"
+            local destination="$2"
+            local artifact_projection="${destination}.artifact"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" \
+              --jq '{artifactId:(.id|tostring),expired:.expired,workflowHeadSha:.workflow_run.head_sha,workflowRepositoryId:(.workflow_run.repository_id|tostring),workflowRunId:(.workflow_run.id|tostring)}' \
+              > "${artifact_projection}"
+            local authoritative_run_id
+            authoritative_run_id="$(jq -er '.workflowRunId' "${artifact_projection}")"
+            test "${authoritative_run_id}" = "${APPROVAL_RUN_ID}"
+            local workflow_run_attempt
+            workflow_run_attempt="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authoritative_run_id}" \
+                --jq '.run_attempt | tostring'
+            )"
+            [[ "${workflow_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+            jq -e --arg workflowRunAttempt "${workflow_run_attempt}" \
+              '. + {workflowRunAttempt:$workflowRunAttempt}' \
+              "${artifact_projection}" > "${destination}"
+            rm -f "${artifact_projection}"
+            chmod 0600 "${destination}"
+          }
+          verify_attested_file() {
+            local file="$1"
+            local artifact_id="$2"
+            local run_id="$3"
+            local signer_workflow="$4"
+            local signer_sha="$5"
+            local artifact_metadata="$6"
+            local attestation_results
+            attestation_results="$(mktemp "${binding_dir}/attestation.XXXXXX.json")"
+            if ! gh attestation verify "${file}" -R "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/${signer_workflow}" \
+              --signer-digest "${signer_sha}" --deny-self-hosted-runners \
+              --format json > "${attestation_results}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            if ! node trusted/scripts/lib/github-attestation-run.mjs \
+              --artifact="${file}" \
+              --artifact-id="${artifact_id}" \
+              --artifact-metadata="${artifact_metadata}" \
+              --attestation-results="${attestation_results}" \
+              --repository="${GITHUB_REPOSITORY}" \
+              --run-id="${run_id}" \
+              --signer-sha="${signer_sha}" \
+              --signer-workflow="${signer_workflow}"; then
+              rm -f "${attestation_results}"
+              return 1
+            fi
+            rm -f "${attestation_results}"
+          }
+          approval_metadata="${binding_dir}/approval.metadata.json"
+          fetch_artifact_metadata "${APPROVAL_ARTIFACT_ID}" "${approval_metadata}"
+          while IFS= read -r -d '' file; do
+            verify_attested_file "${file}" "${APPROVAL_ARTIFACT_ID}" "${APPROVAL_RUN_ID}" \
+              ".github/workflows/gate6-envelope-signer.yml" "${ENVELOPE_SIGNER_SHA}" \
+              "${approval_metadata}"
+          done < <(find inert-inputs/approval -type f -print0 | sort -z)
+
+      - name: Package only trusted final-verifier code and fixed producer context
+        id: payload
+        shell: bash
+        env:
+          GATE6_ID: ${{ steps.approval.outputs.gate6_id }}
+          TARGET_SHA256: ${{ steps.approval.outputs.target_sha256 }}
+          WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          PAYLOAD_ROOT=trusted-final-verifier-payload
+          test ! -e "${PAYLOAD_ROOT}"
+          install -d -m 0700 \
+            "${PAYLOAD_ROOT}/context" "${PAYLOAD_ROOT}/scripts/lib" \
+            "${PAYLOAD_ROOT}/src/services"
+          for path in \
+            scripts/gate6-final-verifier-export.mjs \
+            scripts/production-canary-evidence-check.mjs \
+            scripts/lib/evidence-artifact.mjs \
+            scripts/lib/gate6-mysql-ledger.mjs \
+            scripts/lib/gate6-semantic-receipt.mjs \
+            scripts/lib/mysql-connection-config.mjs \
+            scripts/lib/safe-file.mjs \
+            src/services/gate6-approval-runtime.mjs; do
+            install -m 0400 "trusted/${path}" "${PAYLOAD_ROOT}/${path}"
+          done
+          install -m 0400 inert-inputs/approval/gate6-envelope.json \
+            "${PAYLOAD_ROOT}/context/gate6-envelope.json"
+          GATE6_ID="${GATE6_ID}" TARGET_SHA256="${TARGET_SHA256}" \
+          WORKFLOW_FILE_SHA256="${WORKFLOW_FILE_SHA256}" \
+          node --input-type=module <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const context = {
+            schemaVersion: 1,
+            gate6Id: process.env.GATE6_ID,
+            candidateSha: process.env.CANDIDATE_SHA,
+            productionTargetDescriptorSha256: process.env.TARGET_SHA256,
+            producer: {
+              repository: "fastest4u/SPX",
+              environment: "production",
+              workflow: ".github/workflows/gate6-final-verifier-exporter.yml",
+              workflowSha: process.env.WORKFLOW_SHA,
+              workflowFileSha256: process.env.WORKFLOW_FILE_SHA256,
+            },
+          };
+          await writeFile(
+            "trusted-final-verifier-payload/context/final-verifier-producer-context.json",
+            JSON.stringify(canonical(context)),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf trusted-final-verifier.tar -C "${PAYLOAD_ROOT}" .
+          echo "payload_sha256=$(sha256sum trusted-final-verifier.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+          echo "operation_id=gate6-final-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned production SSH host identity
+        shell: bash
+        env:
+          SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SPX_KNOWN_HOSTS}"
+          test -n "${SPX_SSH_KEY}"
+          [[ "${SPX_KNOWN_HOSTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_gate6_final_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_gate6_final_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${SPX_KNOWN_HOSTS_SHA256}"
+          LOOKUP="${SPX_HOST}"
+          if [ "${SPX_PORT}" != 22 ]; then LOOKUP="[${SPX_HOST}]:${SPX_PORT}"; fi
+          ssh-keygen -F "${LOOKUP}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload only the immutable trusted final-verifier payload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${OPERATION_ID}" =~ ^gate6-final-[0-9]+-[0-9]+$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_gate6_final_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            trusted-final-verifier.tar \
+            "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.tar"
+
+      - name: Run the zero-argument exporter while Gate 6 remains sealed
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.payload.outputs.payload_sha256 }}
+          ENVELOPE_SHA256: ${{ steps.approval.outputs.envelope_sha256 }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_gate6_final_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s -- \
+              "${OPERATION_ID}" "${PAYLOAD_SHA256}" "${ENVELOPE_SHA256}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          OPERATION_ID="$1"
+          PAYLOAD_SHA256="$2"
+          ENVELOPE_SHA256="$3"
+          [[ "${OPERATION_ID}" =~ ^gate6-final-[0-9]+-[0-9]+$ ]]
+          [[ "${PAYLOAD_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${ENVELOPE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "$(id -u)" -eq 0
+          PAYLOAD="/tmp/${OPERATION_ID}.tar"
+          test -f "${PAYLOAD}"
+          test ! -L "${PAYLOAD}"
+          test "$(sha256sum "${PAYLOAD}" | cut -d' ' -f1)" = "${PAYLOAD_SHA256}"
+          STAGE="$(mktemp -d "/tmp/${OPERATION_ID}.XXXXXX")"
+          cleanup() { rm -rf -- "${STAGE}"; rm -f -- "${PAYLOAD}"; }
+          trap cleanup EXIT
+          tar -xf "${PAYLOAD}" -C "${STAGE}" --no-same-owner --no-same-permissions
+          test -z "$(find "${STAGE}" -type l -print -quit)"
+
+          TRUSTED_PARENT=/var/lib/spx-production-rollout/trusted-final-verifier
+          TRUSTED_ROOT="${TRUSTED_PARENT}/${PAYLOAD_SHA256}"
+          TRUSTED_STAGE="${TRUSTED_PARENT}/.${PAYLOAD_SHA256}.${OPERATION_ID}.new"
+          PRODUCER_CONTEXT=/var/lib/spx-production-rollout/final-verifier-producer-context.json
+          FIXED_ENVELOPE=/var/lib/spx-gate6/artifacts/gate6-envelope.json
+          FINAL_VERIFIER_PATH=/var/lib/spx-production-rollout/evidence/final-verifier.json
+          for directory in \
+            /var/lib/spx-production-rollout \
+            /var/lib/spx-production-rollout/evidence \
+            "${TRUSTED_PARENT}"; do
+            if [ -e "${directory}" ]; then
+              test -d "${directory}"
+              test ! -L "${directory}"
+              test "$(stat -c %u "${directory}")" -eq 0
+              test "$(stat -c %a "${directory}")" = 700
+            else
+              install -d -m 0700 "${directory}"
+            fi
+          done
+          for fixed in \
+            "${FIXED_ENVELOPE}" \
+            /var/lib/spx-production-mutation/lock.json \
+            /var/lib/spx-gate6/gate6-control-db.json \
+            /var/lib/spx-gate6/secrets/gate6-control-db-password \
+            /var/lib/spx-gate6/config/db-ca.pem; do
+            test -f "${fixed}"
+            test ! -L "${fixed}"
+            test "$(stat -c %u "${fixed}")" -eq 0
+          done
+          test "$(sha256sum "${FIXED_ENVELOPE}" | cut -d' ' -f1)" = "${ENVELOPE_SHA256}"
+          cmp -s "${STAGE}/context/gate6-envelope.json" "${FIXED_ENVELOPE}"
+          test -x /usr/bin/mysql
+
+          TRUSTED_FILES="scripts/gate6-final-verifier-export.mjs scripts/production-canary-evidence-check.mjs scripts/lib/evidence-artifact.mjs scripts/lib/gate6-mysql-ledger.mjs scripts/lib/gate6-semantic-receipt.mjs scripts/lib/mysql-connection-config.mjs scripts/lib/safe-file.mjs src/services/gate6-approval-runtime.mjs"
+          verify_trusted_root() {
+            test -d "${TRUSTED_ROOT}"
+            test ! -L "${TRUSTED_ROOT}"
+            test "$(stat -c %u "${TRUSTED_ROOT}")" -eq 0
+            test "$(stat -c %a "${TRUSTED_ROOT}")" = 700
+            test "$(find "${TRUSTED_ROOT}" -type f | wc -l)" -eq 8
+            test -z "$(find "${TRUSTED_ROOT}" -type l -print -quit)"
+            for path in ${TRUSTED_FILES}; do
+              test -f "${TRUSTED_ROOT}/${path}"
+              test ! -L "${TRUSTED_ROOT}/${path}"
+              test "$(stat -c %u "${TRUSTED_ROOT}/${path}")" -eq 0
+              test "$(stat -c %a "${TRUSTED_ROOT}/${path}")" = 400
+              test "$(stat -c %h "${TRUSTED_ROOT}/${path}")" = 1
+              cmp -s "${STAGE}/${path}" "${TRUSTED_ROOT}/${path}"
+            done
+          }
+          if [ -e "${TRUSTED_ROOT}" ]; then
+            verify_trusted_root
+          else
+            test ! -e "${TRUSTED_STAGE}"
+            install -d -m 0700 \
+              "${TRUSTED_STAGE}/scripts/lib" "${TRUSTED_STAGE}/src/services"
+            for path in ${TRUSTED_FILES}; do
+              install -m 0400 "${STAGE}/${path}" "${TRUSTED_STAGE}/${path}"
+            done
+            TRUSTED_STAGE="${TRUSTED_STAGE}" node --input-type=module <<'NODE'
+            import { closeSync, fsyncSync, openSync, readdirSync, statSync } from "node:fs";
+            import { join } from "node:path";
+            const visit = (path) => {
+              if (statSync(path).isDirectory()) for (const name of readdirSync(path)) visit(join(path, name));
+              const descriptor = openSync(path, 0);
+              try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+            };
+            visit(process.env.TRUSTED_STAGE);
+            NODE
+            mv "${TRUSTED_STAGE}" "${TRUSTED_ROOT}"
+            verify_trusted_root
+          fi
+
+          if [ -e "${PRODUCER_CONTEXT}" ]; then
+            test -f "${PRODUCER_CONTEXT}"
+            test ! -L "${PRODUCER_CONTEXT}"
+            test "$(stat -c %u "${PRODUCER_CONTEXT}")" -eq 0
+            test "$(stat -c %a "${PRODUCER_CONTEXT}")" = 400
+            cmp -s "${STAGE}/context/final-verifier-producer-context.json" "${PRODUCER_CONTEXT}"
+          else
+            install -m 0400 \
+              "${STAGE}/context/final-verifier-producer-context.json" "${PRODUCER_CONTEXT}"
+          fi
+          /usr/bin/node "${TRUSTED_ROOT}/scripts/gate6-final-verifier-export.mjs"
+          mapfile -t final_files < <(find /var/lib/spx-production-rollout/evidence -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#final_files[@]}" -eq 1
+          test "${final_files[0]}" = final-verifier.json
+          test ! -L "${FINAL_VERIFIER_PATH}"
+          test "$(stat -c %u "${FINAL_VERIFIER_PATH}")" -eq 0
+          test "$(stat -c %a "${FINAL_VERIFIER_PATH}")" = 400
+          REMOTE
+
+      - name: Retrieve the exact final verifier export
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 final-verifier-output
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_gate6_final_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}:/var/lib/spx-production-rollout/evidence/final-verifier.json" \
+            final-verifier-output/final-verifier.json
+          chmod 0400 final-verifier-output/final-verifier.json
+          mapfile -t final_files < <(find final-verifier-output -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#final_files[@]}" -eq 1
+          test "${final_files[0]}" = final-verifier.json
+          test -z "$(find final-verifier-output -mindepth 1 ! -type f -print -quit)"
+
+      - name: Verify canonical final verifier and exact trusted producer
+        shell: bash
+        env:
+          EXPECTED_GATE6_ID: ${{ steps.approval.outputs.gate6_id }}
+          WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const bytes = await readFile("final-verifier-output/final-verifier.json");
+          const verifier = JSON.parse(bytes.toString("utf8"));
+          if (!bytes.equals(Buffer.from(JSON.stringify(canonical(verifier))))) {
+            throw new Error("final verifier is not canonical JSON");
+          }
+          if (
+            verifier?.ok !== true
+            || verifier.evidence?.phase !== "final"
+            || verifier.evidence?.gate6Id !== process.env.EXPECTED_GATE6_ID
+            || verifier.evidence?.candidateSha !== process.env.CANDIDATE_SHA
+            || verifier.evidence?.runStatus !== "sealed-verifying"
+            || verifier.evidence?.slotState !== "sealed-verifying"
+            || !/^[0-9a-f]{64}$/.test(verifier.evidence?.terminalEvidenceSha256 ?? "")
+            || verifier.evidenceSha256 !== createHash("sha256")
+              .update(JSON.stringify(canonical(verifier.evidence))).digest("hex")
+          ) throw new Error("final verifier sealed-state binding mismatch");
+          const producer = verifier.producer;
+          if (
+            JSON.stringify(Object.keys(producer ?? {}).sort()) !== JSON.stringify([
+              "environment", "repository", "workflow", "workflowFileSha256", "workflowSha",
+            ])
+            || producer.repository !== "fastest4u/SPX"
+            || producer.environment !== "production"
+            || producer.workflow !== ".github/workflows/gate6-final-verifier-exporter.yml"
+            || producer.workflowSha !== process.env.WORKFLOW_SHA
+            || producer.workflowFileSha256 !== process.env.WORKFLOW_FILE_SHA256
+          ) throw new Error("final verifier producer metadata mismatch");
+          NODE
+
+      - name: Attest the exact final verifier export
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: final-verifier-output/final-verifier.json
+
+      - name: Upload the exact final verifier artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-gate6-final-verifier-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: final-verifier-output/final-verifier.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Remove only the producer context after successful upload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_gate6_final_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s <<'REMOTE'
+          set -eEuo pipefail
+          CONTEXT=/var/lib/spx-production-rollout/final-verifier-producer-context.json
+          FINAL=/var/lib/spx-production-rollout/evidence/final-verifier.json
+          test -f "${CONTEXT}"
+          test ! -L "${CONTEXT}"
+          test "$(stat -c %u "${CONTEXT}")" -eq 0
+          test "$(stat -c %a "${CONTEXT}")" = 400
+          test -f "${FINAL}"
+          test ! -L "${FINAL}"
+          rm -f -- "${CONTEXT}"
+          /usr/bin/node --input-type=module <<'NODE'
+          import { constants } from "node:fs";
+          import { open } from "node:fs/promises";
+          const directory = await open("/var/lib/spx-production-rollout", constants.O_RDONLY);
+          try { await directory.sync(); } finally { await directory.close(); }
+          NODE
+          REMOTE

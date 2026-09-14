@@ -50,6 +50,7 @@ async function testSignedJsonPostSendsSignedEnvelope(): Promise<void> {
   assert.equal(capturedHeaders?.get("content-type"), "application/json");
   assert.equal(capturedHeaders?.get("x-spx-node-id"), nodeId);
   assert.equal(capturedHeaders?.get("idempotency-key"), eventKey);
+  assert.equal(capturedHeaders?.get("x-spx-request-id"), null);
   assert.equal(signalSeen, true);
 
   const timestamp = capturedHeaders?.get("x-spx-timestamp");
@@ -69,6 +70,51 @@ async function testSignedJsonPostSendsSignedEnvelope(): Promise<void> {
     }),
     { ok: true },
   );
+}
+
+async function testSignedJsonPostBindsExplicitRequestId(): Promise<void> {
+  const requestId = "line-message-request-123";
+  let capturedHeaders: Headers | undefined;
+  let capturedBody = "";
+  const result = await signedJsonPost<typeof requestBody, { accepted: true }>({
+    url,
+    sharedSecret,
+    nodeId,
+    eventKey,
+    requestId,
+    body: requestBody,
+    fetchImpl: async (_url, init) => {
+      capturedHeaders = new Headers(init.headers);
+      capturedBody = String(init.body);
+      return jsonResponse({ data: { accepted: true } }, 202);
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(capturedHeaders?.get("x-spx-request-id"), requestId);
+  const timestamp = capturedHeaders?.get("x-spx-timestamp") ?? "";
+  const signature = capturedHeaders?.get("x-spx-signature") ?? "";
+  assert.deepEqual(verifyInternalSignature({
+    body: capturedBody,
+    timestamp,
+    nodeId,
+    path: "/internal/line/messages",
+    secret: sharedSecret,
+    eventKey,
+    requestId,
+    signature,
+    now: new Date(timestamp),
+  }), { ok: true });
+  assert.deepEqual(verifyInternalSignature({
+    body: capturedBody,
+    timestamp,
+    nodeId,
+    path: "/internal/line/messages",
+    secret: sharedSecret,
+    eventKey,
+    signature,
+    now: new Date(timestamp),
+  }), { ok: false, reason: "signature_mismatch" });
 }
 
 async function testRetryableStatusClassification(): Promise<void> {
@@ -135,6 +181,7 @@ async function testNetworkFailureIsRetryable(): Promise<void> {
 
 async function main(): Promise<void> {
   await testSignedJsonPostSendsSignedEnvelope();
+  await testSignedJsonPostBindsExplicitRequestId();
   await testRetryableStatusClassification();
   await testHttpErrorKeepsBodyAndRetryableFlag();
   await testNetworkFailureIsRetryable();

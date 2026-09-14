@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spx.invalid/schemas/production-backup-restore-evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseEnvironment",
+    "operationId",
+    "candidateSha",
+    "releaseManifestSha256",
+    "targetDescriptorSha256",
+    "databaseFingerprint",
+    "backupSha256",
+    "encryptionMetadataSha256",
+    "encrypted",
+    "fingerprintCapturedAt",
+    "createdAt",
+    "beforeDdl",
+    "isolatedRestore",
+    "quiescence",
+    "rpoMinutes",
+    "rtoMinutes",
+    "verifiedAt",
+    "producer",
+    "signatureSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseEnvironment": { "const": "production" },
+    "operationId": { "$ref": "#/$defs/operationId" },
+    "candidateSha": { "$ref": "#/$defs/commitSha" },
+    "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+    "targetDescriptorSha256": { "$ref": "#/$defs/sha256" },
+    "databaseFingerprint": { "$ref": "#/$defs/digest" },
+    "backupSha256": { "$ref": "#/$defs/sha256" },
+    "encryptionMetadataSha256": { "$ref": "#/$defs/sha256" },
+    "encrypted": { "const": true },
+    "fingerprintCapturedAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "beforeDdl": { "const": true },
+    "isolatedRestore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "databaseFingerprint",
+        "productionRoutesPresent",
+        "providerCredentialsPresent",
+        "backgroundServicesPresent",
+        "sharedWritableVolumesPresent",
+        "restoredSchemaSha256",
+        "invariantDefinitionsSha256",
+        "invariantResultsSha256",
+        "rowCountDigestSha256",
+        "teardownProven",
+        "destroyedAt"
+      ],
+      "properties": {
+        "environment": { "const": "isolated" },
+        "databaseFingerprint": { "$ref": "#/$defs/digest" },
+        "productionRoutesPresent": { "const": false },
+        "providerCredentialsPresent": { "const": false },
+        "backgroundServicesPresent": { "const": false },
+        "sharedWritableVolumesPresent": { "const": false },
+        "restoredSchemaSha256": { "$ref": "#/$defs/sha256" },
+        "invariantDefinitionsSha256": { "$ref": "#/$defs/sha256" },
+        "invariantResultsSha256": { "$ref": "#/$defs/sha256" },
+        "rowCountDigestSha256": { "$ref": "#/$defs/sha256" },
+        "teardownProven": { "const": true },
+        "destroyedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "quiescence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beforeCapture", "afterTeardown"],
+      "properties": {
+        "beforeCapture": { "$ref": "#/$defs/quiescenceObservation" },
+        "afterTeardown": { "$ref": "#/$defs/quiescenceObservation" }
+      }
+    },
+    "rpoMinutes": { "type": "number", "minimum": 0 },
+    "rtoMinutes": { "type": "number", "minimum": 0 },
+    "verifiedAt": { "type": "string", "format": "date-time" },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "environment", "workflow", "workflowSha", "workflowFileSha256"],
+      "properties": {
+        "repository": { "const": "fastest4u/SPX" },
+        "environment": { "const": "production" },
+        "workflow": { "const": ".github/workflows/trusted-production-backup-restore.yml" },
+        "workflowSha": { "$ref": "#/$defs/commitSha" },
+        "workflowFileSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "signatureSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "quiescenceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observedAt", "hostLockState", "gate6DatabaseSlotState", "observationSha256"],
+      "properties": {
+        "observedAt": { "type": "string", "format": "date-time" },
+        "hostLockState": { "const": "absent" },
+        "gate6DatabaseSlotState": { "const": "absent" },
+        "observationSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

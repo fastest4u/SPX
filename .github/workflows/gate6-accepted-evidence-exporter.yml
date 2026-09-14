@@ -1,0 +1,529 @@
+name: Trusted accepted Gate 6 evidence exporter
+
+on:
+  workflow_call:
+    inputs:
+      phase:
+        description: Accepted Gate 6 phase to export
+        required: true
+        type: string
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      approval_artifact_id:
+        description: Signed Gate 6 approval artifact ID
+        required: true
+        type: string
+      approval_run_id:
+        description: Signed Gate 6 approval workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  export-accepted-evidence:
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: spx-production-mutation
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      PHASE: ${{ inputs.phase }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      APPROVAL_ARTIFACT_ID: ${{ inputs.approval_artifact_id }}
+      APPROVAL_RUN_ID: ${{ inputs.approval_run_id }}
+      WORKFLOW_SHA: ${{ job.workflow_sha }}
+    steps:
+      - name: Validate immutable selectors and protected workflow identity
+        shell: bash
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_GATE6_ACCEPTED_EVIDENCE_EXPORTER_SHA }}
+        run: |
+          set -euo pipefail
+          case "${PHASE}" in db-transition|pre-close) ;; *) exit 1 ;; esac
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${CANDIDATE_SHA}" != 0000000000000000000000000000000000000000
+          for selector in "${APPROVAL_ARTIFACT_ID}" "${APPROVAL_RUN_ID}"; do
+            [[ "${selector}" =~ ^[1-9][0-9]*$ ]]
+          done
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" != 0000000000000000000000000000000000000000
+          test "${WORKFLOW_SHA}" = "${TRUSTED_WORKFLOW_SHA}"
+
+      - name: Select the one fixed phase receipt and export filename
+        id: phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${PHASE}" in
+            db-transition)
+              echo "scope=stage-accept-db-transition" >> "${GITHUB_OUTPUT}"
+              echo "receipt=/var/lib/spx-gate6/semantic-receipts/stage-accept-db-transition.json" >> "${GITHUB_OUTPUT}"
+              echo "filename=accepted-db-transition-evidence.json" >> "${GITHUB_OUTPUT}"
+              ;;
+            pre-close)
+              echo "scope=stage-accept-pre-close" >> "${GITHUB_OUTPUT}"
+              echo "receipt=/var/lib/spx-gate6/semantic-receipts/stage-accept-pre-close.json" >> "${GITHUB_OUTPUT}"
+              echo "filename=accepted-pre-close-evidence.json" >> "${GITHUB_OUTPUT}"
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Checkout only immutable trusted exporter source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            .github/workflows/gate6-accepted-evidence-exporter.yml
+            scripts/gate6-accepted-evidence-export.mjs
+            scripts/lib/evidence-artifact.mjs
+            scripts/lib/gate6-mysql-ledger.mjs
+            scripts/lib/gate6-semantic-receipt.mjs
+            scripts/lib/mysql-connection-config.mjs
+            scripts/lib/safe-file.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Prove immutable trusted exporter bytes
+        id: trusted
+        shell: bash
+        env:
+          EXPECTED_WORKFLOW_FILE_SHA256: ${{ vars.SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_WORKFLOW_SHA256 }}
+          EXPECTED_EXPORTER_MODULE_SHA256: ${{ vars.SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_MODULE_SHA256 }}
+        run: |
+          set -euo pipefail
+          for digest in "${EXPECTED_WORKFLOW_FILE_SHA256}" "${EXPECTED_EXPORTER_MODULE_SHA256}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{64}$ ]]
+            test "${digest}" != 0000000000000000000000000000000000000000000000000000000000000000
+          done
+          test "$(git -C trusted rev-parse HEAD)" = "${WORKFLOW_SHA}"
+          test -z "$(git -C trusted status --short --untracked-files=no)"
+          WORKFLOW_FILE=trusted/.github/workflows/gate6-accepted-evidence-exporter.yml
+          EXPORTER_MODULE=trusted/scripts/gate6-accepted-evidence-export.mjs
+          test -f "${WORKFLOW_FILE}"
+          test -f "${EXPORTER_MODULE}"
+          WORKFLOW_FILE_SHA256="$(sha256sum "${WORKFLOW_FILE}" | cut -d' ' -f1)"
+          EXPORTER_MODULE_SHA256="$(sha256sum "${EXPORTER_MODULE}" | cut -d' ' -f1)"
+          test "${WORKFLOW_FILE_SHA256}" = "${EXPECTED_WORKFLOW_FILE_SHA256}"
+          test "${EXPORTER_MODULE_SHA256}" = "${EXPECTED_EXPORTER_MODULE_SHA256}"
+          echo "workflow_file_sha256=${WORKFLOW_FILE_SHA256}" >> "${GITHUB_OUTPUT}"
+          echo "exporter_module_sha256=${EXPORTER_MODULE_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download the exact signed Gate 6 approval artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.approval_artifact_id }}
+          run-id: ${{ inputs.approval_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          digest-mismatch: error
+          path: inert-inputs/approval
+
+      - name: Enforce the exact approval set and phase binding
+        id: approval
+        shell: bash
+        env:
+          EXPECTED_SCOPE: ${{ steps.phase.outputs.scope }}
+        run: |
+          set -euo pipefail
+          test -z "$(find inert-inputs/approval -type l -print -quit)"
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { appendFile, readFile, readdir } from "node:fs/promises";
+          import { relative, resolve } from "node:path";
+
+          const root = resolve("inert-inputs/approval");
+          const files = [];
+          const visit = async (directory) => {
+            for (const entry of await readdir(directory, { withFileTypes: true })) {
+              const path = resolve(directory, entry.name);
+              if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+                throw new Error("unsafe Gate 6 approval entry");
+              }
+              if (entry.isDirectory()) await visit(path);
+              else files.push(relative(root, path).replaceAll("\\", "/"));
+            }
+          };
+          await visit(root);
+          const envelopeBytes = await readFile(resolve(root, "gate6-envelope.json"));
+          const releaseBytes = await readFile(resolve(root, "release-manifest.json"));
+          const envelope = JSON.parse(envelopeBytes.toString("utf8"));
+          const release = JSON.parse(releaseBytes.toString("utf8"));
+          if (
+            envelope?.candidateSha !== process.env.CANDIDATE_SHA
+            || release?.sourceSha !== process.env.CANDIDATE_SHA
+            || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(envelope?.gate6Id ?? "")
+            || !Array.isArray(envelope.actionApprovals)
+          ) throw new Error("Gate 6 approval candidate binding is invalid");
+          const actionFiles = [];
+          const scopes = new Set();
+          for (const action of envelope.actionApprovals) {
+            if (
+              !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(action?.scope ?? "")
+              || scopes.has(action.scope)
+              || action.gate6Id !== envelope.gate6Id
+              || action.candidateSha !== envelope.candidateSha
+            ) throw new Error("Gate 6 approval action binding is invalid");
+            scopes.add(action.scope);
+            actionFiles.push(`actions/${action.scope}.json`);
+          }
+          if (!scopes.has(process.env.EXPECTED_SCOPE)) {
+            throw new Error("Gate 6 approval lacks the requested accepted phase action");
+          }
+          const expected = ["gate6-envelope.json", "release-manifest.json", ...actionFiles].sort();
+          if (JSON.stringify(files.sort()) !== JSON.stringify(expected)) {
+            throw new Error("Gate 6 approval artifact file set changed");
+          }
+          const envelopeSha256 = createHash("sha256").update(envelopeBytes).digest("hex");
+          await appendFile(process.env.GITHUB_OUTPUT, `gate6_id=${envelope.gate6Id}\n`);
+          await appendFile(process.env.GITHUB_OUTPUT, `envelope_sha256=${envelopeSha256}\n`);
+          NODE
+
+      - name: Verify every approval subject against the exact envelope signer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVELOPE_SIGNER_SHA: ${{ vars.SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${ENVELOPE_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${ENVELOPE_SIGNER_SHA}" != 0000000000000000000000000000000000000000
+          while IFS= read -r -d '' file; do
+            gh attestation verify "${file}" -R "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/gate6-envelope-signer.yml" \
+              --signer-digest "${ENVELOPE_SIGNER_SHA}" --deny-self-hosted-runners >/dev/null
+          done < <(find inert-inputs/approval -type f -print0 | sort -z)
+
+      - name: Package only the trusted exporter and fixed producer context
+        id: payload
+        shell: bash
+        env:
+          WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          PAYLOAD_ROOT=trusted-accepted-exporter-payload
+          test ! -e "${PAYLOAD_ROOT}"
+          install -d -m 0700 "${PAYLOAD_ROOT}/context" "${PAYLOAD_ROOT}/scripts/lib"
+          for path in \
+            scripts/gate6-accepted-evidence-export.mjs \
+            scripts/lib/evidence-artifact.mjs \
+            scripts/lib/gate6-mysql-ledger.mjs \
+            scripts/lib/gate6-semantic-receipt.mjs \
+            scripts/lib/mysql-connection-config.mjs \
+            scripts/lib/safe-file.mjs; do
+            install -m 0400 "trusted/${path}" "${PAYLOAD_ROOT}/${path}"
+          done
+          install -m 0400 inert-inputs/approval/gate6-envelope.json \
+            "${PAYLOAD_ROOT}/context/gate6-envelope.json"
+          WORKFLOW_SHA="${WORKFLOW_SHA}" \
+          WORKFLOW_FILE_SHA256="${WORKFLOW_FILE_SHA256}" \
+          node --input-type=module <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          const canonical = (value) =>
+            JSON.stringify(Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])));
+          await writeFile(
+            "trusted-accepted-exporter-payload/context/accepted-evidence-producer-context.json",
+            canonical({
+              repository: "fastest4u/SPX",
+              environment: "production",
+              workflow: ".github/workflows/gate6-accepted-evidence-exporter.yml",
+              workflowSha: process.env.WORKFLOW_SHA,
+              workflowFileSha256: process.env.WORKFLOW_FILE_SHA256,
+            }),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf trusted-accepted-exporter.tar -C "${PAYLOAD_ROOT}" .
+          echo "payload_sha256=$(sha256sum trusted-accepted-exporter.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+          echo "operation_id=gate6-accepted-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned production SSH host identity
+        shell: bash
+        env:
+          SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SPX_KNOWN_HOSTS}"
+          test -n "${SPX_SSH_KEY}"
+          [[ "${SPX_KNOWN_HOSTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_gate6_export_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_gate6_export_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${SPX_KNOWN_HOSTS_SHA256}"
+          LOOKUP="${SPX_HOST}"
+          if [ "${SPX_PORT}" != 22 ]; then LOOKUP="[${SPX_HOST}]:${SPX_PORT}"; fi
+          ssh-keygen -F "${LOOKUP}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload only the immutable trusted exporter payload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "${OPERATION_ID}" =~ ^gate6-accepted-[0-9]+-[0-9]+$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_gate6_export_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            trusted-accepted-exporter.tar \
+            "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.tar"
+
+      - name: Run the trusted phase-only exporter against fixed production roots
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.payload.outputs.payload_sha256 }}
+          EXPECTED_RECEIPT: ${{ steps.phase.outputs.receipt }}
+          EXPECTED_FILENAME: ${{ steps.phase.outputs.filename }}
+          ENVELOPE_SHA256: ${{ steps.approval.outputs.envelope_sha256 }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_gate6_export_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s -- \
+              "${OPERATION_ID}" "${PAYLOAD_SHA256}" "${PHASE}" \
+              "${EXPECTED_RECEIPT}" "${EXPECTED_FILENAME}" "${ENVELOPE_SHA256}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          OPERATION_ID="$1"
+          PAYLOAD_SHA256="$2"
+          PHASE="$3"
+          EXPECTED_RECEIPT="$4"
+          EXPECTED_FILENAME="$5"
+          ENVELOPE_SHA256="$6"
+          [[ "${OPERATION_ID}" =~ ^gate6-accepted-[0-9]+-[0-9]+$ ]]
+          [[ "${PAYLOAD_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${ENVELOPE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "$(id -u)" -eq 0
+          case "${PHASE}:${EXPECTED_RECEIPT}:${EXPECTED_FILENAME}" in
+            db-transition:/var/lib/spx-gate6/semantic-receipts/stage-accept-db-transition.json:accepted-db-transition-evidence.json) ;;
+            pre-close:/var/lib/spx-gate6/semantic-receipts/stage-accept-pre-close.json:accepted-pre-close-evidence.json) ;;
+            *) exit 1 ;;
+          esac
+
+          PAYLOAD="/tmp/${OPERATION_ID}.tar"
+          test -f "${PAYLOAD}"
+          test ! -L "${PAYLOAD}"
+          test "$(sha256sum "${PAYLOAD}" | cut -d' ' -f1)" = "${PAYLOAD_SHA256}"
+          STAGE="$(mktemp -d "/tmp/${OPERATION_ID}.XXXXXX")"
+          cleanup() { rm -rf -- "${STAGE}"; rm -f -- "${PAYLOAD}"; }
+          trap cleanup EXIT
+          tar -xf "${PAYLOAD}" -C "${STAGE}" --no-same-owner --no-same-permissions
+          test -z "$(find "${STAGE}" -type l -print -quit)"
+          test -f "${STAGE}/scripts/gate6-accepted-evidence-export.mjs"
+          test -f "${STAGE}/context/accepted-evidence-producer-context.json"
+          test -f "${STAGE}/context/gate6-envelope.json"
+
+          TRUSTED_ROOT=/var/lib/spx-production-rollout/trusted-accepted-evidence-exporter
+          EXPORT_ROOT=/var/lib/spx-production-rollout/export/accepted
+          PRODUCER_CONTEXT=/var/lib/spx-production-rollout/accepted-evidence-producer-context.json
+          FIXED_ENVELOPE=/var/lib/spx-gate6/artifacts/gate6-envelope.json
+          FIXED_LOCK=/var/lib/spx-production-mutation/lock.json
+          for directory in \
+            /var/lib/spx-production-rollout \
+            /var/lib/spx-production-rollout/export \
+            "${EXPORT_ROOT}" \
+            "${TRUSTED_ROOT}" \
+            "${TRUSTED_ROOT}/scripts" \
+            "${TRUSTED_ROOT}/scripts/lib"; do
+            if [ -e "${directory}" ]; then
+              test -d "${directory}"
+              test ! -L "${directory}"
+              test "$(stat -c %u "${directory}")" -eq 0
+              test "$(stat -c %a "${directory}")" = 700
+            else
+              install -d -m 0700 "${directory}"
+            fi
+          done
+          for fixed in "${EXPECTED_RECEIPT}" "${FIXED_ENVELOPE}" "${FIXED_LOCK}"; do
+            test -f "${fixed}"
+            test ! -L "${fixed}"
+            test "$(stat -c %u "${fixed}")" -eq 0
+          done
+          test "$(sha256sum "${FIXED_ENVELOPE}" | cut -d' ' -f1)" = "${ENVELOPE_SHA256}"
+          cmp -s "${STAGE}/context/gate6-envelope.json" "${FIXED_ENVELOPE}"
+
+          install_once() {
+            local source="$1" target="$2"
+            if [ -e "${target}" ]; then
+              test -f "${target}"
+              test ! -L "${target}"
+              test "$(stat -c %u "${target}")" -eq 0
+              test "$(stat -c %a "${target}")" = 400
+              cmp -s "${source}" "${target}"
+            else
+              install -m 0400 "${source}" "${target}"
+            fi
+          }
+          for path in \
+            scripts/gate6-accepted-evidence-export.mjs \
+            scripts/lib/evidence-artifact.mjs \
+            scripts/lib/gate6-mysql-ledger.mjs \
+            scripts/lib/gate6-semantic-receipt.mjs \
+            scripts/lib/mysql-connection-config.mjs \
+            scripts/lib/safe-file.mjs; do
+            install_once "${STAGE}/${path}" "${TRUSTED_ROOT}/${path}"
+          done
+          install_once \
+            "${STAGE}/context/accepted-evidence-producer-context.json" "${PRODUCER_CONTEXT}"
+
+          mapfile -t prior_exports < <(find "${EXPORT_ROOT}" -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#prior_exports[@]}" -le 1
+          test -z "$(find "${EXPORT_ROOT}" -mindepth 1 ! -type f -print -quit)"
+          if [ "${#prior_exports[@]}" -eq 1 ]; then
+            test "${prior_exports[0]}" = "${EXPECTED_FILENAME}"
+            test ! -L "${EXPORT_ROOT}/${EXPECTED_FILENAME}"
+            test "$(stat -c %u "${EXPORT_ROOT}/${EXPECTED_FILENAME}")" -eq 0
+            test "$(stat -c %a "${EXPORT_ROOT}/${EXPECTED_FILENAME}")" = 400
+          fi
+          case "${PHASE}" in
+            db-transition)
+              /usr/bin/node "${TRUSTED_ROOT}/scripts/gate6-accepted-evidence-export.mjs" --phase=db-transition
+              ;;
+            pre-close)
+              /usr/bin/node "${TRUSTED_ROOT}/scripts/gate6-accepted-evidence-export.mjs" --phase=pre-close
+              ;;
+            *) exit 1 ;;
+          esac
+          mapfile -t exported_files < <(find "${EXPORT_ROOT}" -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#exported_files[@]}" -eq 1
+          test "${exported_files[0]}" = "${EXPECTED_FILENAME}"
+          test -z "$(find "${EXPORT_ROOT}" -mindepth 1 ! -type f -print -quit)"
+          test "$(stat -c %u "${EXPORT_ROOT}/${EXPECTED_FILENAME}")" -eq 0
+          test "$(stat -c %a "${EXPORT_ROOT}/${EXPECTED_FILENAME}")" = 400
+          REMOTE
+
+      - name: Retrieve the exact accepted phase export
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          EXPECTED_FILENAME: ${{ steps.phase.outputs.filename }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 accepted-output
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_gate6_export_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}:/var/lib/spx-production-rollout/export/accepted/${EXPECTED_FILENAME}" \
+            "accepted-output/${EXPECTED_FILENAME}"
+          chmod 0400 "accepted-output/${EXPECTED_FILENAME}"
+          mapfile -t exported_files < <(find accepted-output -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#exported_files[@]}" -eq 1
+          test "${exported_files[0]}" = "${EXPECTED_FILENAME}"
+          test -z "$(find accepted-output -mindepth 1 ! -type f -print -quit)"
+
+      - name: Verify canonical accepted evidence and trusted producer metadata
+        shell: bash
+        env:
+          EXPECTED_FILENAME: ${{ steps.phase.outputs.filename }}
+          EXPECTED_GATE6_ID: ${{ steps.approval.outputs.gate6_id }}
+          WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const canonical = (value) => Array.isArray(value)
+            ? value.map(canonical)
+            : value && typeof value === "object"
+              ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+              : value;
+          const bytes = await readFile(`accepted-output/${process.env.EXPECTED_FILENAME}`);
+          const evidence = JSON.parse(bytes.toString("utf8"));
+          if (!bytes.equals(Buffer.from(JSON.stringify(canonical(evidence))))) {
+            throw new Error("accepted Gate 6 evidence is not canonical JSON");
+          }
+          if (
+            evidence.phase !== process.env.PHASE
+            || evidence.candidateSha !== process.env.CANDIDATE_SHA
+            || evidence.gate6Id !== process.env.EXPECTED_GATE6_ID
+          ) throw new Error("accepted Gate 6 evidence binding mismatch");
+          const producer = evidence.producer;
+          const producerKeys = Object.keys(producer ?? {}).sort();
+          if (
+            JSON.stringify(producerKeys) !==
+            JSON.stringify(["environment", "repository", "workflow", "workflowFileSha256", "workflowSha"])
+          ) throw new Error("accepted Gate 6 producer field set changed");
+          if (
+            producer?.repository !== "fastest4u/SPX"
+            || producer.environment !== "production"
+            || producer.workflow !== ".github/workflows/gate6-accepted-evidence-exporter.yml"
+            || producer.workflowSha !== process.env.WORKFLOW_SHA
+            || producer.workflowFileSha256 !== process.env.WORKFLOW_FILE_SHA256
+          ) throw new Error("accepted Gate 6 producer metadata mismatch");
+          NODE
+
+      - name: Attest the exact accepted phase export
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: accepted-output/${{ steps.phase.outputs.filename }}
+
+      - name: Upload the exact accepted phase artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-gate6-accepted-${{ inputs.phase }}-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: accepted-output/${{ steps.phase.outputs.filename }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Remove only the exported phase file after successful upload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          EXPECTED_FILENAME: ${{ steps.phase.outputs.filename }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_gate6_export_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s -- "${EXPECTED_FILENAME}" <<'REMOTE'
+          set -eEuo pipefail
+          EXPECTED_FILENAME="$1"
+          case "${EXPECTED_FILENAME}" in
+            accepted-db-transition-evidence.json|accepted-pre-close-evidence.json) ;;
+            *) exit 1 ;;
+          esac
+          EXPORT_ROOT=/var/lib/spx-production-rollout/export/accepted
+          mapfile -t exported_files < <(find "${EXPORT_ROOT}" -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#exported_files[@]}" -eq 1
+          test "${exported_files[0]}" = "${EXPECTED_FILENAME}"
+          test ! -L "${EXPORT_ROOT}/${EXPECTED_FILENAME}"
+          rm -f -- "${EXPORT_ROOT}/${EXPECTED_FILENAME}"
+          /usr/bin/node --input-type=module <<'NODE'
+          import { constants } from "node:fs";
+          import { open } from "node:fs/promises";
+          const directory = await open("/var/lib/spx-production-rollout/export/accepted", constants.O_RDONLY);
+          try { await directory.sync(); } finally { await directory.close(); }
+          NODE
+          REMOTE

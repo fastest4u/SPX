@@ -287,6 +287,10 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS notification_outbox_status_available_idx ON notification_outbox(status, available_at);
     CREATE INDEX IF NOT EXISTS notification_outbox_team_created_idx ON notification_outbox(team_id, created_at);
 
+    ALTER TABLE notification_outbox ADD COLUMN provider_request_id TEXT;
+    ALTER TABLE notification_outbox ADD COLUMN provider_started_at TEXT;
+    ALTER TABLE notification_outbox ADD COLUMN provider_execution_started_at TEXT;
+
     CREATE TABLE IF NOT EXISTS notification_deliveries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       outbox_id INTEGER NOT NULL,
@@ -399,6 +403,366 @@ function initSchema(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS aar_team_booking_request_uidx ON auto_accept_results(team_id, booking_id, request_id);
     CREATE INDEX IF NOT EXISTS aar_team_status_idx ON auto_accept_results(team_id, status);
     CREATE INDEX IF NOT EXISTS aar_trace_idx ON auto_accept_results(winning_attempt_trace_id);
+
+    CREATE TABLE IF NOT EXISTS auto_accept_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      idempotency_key TEXT NOT NULL,
+      schema_version INTEGER NOT NULL DEFAULT 1,
+      team_id INTEGER NOT NULL,
+      cutover_epoch TEXT,
+      publication_generation INTEGER,
+      booking_id INTEGER NOT NULL,
+      request_id INTEGER NOT NULL,
+      rule_id TEXT NOT NULL,
+      attempt_kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload_json TEXT NOT NULL,
+      claim_owner TEXT,
+      claim_token TEXT,
+      claimed_at TEXT,
+      claim_expires_at TEXT,
+      last_heartbeat_at TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      verify_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      last_reason_code TEXT,
+      winning_attempt_trace_id TEXT,
+      result_status TEXT,
+      result_reason_code TEXT,
+      progress_settled_at TEXT,
+      history_written_at TEXT,
+      notification_enqueued_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS aaj_idempotency_key_uidx ON auto_accept_jobs(idempotency_key);
+    CREATE INDEX IF NOT EXISTS aaj_claimable_idx ON auto_accept_jobs(status, next_run_at, claim_expires_at);
+    CREATE INDEX IF NOT EXISTS aaj_team_status_idx ON auto_accept_jobs(team_id, status);
+    CREATE INDEX IF NOT EXISTS aaj_claim_owner_idx ON auto_accept_jobs(claim_owner, claim_expires_at);
+    CREATE INDEX IF NOT EXISTS aaj_result_trace_idx ON auto_accept_jobs(winning_attempt_trace_id);
+    CREATE INDEX IF NOT EXISTS aaj_team_epoch_generation_status_idx ON auto_accept_jobs(team_id, cutover_epoch, publication_generation, status);
+
+    CREATE TABLE IF NOT EXISTS auto_accept_job_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      settlement_key TEXT NOT NULL,
+      job_id INTEGER NOT NULL,
+      team_id INTEGER NOT NULL,
+      booking_id INTEGER NOT NULL,
+      request_id INTEGER NOT NULL,
+      rule_id TEXT NOT NULL,
+      settlement_step TEXT NOT NULL,
+      side_effect_id INTEGER,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS aajs_settlement_key_uidx ON auto_accept_job_settlements(settlement_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS aajs_job_step_uidx ON auto_accept_job_settlements(job_id, settlement_step);
+    CREATE INDEX IF NOT EXISTS aajs_team_step_completed_idx ON auto_accept_job_settlements(team_id, settlement_step, completed_at);
+
+    CREATE TABLE IF NOT EXISTS realtime_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL,
+      idempotency_key TEXT,
+      event_type TEXT NOT NULL,
+      payload_version INTEGER NOT NULL,
+      envelope_version INTEGER NOT NULL,
+      scope_kind TEXT NOT NULL,
+      team_id INTEGER,
+      subject_type TEXT,
+      subject_id TEXT,
+      source_service TEXT NOT NULL,
+      source_node_id TEXT NOT NULL,
+      source_role TEXT NOT NULL,
+      trace_id TEXT,
+      replayable INTEGER NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL,
+      envelope_json TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS realtime_events_event_id_uidx ON realtime_events(event_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS realtime_events_idempotency_key_uidx ON realtime_events(idempotency_key);
+    CREATE INDEX IF NOT EXISTS realtime_events_scope_team_id_idx ON realtime_events(scope_kind, team_id, id);
+    CREATE INDEX IF NOT EXISTS realtime_events_type_received_idx ON realtime_events(event_type, received_at);
+    CREATE INDEX IF NOT EXISTS realtime_events_source_node_received_idx ON realtime_events(source_node_id, received_at);
+    CREATE INDEX IF NOT EXISTS realtime_events_replayable_id_idx ON realtime_events(replayable, id);
+    CREATE INDEX IF NOT EXISTS realtime_events_replay_scope_id_idx ON realtime_events(replayable, scope_kind, team_id, id);
+    CREATE INDEX IF NOT EXISTS realtime_events_replay_created_id_idx ON realtime_events(replayable, created_at, id);
+
+    CREATE TABLE IF NOT EXISTS realtime_execution_metrics (
+      team_id INTEGER NOT NULL,
+      source_node_id TEXT NOT NULL,
+      generation TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, source_node_id)
+    );
+    CREATE INDEX IF NOT EXISTS realtime_execution_metrics_received_idx ON realtime_execution_metrics(received_at);
+
+    CREATE TABLE IF NOT EXISTS realtime_metrics_read_models (
+      team_id INTEGER NOT NULL PRIMARY KEY,
+      source_node_id TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS realtime_metrics_read_models_received_team_idx ON realtime_metrics_read_models(received_at, team_id);
+
+    CREATE TABLE IF NOT EXISTS internal_request_replays (
+      replay_key TEXT NOT NULL PRIMARY KEY,
+      partition_name TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS internal_request_replays_partition_expires_idx ON internal_request_replays(partition_name, expires_at);
+    CREATE INDEX IF NOT EXISTS internal_request_replays_expires_idx ON internal_request_replays(expires_at);
+
+    CREATE TABLE IF NOT EXISTS auto_accept_publication_controls (
+      team_id INTEGER NOT NULL,
+      cutover_epoch TEXT NOT NULL,
+      publication_generation INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      poller_node_id TEXT NOT NULL,
+      fence_job_id INTEGER,
+      fence_requested_at TEXT,
+      ack_node_id TEXT,
+      ack_job_id INTEGER,
+      acknowledged_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (team_id, cutover_epoch)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS aapc_team_generation_uidx ON auto_accept_publication_controls(team_id, publication_generation);
+
+    CREATE TABLE IF NOT EXISTS spx_n_minus_one_probe_fixtures (
+      probe_role TEXT NOT NULL PRIMARY KEY,
+      probe_value INTEGER NOT NULL
+    );
+
+    INSERT OR IGNORE INTO spx_n_minus_one_probe_fixtures (probe_role, probe_value) VALUES
+      ('web-api', 4101),
+      ('notification-service', 4102),
+      ('line-service', 4103),
+      ('worker-ifn-split', 4104),
+      ('worker-ptwl-split', 4105);
+
+    CREATE TABLE IF NOT EXISTS gate6_environment_slots (
+      environment TEXT NOT NULL PRIMARY KEY,
+      owner_type TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      transfer_token_sha256 TEXT,
+      state TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      uncompensated_work INTEGER NOT NULL DEFAULT 0,
+      protected_install_evidence_sha256 TEXT NOT NULL,
+      release_sha TEXT NOT NULL,
+      target_descriptor_sha256 TEXT NOT NULL,
+      operator_bundle_sha256 TEXT NOT NULL,
+      installed_migration_set_sha256 TEXT NOT NULL,
+      installed_schema_version INTEGER NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS gate6_slot_owner_uq ON gate6_environment_slots(owner_type, owner_id);
+    CREATE INDEX IF NOT EXISTS gate6_slot_state_expiry_idx ON gate6_environment_slots(state, expires_at);
+
+    CREATE TABLE IF NOT EXISTS gate6_runs (
+      gate6_id TEXT NOT NULL PRIMARY KEY,
+      gate6_nonce TEXT NOT NULL,
+      envelope_sha256 TEXT NOT NULL,
+      envelope_core_sha256 TEXT NOT NULL,
+      release_environment TEXT NOT NULL,
+      runtime_environment TEXT NOT NULL,
+      drill_mode TEXT NOT NULL,
+      compose_project TEXT NOT NULL,
+      candidate_sha TEXT NOT NULL,
+      candidate_image_digest TEXT NOT NULL,
+      rollback_sha TEXT NOT NULL,
+      rollback_image_digest TEXT NOT NULL,
+      production_target_descriptor_sha256 TEXT NOT NULL,
+      operator_bundle_sha256 TEXT NOT NULL,
+      protected_install_evidence_sha256 TEXT NOT NULL,
+      installed_migration_set_sha256 TEXT NOT NULL,
+      installed_schema_version INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      current_stage TEXT NOT NULL,
+      stage_version INTEGER NOT NULL DEFAULT 1,
+      accepted_checker_name TEXT,
+      accepted_checker_sha256 TEXT,
+      revocation_reason_code TEXT,
+      monitor_status TEXT NOT NULL,
+      monitor_lease_expires_at TEXT NOT NULL,
+      supervisor_status TEXT NOT NULL,
+      supervisor_lease_expires_at TEXT NOT NULL,
+      emergency_supervisor_lease_expires_at TEXT NOT NULL,
+      terminal_evidence_sha256 TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS gate6_runs_envelope_uq ON gate6_runs(envelope_sha256);
+    CREATE UNIQUE INDEX IF NOT EXISTS gate6_runs_nonce_uq ON gate6_runs(gate6_nonce);
+    CREATE INDEX IF NOT EXISTS gate6_runs_status_expiry_idx ON gate6_runs(status, expires_at);
+
+    CREATE TABLE IF NOT EXISTS gate6_actions (
+      gate6_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      approval_sha256 TEXT NOT NULL,
+      allowed_mutation_sha256 TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      paired_action_id TEXT,
+      predecessor_action_ids_json TEXT NOT NULL,
+      required_stage TEXT NOT NULL,
+      required_checker_sha256 TEXT,
+      status TEXT NOT NULL,
+      before_evidence_sha256 TEXT,
+      after_evidence_sha256 TEXT,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (gate6_id, scope, action_id)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS gate6_actions_id_uq ON gate6_actions(gate6_id, action_id);
+    CREATE INDEX IF NOT EXISTS gate6_actions_status_expiry_idx ON gate6_actions(gate6_id, status, expires_at);
+
+    CREATE TABLE IF NOT EXISTS gate6_fault_permits (
+      permit_id TEXT NOT NULL PRIMARY KEY,
+      gate6_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      team_id INTEGER NOT NULL,
+      drill_sha256 TEXT NOT NULL,
+      target_sha256 TEXT,
+      fixture_sha256 TEXT,
+      signed_permit_sha256 TEXT NOT NULL,
+      verification_key_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      disarmed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS gate6_permit_action_uq ON gate6_fault_permits(gate6_id, scope, action_id);
+    CREATE INDEX IF NOT EXISTS gate6_permit_status_expiry_idx ON gate6_fault_permits(gate6_id, status, expires_at);
+
+    CREATE VIEW IF NOT EXISTS operational_gate6_terminal_evidence AS
+    SELECT
+      r.gate6_id,
+      r.candidate_sha,
+      r.candidate_image_digest,
+      r.rollback_sha,
+      r.rollback_image_digest,
+      r.production_target_descriptor_sha256,
+      r.operator_bundle_sha256,
+      r.installed_migration_set_sha256,
+      r.installed_schema_version,
+      r.status AS run_status,
+      r.current_stage,
+      r.stage_version,
+      r.accepted_checker_name,
+      r.accepted_checker_sha256,
+      s.owner_type AS slot_owner_type,
+      s.owner_id AS slot_owner_id,
+      s.state AS slot_state,
+      s.uncompensated_work,
+      0 AS forward_registered_count,
+      0 AS forward_consumed_count,
+      0 AS forward_succeeded_count,
+      0 AS forward_failed_count,
+      0 AS forward_ambiguous_count,
+      0 AS forward_compensated_count,
+      0 AS compensation_registered_count,
+      0 AS compensation_consumed_count,
+      0 AS compensation_succeeded_count,
+      0 AS compensation_failed_count,
+      0 AS compensation_ambiguous_count,
+      0 AS compensation_compensated_count,
+      0 AS compensation_not_needed_count,
+      0 AS emergency_registered_count,
+      0 AS emergency_consumed_count,
+      0 AS emergency_succeeded_count,
+      0 AS emergency_failed_count,
+      0 AS emergency_ambiguous_count,
+      0 AS active_permit_count,
+      r.terminal_evidence_sha256,
+      r.created_at,
+      r.updated_at
+    FROM gate6_runs r
+    JOIN gate6_environment_slots s
+      ON s.environment = 'production' AND s.owner_type = 'gate6' AND s.owner_id = r.gate6_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS aapc_team_generation_uq ON auto_accept_publication_controls(team_id, publication_generation);
+CREATE UNIQUE INDEX IF NOT EXISTS aapc_team_epoch_generation_uq ON auto_accept_publication_controls(team_id, cutover_epoch, publication_generation);
+CREATE INDEX IF NOT EXISTS aapc_state_updated_idx ON auto_accept_publication_controls(state, updated_at);
+CREATE TABLE IF NOT EXISTS auto_accept_publication_active_epochs (
+  team_id INTEGER NOT NULL PRIMARY KEY,
+  active_epoch TEXT NOT NULL,
+  active_generation INTEGER NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+  CONSTRAINT aapa_control_fk FOREIGN KEY (team_id, active_epoch, active_generation) REFERENCES auto_accept_publication_controls (team_id, cutover_epoch, publication_generation)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS aapa_team_generation_uq ON auto_accept_publication_active_epochs(team_id, active_generation);
+CREATE VIEW IF NOT EXISTS operational_phase3_evidence AS
+SELECT id, team_id, cutover_epoch, publication_generation, status,
+       claim_owner, claim_expires_at,
+       result_status, progress_settled_at, history_written_at,
+       notification_enqueued_at, created_at, updated_at
+FROM auto_accept_jobs;
+CREATE VIEW IF NOT EXISTS operational_phase3_control_evidence AS
+SELECT c.team_id, c.cutover_epoch, c.publication_generation, c.state,
+       c.poller_node_id, c.fence_job_id, c.fence_requested_at,
+       c.ack_node_id, c.ack_job_id, c.acknowledged_at,
+       (a.active_epoch = c.cutover_epoch
+        AND a.active_generation = c.publication_generation) AS is_active,
+       a.active_epoch, a.active_generation, c.created_at, c.updated_at
+FROM auto_accept_publication_controls c
+LEFT JOIN auto_accept_publication_active_epochs a ON a.team_id = c.team_id;
+
+CREATE TABLE IF NOT EXISTS notification_provider_reconciliations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  outbox_id INTEGER NOT NULL,
+  provider_request_id TEXT NOT NULL,
+  provider_started_at TEXT NOT NULL,
+  expected_status TEXT NOT NULL,
+  action TEXT NOT NULL,
+  result_status TEXT NOT NULL,
+  actor_user_id INTEGER NOT NULL,
+  actor_username TEXT NOT NULL,
+  actor_team_id INTEGER NULL,
+  target_team_id INTEGER NOT NULL,
+  evidence_reference TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  provider_message_id TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS npr_outbox_provider_fence_uidx ON notification_provider_reconciliations(outbox_id, provider_request_id, provider_started_at);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       setting_key TEXT NOT NULL PRIMARY KEY,

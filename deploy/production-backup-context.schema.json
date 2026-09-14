@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spx.invalid/schemas/production-backup-context.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operationId",
+    "candidateSha",
+    "releaseManifestSha256",
+    "targetDescriptorSha256",
+    "databaseFingerprint",
+    "createdAt",
+    "limits",
+    "producer",
+    "implementationSha256",
+    "sourceCredentialSha256",
+    "kmsCapabilitySha256",
+    "kmsKeyId",
+    "evidenceSigningKeyId",
+    "isolatedMysqlImageDigest",
+    "executableSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "candidateSha": { "$ref": "#/$defs/commitSha" },
+    "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+    "targetDescriptorSha256": { "$ref": "#/$defs/sha256" },
+    "databaseFingerprint": { "$ref": "#/$defs/digest" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximumAgeMinutes", "maximumRpoMinutes", "maximumRtoMinutes"],
+      "properties": {
+        "maximumAgeMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+        "maximumRpoMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+        "maximumRtoMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "environment", "workflow", "workflowSha", "workflowFileSha256"],
+      "properties": {
+        "repository": { "const": "fastest4u/SPX" },
+        "environment": { "const": "production" },
+        "workflow": {
+          "const": ".github/workflows/trusted-production-backup-restore.yml"
+        },
+        "workflowSha": { "$ref": "#/$defs/commitSha" },
+        "workflowFileSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "implementationSha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "controllerSha256",
+        "liveAdapterSha256",
+        "invariantDefinitionsSha256",
+        "isolatedComposeSha256"
+      ],
+      "properties": {
+        "controllerSha256": { "$ref": "#/$defs/sha256" },
+        "liveAdapterSha256": { "$ref": "#/$defs/sha256" },
+        "invariantDefinitionsSha256": { "$ref": "#/$defs/sha256" },
+        "isolatedComposeSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sourceCredentialSha256": { "$ref": "#/$defs/sha256" },
+    "kmsCapabilitySha256": { "$ref": "#/$defs/sha256" },
+    "kmsKeyId": { "$ref": "#/$defs/keyId" },
+    "evidenceSigningKeyId": { "$ref": "#/$defs/keyId" },
+    "isolatedMysqlImageDigest": {
+      "type": "string",
+      "pattern": "^mysql@sha256:[0-9a-f]{64}$"
+    },
+    "executableSha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mysqldump", "mysql", "docker", "kmsEnvelope"],
+      "properties": {
+        "mysqldump": { "$ref": "#/$defs/sha256" },
+        "mysql": { "$ref": "#/$defs/sha256" },
+        "docker": { "$ref": "#/$defs/sha256" },
+        "kmsEnvelope": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "keyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    }
+  }
+}

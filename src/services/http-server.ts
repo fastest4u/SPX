@@ -36,17 +36,36 @@ import { lineImageExtractionController } from "../controllers/line-image-extract
 import { internalNotificationController } from "../controllers/internal-notification-controller.js";
 import { internalLineController } from "../controllers/internal-line-controller.js";
 import { internalOcrController } from "../controllers/internal-ocr-controller.js";
+import { internalGate6Controller } from "../controllers/internal-gate6-controller.js";
+import { internalRealtimeController } from "../controllers/internal-realtime-controller.js";
+import { internalRealtimeReadController } from "../controllers/internal-realtime-read-controller.js";
+import type { InternalGate6Repository } from "../controllers/internal-gate6-controller.js";
+import type { RealtimePublisher } from "./realtime-contract.js";
+import type { RealtimeReadGateway } from "./realtime-service-client.js";
 import { runtimeStatusController } from "../controllers/runtime-status-controller.js";
 import {
   createAdminProviderAuthController,
   createOwnTeamProviderAuthController,
 } from "../controllers/provider-auth-controller.js";
+import {
+  notificationReconciliationController,
+  type NotificationReconciliationControllerOptions,
+} from "../controllers/notification-reconciliation-controller.js";
+import { DurableInternalRequestReplayGuard } from "../repositories/internal-request-replay-repository.js";
+import { FileInternalRequestReplayGuard } from "./file-internal-request-replay.js";
+import { createOcrAuthRateLimiter } from "./ocr-auth-rate-limit.js";
+import { insertAuditLog } from "../repositories/audit-repository.js";
 
 let app: FastifyInstance | null = null;
 
 export interface HttpServerOptions {
   surface: HttpSurface;
   role?: RuntimeRole;
+  gate6Repository?: InternalGate6Repository;
+  runtimeMetricsRealtimePublisher?: RealtimePublisher;
+  realtimeReadGateway?: RealtimeReadGateway;
+  loadRealtimeRuntimeStatus?: (scope: unknown) => Promise<unknown>;
+  notificationReconciliation?: NotificationReconciliationControllerOptions;
 }
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -292,6 +311,8 @@ function jwtSecretForRuntime(): string {
 
 export async function createHttpServer(options: HttpServerOptions): Promise<FastifyInstance> {
   const previousApp = app;
+  const databaseReplayGuard = new DurableInternalRequestReplayGuard();
+  const ocrAuthRateLimiter = createOcrAuthRateLimiter();
   app = Fastify({
     logger: false,
     trustProxy: env.HTTP_TRUST_PROXY,
@@ -333,6 +354,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     });
     await app.register(async (instance) => {
       instance.addHook("preHandler", authenticateRequest);
+      instance.addHook("preHandler", requireRole("admin"));
       await instance.register(fastifyStatic, {
         root: resolve(process.cwd(), "data", "line-images"),
         prefix: "/line-images/",
@@ -453,7 +475,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
   if (options.surface === "notification-service" || legacyNotificationSurface) {
     await app.register(internalNotificationController, {
       prefix: "/internal",
-      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      sharedSecret: env.NODE_ENV === "production" ? undefined : env.NOTIFIER_SHARED_SECRET,
+      nodeSecrets: env.NOTIFICATION_NODE_SECRETS,
+      allowedNodes: env.NOTIFICATION_ALLOWED_NODE_TEAMS,
+      replayGuard: databaseReplayGuard,
     });
   }
 
@@ -462,8 +487,14 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     const notifier = await import("./notifier.js");
     await app.register(internalLineController, {
       prefix: "/internal",
-      sharedSecret: env.LINE_SERVICE_SEND_SECRET,
+      sharedSecret: env.NODE_ENV === "production" ? undefined : env.LINE_SERVICE_SEND_SECRET,
+      nodeSecrets: env.NODE_ENV === "production" || env.LINE_SERVICE_SEND_NODE_SECRETS.size > 0
+        ? env.LINE_SERVICE_SEND_NODE_SECRETS : undefined,
       adminSharedSecret: env.LINE_SERVICE_ADMIN_SECRET,
+      sendAllowedNodeIds: env.LINE_SEND_ALLOWED_NODE_IDS,
+      adminAllowedNodeIds: env.LINE_ADMIN_ALLOWED_NODE_IDS,
+      requireOutboxFence: env.NODE_ENV === "production",
+      replayGuard: databaseReplayGuard,
       line: {
         isEnabled: lineBot.isLineBotEnabled,
         getStatus: lineBot.getStatus,
@@ -479,9 +510,52 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
   }
 
   if (options.surface === "ocr-service") {
+    const ocrReplayGuard = new FileInternalRequestReplayGuard({
+      ledgerDir: env.OCR_REPLAY_LEDGER_DIR,
+    });
     await app.register(internalOcrController, {
       prefix: "/internal",
-      sharedSecret: env.NOTIFIER_SHARED_SECRET,
+      sharedSecret: env.NODE_ENV === "production" ? undefined : env.NOTIFIER_SHARED_SECRET,
+      adminSharedSecret: env.NODE_ENV === "production" ? undefined : env.OCR_SERVICE_ADMIN_SECRET,
+      nodeSecrets: env.OCR_NODE_SECRETS,
+      readAllowedNodeIds: env.OCR_ALLOWED_LINE_NODE_IDS,
+      adminAllowedNodeIds: env.OCR_ADMIN_NODE_IDS,
+      replayGuard: ocrReplayGuard,
+    });
+  }
+
+  if (options.surface === "realtime-service") {
+    const resolveSecretForNode = env.REALTIME_NODE_SECRETS.size > 0
+      ? (nodeId: string) => env.REALTIME_NODE_SECRETS.get(nodeId)
+      : undefined;
+    await app.register(internalRealtimeController, {
+      prefix: "/internal/realtime",
+      sharedSecret: env.REALTIME_SHARED_SECRET || undefined,
+      resolveSecretForNode,
+      publisher: options.runtimeMetricsRealtimePublisher,
+      allowedNodes: env.REALTIME_ALLOWED_NODE_TEAMS,
+      adminPublishers: env.REALTIME_ADMIN_NODE_IDS,
+      replayGuard: databaseReplayGuard,
+    });
+    await app.register(internalRealtimeReadController, {
+      prefix: "/internal/realtime",
+      sharedSecret: env.REALTIME_SHARED_SECRET || undefined,
+      resolveSecretForNode,
+      trustedNodeIds: env.REALTIME_TRUSTED_NODE_IDS,
+      adminNodeIds: env.REALTIME_ADMIN_NODE_IDS,
+      allowedNodeTeams: env.REALTIME_ALLOWED_NODE_TEAMS,
+      loadRuntimeStatus: (options.loadRealtimeRuntimeStatus ?? (async () => null)) as never,
+      replayGuard: databaseReplayGuard,
+    });
+  }
+
+  if (options.surface === "gate6-control" && options.gate6Repository) {
+    await app.register(internalGate6Controller, {
+      prefix: "/internal",
+      repository: options.gate6Repository,
+      repositoryName: env.GATE6_REPOSITORY,
+      lineNodeSecrets: env.GATE6_LINE_NODE_SECRETS,
+      ocrNodeSecrets: env.GATE6_OCR_NODE_SECRETS,
     });
   }
 
@@ -499,7 +573,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
   // `/line-quota`, and `/system/*` are now behind authentication and the
   // mutating system controls require admin.
   await app.register(async (opsScope) => {
-    await opsScope.register(dashboardController);
+    await opsScope.register(dashboardController, {
+      realtimeReadGateway: options.realtimeReadGateway,
+      realtimePublisher: options.runtimeMetricsRealtimePublisher,
+    });
   });
 
   await app.register(
@@ -523,10 +600,6 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
         await userScope.register(notifyController, { prefix: "/notifications" });
         await userScope.register(biddingController, { prefix: "/bidding" });
         await userScope.register(lineBotController, { prefix: "/line-bot" });
-        await userScope.register(aiController, { prefix: "/ai" });
-        await userScope.register(lineImageExtractionController, {
-          prefix: "/line-image-extractions",
-        });
       });
 
       await apiScope.register(async (adminScope) => {
@@ -544,7 +617,29 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
         await adminScope.register(settingsController, { prefix: "/settings" });
         await adminScope.register(auditController, { prefix: "/audit-logs" });
         await adminScope.register(auditReportController, { prefix: "/reports" });
-        await adminScope.register(runtimeStatusController, { prefix: "/runtime" });
+        await adminScope.register(runtimeStatusController, {
+          prefix: "/runtime",
+          realtimeReadGateway: options.realtimeReadGateway,
+        });
+        await adminScope.register(aiController, {
+          prefix: "/ai",
+          authRateLimiter: ocrAuthRateLimiter,
+          auditWriter: async (event) => {
+            await insertAuditLog(
+              event.username,
+              event.action,
+              event.metadata === undefined ? undefined : JSON.stringify(event.metadata),
+              { actorUserId: event.userId },
+            );
+          },
+        });
+        await adminScope.register(lineImageExtractionController, {
+          prefix: "/line-image-extractions",
+        });
+        await adminScope.register(notificationReconciliationController, {
+          prefix: "/notification-reconciliation",
+          ...options.notificationReconciliation,
+        });
       });
     },
     { prefix: "/api" },

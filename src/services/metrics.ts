@@ -2,7 +2,7 @@
 
 import { getPoolStats, type PoolStats } from "../db/client.js";
 import { isTeamPaused, pollerControl } from "./poller-control.js";
-import { getUpstreamConnectionCount } from "../utils/http-dispatcher.js";
+import { recordUpstreamPoolRequest, upstreamConnectionPoolObservation, type UpstreamConnectionPoolObservation } from "../utils/http-dispatcher.js";
 import { AUTO_ACCEPT_FAILURE_REASONS, type AutoAcceptFailureReason, type VerificationStatus } from "./auto-accept-diagnostics.js";
 
 export interface LatencyBucket {
@@ -14,6 +14,10 @@ export interface LatencyBucket {
 }
 
 export type TimedOperation =
+  | "biddingListPage1"
+  | "page1ToDetailStart"
+  | "firstMatchToAcceptStart"
+  | "verificationQueueWait"
   | "detailFetch"
   | "dbSave"
   | "notify"
@@ -111,12 +115,14 @@ export interface MetricsSnapshot {
     skippedConcurrency: number;
     skippedCooldown: number;
   };
-  // Keep-alive effectiveness: total upstream requests vs fresh connections opened
-  // to the SPX host. A high reuseRatio proves the warm pool is removing handshakes.
+  // Requests belong to this team; physical pool observations belong to processes.
+  // Legacy snapshots lack ownership metadata and cannot support scoped reuse claims.
   upstream: {
     requests: number;
     connections: number;
     reuseRatio: number;
+    connectionScope?: "process" | "aggregate" | "unknown";
+    connectionPools?: UpstreamConnectionPoolObservation[];
   };
   operations: Record<TimedOperation, TimingSummary>;
   runtime: RuntimeMetrics;
@@ -163,6 +169,10 @@ export class MetricsCollector {
   private autoAcceptVerificationMaxQueueDepth = 0;
   private autoAcceptVerificationFailuresByReason = emptyFailureReasons();
   private operationLatencies: Record<TimedOperation, number[]> = {
+    biddingListPage1: [],
+    page1ToDetailStart: [],
+    firstMatchToAcceptStart: [],
+    verificationQueueWait: [],
     detailFetch: [],
     dbSave: [],
     notify: [],
@@ -241,11 +251,18 @@ export class MetricsCollector {
   }
 
   recordOperation(operation: TimedOperation, latencyMs: number): void {
+    if (!Number.isFinite(latencyMs) || latencyMs < 0) return;
     const samples = this.operationLatencies[operation];
     samples.push(Math.max(0, Math.round(latencyMs)));
     if (samples.length > MAX_LATENCY_SAMPLES) {
       this.operationLatencies[operation] = samples.slice(-MAX_LATENCY_SAMPLES);
     }
+  }
+
+  /** Record an application-observed interval only when both timestamps are usable. */
+  recordInterval(operation: TimedOperation, startedAtMs: number, finishedAtMs = Date.now()): void {
+    if (!Number.isFinite(startedAtMs) || startedAtMs < 0 || !Number.isFinite(finishedAtMs) || finishedAtMs < 0) return;
+    this.recordOperation(operation, finishedAtMs - startedAtMs);
   }
 
   recordAutoAcceptVerificationQueued(queueDepth: number): void {
@@ -290,6 +307,7 @@ export class MetricsCollector {
   /** Count one upstream request sent (denominator for the connection-reuse ratio). */
   recordUpstreamRequest(): void {
     this.upstreamRequests++;
+    recordUpstreamPoolRequest();
   }
 
   recordRuntimeState(state: Partial<RuntimeState>): void {
@@ -322,7 +340,7 @@ export class MetricsCollector {
     const teamId = context.teamId !== undefined ? context.teamId : this.defaultTeamId;
     const teamName = context.teamName ?? this.defaultTeamName;
     const pollingLatency = this.summarize(this.latencies);
-    const upstreamConnections = getUpstreamConnectionCount();
+    const connectionPool = upstreamConnectionPoolObservation();
     const detailQueuePressure = this.runtime.detailConcurrency > 0
       ? Math.round((this.runtime.activeDetailBookings / this.runtime.detailConcurrency) * 100)
       : 0;
@@ -390,12 +408,18 @@ export class MetricsCollector {
       },
       upstream: {
         requests: this.upstreamRequests,
-        connections: upstreamConnections,
-        reuseRatio: this.upstreamRequests > 0
-          ? Math.max(0, Math.round((1 - upstreamConnections / this.upstreamRequests) * 10000) / 100)
+        connections: connectionPool.connections,
+        reuseRatio: connectionPool.requests > 0
+          ? Math.max(0, Math.round((1 - connectionPool.connections / connectionPool.requests) * 10000) / 100)
           : 0,
+        connectionScope: "process",
+        connectionPools: [connectionPool],
       },
       operations: {
+        biddingListPage1: this.summarize(this.operationLatencies.biddingListPage1),
+        page1ToDetailStart: this.summarize(this.operationLatencies.page1ToDetailStart),
+        firstMatchToAcceptStart: this.summarize(this.operationLatencies.firstMatchToAcceptStart),
+        verificationQueueWait: this.summarize(this.operationLatencies.verificationQueueWait),
         detailFetch: this.summarize(this.operationLatencies.detailFetch),
         dbSave: this.summarize(this.operationLatencies.dbSave),
         notify: this.summarize(this.operationLatencies.notify),
@@ -416,3 +440,21 @@ export class MetricsCollector {
 
 /** Singleton metrics instance shared across the app */
 export const metrics = new MetricsCollector();
+
+const teamCollectors = new Map<number, MetricsCollector>();
+const executionOnlyTeams = new Set<number>();
+/** Dedicated execution collectors never claim local poll/runtime health ownership. */
+export function markExecutionOnlyMetricsTeam(teamId: number): void {
+  executionOnlyTeams.add(teamId);
+}
+export function teamMetricsCollector(teamId: number, teamName?: string): MetricsCollector {
+  let collector = teamCollectors.get(teamId);
+  if (!collector) {
+    collector = new MetricsCollector({ teamId, teamName });
+    teamCollectors.set(teamId, collector);
+  }
+  return collector;
+}
+export function localTeamMetricsSnapshots(): MetricsSnapshot[] {
+  return [...teamCollectors.entries()].filter(([teamId]) => !executionOnlyTeams.has(teamId)).map(([, collector]) => collector.snapshot());
+}

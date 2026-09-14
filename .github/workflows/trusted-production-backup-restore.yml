@@ -1,0 +1,818 @@
+name: Trusted production backup and isolated restore evidence
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Immutable release source SHA
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable release artifact ID
+        required: true
+        type: string
+      release_run_id:
+        description: Immutable release workflow run ID
+        required: true
+        type: string
+      production_target_artifact_id:
+        description: Attested production target descriptor artifact ID
+        required: true
+        type: string
+      production_target_run_id:
+        description: Production target descriptor workflow run ID
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: spx-production-mutation
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  produce-backup-evidence:
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate immutable selectors and protected workflow identity
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          PRODUCTION_TARGET_ARTIFACT_ID: ${{ inputs.production_target_artifact_id }}
+          PRODUCTION_TARGET_RUN_ID: ${{ inputs.production_target_run_id }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          for selector in \
+            "${RELEASE_ARTIFACT_ID}" "${RELEASE_RUN_ID}" \
+            "${PRODUCTION_TARGET_ARTIFACT_ID}" "${PRODUCTION_TARGET_RUN_ID}"; do
+            [[ "${selector}" =~ ^[1-9][0-9]*$ ]]
+          done
+          test "${RELEASE_ARTIFACT_ID}" != "${PRODUCTION_TARGET_ARTIFACT_ID}"
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" != 0000000000000000000000000000000000000000
+          test "${WORKFLOW_SHA}" = "${TRUSTED_WORKFLOW_SHA}"
+
+      - name: Checkout only immutable trusted producer code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove trusted checkout and workflow file identity
+        id: trusted
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          EXPECTED_WORKFLOW_FILE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_WORKFLOW_FILE_SHA256 }}
+        run: |
+          set -euo pipefail
+          test "$(git -C trusted rev-parse HEAD)" = "${WORKFLOW_SHA}"
+          test -z "$(git -C trusted status --short --untracked-files=no)"
+          WORKFLOW_FILE=trusted/.github/workflows/trusted-production-backup-restore.yml
+          test -f "${WORKFLOW_FILE}"
+          WORKFLOW_FILE_SHA256="$(sha256sum "${WORKFLOW_FILE}" | cut -d' ' -f1)"
+          [[ "${EXPECTED_WORKFLOW_FILE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "${EXPECTED_WORKFLOW_FILE_SHA256}" != 0000000000000000000000000000000000000000000000000000000000000000
+          test "${WORKFLOW_FILE_SHA256}" = "${EXPECTED_WORKFLOW_FILE_SHA256}"
+          echo "workflow_file_sha256=${WORKFLOW_FILE_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download exact release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.release_artifact_id }}
+          run-id: ${{ inputs.release_run_id }}
+          path: inert-inputs/release
+          github-token: ${{ github.token }}
+
+      - name: Download exact production target artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.production_target_artifact_id }}
+          run-id: ${{ inputs.production_target_run_id }}
+          path: inert-inputs/target
+          github-token: ${{ github.token }}
+
+      - name: Enforce exact inert upstream file sets and production identity
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test -z "$(find inert-inputs -type l -print -quit)"
+          node --input-type=module <<'NODE'
+          import { readdir, readFile } from "node:fs/promises";
+          import { relative, resolve } from "node:path";
+
+          const files = async (root) => {
+            const output = [];
+            const visit = async (directory) => {
+              for (const entry of await readdir(directory, { withFileTypes: true })) {
+                const path = resolve(directory, entry.name);
+                if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) {
+                  throw new Error("unsafe artifact entry");
+                }
+                if (entry.isDirectory()) await visit(path);
+                else output.push(relative(resolve(root), path).replaceAll("\\", "/"));
+              }
+            };
+            await visit(root);
+            return output.sort();
+          };
+          const exact = (actual, expected, label) => {
+            if (JSON.stringify(actual) !== JSON.stringify([...expected].sort())) {
+              throw new Error(label + " file set changed");
+            }
+          };
+
+          const releaseRoot = "inert-inputs/release";
+          const releaseIndex = JSON.parse(
+            await readFile(releaseRoot + "/release-artifact.index.json", "utf8"),
+          );
+          if (
+            releaseIndex.sourceSha !== process.env.CANDIDATE_SHA
+            || !Array.isArray(releaseIndex.files)
+            || releaseIndex.files.length === 0
+          ) {
+            throw new Error("release candidate mismatch");
+          }
+          const releasePaths = releaseIndex.files.map((entry) => {
+            if (
+              !entry
+              || typeof entry.path !== "string"
+              || entry.path.startsWith("/")
+              || entry.path.includes("\\")
+              || entry.path.split("/").some((part) => !part || part === "." || part === "..")
+            ) {
+              throw new Error("unsafe release index path");
+            }
+            return entry.path;
+          });
+          exact(
+            await files(releaseRoot),
+            ["release-artifact.index.json", ...releasePaths],
+            "release artifact",
+          );
+
+          const targetRoot = "inert-inputs/target";
+          exact(
+            await files(targetRoot),
+            [
+              "deployment-target-descriptor.attestation-claims.json",
+              "deployment-target-descriptor.json",
+            ],
+            "target artifact",
+          );
+          const signedTarget = JSON.parse(
+            await readFile(targetRoot + "/deployment-target-descriptor.json", "utf8"),
+          );
+          const descriptor = signedTarget?.descriptor;
+          if (
+            descriptor?.releaseSourceSha !== process.env.CANDIDATE_SHA
+            || descriptor.releaseEnvironment !== "production"
+            || descriptor.runtimeEnvironment !== "production"
+            || descriptor.composeProject !== "spx-production"
+            || descriptor.database?.name !== "spx"
+            || !/^[0-9a-f]{64}$/.test(descriptor.database.tlsFingerprintSha256 ?? "")
+          ) {
+            throw new Error("production target mismatch");
+          }
+          NODE
+
+      - name: Verify every inert upstream subject attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+          DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          for digest in "${RELEASE_WORKFLOW_SHA}" "${DESCRIPTOR_SIGNER_SHA}"; do
+            [[ "${digest}" =~ ^[0-9a-f]{40}$ ]]
+            test "${digest}" != 0000000000000000000000000000000000000000
+          done
+          while IFS= read -r -d '' path; do
+            gh attestation verify "${path}" -R fastest4u/SPX \
+              --signer-workflow fastest4u/SPX/.github/workflows/trusted-release-artifact.yml \
+              --signer-digest "${RELEASE_WORKFLOW_SHA}" --deny-self-hosted-runners >/dev/null
+          done < <(find inert-inputs/release -type f -print0 | sort -z)
+          while IFS= read -r -d '' path; do
+            gh attestation verify "${path}" -R fastest4u/SPX \
+              --signer-workflow fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml \
+              --signer-digest "${DESCRIPTOR_SIGNER_SHA}" --deny-self-hosted-runners >/dev/null
+          done < <(find inert-inputs/target -type f -print0 | sort -z)
+
+      - name: Package the exact trusted producer and verified context
+        id: payload
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_FILE_SHA256: ${{ steps.trusted.outputs.workflow_file_sha256 }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          TRANSFER_ID: production-backup-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          EXPECTED_EVIDENCE_VERIFIER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_EVIDENCE_VERIFIER_SHA256 }}
+          EXPECTED_CONTROLLER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_CONTROLLER_SHA256 }}
+          EXPECTED_LIVE_ADAPTER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_LIVE_ADAPTER_SHA256 }}
+          EXPECTED_INVARIANTS_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_INVARIANTS_SHA256 }}
+          EXPECTED_ISOLATED_COMPOSE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_ISOLATED_COMPOSE_SHA256 }}
+          SOURCE_CREDENTIAL_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_SOURCE_CREDENTIAL_SHA256 }}
+          KMS_CAPABILITY_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_KMS_CAPABILITY_SHA256 }}
+          KMS_KEY_ID: ${{ vars.SPX_PRODUCTION_BACKUP_KMS_KEY_ID }}
+          EVIDENCE_SIGNING_KEY_ID: ${{ vars.SPX_PRODUCTION_BACKUP_EVIDENCE_SIGNING_KEY_ID }}
+          ISOLATED_MYSQL_IMAGE: ${{ vars.SPX_PRODUCTION_BACKUP_MYSQL_IMAGE }}
+          MAXIMUM_AGE_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_AGE_MINUTES }}
+          MAXIMUM_RPO_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_RPO_MINUTES }}
+          MAXIMUM_RTO_MINUTES: ${{ vars.SPX_PRODUCTION_BACKUP_MAXIMUM_RTO_MINUTES }}
+          MYSQLDUMP_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_MYSQLDUMP_SHA256 }}
+          MYSQL_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_MYSQL_SHA256 }}
+          DOCKER_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_DOCKER_SHA256 }}
+          KMS_ENVELOPE_SHA256: ${{ vars.SPX_PRODUCTION_BACKUP_KMS_ENVELOPE_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test ! -e trusted-producer-payload
+          install -d -m 0700 \
+            trusted-producer-payload/context \
+            trusted-producer-payload/deploy \
+            trusted-producer-payload/scripts/lib
+          install -m 0400 trusted/scripts/production-backup-restore-controller.mjs \
+            trusted-producer-payload/scripts/production-backup-restore-controller.mjs
+          install -m 0400 trusted/scripts/production-backup-restore-evidence.mjs \
+            trusted-producer-payload/scripts/production-backup-restore-evidence.mjs
+          install -m 0400 trusted/scripts/production-mutation-host-lock.mjs \
+            trusted-producer-payload/scripts/production-mutation-host-lock.mjs
+          install -m 0400 trusted/scripts/lib/evidence-artifact.mjs \
+            trusted-producer-payload/scripts/lib/evidence-artifact.mjs
+          install -m 0400 trusted/scripts/lib/production-backup-live-adapter.mjs \
+            trusted-producer-payload/scripts/lib/production-backup-live-adapter.mjs
+          install -m 0400 trusted/deploy/production-backup-context.schema.json \
+            trusted-producer-payload/deploy/production-backup-context.schema.json
+          install -m 0400 trusted/deploy/production-backup-invariants.json \
+            trusted-producer-payload/deploy/production-backup-invariants.json
+          install -m 0400 trusted/deploy/production-backup-isolated-compose.yml \
+            trusted-producer-payload/deploy/production-backup-isolated-compose.yml
+
+          node --input-type=module <<'NODE'
+          import { createHash, randomUUID } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const fileSha256 = (path) => sha256(readFileSync(path));
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+          const requireSha256 = (value, label) => {
+            if (!/^[0-9a-f]{64}$/.test(value ?? "") || /^0{64}$/.test(value)) {
+              throw new Error(label + " is invalid");
+            }
+            return value;
+          };
+          const requireKeyId = (value, label) => {
+            if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value ?? "")) {
+              throw new Error(label + " is invalid");
+            }
+            return value;
+          };
+          const limit = (name) => {
+            const raw = process.env[name] ?? "";
+            if (!/^(?:0|[1-9][0-9]*)$/.test(raw)) throw new Error(name + " is invalid");
+            const value = Number(raw);
+            if (!Number.isSafeInteger(value) || value < 1 || value > 1440) {
+              throw new Error(name + " is invalid");
+            }
+            return value;
+          };
+
+          if (!/^production-backup-restore-[1-9][0-9]*-[1-9][0-9]*$/.test(process.env.TRANSFER_ID ?? "")) {
+            throw new Error("transfer ID is invalid");
+          }
+          const workflowSha = process.env.WORKFLOW_SHA ?? "";
+          if (!/^[0-9a-f]{40}$/.test(workflowSha) || /^0{40}$/.test(workflowSha)) {
+            throw new Error("workflow SHA is invalid");
+          }
+
+          const controllerSha256 = fileSha256(
+            "trusted-producer-payload/scripts/production-backup-restore-controller.mjs",
+          );
+          const evidenceVerifierSha256 = fileSha256(
+            "trusted-producer-payload/scripts/production-backup-restore-evidence.mjs",
+          );
+          const liveAdapterSha256 = fileSha256(
+            "trusted-producer-payload/scripts/lib/production-backup-live-adapter.mjs",
+          );
+          const invariantDefinitionsSha256 = fileSha256(
+            "trusted-producer-payload/deploy/production-backup-invariants.json",
+          );
+          const isolatedComposeSha256 = fileSha256(
+            "trusted-producer-payload/deploy/production-backup-isolated-compose.yml",
+          );
+          for (const [actual, expectedName, label] of [
+            [evidenceVerifierSha256, "EXPECTED_EVIDENCE_VERIFIER_SHA256", "evidence verifier"],
+            [controllerSha256, "EXPECTED_CONTROLLER_SHA256", "controller"],
+            [liveAdapterSha256, "EXPECTED_LIVE_ADAPTER_SHA256", "live adapter"],
+            [invariantDefinitionsSha256, "EXPECTED_INVARIANTS_SHA256", "invariants"],
+            [isolatedComposeSha256, "EXPECTED_ISOLATED_COMPOSE_SHA256", "isolated compose"],
+          ]) {
+            const expected = requireSha256(process.env[expectedName], label + " protected digest");
+            if (actual !== expected) throw new Error(label + " protected digest mismatch");
+          }
+
+          const releaseManifestBytes = readFileSync(
+            "inert-inputs/release/release-manifest.json",
+          );
+          const release = JSON.parse(releaseManifestBytes);
+          const targetDescriptorBytes = readFileSync(
+            "inert-inputs/target/deployment-target-descriptor.json",
+          );
+          const signedTarget = JSON.parse(targetDescriptorBytes);
+          const descriptor = signedTarget?.descriptor;
+          if (
+            release?.sourceSha !== process.env.CANDIDATE_SHA
+            || descriptor?.releaseSourceSha !== process.env.CANDIDATE_SHA
+            || descriptor.releaseEnvironment !== "production"
+            || descriptor.runtimeEnvironment !== "production"
+            || descriptor.database?.name !== "spx"
+            || !/^[0-9a-f]{64}$/.test(descriptor.database.tlsFingerprintSha256 ?? "")
+          ) {
+            throw new Error("verified release and target binding mismatch");
+          }
+          const releaseManifestSha256 = sha256(releaseManifestBytes);
+          if (descriptor.releaseManifestSha256 !== releaseManifestSha256) {
+            throw new Error("target release manifest digest mismatch");
+          }
+
+          const context = canonical({
+            schemaVersion: 1,
+            operationId: randomUUID(),
+            candidateSha: process.env.CANDIDATE_SHA,
+            releaseManifestSha256,
+            targetDescriptorSha256: sha256(targetDescriptorBytes),
+            databaseFingerprint: "sha256:" + descriptor.database.tlsFingerprintSha256,
+            createdAt: new Date().toISOString(),
+            limits: {
+              maximumAgeMinutes: limit("MAXIMUM_AGE_MINUTES"),
+              maximumRpoMinutes: limit("MAXIMUM_RPO_MINUTES"),
+              maximumRtoMinutes: limit("MAXIMUM_RTO_MINUTES"),
+            },
+            producer: {
+              repository: "fastest4u/SPX",
+              environment: "production",
+              workflow: ".github/workflows/trusted-production-backup-restore.yml",
+              workflowSha,
+              workflowFileSha256: requireSha256(
+                process.env.WORKFLOW_FILE_SHA256,
+                "workflow file digest",
+              ),
+            },
+            implementationSha256: {
+              controllerSha256,
+              liveAdapterSha256,
+              invariantDefinitionsSha256,
+              isolatedComposeSha256,
+            },
+            sourceCredentialSha256: requireSha256(
+              process.env.SOURCE_CREDENTIAL_SHA256,
+              "source credential digest",
+            ),
+            kmsCapabilitySha256: requireSha256(
+              process.env.KMS_CAPABILITY_SHA256,
+              "KMS capability digest",
+            ),
+            kmsKeyId: requireKeyId(process.env.KMS_KEY_ID, "KMS key ID"),
+            evidenceSigningKeyId: requireKeyId(
+              process.env.EVIDENCE_SIGNING_KEY_ID,
+              "evidence signing key ID",
+            ),
+            isolatedMysqlImageDigest: process.env.ISOLATED_MYSQL_IMAGE,
+            executableSha256: {
+              mysqldump: requireSha256(process.env.MYSQLDUMP_SHA256, "mysqldump digest"),
+              mysql: requireSha256(process.env.MYSQL_SHA256, "mysql digest"),
+              docker: requireSha256(process.env.DOCKER_SHA256, "docker digest"),
+              kmsEnvelope: requireSha256(
+                process.env.KMS_ENVELOPE_SHA256,
+                "KMS envelope digest",
+              ),
+            },
+          });
+          if (!/^mysql@sha256:[0-9a-f]{64}$/.test(context.isolatedMysqlImageDigest ?? "")) {
+            throw new Error("isolated MySQL image digest is invalid");
+          }
+          writeFileSync(
+            "trusted-producer-payload/context/verified-backup-context.json",
+            JSON.stringify(context),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf trusted-production-backup-producer.tar -C trusted-producer-payload .
+          echo "operation_id=${TRANSFER_ID}" >> "${GITHUB_OUTPUT}"
+          echo "payload_sha256=$(sha256sum trusted-production-backup-producer.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned production SSH host identity
+        shell: bash
+        env:
+          SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SPX_KNOWN_HOSTS}"
+          test -n "${SPX_SSH_KEY}"
+          [[ "${SPX_KNOWN_HOSTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_production_backup_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_production_backup_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${SPX_KNOWN_HOSTS_SHA256}"
+          LOOKUP="${SPX_HOST}"
+          if [ "${SPX_PORT}" != 22 ]; then LOOKUP="[${SPX_HOST}]:${SPX_PORT}"; fi
+          ssh-keygen -F "${LOOKUP}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload only the trusted backup producer payload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_production_backup_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            trusted-production-backup-producer.tar \
+            "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.tar"
+
+      - name: Invoke the fixed zero-argument protected controller
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.payload.outputs.payload_sha256 }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_production_backup_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s -- \
+              "${OPERATION_ID}" "${PAYLOAD_SHA256}" "${WORKFLOW_SHA}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          OPERATION_ID="$1"
+          PAYLOAD_SHA256="$2"
+          WORKFLOW_SHA="$3"
+          [[ "${OPERATION_ID}" =~ ^production-backup-restore-[1-9][0-9]*-[1-9][0-9]*$ ]]
+          [[ "${PAYLOAD_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(id -u)" -eq 0
+          PAYLOAD="/tmp/${OPERATION_ID}.tar"
+          BACKUP_ROOT=/var/lib/spx-production-backup
+          PRODUCER_ROOT=/var/lib/spx-production-backup/producer
+          CONTEXT_ROOT="${BACKUP_ROOT}/context"
+          CONTEXT=/var/lib/spx-production-backup/context/verified-backup-context.json
+          EXPORT_ROOT="${BACKUP_ROOT}/export"
+          test -f "${PAYLOAD}"
+          test "$(sha256sum "${PAYLOAD}" | cut -d' ' -f1)" = "${PAYLOAD_SHA256}"
+          tar -tf "${PAYLOAD}" | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            for (const path of readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean)) {
+              if (path.startsWith("/") || path.split("/").some((part) => part === "..")) {
+                throw new Error("unsafe payload path");
+              }
+            }
+          '
+          EXTRACT_ROOT="$(mktemp -d "/tmp/${OPERATION_ID}.XXXXXX")"
+          cleanup() {
+            rm -f -- "${CONTEXT}" "${PAYLOAD}"
+            rm -rf -- "${EXTRACT_ROOT}"
+          }
+          trap cleanup EXIT
+          tar -xf "${PAYLOAD}" -C "${EXTRACT_ROOT}" --no-same-owner --no-same-permissions
+          test -z "$(find "${EXTRACT_ROOT}" -type l -print -quit)"
+          EXTRACT_ROOT="${EXTRACT_ROOT}" node --input-type=module <<'NODE'
+          import { readdirSync, statSync } from "node:fs";
+          import { join, relative } from "node:path";
+          const root = process.env.EXTRACT_ROOT;
+          const files = [];
+          const visit = (directory) => {
+            for (const name of readdirSync(directory).sort()) {
+              const path = join(directory, name);
+              const stat = statSync(path);
+              if (stat.isDirectory()) visit(path);
+              else if (stat.isFile()) files.push(relative(root, path).replaceAll("\\", "/"));
+              else throw new Error("producer payload contains a non-regular entry");
+            }
+          };
+          visit(root);
+          const expected = [
+            "context/verified-backup-context.json",
+            "deploy/production-backup-context.schema.json",
+            "deploy/production-backup-invariants.json",
+            "deploy/production-backup-isolated-compose.yml",
+            "scripts/lib/evidence-artifact.mjs",
+            "scripts/lib/production-backup-live-adapter.mjs",
+            "scripts/production-mutation-host-lock.mjs",
+            "scripts/production-backup-restore-controller.mjs",
+            "scripts/production-backup-restore-evidence.mjs",
+          ].sort();
+          if (JSON.stringify(files) !== JSON.stringify(expected)) {
+            throw new Error("trusted producer payload file set changed");
+          }
+          NODE
+
+          for root in "${BACKUP_ROOT}" "${PRODUCER_ROOT}" "${PRODUCER_ROOT}/scripts" \
+            "${PRODUCER_ROOT}/scripts/lib" "${PRODUCER_ROOT}/deploy" \
+            "${CONTEXT_ROOT}" "${EXPORT_ROOT}" "${BACKUP_ROOT}/operations" \
+            "${BACKUP_ROOT}/runtime"; do
+            if [ -e "${root}" ]; then
+              test ! -L "${root}"
+              test "$(stat -c %u "${root}")" -eq 0
+              test "$(stat -c %a "${root}")" = 700
+            else
+              install -d -m 0700 "${root}"
+            fi
+          done
+          test ! -e "${CONTEXT}"
+          RESUME_EXISTING_EXPORT="$(
+          EXPORT_ROOT="${EXPORT_ROOT}" /usr/bin/node --input-type=module <<'NODE'
+          import { lstat, readdir } from "node:fs/promises";
+          import { join } from "node:path";
+
+          const root = process.env.EXPORT_ROOT;
+          const expected = [
+            "production-backup-restore-evidence.json",
+            "production-backup-restore-signature.json",
+          ].sort();
+          const entries = await readdir(root, { withFileTypes: true });
+          if (entries.length === 0) {
+            process.stdout.write("false");
+          } else {
+            const names = entries.map((entry) => entry.name).sort();
+            if (JSON.stringify(names) !== JSON.stringify(expected)) {
+              throw new Error("existing protected export file set is invalid");
+            }
+            for (const entry of entries) {
+              const status = await lstat(join(root, entry.name));
+              if (
+                !entry.isFile()
+                || entry.isSymbolicLink()
+                || !status.isFile()
+                || status.isSymbolicLink()
+                || status.uid !== 0
+                || (status.mode & 0o777) !== 0o400
+                || status.nlink !== 1
+                || status.size <= 0
+                || status.size > 1024 * 1024
+              ) {
+                throw new Error("existing protected export file set is invalid");
+              }
+            }
+            process.stdout.write("true");
+          }
+          NODE
+          )"
+          test "${RESUME_EXISTING_EXPORT}" = false -o "${RESUME_EXISTING_EXPORT}" = true
+
+          install_trusted_file() {
+            source="$1"
+            target="$2"
+            if [ -e "${target}" ]; then
+              test ! -L "${target}"
+              test "$(stat -c %u "${target}")" -eq 0
+              test "$(stat -c %a "${target}")" = 400
+              test "$(sha256sum "${source}" | cut -d' ' -f1)" = \
+                "$(sha256sum "${target}" | cut -d' ' -f1)"
+            else
+              install -m 0400 "${source}" "${target}"
+            fi
+          }
+          install_trusted_file \
+            "${EXTRACT_ROOT}/scripts/production-backup-restore-controller.mjs" \
+            "${PRODUCER_ROOT}/scripts/production-backup-restore-controller.mjs"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/scripts/production-backup-restore-evidence.mjs" \
+            "${PRODUCER_ROOT}/scripts/production-backup-restore-evidence.mjs"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/scripts/production-mutation-host-lock.mjs" \
+            "${PRODUCER_ROOT}/scripts/production-mutation-host-lock.mjs"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/scripts/lib/evidence-artifact.mjs" \
+            "${PRODUCER_ROOT}/scripts/lib/evidence-artifact.mjs"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/scripts/lib/production-backup-live-adapter.mjs" \
+            "${PRODUCER_ROOT}/scripts/lib/production-backup-live-adapter.mjs"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/deploy/production-backup-context.schema.json" \
+            "${PRODUCER_ROOT}/deploy/production-backup-context.schema.json"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/deploy/production-backup-invariants.json" \
+            "${PRODUCER_ROOT}/deploy/production-backup-invariants.json"
+          install_trusted_file \
+            "${EXTRACT_ROOT}/deploy/production-backup-isolated-compose.yml" \
+            "${PRODUCER_ROOT}/deploy/production-backup-isolated-compose.yml"
+          if [ "${RESUME_EXISTING_EXPORT}" = false ]; then
+            install -m 0400 \
+              "${EXTRACT_ROOT}/context/verified-backup-context.json" "${CONTEXT}"
+            /usr/bin/node "${PRODUCER_ROOT}/scripts/production-backup-restore-controller.mjs"
+          fi
+          test "$(find "${EXPORT_ROOT}" -maxdepth 1 -type f | wc -l)" -eq 2
+          test -z "$(find "${EXPORT_ROOT}" -mindepth 1 ! -type f -print -quit)"
+          for output in \
+            production-backup-restore-evidence.json \
+            production-backup-restore-signature.json; do
+            test -f "${EXPORT_ROOT}/${output}"
+            test ! -L "${EXPORT_ROOT}/${output}"
+            test "$(stat -c %u "${EXPORT_ROOT}/${output}")" -eq 0
+            test "$(stat -c %a "${EXPORT_ROOT}/${output}")" = 400
+          done
+          REMOTE
+
+      - name: Retrieve exactly the two protected export files
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 protected-output
+          for output in \
+            production-backup-restore-evidence.json \
+            production-backup-restore-signature.json; do
+            scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_production_backup_key \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "${SPX_USER}@${SPX_HOST}:/var/lib/spx-production-backup/export/${output}" \
+              "protected-output/${output}"
+            chmod 0400 "protected-output/${output}"
+          done
+
+      - name: Reverify exact canonical evidence and signature locally
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$(find protected-output -maxdepth 1 -type f | wc -l)" -eq 2
+          test -z "$(find protected-output -mindepth 1 ! -type f -print -quit)"
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+          import { pathToFileURL } from "node:url";
+
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+          const canonicalBytes = (value) => Buffer.from(JSON.stringify(canonical(value)));
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const readCanonical = async (path) => {
+            const bytes = await readFile(path);
+            const value = JSON.parse(bytes.toString("utf8"));
+            if (!bytes.equals(canonicalBytes(value))) throw new Error(path + " is not canonical JSON");
+            return { bytes, value };
+          };
+
+          const evidenceRecord = await readCanonical(
+            "protected-output/production-backup-restore-evidence.json",
+          );
+          const signatureRecord = await readCanonical(
+            "protected-output/production-backup-restore-signature.json",
+          );
+          const context = JSON.parse(
+            await readFile(
+              "trusted-producer-payload/context/verified-backup-context.json",
+              "utf8",
+            ),
+          );
+          const evidence = evidenceRecord.value;
+          const signature = signatureRecord.value;
+          const { signatureSha256, ...core } = evidence;
+          if (
+            evidence.candidateSha !== process.env.CANDIDATE_SHA
+            || sha256(signatureRecord.bytes) !== signatureSha256
+            || sha256(canonicalBytes(core)) !== signature.subjectSha256
+          ) {
+            throw new Error("evidence core and signature binding mismatch");
+          }
+          const verifierUrl = pathToFileURL(
+            process.cwd() + "/trusted/scripts/production-backup-restore-evidence.mjs",
+          ).href;
+          const { verifyProductionBackupRestoreEvidence } = await import(verifierUrl);
+          const result = verifyProductionBackupRestoreEvidence(evidence, signature, {
+            candidateSha: context.candidateSha,
+            releaseManifestSha256: context.releaseManifestSha256,
+            targetDescriptorSha256: context.targetDescriptorSha256,
+            databaseFingerprint: context.databaseFingerprint,
+            maximumAgeMinutes: context.limits.maximumAgeMinutes,
+            maximumRpoMinutes: context.limits.maximumRpoMinutes,
+            maximumRtoMinutes: context.limits.maximumRtoMinutes,
+            now: new Date(),
+            evidenceSigningKeyId: context.evidenceSigningKeyId,
+            invariantDefinitionsSha256:
+              context.implementationSha256.invariantDefinitionsSha256,
+            producer: context.producer,
+          });
+          if (result?.ok !== true) throw new Error("trusted evidence verifier rejected output");
+          NODE
+
+      - name: Attest both protected backup outputs
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: |
+            protected-output/production-backup-restore-evidence.json
+            protected-output/production-backup-restore-signature.json
+
+      - name: Upload one exact protected backup artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-production-backup-restore-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            protected-output/production-backup-restore-evidence.json
+            protected-output/production-backup-restore-signature.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Remove only exported evidence after successful upload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_production_backup_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s <<'REMOTE'
+          set -eEuo pipefail
+          test "$(id -u)" -eq 0
+          /usr/bin/node --input-type=module <<'NODE'
+          import { constants } from "node:fs";
+          import { lstat, open, readdir, unlink } from "node:fs/promises";
+          import { join } from "node:path";
+
+          const exportRoot = "/var/lib/spx-production-backup/export";
+          const expected = [
+            "production-backup-restore-evidence.json",
+            "production-backup-restore-signature.json",
+          ].sort();
+          const actual = (await readdir(exportRoot)).sort();
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error("protected export file set changed before cleanup");
+          }
+          for (const filename of expected) {
+            const stat = await lstat(join(exportRoot, filename));
+            if (
+              !stat.isFile()
+              || stat.isSymbolicLink()
+              || stat.uid !== 0
+              || (stat.mode & 0o777) !== 0o400
+            ) {
+              throw new Error("protected export boundary changed before cleanup");
+            }
+          }
+          for (const filename of expected) await unlink(join(exportRoot, filename));
+          const directory = await open(exportRoot, constants.O_RDONLY);
+          try {
+            await directory.sync();
+          } finally {
+            await directory.close();
+          }
+          if ((await readdir(exportRoot)).length !== 0) {
+            throw new Error("protected export cleanup was incomplete");
+          }
+          NODE
+          REMOTE

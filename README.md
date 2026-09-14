@@ -96,7 +96,7 @@ npm run lint           # ESLint, max warnings 0
 npm run build          # typecheck + esbuild + vite
 npm start -- 10        # run dist/app.js (polling interval 10s)
 npm test               # run test suite (node --test via tsx)
-npm run db:generate    # generate migration SQL
+npm run db:generate    # scaffold baseline only if absent; never overwrite applied SQL
 npm run db:migrate     # apply migrations
 npm run db:test        # integration test (live MySQL)
 npm run schema:verify  # read-only MySQL schema drift check

@@ -1,0 +1,25 @@
+[Unit]
+Description=SPX durable production mutation lock reconciler
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/SPX
+ExecStart=/usr/bin/node /root/SPX/scripts/production-mutation-host-lock.mjs --action=reconcile --watch=true --interval-ms=5000
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/spx-production-mutation
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

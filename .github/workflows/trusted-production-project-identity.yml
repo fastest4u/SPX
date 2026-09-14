@@ -1,0 +1,275 @@
+name: Trusted production project identity maintenance
+
+on:
+  workflow_call:
+    inputs:
+      action:
+        description: Isolated production identity maintenance action
+        required: true
+        type: string
+      approved_release_artifact_id:
+        description: Artifact ID of the currently approved production release
+        required: true
+        type: string
+      approval_sha256:
+        description: SHA-256 of the protected adoption or rollback approval
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: spx-production-mutation
+  queue: max
+  cancel-in-progress: false
+
+env:
+  SPX_PRODUCTION_COMPOSE_PROJECT: spx-production
+
+jobs:
+  maintain-identity:
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Validate protected maintenance request
+        shell: bash
+        env:
+          ACTION: ${{ inputs.action }}
+          APPROVED_RELEASE_ARTIFACT_ID: ${{ inputs.approved_release_artifact_id }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_IDENTITY_WORKFLOW_SHA }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          case "${ACTION}" in verify|adopt|rollback) ;; *) exit 1 ;; esac
+          [[ "${APPROVED_RELEASE_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          [[ "${APPROVAL_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_RELEASE_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" = "${TRUSTED_WORKFLOW_SHA}"
+
+      - name: Download and verify the approved current release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_RELEASE_ARTIFACT_ID: ${{ inputs.approved_release_artifact_id }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 approved-release
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${APPROVED_RELEASE_ARTIFACT_ID}/zip" > approved-release.zip
+          test "$(stat -c %s approved-release.zip)" -le 2147483648
+          unzip -Z1 approved-release.zip | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            for (const path of readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean)) {
+              if (path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("unsafe artifact path");
+            }
+          '
+          unzip -q approved-release.zip -d approved-release
+          test -z "$(find approved-release -type l -print -quit)"
+          for artifact in \
+            approved-release/bootstrap/scripts/build-operator-bundle.mjs \
+            approved-release/bootstrap/scripts/lib/safe-file.mjs \
+            approved-release/operator-bundle.index.json \
+            approved-release/operator-bundle.tar \
+            approved-release/release-manifest.json; do
+            test -f "${artifact}"
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
+              --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}" \
+              --deny-self-hosted-runners >/dev/null
+          done
+          node approved-release/bootstrap/scripts/build-operator-bundle.mjs verify-archive \
+            --archive=approved-release/operator-bundle.tar \
+            --index=approved-release/operator-bundle.index.json
+          node approved-release/bootstrap/scripts/build-operator-bundle.mjs materialize \
+            --archive=approved-release/operator-bundle.tar \
+            --index=approved-release/operator-bundle.index.json \
+            --root=approved-operator
+          test -f approved-operator/scripts/production-project-identity.mjs
+          test -f approved-operator/scripts/production-mutation-host-lock.mjs
+
+      - name: Materialize the protected approval
+        shell: bash
+        env:
+          APPROVAL_B64: ${{ secrets.SPX_PRODUCTION_IDENTITY_APPROVAL_B64 }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${APPROVAL_B64}"
+          printf '%s' "${APPROVAL_B64}" | base64 --decode > production-identity-approval.json
+          test "$(sha256sum production-identity-approval.json | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
+          node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!value || typeof value!=="object" || Array.isArray(value)) process.exit(1)' production-identity-approval.json
+          chmod 0400 production-identity-approval.json
+
+      - name: Package only the verified controllers and approval
+        id: payload
+        shell: bash
+        env:
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 identity-payload/scripts
+          install -m 0444 approved-operator/scripts/production-project-identity.mjs identity-payload/scripts/
+          install -m 0444 approved-operator/scripts/production-mutation-host-lock.mjs identity-payload/scripts/
+          install -m 0444 approved-release/release-manifest.json identity-payload/
+          install -m 0400 production-identity-approval.json identity-payload/approval.json
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf identity-payload.tar -C identity-payload .
+          OPERATION_ID="identity-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ACTION}"
+          echo "operation_id=${OPERATION_ID}" >> "${GITHUB_OUTPUT}"
+          echo "payload_sha256=$(sha256sum identity-payload.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned SSH host identity
+        shell: bash
+        env:
+          SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+          SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_KNOWN_HOSTS_SHA256: ${{ vars.SPX_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SPX_KNOWN_HOSTS}"
+          test -n "${SPX_SSH_KEY}"
+          [[ "${SPX_KNOWN_HOSTS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_SSH_KEY}" > ~/.ssh/spx_identity_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_identity_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${SPX_KNOWN_HOSTS_SHA256}"
+          KNOWN_HOST_LOOKUP="${SPX_HOST}"
+          if [ "${SPX_PORT}" != 22 ]; then KNOWN_HOST_LOOKUP="[${SPX_HOST}]:${SPX_PORT}"; fi
+          ssh-keygen -F "${KNOWN_HOST_LOOKUP}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload verified identity payload
+        shell: bash
+        env:
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_HOST}" =~ ^[A-Za-z0-9._:-]+$ ]]
+          [[ "${SPX_PORT}" =~ ^[0-9]{1,5}$ ]]
+          [[ "${SPX_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          scp -q -P "${SPX_PORT}" -i ~/.ssh/spx_identity_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            identity-payload.tar "${SPX_USER}@${SPX_HOST}:/tmp/${OPERATION_ID}.tar"
+
+      - name: Run isolated production identity maintenance
+        shell: bash
+        env:
+          ACTION: ${{ inputs.action }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          SPX_HOST: ${{ secrets.SPX_HOST }}
+          SPX_PORT: ${{ secrets.SPX_PORT }}
+          SPX_USER: ${{ secrets.SPX_USER }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+          PAYLOAD_SHA256: ${{ steps.payload.outputs.payload_sha256 }}
+        run: |
+          set -euo pipefail
+          ssh -p "${SPX_PORT}" -i ~/.ssh/spx_identity_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_USER}@${SPX_HOST}" bash -s -- \
+            "${ACTION}" "${OPERATION_ID}" "${PAYLOAD_SHA256}" "${APPROVAL_SHA256}" <<'REMOTE'
+          set -eEuo pipefail
+          umask 077
+          ACTION="$1"
+          OPERATION_ID="$2"
+          PAYLOAD_SHA256="$3"
+          APPROVAL_SHA256="$4"
+          case "${ACTION}" in verify|adopt|rollback) ;; *) exit 1 ;; esac
+          [[ "${OPERATION_ID}" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "${PAYLOAD_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${APPROVAL_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "$(id -u)" -eq 0
+          PAYLOAD="/tmp/${OPERATION_ID}.tar"
+          test "$(sha256sum "${PAYLOAD}" | cut -d' ' -f1)" = "${PAYLOAD_SHA256}"
+          ROOT="$(mktemp -d "/tmp/${OPERATION_ID}.XXXXXX")"
+          cleanup() { rm -rf -- "${ROOT}" "${PAYLOAD}"; }
+          trap cleanup EXIT
+          tar -xf "${PAYLOAD}" -C "${ROOT}" --no-same-owner --no-same-permissions
+          test -z "$(find "${ROOT}" -type l -print -quit)"
+          test "$(sha256sum "${ROOT}/approval.json" | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
+          RELEASE_SHA256="$(sha256sum "${ROOT}/release-manifest.json" | cut -d' ' -f1)"
+          ROLLBACK_IMAGE="$(node -p 'require(process.argv[1]).imageId' "${ROOT}/release-manifest.json")"
+          [[ "${ROLLBACK_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          if [ "${ACTION}" != verify ]; then
+            OPERATION_TYPE="${ACTION}"
+            if [ "${ACTION}" = adopt ]; then OPERATION_TYPE=adoption; fi
+            (cd "${ROOT}" && node scripts/production-mutation-host-lock.mjs --action=acquire \
+              --operation-id="${OPERATION_ID}" --operation-type="${OPERATION_TYPE}" \
+              --release-sha256="${RELEASE_SHA256}" --target-sha256="${APPROVAL_SHA256}" \
+              --rollback-journal-sha256="${APPROVAL_SHA256}" --rollback-image="${ROLLBACK_IMAGE}" \
+              --lease-seconds=1800)
+            systemctl is-enabled --quiet spx-production-mutation-reconciler.service
+            systemctl start spx-production-mutation-reconciler.service
+            (cd "${ROOT}" && node scripts/production-mutation-host-lock.mjs --action=verify \
+              --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_SHA256}" \
+              --target-sha256="${APPROVAL_SHA256}")
+
+            WATCHDOG_ROOT="/var/lib/spx-production-mutation/identity-watchdogs/${OPERATION_ID}"
+            WATCHDOG_UNIT="spx-production-identity-${OPERATION_ID}.service"
+            test ! -e "${WATCHDOG_ROOT}"
+            install -d -m 0700 "${WATCHDOG_ROOT}"
+            install -m 0500 "${ROOT}/scripts/production-project-identity.mjs" "${WATCHDOG_ROOT}/production-project-identity.mjs"
+            install -m 0500 "${ROOT}/scripts/production-mutation-host-lock.mjs" "${WATCHDOG_ROOT}/production-mutation-host-lock.mjs"
+            install -m 0400 "${ROOT}/approval.json" "${WATCHDOG_ROOT}/approval.json"
+            install -m 0400 "${ROOT}/release-manifest.json" "${WATCHDOG_ROOT}/release-manifest.json"
+            NODE_BIN="$(command -v node)"
+            case "${NODE_BIN}" in /*) ;; *) exit 1 ;; esac
+            systemd-run \
+              --unit="${WATCHDOG_UNIT}" \
+              --collect \
+              --property=User=root \
+              --property=Restart=always \
+              --property=RestartSec=5s \
+              --property=NoNewPrivileges=true \
+              --property=ProtectSystem=strict \
+              --property=ReadWritePaths=/var/lib/spx-production-mutation \
+              --property=ReadWritePaths=/run/docker.sock \
+              --property=WorkingDirectory=/root/SPX \
+              /bin/sh -c '
+                while output="$($1 "$2/production-mutation-host-lock.mjs" --action=verify --operation-id="$3" --release-sha256="$4" --target-sha256="$5" 2>/dev/null)"; do
+                  case "$output" in *\"outcome\":\"recovering\"*) break ;; esac
+                  sleep 5
+                done
+                exec "$1" "$2/production-project-identity.mjs" --action=reconcile --approval="$2/approval.json" --release-manifest="$2/release-manifest.json"
+              ' watchdog "${NODE_BIN}" "${WATCHDOG_ROOT}" "${OPERATION_ID}" "${RELEASE_SHA256}" "${APPROVAL_SHA256}"
+            systemctl is-active --quiet "${WATCHDOG_UNIT}"
+          fi
+          ACTION="${ACTION}"
+          (cd "${ROOT}" && node scripts/production-project-identity.mjs --action=${ACTION} \
+            --approval="${ROOT}/approval.json" \
+            --release-manifest="${ROOT}/release-manifest.json")
+          if [ "${ACTION}" != verify ]; then
+            if [ "${ACTION}" = adopt ]; then
+              (cd "${ROOT}" && node scripts/production-project-identity.mjs --action=verify \
+                --approval="${ROOT}/approval.json" \
+                --release-manifest="${ROOT}/release-manifest.json")
+            fi
+            systemctl stop "${WATCHDOG_UNIT}"
+            POSTCONDITION=healthy
+            if [ "${ACTION}" = rollback ]; then POSTCONDITION=rolled-back; fi
+            node "${ROOT}/scripts/production-mutation-host-lock.mjs" --action=terminal \
+              --operation-id="${OPERATION_ID}" --release-sha256="${RELEASE_SHA256}" \
+              --target-sha256="${APPROVAL_SHA256}" --postcondition="${POSTCONDITION}"
+            rm -rf -- "${WATCHDOG_ROOT}"
+          fi
+          REMOTE

@@ -4,6 +4,8 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY dist ./dist
+COPY scripts/deployment-compatibility.mjs ./scripts/deployment-compatibility.mjs
+RUN node scripts/deployment-compatibility.mjs check dist/deployment-contract.json --require-legacy
 COPY migrations ./migrations
 COPY scripts/service-fault-check.mjs ./scripts/service-fault-check.mjs
 COPY scripts/service-fault-publish-notification.mjs ./scripts/service-fault-publish-notification.mjs

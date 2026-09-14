@@ -20,6 +20,19 @@ Production uses GitHub Actions with separate team hosts: API and TEAM 1 on
 GitHub configuration, verification, and rollback. The single-host and split-topology
 examples below are development/reference procedures, not the current production rollout.
 
+The separate [A3 candidate runbook](deployment-a3.md) covers its default-off hardened topology and protected release workflow.
+
+The build now carries `dist/deployment-contract.json` from the reviewed
+`deploy/runtime-deployment-contract.json`. A `protected-a3` runtime cannot use the
+legacy Dockerfile or the primary/TEAM 2 installer: CI still builds and tests it,
+but skips every legacy production job. An explicit legacy workflow dispatch fails
+before production access. This keeps a source merge from activating A3 without its
+immutable artifacts, coordinated producer cutover and split LINE topology.
+The legacy worker installer also validates the contract in both the release
+manifest and the loaded image before changing its overlay or restarting a worker.
+Missing or unknown contracts fail closed; this metadata does not authorize an A3
+deployment or replace signed release evidence.
+
 ## Local Run
 
 ```bash
@@ -39,7 +52,8 @@ npm start -- 10     # start with 10s interval
 > npm run db:migrate
 > ```
 >
-> แต่ระบบมี runtime `CREATE TABLE IF NOT EXISTS` เป็น safety net อยู่แล้ว
+> A3 production runtime ตรวจ schema แบบ read-only และไม่สร้างตารางเอง
+> ต้องผ่าน protected migration และ release identity verification ก่อนเริ่มบริการ
 
 ## Development Mode
 
@@ -168,54 +182,54 @@ Manual drill:
    Preflight the exact routing config first without sending the notification:
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs --help
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs \
        --url=http://notification-service:3002/internal/notification-events \
        --team-id=<staging-team-id> \
-       --node-id=<allowed-worker-node-id> \
        --drill-id=<drill-id> \
+       --step=baseline \
        --dry-run
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs \
        --url=http://notification-service:3002/internal/notification-events \
        --team-id=<staging-team-id> \
-       --node-id=<allowed-worker-node-id> \
        --drill-id=<drill-id> \
+       --step=baseline \
        --confirm-send-test-notification
    '
    ```
 
-   `--help` prints the publisher safety contract without reading drill config or sending a request. The dry run validates required config, endpoint normalization, team id, node id, and concrete drill id without creating a request, outbox row, or LINE notification. The real publisher signs the request with HMAC using `NOTIFIER_SHARED_SECRET` from the process environment or the encrypted DB-backed `app_settings` row, and prints only safe evidence such as `drillId`, `eventKey`, HTTP status, duplicate status, outbox id, and outbox status. If node/team publishing restrictions are enabled, `--node-id` must be allowed to publish for the selected team. The evidence checker requires publish outputs to be non-duplicate, to include a positive `outboxId` plus non-empty `outboxStatus`, and to use event keys bound to the same concrete `drillId`.
+   `--help` prints the publisher safety contract without reading drill config or sending a request. The dry run validates required config, endpoint normalization, team id, node id, and concrete drill id without creating a request, outbox row, or LINE notification. The real publisher signs the request with the process-local `NOTIFICATION_NODE_SECRET` node key (production requires it and never reads `app_settings`), and prints only safe evidence such as `drillId`, `eventKey`, HTTP status, duplicate status, outbox id, and outbox status. If node/team publishing restrictions are enabled, `--node-id` must be allowed to publish for the selected team. The evidence checker requires publish outputs to be non-duplicate, to include a positive `outboxId` plus non-empty `outboxStatus`, and to use event keys bound to the same concrete `drillId`.
 
 5. Confirm the event is visible in aggregate outbox evidence without printing targets or message bodies:
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-outbox-check.mjs --help
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      EVENT_KEY="<eventKey from previous step>" \
-     node scripts/service-fault-outbox-check.mjs --dry-run --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
+     node scripts/service-fault-outbox-check.mjs --dry-run --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      EVENT_KEY="<eventKey from previous step>" \
-     node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
+     node scripts/service-fault-outbox-check.mjs --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --max-pending=0
    '
    ```
 
@@ -238,44 +252,44 @@ Manual drill:
 9. Publish another controlled notification event while line-service is stopped, then confirm notification outbox failures are retryable rather than process crashes:
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs --help
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs \
        --url=http://notification-service:3002/internal/notification-events \
        --team-id=<staging-team-id> \
-       --node-id=<allowed-worker-node-id> \
        --drill-id=<drill-id> \
+       --step=line-down \
        --dry-run
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      node scripts/service-fault-publish-notification.mjs \
        --url=http://notification-service:3002/internal/notification-events \
        --team-id=<staging-team-id> \
-       --node-id=<allowed-worker-node-id> \
        --drill-id=<drill-id> \
+       --step=line-down \
        --confirm-send-test-notification
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      EVENT_KEY="<eventKey from outage publish step>" \
-     node scripts/service-fault-outbox-check.mjs --dry-run --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-failed-attempt
+     node scripts/service-fault-outbox-check.mjs --dry-run --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-failed-attempt --db-password-file="$DB_PASSWORD_FILE"
    '
    ```
 
    ```bash
-   docker compose --profile split exec -T notification-service sh -lc '
+   "$TASK9_WORKER_SERVICE" sh -lc '
      EVENT_KEY="<eventKey from outage publish step>" \
-     node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-failed-attempt
+     node scripts/service-fault-outbox-check.mjs --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-failed-attempt --db-password-file="$DB_PASSWORD_FILE"
    '
    ```
 
@@ -283,16 +297,16 @@ Manual drill:
 11. Restart line-service: `docker compose --profile split start line-service`, then confirm notification outbox drains after recovery:
 
     ```bash
-    docker compose --profile split exec -T notification-service sh -lc '
+    "$TASK9_WORKER_SERVICE" sh -lc '
       EVENT_KEY="<eventKey from outage publish step>" \
-      node scripts/service-fault-outbox-check.mjs --dry-run --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
+      node scripts/service-fault-outbox-check.mjs --dry-run --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
     '
     ```
 
     ```bash
-    docker compose --profile split exec -T notification-service sh -lc '
+    "$TASK9_WORKER_SERVICE" sh -lc '
       EVENT_KEY="<eventKey from outage publish step>" \
-      node scripts/service-fault-outbox-check.mjs --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
+      node scripts/service-fault-outbox-check.mjs --db-password-file="$DB_PASSWORD_FILE" --since-minutes=30 --event-key-contains="$EVENT_KEY" --min-total=1 --expect-sent --expect-failed-attempt --max-pending=0
     '
     ```
 
@@ -387,6 +401,77 @@ The evidence checker is read-only and prints only checklist pass/fail metadata. 
 The evidence checker also requires the baseline publish and line-outage publish to use distinct `eventKey` values. Outbox checks are hash-bound to their matching publisher output: `baselineOutbox` must match `baselinePublish`, while both `lineDownOutbox` and `lineRecoveryOutbox` must match `lineDownPublish`. Outbox evidence with fixture mode, missing or broader-than-runbook lookup windows, missing DB configuration, expectation failures, mismatched expectation flags, missing rollout metadata, or local-only metadata is rejected even if aggregate counts look plausible.
 
 `service-fault-publish-notification.mjs` is intentionally mutating and requires `--confirm-send-test-notification`; use it only in staging or a supervised production drill. `service-fault-outbox-check.mjs` is read-only. It prints aggregate `notification_outbox` counts, expectation failures, and a SHA-256 hash of the event-key filter only; it does not print notification targets, message bodies, payload JSON, DB credentials, raw event-key filters, or raw error text.
+
+## Internal Replay Grant Preflight
+
+Before enabling split-service receivers, run the read-only grant preflight to prove every runtime DB principal holds exactly its reviewed privileges (workers get SELECT, INSERT, DELETE on their own tables; observers are read-only):
+
+```bash
+"$TASK9_WORKER_SERVICE" sh -lc '
+  node scripts/internal-replay-grant-preflight.mjs --dry-run
+'
+```
+
+The preflight prints routing-safe JSON only, for example:
+
+```json
+{ "checkedAt": "...", "principals": [{ "principal": "spx_worker_ifn", "grants": "SELECT, INSERT, DELETE", "failureCodes":[]}], "failureCodes":[]}
+```
+
+A principal that holds privileges beyond its reviewed set reports `excessive_privilege`; missing privileges report `missing_privilege`. Both fail the check.
+
+## Gate 6 Protected Evidence Chain
+
+This section describes how the protected evidence producers and consumers are activated from the shipped all-zero bootstrap state. Every public dispatcher below is born disabled: it pins its trusted reusable workflow at the coordinated all-zero commit SHA (`BOOTSTRAP-DENY`), so dispatch fails closed until a reviewed pin commit replaces the zero SHA.
+
+### Artifact handoff order
+
+Each protected artifact must exist and be verified before the next step may run:
+
+1. Build and attest the exact release artifact and deployment target descriptor.
+2. Deploy to staging, complete Gates 1-5/N-1, then export the protected staging evidence artifact.
+3. Produce fresh backup/isolated-restore evidence under the production mutation concurrency group.
+4. Pass the backup artifact and run IDs to the protected production deploy before any production mutation.
+5. Capture the protected-install evidence artifact while the slot and host lock remain held.
+6. Create the Gate 6 approval from the exact release/target/staging/backup/install artifact pairs.
+7. After the accepted DB transition, export its artifact and issue the LINE/OCR permits.
+8. After the accepted pre-close, export its artifact and issue the post-proof actions.
+9. Seal the run, export the final verifier while sealed, then deliver the approval plus verifier artifact pair to release.
+10. Confirm cleanup releases the DB slot transactionally and clears the host lock last.
+
+### Disabled dispatchers and the A/B/C activation
+
+The complete dispatcher inventory pinned at the all-zero SHA today is:
+
+| Group | Public dispatcher | Pinned reusable producer |
+| --- | --- | --- |
+| Foundational | `release-artifact.yml` | `trusted-release-artifact.yml` |
+| Foundational | `staging-rollout-approval.yml` | `staging-rollout-signer.yml` |
+| Foundational | `deployment-target-descriptor.yml` | `deployment-target-descriptor-signer.yml` |
+| Foundational | `production-project-identity.yml` | `trusted-production-project-identity.yml` |
+| Foundational | `production-backup-restore.yml` | `trusted-production-backup-restore.yml` |
+| Foundational | `staging-protected-evidence.yml` | `trusted-staging-protected-evidence.yml` |
+| Gate 6 | `gate6-approval.yml` | `gate6-envelope-signer.yml` |
+| Gate 6 | `gate6-line-permit.yml` | `gate6-line-permit-signer.yml` |
+| Gate 6 | `gate6-ocr-permit.yml` | `gate6-ocr-permit-signer.yml` |
+| Gate 6 | `gate6-postproof-principal.yml` | `gate6-postproof-principal-signer.yml` |
+| Gate 6 | `gate6-runtime.yml` | `gate6-runtime-executor.yml` |
+| Gate 6 | `gate6-accepted-evidence.yml` | `gate6-accepted-evidence-exporter.yml` |
+| Gate 6 | `gate6-final-verifier.yml` | `gate6-final-verifier-exporter.yml` |
+
+Activation from the all-zero state is a three-commit, separately reviewed sequence. Each pin commit is repository-wide, not workflow-scoped, and stages must never be combined into one commit:
+
+- **Stage A - pin the producers (producer SHA A).** Land the trusted reusable workflows on `main`, record each producer's immutable commit SHA (the "producer SHA A" for that workflow), and set the matching `SPX_TRUSTED_*` repository variables (workflow SHA plus workflow-file SHA256 where the consumers verify file bytes). No dispatcher is enabled at this stage; it only makes the trusted producer bytes addressable.
+- **Stage B - pin the consumers (map/consumer SHA B).** In a separately reviewed pin-authorization commit, replace the all-zero `signerSha`/`workflowFileSha256` pairs in `deploy/protected-evidence-producers.json` with the Stage A producer SHAs and flip each entry's `bootstrapDenied` to `false`, so consumer workflows (envelope signer, LINE/OCR permit signers, post-proof principal signer, runtime executor) derive their `gh attestation verify` signer identity from the reviewed map instead of failing closed. Set the consumer-facing `SPX_TRUSTED_GATE6_*` variables at the same time.
+- **Stage C - activate the public dispatchers (dispatcher activation SHA C).** In the final coordinated commit, replace each public dispatcher's all-zero `uses:` pin with its Stage A producer SHA. Dispatchers become manually runnable only after this commit; production mutation jobs remain additionally gated by the `spx-production-mutation` concurrency group and the `production` environment.
+
+### Production owner prerequisites for backup evidence
+
+The production owner must independently install and attest the fixed backup executables and `/usr/local/libexec/spx-kms-envelope`, pin their SHA-256 digests in the protected context, and provision the read-only source and KMS capabilities before the `production-backup-restore` dispatcher can be enabled in Stage C. None of these host-side materials may be provisioned by CI.
+
+### Run-binding scope at intermediate consumers
+
+`trusted-deploy.yml` verifies the backup evidence pair by exact artifact ID plus run ID download with digest-mismatch errors, exact file-set checks, and `gh attestation verify` against the pinned `SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA` signer. Binding that verification to the authoritative run attempt through `scripts/lib/github-attestation-run.mjs` (as the final-verifier exporter does) is deliberately deferred: it requires `github-attestation-run.mjs` to be present in the pinned trusted backup verifier checkout and a new operator-provisioned module digest variable. Extend Stage B with that pin if attempt-level Fulcio binding is required before the first production mutation.
 
 ## DB-first config
 

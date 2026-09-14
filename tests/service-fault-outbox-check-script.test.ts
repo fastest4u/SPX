@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,6 +24,7 @@ function runScript(args: string[], env: NodeJS.ProcessEnv = {}): Promise<ScriptR
         DB_HOST: "",
         DB_USERNAME: "",
         DB_PASSWORD: "",
+        DB_PASSWORD_FILE: "",
         DB_NAME: "",
         DB_MODE: "mysql",
         ...env,
@@ -53,7 +56,7 @@ async function main() {
     { status: "sent", count: 5, attempted: 5, minAttempts: 1, maxAttempts: 1 },
   ]);
   const cleanSentFixture = JSON.stringify([
-    { status: "sent", count: 5, attempted: 0, minAttempts: 0, maxAttempts: 0 },
+    { status: "sent", count: 5, attempted: 5, minAttempts: 1, maxAttempts: 1 },
   ]);
 
   const help = await runScript(["--help"], {
@@ -67,6 +70,7 @@ async function main() {
   assert.match(help.stdout, /--dry-run/);
   assert.match(help.stdout, /--since-minutes=<minutes>/);
   assert.match(help.stdout, /--event-key-contains=<event-key>/);
+  assert.match(help.stdout, /DB_PASSWORD_FILE/);
   assert.match(help.stdout, /metadata-only|aggregate/i);
   assert.doesNotMatch(
     help.stdout,
@@ -83,7 +87,7 @@ async function main() {
   assert.equal(successOutput.ok, true);
   assert.equal(successOutput.mode, "fixture");
   assert.equal(successOutput.summary.failedAttempts, 2);
-  assert.equal(successOutput.summary.retriedRows, 7);
+  assert.equal(successOutput.summary.retriedRows, 2);
   assert.equal(successOutput.summary.pending, 2);
   assert.equal(successOutput.summary.sent, 5);
   assert.deepEqual(successOutput.expectationFailures, []);
@@ -101,15 +105,13 @@ async function main() {
   assert.deepEqual(minTotalAndSentOutput.expectationFailures, []);
 
   const sentAfterRetry = await runScript([
-    `--fixture-json=${JSON.stringify([{ status: "sent", count: 1, attempted: 1 }])}`,
+    `--fixture-json=${JSON.stringify([{ status: "sent", count: 1, attempted: 1, minAttempts: 2, maxAttempts: 2, retried: 1 }])}`,
     "--min-total=1",
     "--expect-sent",
   ]);
   assert.equal(sentAfterRetry.status, 1, sentAfterRetry.stdout);
   const sentAfterRetryOutput = JSON.parse(sentAfterRetry.stdout);
-  assert.deepEqual(sentAfterRetryOutput.expectationFailures, [
-    "unexpected-failed-attempt-present",
-  ]);
+  assert.deepEqual(sentAfterRetryOutput.expectationFailures, ["unexpected-failed-attempt-present"]);
 
   const missingSent = await runScript([
     `--fixture-json=${JSON.stringify([{ status: "queued", count: 1, attempted: 0 }])}`,
@@ -137,6 +139,32 @@ async function main() {
     sha256("fault_drill_secret_event_key"),
   );
   assert.doesNotMatch(filtered.stdout, /fault_drill_secret_event_key/);
+
+  const exactDelivery = await runScript([
+    `--fixture-json=${cleanSentFixture}`,
+    `--delivery-fixture-json=${JSON.stringify({ matchedOutboxRows: 1, success: 1, failed: 0 })}`,
+    "--delivery-phase=baseline",
+    "--event-key-contains=fault_drill_secret_event_key",
+  ]);
+  assert.equal(exactDelivery.status, 0, exactDelivery.stderr || exactDelivery.stdout);
+  assert.deepEqual(JSON.parse(exactDelivery.stdout).delivery, {
+    phase: "baseline",
+    matchedOutboxRows: 1,
+    success: 1,
+    failed: 0,
+    failures: [],
+  });
+
+  const duplicateOutboxIdentity = await runScript([
+    `--fixture-json=${cleanSentFixture}`,
+    `--delivery-fixture-json=${JSON.stringify({ matchedOutboxRows: 2, success: 1, failed: 0 })}`,
+    "--delivery-phase=baseline",
+    "--event-key-contains=fault_drill_secret_event_key",
+  ]);
+  assert.equal(duplicateOutboxIdentity.status, 1, duplicateOutboxIdentity.stdout);
+  assert.deepEqual(JSON.parse(duplicateOutboxIdentity.stdout).delivery.failures, [
+    "OUTBOX_IDENTITY_NOT_UNIQUE",
+  ]);
 
   const dryRun = await runScript(
     [
@@ -176,6 +204,67 @@ async function main() {
     dryRun.stdout,
     /fault_drill_secret_event_key|db-host-value|db-user-value|super-secret-db-password|db-name-value/,
   );
+
+  const passwordTemp = mkdtempSync(join(tmpdir(), "spx-outbox-password-"));
+  const passwordFilePath = join(passwordTemp, "database-credential-value");
+  const filePassword = "file-database-password-must-not-print";
+  try {
+    writeFileSync(passwordFilePath, `${filePassword}\n`, { encoding: "utf8", mode: 0o600 });
+    const fileBackedDryRun = await runScript(
+      ["--dry-run", "--event-key-contains=fault_drill_secret_event_key"],
+      {
+        DB_HOST: "db-host-value",
+        DB_USERNAME: "db-user-value",
+        DB_PASSWORD: "",
+        DB_PASSWORD_FILE: passwordFilePath,
+        DB_NAME: "db-name-value",
+        DB_MODE: "mysql",
+      },
+    );
+    assert.equal(fileBackedDryRun.status, 0, fileBackedDryRun.stderr || fileBackedDryRun.stdout);
+    assert.deepEqual(JSON.parse(fileBackedDryRun.stdout).missingDbEnv, []);
+    assert.equal(fileBackedDryRun.stdout.includes(passwordFilePath), false);
+    assert.doesNotMatch(
+      fileBackedDryRun.stdout,
+      /DB_PASSWORD|file-database-password-must-not-print/,
+    );
+
+    const conflictingPassword = await runScript(
+      ["--dry-run", "--event-key-contains=fault_drill_secret_event_key"],
+      {
+        DB_HOST: "db-host-value",
+        DB_USERNAME: "db-user-value",
+        DB_PASSWORD: "plain-database-password-must-not-print",
+        DB_PASSWORD_FILE: passwordFilePath,
+        DB_NAME: "db-name-value",
+        DB_MODE: "mysql",
+      },
+    );
+    assert.equal(conflictingPassword.status, 1, conflictingPassword.stdout);
+    assert.deepEqual(JSON.parse(conflictingPassword.stdout).missingDbEnv, [
+      "database-credential-invalid",
+    ]);
+    assert.equal(conflictingPassword.stdout.includes(passwordFilePath), false);
+    assert.doesNotMatch(
+      conflictingPassword.stdout,
+      /DB_PASSWORD|plain-database-password-must-not-print|file-database-password-must-not-print/,
+    );
+  } finally {
+    rmSync(passwordTemp, { recursive: true, force: true });
+  }
+
+  const dryRunMissingPassword = await runScript(
+    ["--dry-run", "--event-key-contains=fault_drill_secret_event_key"],
+    {
+      DB_HOST: "db-host-value",
+      DB_USERNAME: "db-user-value",
+      DB_NAME: "db-name-value",
+      DB_MODE: "mysql",
+    },
+  );
+  assert.equal(dryRunMissingPassword.status, 1, dryRunMissingPassword.stdout);
+  assert.deepEqual(JSON.parse(dryRunMissingPassword.stdout).missingDbEnv, ["database-credential"]);
+  assert.doesNotMatch(dryRunMissingPassword.stdout, /DB_PASSWORD/);
 
   const dryRunMissingEventKey = await runScript(["--dry-run", "--since-minutes=30"], {
     DB_HOST: "db-host-value",

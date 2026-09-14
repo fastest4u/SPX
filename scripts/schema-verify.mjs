@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
+import { mysqlScriptConnectionConfigFromEnv } from "./lib/mysql-connection-config.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -279,9 +280,336 @@ const EXPECTED_SCHEMA = {
       { name: "jwt_blacklist_expires_idx", unique: false, columns: ["expires_at"] },
     ],
   },
+  realtime_events: {
+    columns: {
+      id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      event_id: { type: "varchar(255)", nullable: false },
+      idempotency_key: { type: "varchar(512)", nullable: true },
+      event_type: { type: "varchar(64)", nullable: false },
+      payload_version: { type: "int", nullable: false },
+      envelope_version: { type: "int", nullable: false },
+      scope_kind: { type: "varchar(16)", nullable: false },
+      team_id: { type: "int", nullable: true },
+      subject_type: { type: "varchar(64)", nullable: true },
+      subject_id: { type: "varchar(160)", nullable: true },
+      source_service: { type: "varchar(64)", nullable: false },
+      source_node_id: { type: "varchar(120)", nullable: false },
+      source_role: { type: "varchar(64)", nullable: false },
+      trace_id: { type: "varchar(160)", nullable: true },
+      replayable: { type: "int", nullable: false, defaultIncludes: "0" },
+      payload_json: { type: "text", nullable: false },
+      envelope_json: { type: "text", nullable: false },
+      emitted_at: { type: "datetime", nullable: false },
+      received_at: { type: "datetime", nullable: false },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "realtime_events_event_id_uidx", unique: true, columns: ["event_id"] },
+      { name: "realtime_events_idempotency_key_uidx", unique: true, columns: ["idempotency_key"] },
+      { name: "realtime_events_scope_team_id_idx", unique: false, columns: ["scope_kind", "team_id", "id"] },
+      { name: "realtime_events_type_received_idx", unique: false, columns: ["event_type", "received_at"] },
+      { name: "realtime_events_source_node_received_idx", unique: false, columns: ["source_node_id", "received_at"] },
+      { name: "realtime_events_replayable_id_idx", unique: false, columns: ["replayable", "id"] },
+      { name: "realtime_events_replay_scope_id_idx", unique: false, columns: ["replayable", "scope_kind", "team_id", "id"] },
+      { name: "realtime_events_replay_created_id_idx", unique: false, columns: ["replayable", "created_at", "id"] },
+    ],
+  },
+  realtime_execution_metrics: {
+    columns: {
+      team_id: { type: "int", nullable: false },
+      source_node_id: { type: "varchar(120)", nullable: false },
+      generation: { type: "varchar(128)", nullable: false },
+      started_at: { type: "datetime(3)", nullable: false },
+      snapshot_json: { type: "json", nullable: false },
+      emitted_at: { type: "datetime(3)", nullable: false },
+      received_at: { type: "datetime(3)", nullable: false },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["team_id", "source_node_id"] },
+      { name: "realtime_execution_metrics_received_idx", unique: false, columns: ["received_at"] },
+    ],
+  },
+  realtime_metrics_read_models: {
+    columns: {
+      team_id: { type: "int", nullable: false },
+      source_node_id: { type: "varchar(120)", nullable: false },
+      snapshot_json: { type: "json", nullable: false },
+      emitted_at: { type: "datetime(3)", nullable: false },
+      received_at: { type: "datetime(3)", nullable: false },
+      updated_at: { type: "datetime(3)", nullable: false, defaultIncludes: "current_timestamp", extraIncludes: ["on update"] },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["team_id"] },
+      { name: "realtime_metrics_read_models_received_team_idx", unique: false, columns: ["received_at", "team_id"] },
+    ],
+  },
+  "internal_request_replays": {
+    "columns": {
+      "replay_key": {
+        "type": "char(64)",
+        "nullable": false
+      },
+      "partition_name": {
+        "type": "varchar(64)",
+        "nullable": false
+      },
+      "expires_at": {
+        "type": "datetime(3)",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "datetime(3)",
+        "nullable": false,
+        "defaultIncludes": "current_timestamp(3)"
+      }
+    },
+    "indexes": [
+      {
+        "name": "PRIMARY",
+        "unique": true,
+        "columns": [
+          "replay_key"
+        ]
+      },
+      {
+        "name": "internal_request_replays_partition_expires_idx",
+        "unique": false,
+        "columns": [
+          "partition_name",
+          "expires_at"
+        ]
+      },
+      {
+        "name": "internal_request_replays_expires_idx",
+        "unique": false,
+        "columns": [
+          "expires_at"
+        ]
+      }
+    ]
+  },
+  "notification_provider_reconciliations": {
+    "columns": {
+      "id": {
+        "type": "bigint unsigned",
+        "nullable": false,
+        "extraIncludes": [
+          "auto_increment"
+        ]
+      },
+      "outbox_id": {
+        "type": "bigint unsigned",
+        "nullable": false
+      },
+      "provider_request_id": {
+        "type": "varchar(128)",
+        "nullable": false
+      },
+      "provider_started_at": {
+        "type": "datetime",
+        "nullable": false
+      },
+      "expected_status": {
+        "type": "varchar(32)",
+        "nullable": false
+      },
+      "action": {
+        "type": "varchar(32)",
+        "nullable": false
+      },
+      "result_status": {
+        "type": "varchar(32)",
+        "nullable": false
+      },
+      "actor_user_id": {
+        "type": "int",
+        "nullable": false
+      },
+      "actor_username": {
+        "type": "varchar(50)",
+        "nullable": false
+      },
+      "actor_team_id": {
+        "type": "int",
+        "nullable": true
+      },
+      "target_team_id": {
+        "type": "int",
+        "nullable": false
+      },
+      "evidence_reference": {
+        "type": "varchar(255)",
+        "nullable": false
+      },
+      "reason": {
+        "type": "varchar(500)",
+        "nullable": false
+      },
+      "provider_message_id": {
+        "type": "varchar(255)",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "datetime",
+        "nullable": false,
+        "defaultIncludes": "current_timestamp"
+      }
+    },
+    "indexes": [
+      {
+        "name": "PRIMARY",
+        "unique": true,
+        "columns": [
+          "id"
+        ]
+      },
+      {
+        "name": "npr_outbox_provider_fence_uidx",
+        "unique": true,
+        "columns": [
+          "outbox_id",
+          "provider_request_id",
+          "provider_started_at"
+        ]
+      }
+    ]
+  },
+  "notification_outbox": {
+    "columns": {
+      "id": {
+        "type": "bigint unsigned",
+        "nullable": false,
+        "extraIncludes": [
+          "auto_increment"
+        ]
+      },
+      "event_key": {
+        "type": "varchar(255)",
+        "nullable": false
+      },
+      "team_id": {
+        "type": "int",
+        "nullable": false
+      },
+      "target_type": {
+        "type": "varchar(32)",
+        "nullable": false
+      },
+      "target_id": {
+        "type": "varchar(255)",
+        "nullable": false
+      },
+      "event_type": {
+        "type": "varchar(64)",
+        "nullable": false
+      },
+      "severity": {
+        "type": "varchar(32)",
+        "nullable": false
+      },
+      "title": {
+        "type": "varchar(255)",
+        "nullable": false
+      },
+      "message": {
+        "type": "text",
+        "nullable": false
+      },
+      "payload_json": {
+        "type": "text",
+        "nullable": false
+      },
+      "status": {
+        "type": "varchar(32)",
+        "nullable": false,
+        "defaultIncludes": "queued"
+      },
+      "attempts": {
+        "type": "int",
+        "nullable": false,
+        "defaultIncludes": "0"
+      },
+      "available_at": {
+        "type": "datetime",
+        "nullable": false,
+        "defaultIncludes": "current_timestamp"
+      },
+      "locked_by": {
+        "type": "varchar(120)",
+        "nullable": true
+      },
+      "locked_until": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "provider_request_id": {
+        "type": "varchar(128)",
+        "nullable": true
+      },
+      "provider_started_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "provider_execution_started_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "sent_at": {
+        "type": "datetime",
+        "nullable": true
+      },
+      "last_error": {
+        "type": "varchar(1000)",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "datetime",
+        "nullable": false,
+        "defaultIncludes": "current_timestamp"
+      },
+      "updated_at": {
+        "type": "datetime",
+        "nullable": false,
+        "defaultIncludes": "current_timestamp"
+      }
+    },
+    "indexes": [
+      {
+        "name": "PRIMARY",
+        "unique": true,
+        "columns": [
+          "id"
+        ]
+      },
+      {
+        "name": "notification_outbox_event_key_uidx",
+        "unique": true,
+        "columns": [
+          "event_key"
+        ]
+      },
+      {
+        "name": "notification_outbox_status_available_idx",
+        "unique": false,
+        "columns": [
+          "status",
+          "available_at"
+        ]
+      },
+      {
+        "name": "notification_outbox_team_created_idx",
+        "unique": false,
+        "columns": [
+          "team_id",
+          "created_at"
+        ]
+      }
+    ]
+  },
 };
 
-const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_"];
+const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_", "realtime_"];
 const APP_TABLE_NAMES = new Set([
   "teams",
   "users",
@@ -290,6 +618,9 @@ const APP_TABLE_NAMES = new Set([
   "app_settings",
   "schema_migrations",
   "jwt_blacklist",
+  "internal_request_replays",
+  "notification_provider_reconciliations",
+  "notification_outbox",
 ]);
 
 function isAppOwnedTable(tableName) {
@@ -316,24 +647,16 @@ function loadDotEnv() {
 
 function getDbConfig() {
   loadDotEnv();
-  const missing = [];
-  for (const key of ["DB_HOST", "DB_USERNAME", "DB_PASSWORD", "DB_NAME"]) {
-    if (!process.env[key]) missing.push(key);
-  }
-  const port = Number(process.env.DB_PORT || "3306");
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) missing.push("DB_PORT(valid integer)");
-  if (missing.length > 0) {
-    throw new Error(`Missing DB env values: ${missing.join(", ")}`);
+  const resolved = mysqlScriptConnectionConfigFromEnv(process.env);
+  if (resolved.missing.length > 0) {
+    const missing = resolved.missing.join(", ");
+    throw new Error(`Missing DB env values: ${missing}`);
   }
   if (process.env.DB_MODE === "memory") {
     throw new Error("DB_MODE=memory cannot verify a MySQL production schema");
   }
   return {
-    host: process.env.DB_HOST,
-    port,
-    user: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    ...resolved.value,
     charset: "utf8mb4",
     timezone: "+00:00",
     dateStrings: true,

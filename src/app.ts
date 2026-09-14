@@ -1,5 +1,6 @@
 import { validateRuntimeConfig, env } from "./config/env.js";
-import { closePool } from "./db/client.js";
+import { closePool, getPool } from "./db/client.js";
+import { MySqlGate6ControlRepository } from "./repositories/mysql-gate6-control-repository.js";
 import { setTeamRuntimeActions } from "./controllers/teams-controller.js";
 import {
   listTeamRuntimeDesiredStates,
@@ -15,17 +16,31 @@ import {
   type NotificationDispatchLoop,
 } from "./services/notification-dispatcher.js";
 import { createNotificationLineSender } from "./services/notification-line-sender.js";
-import { migrateJsonToDb } from "./services/notify-rules.js";
-import {
-  httpSurfaceForRole,
-  roleRunsHttp,
-  roleRunsNotifier,
-  roleRunsWorkers,
-} from "./services/runtime-role.js";
+import { configureNotifyRulesRealtime, migrateJsonToDb } from "./services/notify-rules.js";
+import { loadConfiguredRuntimeStatus } from "./services/runtime-status-loader.js";
+import type { RealtimeScope } from "./services/realtime-contract.js";
+import { roleRunsHttp, roleRunsNotifier, roleUsesDatabase } from "./services/runtime-role.js";
+import { buildRuntimeStartupPlan } from "./services/runtime-startup-plan.js";
 import { loadDbFirstSettingsIntoEnv } from "./services/settings.js";
-import { createRoleAwareTeamRuntimeActions } from "./services/team-runtime-actions.js";
+import {
+  createRoleAwareTeamRuntimeActions,
+  createDistributedTeamRuntimeActions,
+} from "./services/team-runtime-actions.js";
 import { TeamRuntimeManager } from "./services/team-runtime-manager.js";
 import { getSpxDispatcher } from "./utils/http-dispatcher.js";
+import {
+  startRuntimeNodeHeartbeat,
+  type DedicatedRuntimeNodeRole,
+  type RuntimeNodeHeartbeatHandle,
+  type RuntimeNodeLoopMode,
+} from "./services/runtime-node-heartbeat.js";
+import { loadRuntimeReleaseIdentity } from "./services/runtime-release-identity.js";
+import { createRealtimeServiceClient } from "./services/realtime-service-client.js";
+import { createRuntimeRealtimePublisher } from "./services/realtime-publisher.js";
+import { acquireRealtimeServiceSingletonLease } from "./services/realtime-service-singleton-lease.js";
+import { startAutoAcceptJobDryRunWorkerLoop } from "./services/auto-accept-job-dry-run-loop.js";
+import { startAutoAcceptJobRealWorkerLoop } from "./services/auto-accept-job-real-execution-loop.js";
+import { startAutoAcceptJobSettlementWorkerLoop } from "./services/auto-accept-job-settlement-loop.js";
 
 function parseIntervalArg(value: string | undefined): number | undefined {
   if (value === undefined) {
@@ -40,6 +55,11 @@ function parseIntervalArg(value: string | undefined): number | undefined {
   return intervalSec;
 }
 
+function readPositiveIntEnv(name: string, defaultValue: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultValue;
+}
+
 function canUseSettingsDatabase(): boolean {
   return (
     env.DB_MODE === "memory" ||
@@ -48,9 +68,9 @@ function canUseSettingsDatabase(): boolean {
 }
 
 function installShutdownHandlers(
-  manager: TeamRuntimeManager,
+  manager: TeamRuntimeManager | null,
   shouldStopHttp: () => boolean,
-  stopBackgroundLoops: () => void,
+  stopBackgroundLoops: () => void | Promise<void>,
 ): void {
   let shuttingDown = false;
   const shutdown = async (exitCode = 0) => {
@@ -65,8 +85,8 @@ function installShutdownHandlers(
     watchdog.unref();
 
     try {
-      stopBackgroundLoops();
-      await manager.stopAll();
+      await stopBackgroundLoops();
+      await manager?.stopAll();
       if (shouldStopHttp()) await stopHttpServer();
       await getSpxDispatcher().close();
       await closePool();
@@ -81,7 +101,7 @@ function installShutdownHandlers(
 
   process.once("SIGINT", () => void shutdown(0));
   process.once("SIGTERM", () => void shutdown(0));
-  process.once("uncaughtException", (error) => {
+  process.on("uncaughtException", (error) => {
     console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
     void shutdown(1);
   });
@@ -97,61 +117,169 @@ async function main(): Promise<void> {
   let httpStarted = false;
   let notificationLoop: NotificationDispatchLoop | null = null;
   let stopDesiredStateLoop: (() => void) | null = null;
+  let runtimeNodeHeartbeat: RuntimeNodeHeartbeatHandle | null = null;
+  let realtimeSingletonLease: Awaited<ReturnType<typeof acquireRealtimeServiceSingletonLease>> | null = null;
+  let autoAcceptDryRunWorkerLoop: ReturnType<typeof startAutoAcceptJobDryRunWorkerLoop> | null = null;
+  let autoAcceptRealWorkerLoop: ReturnType<typeof startAutoAcceptJobRealWorkerLoop> | null = null;
+  let autoAcceptSettlementWorkerLoop: ReturnType<typeof startAutoAcceptJobSettlementWorkerLoop> | null = null;
 
-  if (canUseSettingsDatabase()) {
+  // gate6-control owns only its four-table control-plane grant and must never
+  // load DB-backed application settings with the application's credentials.
+  if (env.SPX_ROLE !== "gate6-control" && roleUsesDatabase(env.SPX_ROLE) && canUseSettingsDatabase()) {
     await loadDbFirstSettingsIntoEnv();
   }
 
   validateRuntimeConfig();
 
-  if (env.HTTP_ENABLED || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED) {
+  const startupPlan = buildRuntimeStartupPlan({
+    role: env.SPX_ROLE,
+    runTeamIds: env.RUN_TEAM_IDS,
+    dryRunWorkerEnabled: env.AUTO_ACCEPT_JOB_DRY_RUN_WORKER_ENABLED,
+    realWorkerEnabled: env.AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED,
+    settlementWorkerEnabled: env.AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED,
+  });
+
+  const runLegacyDataBootstrap = roleUsesDatabase(env.SPX_ROLE) && (env.SPX_ROLE === "api" || env.SPX_ROLE === "notifier");
+
+  if (runLegacyDataBootstrap && (env.HTTP_ENABLED || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED)) {
     await migrateJsonToDb();
   }
 
-  if (canUseSettingsDatabase()) {
+  if (runLegacyDataBootstrap && canUseSettingsDatabase()) {
     await ensureDefaultTeamFromLegacySettings();
   }
 
-  const httpSurface = httpSurfaceForRole(env.SPX_ROLE);
-
-  if (env.HTTP_ENABLED && httpSurface === "web-api") {
+  if (env.HTTP_ENABLED && startupPlan.httpSurface === "web-api") {
     await createAdminUserIfNotExists(env.ADMIN_USERNAME, env.ADMIN_PASSWORD, env.ADMIN_ROLE);
   }
 
-  const runtimeManager = new TeamRuntimeManager({
-    intervalSec,
-    assignedTeamIds: env.SPX_ROLE === "worker" ? env.RUN_TEAM_IDS : undefined,
-    lease: roleRunsWorkers(env.SPX_ROLE)
-      ? {
-          nodeId: env.SPX_NODE_ID || "combined-worker",
-          role: env.SPX_ROLE,
-          ttlMs: 30_000,
-          renewIntervalMs: 10_000,
-        }
-      : undefined,
-    desiredState: roleRunsWorkers(env.SPX_ROLE)
-      ? {
-          intervalMs: 1_000,
-          list: listTeamRuntimeDesiredStates,
-          set: setTeamRuntimeDesiredState,
-        }
-      : undefined,
+  const runtimeReleaseIdentity = env.NODE_ENV === "production" ? loadRuntimeReleaseIdentity() : undefined;
+  const runtimeStartedAt = new Date().toISOString();
+
+  const runtimeRealtimePublisher = createRuntimeRealtimePublisher(env.REALTIME_SERVICE_URL ? {
+    url: `${env.REALTIME_SERVICE_URL}/events`,
+    sharedSecret: env.REALTIME_SHARED_SECRET,
+    nodeId: env.SPX_NODE_ID,
+    requestTimeoutMs: env.REALTIME_REQUEST_TIMEOUT_MS,
+  } : undefined);
+  const realtimeServiceClient = env.REALTIME_SERVICE_URL
+    ? createRealtimeServiceClient({
+        baseUrl: env.REALTIME_SERVICE_URL,
+        sharedSecret: env.REALTIME_SHARED_SECRET,
+        nodeId: env.SPX_NODE_ID,
+        connectTimeoutMs: env.REALTIME_REQUEST_TIMEOUT_MS,
+      })
+    : undefined;
+  configureNotifyRulesRealtime({
+    publisher: runtimeRealtimePublisher,
+    source: { service: startupPlan.httpSurface === "web-api" ? "web-api" : "worker", nodeId: env.SPX_NODE_ID || env.SPX_ROLE, role: env.SPX_ROLE },
   });
-  const workerActionsEnabled = roleRunsWorkers(env.SPX_ROLE);
-  setTeamRuntimeActions(createRoleAwareTeamRuntimeActions(runtimeManager, workerActionsEnabled));
+
+  const manager = startupPlan.runTeamRuntimeManager
+    ? new TeamRuntimeManager({
+        intervalSec,
+        assignedTeamIds: startupPlan.pollerAssignedTeamIds,
+        realtimePublisher: runtimeRealtimePublisher,
+        publishTeamRuntimeMetrics: env.SPX_ROLE === "notifier" || env.SPX_ROLE === "combined",
+        lease: startupPlan.runTeamRuntimeLease
+          ? {
+              nodeId: env.SPX_NODE_ID || "combined-worker",
+              role: env.SPX_ROLE,
+              ttlMs: 30_000,
+              renewIntervalMs: 10_000,
+              releaseIdentity: runtimeReleaseIdentity,
+              startedAt: runtimeStartedAt,
+            }
+          : undefined,
+        desiredState: startupPlan.runDesiredStateLoop
+          ? {
+              intervalMs: 1_000,
+              list: listTeamRuntimeDesiredStates,
+              set: setTeamRuntimeDesiredState,
+            }
+          : undefined,
+      })
+    : null;
+  setTeamRuntimeActions(
+    startupPlan.runDistributedTeamRuntimeActions
+      ? createDistributedTeamRuntimeActions()
+      : manager
+        ? createRoleAwareTeamRuntimeActions(manager, startupPlan.runTeamRuntimeActions)
+        : createDistributedTeamRuntimeActions(),
+  );
   installShutdownHandlers(
-    runtimeManager,
+    manager,
     () => httpStarted,
-    () => {
+    async () => {
       notificationLoop?.stop();
       notificationLoop = null;
       stopDesiredStateLoop?.();
       stopDesiredStateLoop = null;
+      runtimeNodeHeartbeat?.stop();
+      autoAcceptDryRunWorkerLoop?.stop();
+      autoAcceptDryRunWorkerLoop = null;
+      autoAcceptRealWorkerLoop?.stop();
+      autoAcceptRealWorkerLoop = null;
+      autoAcceptSettlementWorkerLoop?.stop();
+      autoAcceptSettlementWorkerLoop = null;
+      await realtimeSingletonLease?.release();
     },
   );
 
-  if (env.HTTP_ENABLED && roleRunsHttp(env.SPX_ROLE)) {
-    await startHttpServer(env.HTTP_PORT, { surface: httpSurface ?? "web-api", role: env.SPX_ROLE });
+  if (
+    env.SPX_ROLE === "poller-service" ||
+    env.SPX_ROLE === "auto-accept-service" ||
+    env.SPX_ROLE === "line-service"
+  ) {
+    const heartbeatRuntimeRole: DedicatedRuntimeNodeRole | "line-service" = env.SPX_ROLE;
+    let enabledRuntimeNodeLoopModes: RuntimeNodeLoopMode[] = [];
+    if (heartbeatRuntimeRole === "poller-service") {
+      enabledRuntimeNodeLoopModes = ["poller"];
+    } else if (heartbeatRuntimeRole === "auto-accept-service") {
+      if (startupPlan.runAutoAcceptDryRunLoop) enabledRuntimeNodeLoopModes.push("autoAcceptDryRun");
+      if (startupPlan.runAutoAcceptRealLoop) enabledRuntimeNodeLoopModes.push("autoAcceptReal");
+      if (startupPlan.runAutoAcceptSettlementLoop) enabledRuntimeNodeLoopModes.push("autoAcceptSettlement");
+    }
+    runtimeNodeHeartbeat = await startRuntimeNodeHeartbeat({
+      nodeId: env.SPX_NODE_ID || heartbeatRuntimeRole,
+      role: heartbeatRuntimeRole,
+      assignedTeamIds: heartbeatRuntimeRole === "line-service" ? [] : env.RUN_TEAM_IDS,
+      enabledLoopModes: enabledRuntimeNodeLoopModes,
+      intervalMs: 10_000,
+      releaseIdentity: runtimeReleaseIdentity,
+      startedAt: runtimeStartedAt,
+    });
+  }
+
+  const runtimeRealtimePublisherForHttp = runtimeRealtimePublisher;
+  const realtimeReadGateway = realtimeServiceClient;
+
+  if (env.SPX_ROLE === "realtime-service") {
+    realtimeSingletonLease = await acquireRealtimeServiceSingletonLease();
+  }
+  const gate6Pool = env.SPX_ROLE === "gate6-control" ? getPool() : null;
+  if (env.SPX_ROLE === "gate6-control" && !gate6Pool) throw new Error("gate6-control requires durable MySQL storage");
+
+  if (env.HTTP_ENABLED && startupPlan.runHttp && roleRunsHttp(env.SPX_ROLE)) {
+    await startHttpServer(env.HTTP_PORT, {
+      surface: startupPlan.httpSurface ?? "web-api",
+      role: env.SPX_ROLE,
+      realtimeReadGateway,
+      runtimeMetricsRealtimePublisher: runtimeRealtimePublisherForHttp,
+      loadRealtimeRuntimeStatus: (scope) => loadConfiguredRuntimeStatus(scope as RealtimeScope),
+      gate6Repository: gate6Pool ? new MySqlGate6ControlRepository({
+        async getConnection() {
+          const connection = await gate6Pool.getConnection();
+          return {
+            beginTransaction: () => connection.beginTransaction(),
+            commit: () => connection.commit(),
+            rollback: () => connection.rollback(),
+            release: () => connection.release(),
+            execute: (statement, parameters) => connection.execute(statement, (parameters ? [...parameters] : []) as Parameters<typeof connection.execute>[1]),
+          };
+        },
+      }) : undefined,
+    });
     httpStarted = true;
   }
 
@@ -178,9 +306,39 @@ async function main(): Promise<void> {
     chatId: env.LINE_IMAGE_LISTENER_CHAT_ID,
   });
 
-  if (roleRunsWorkers(env.SPX_ROLE)) {
-    await runtimeManager.startAllEnabledTeams();
-    const loop = runtimeManager.startDesiredStateLoop();
+  const workerNodeId = env.SPX_NODE_ID || "combined-worker";
+  if (startupPlan.runAutoAcceptDryRunLoop) {
+    autoAcceptDryRunWorkerLoop = startAutoAcceptJobDryRunWorkerLoop({
+      nodeId: workerNodeId,
+      teamIds: startupPlan.autoAcceptTeamIds,
+      batchSize: readPositiveIntEnv("AUTO_ACCEPT_JOB_DRY_RUN_BATCH_SIZE", 10),
+      leaseMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_DRY_RUN_LEASE_MS", 300_000),
+      intervalMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_DRY_RUN_INTERVAL_MS", 1_000),
+    });
+  }
+  if (startupPlan.runAutoAcceptRealLoop) {
+    autoAcceptRealWorkerLoop = startAutoAcceptJobRealWorkerLoop({
+      realtimePublisher: runtimeRealtimePublisher,
+      metricsPublication: startupPlan.executionMetricsPublication,
+      nodeId: workerNodeId,
+      teamIds: startupPlan.autoAcceptTeamIds,
+      batchSize: readPositiveIntEnv("AUTO_ACCEPT_JOB_REAL_BATCH_SIZE", 10),
+      leaseMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_REAL_LEASE_MS", 300_000),
+      intervalMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_REAL_INTERVAL_MS", 1_000),
+    });
+  }
+  if (startupPlan.runAutoAcceptSettlementLoop) {
+    autoAcceptSettlementWorkerLoop = startAutoAcceptJobSettlementWorkerLoop({
+      nodeId: workerNodeId,
+      teamIds: startupPlan.autoAcceptTeamIds,
+      batchSize: readPositiveIntEnv("AUTO_ACCEPT_JOB_SETTLEMENT_BATCH_SIZE", 10),
+      leaseMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_SETTLEMENT_LEASE_MS", 300_000),
+      intervalMs: readPositiveIntEnv("AUTO_ACCEPT_JOB_SETTLEMENT_INTERVAL_MS", 1_000),
+    });
+  }
+  if (manager && startupPlan.runTeamRuntimeManager) {
+    await manager.startAllEnabledTeams();
+    const loop = manager.startDesiredStateLoop();
     stopDesiredStateLoop = () => loop.stop();
   }
 }

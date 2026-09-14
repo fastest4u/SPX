@@ -1,0 +1,37 @@
+name: Request production project identity maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Isolated production identity maintenance action
+        required: true
+        type: choice
+        options:
+          - verify
+          - adopt
+          - rollback
+      approved_release_artifact_id:
+        description: Artifact ID of the currently approved production release
+        required: true
+        type: string
+      approval_sha256:
+        description: SHA-256 of the protected adoption or rollback approval
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  maintain-identity:
+    permissions:
+      actions: read
+      contents: read
+    # BOOTSTRAP-DENY: replace the zero SHA only in the reviewed stage-two pin commit.
+    uses: fastest4u/SPX/.github/workflows/trusted-production-project-identity.yml@0000000000000000000000000000000000000000
+    with:
+      action: ${{ inputs.action }}
+      approved_release_artifact_id: ${{ inputs.approved_release_artifact_id }}
+      approval_sha256: ${{ inputs.approval_sha256 }}

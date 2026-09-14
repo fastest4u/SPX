@@ -46,7 +46,7 @@ npm run frontend:build # frontend only
 ## 🗄️ Database
 
 ```bash
-npm run db:generate   # regenerate migration SQL from schema
+npm run db:generate   # scaffold missing baseline only; use new numbered files for changes
 npm run db:migrate    # apply migrations to MySQL
 npm run db:test       # live API + DB integration test
 npm run flow:test     # db:migrate + db:test

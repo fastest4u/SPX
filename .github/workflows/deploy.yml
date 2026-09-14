@@ -26,6 +26,8 @@ jobs:
   build:
     name: Build Check
     runs-on: ubuntu-latest
+    outputs:
+      legacy_deploy_allowed: ${{ steps.deployment-compatibility.outputs.legacy_deploy_allowed }}
 
     steps:
       - name: Checkout
@@ -51,6 +53,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check runtime deployment compatibility
+        id: deployment-compatibility
+        run: node scripts/deployment-compatibility.mjs check dist/deployment-contract.json --github-output
+
+      - name: Reject incompatible manual legacy deployment
+        if: github.event_name == 'workflow_dispatch' && steps.deployment-compatibility.outputs.legacy_deploy_allowed != 'true'
+        run: node scripts/deployment-compatibility.mjs check dist/deployment-contract.json --require-legacy
+
+      - name: Report protected deployment requirement
+        if: steps.deployment-compatibility.outputs.legacy_deploy_allowed == 'false'
+        run: echo 'A3 build verified separately; automatic legacy deployment is disabled. Use the protected A3 release and deployment workflows after rollout prerequisites are verified.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install browser test dependencies
         run: npx playwright install --with-deps chromium
 
@@ -69,7 +83,7 @@ jobs:
     name: Preflight TEAM ${{ matrix.team_id }} on ${{ matrix.host }}
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.legacy_deploy_allowed == 'true'
     environment: production
     timeout-minutes: 5
     strategy:
@@ -141,7 +155,7 @@ jobs:
     name: Deploy API and TEAM 1 on primary host
     runs-on: ubuntu-latest
     needs: [build, worker-preflight]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.legacy_deploy_allowed == 'true'
     environment: production
 
     steps:
@@ -513,7 +527,8 @@ jobs:
           with archive.open('rb') as stream:
               digest = hashlib.file_digest(stream, 'sha256').hexdigest()
           manifest = dict(commit=os.environ['GITHUB_SHA'], imageId=os.environ['IMAGE_ID'],
-                          bundleSha256=os.environ['EXPECTED_BUNDLE_SHA'], archiveSha256=digest)
+                          bundleSha256=os.environ['EXPECTED_BUNDLE_SHA'], archiveSha256=digest,
+                          deploymentContract=json.loads(Path('dist/deployment-contract.json').read_text()))
           Path('worker-release/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           PY
           cp scripts/ci-deploy-worker.py scripts/ci-worker-readiness.mjs worker-release/
@@ -562,8 +577,8 @@ jobs:
   deploy-workers:
     name: Deploy TEAM ${{ matrix.team_id }} on ${{ matrix.host }}
     runs-on: ubuntu-latest
-    needs: [deploy, worker-preflight]
-    if: github.ref == 'refs/heads/main'
+    needs: [build, deploy, worker-preflight]
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.legacy_deploy_allowed == 'true'
     environment: production
     timeout-minutes: 20
     strategy:

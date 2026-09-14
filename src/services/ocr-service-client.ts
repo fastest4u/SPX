@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { signedJsonPost } from "./internal-service-client.js";
 import {
   OCR_INTERNAL_READ_LINE_IMAGE_PATH,
@@ -40,6 +41,7 @@ export async function readLineImageViaOcrService(
     url,
     sharedSecret: options.sharedSecret,
     nodeId: options.nodeId,
+    requestId: randomUUID(),
     body: request,
     fetchImpl: options.fetchImpl,
     requestTimeoutMs: options.requestTimeoutMs,

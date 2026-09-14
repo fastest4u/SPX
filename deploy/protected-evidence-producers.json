@@ -1,0 +1,53 @@
+{
+  "accepted-db-transition": {
+    "bootstrapDenied": true,
+    "environment": "production",
+    "files": ["accepted-db-transition-evidence.json"],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/gate6-accepted-evidence-exporter.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "accepted-pre-close": {
+    "bootstrapDenied": true,
+    "environment": "production",
+    "files": ["accepted-pre-close-evidence.json"],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/gate6-accepted-evidence-exporter.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "final-verifier": {
+    "bootstrapDenied": true,
+    "environment": "production",
+    "files": ["final-verifier.json"],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/gate6-final-verifier-exporter.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "production-backup-restore": {
+    "bootstrapDenied": true,
+    "environment": "production",
+    "files": [
+      "production-backup-restore-evidence.json",
+      "production-backup-restore-signature.json"
+    ],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/trusted-production-backup-restore.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "protected-install": {
+    "bootstrapDenied": true,
+    "environment": "production",
+    "files": ["protected-install-evidence.json", "protected-install-signature.json"],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/trusted-deploy.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "staging-gates": {
+    "bootstrapDenied": true,
+    "environment": "staging",
+    "files": ["staging-protected-evidence.json"],
+    "signerSha": "0000000000000000000000000000000000000000",
+    "workflow": ".github/workflows/trusted-staging-protected-evidence.yml",
+    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

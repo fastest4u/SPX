@@ -18,6 +18,7 @@ import {
   autoAcceptResultsMigrationSql,
   autoAcceptVerificationJobsMigrationSql,
   appSettingsMigrationSql,
+  internalRequestReplaysMigrationSql,
 } from "../db/migration-sql.js";
 
 const migrationsDir = resolve(process.cwd(), "migrations");
@@ -42,8 +43,17 @@ const allMigrations = [
   autoAcceptResultsMigrationSql,
   autoAcceptVerificationJobsMigrationSql,
   appSettingsMigrationSql,
+  internalRequestReplaysMigrationSql,
 ].join("\n\n");
 
 mkdirSync(migrationsDir, { recursive: true });
-writeFileSync(filePath, allMigrations, "utf8");
+// Applied SQL is append-only. Exclusive creation also closes the check/write race.
+try {
+  writeFileSync(filePath, allMigrations, { encoding: "utf8", flag: "wx" });
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+    throw new Error("Refusing to overwrite an existing migration; add a new numbered migration instead.");
+  }
+  throw error;
+}
 console.log(`Generated migration: ${filePath}`);

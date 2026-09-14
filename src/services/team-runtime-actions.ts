@@ -41,3 +41,27 @@ export function createRoleAwareTeamRuntimeActions(
     getStatus: (teamId) => runtimeManager.getStatus(teamId),
   };
 }
+
+/**
+ * Distributed-runtime actions for surfaces that never own team pollers
+ * (for example the central web-api). Every action is translated into a
+ * desired-state transition that owned workers reconcile, so no surface
+ * without a poller assignment mutates runtime state directly.
+ */
+export function createDistributedTeamRuntimeActions(): TeamRuntimeActions {
+  const enqueue = async (teamId: number, desiredState: TeamRuntimeDesiredStateValue, reason: string): Promise<void> => {
+    await setTeamRuntimeDesiredState({ teamId, desiredState, reason });
+  };
+
+  return {
+    restartTeam: (teamId) => enqueue(teamId, "restart", "restart requested from central API"),
+    pauseTeam: (teamId) => enqueue(teamId, "paused", "pause requested from central API"),
+    resumeTeam: (teamId) => enqueue(teamId, "running", "resume requested from central API"),
+    stopTeam: (teamId) => enqueue(teamId, "stopped", "stop requested from central API"),
+    restartAll: async () => {
+      const teams = await listEnabledTeamRuntimeConfigs();
+      await Promise.all(teams.map((team) => enqueue(team.id, "restart", "restart-all requested from central API")));
+    },
+    getStatus: () => null,
+  };
+}

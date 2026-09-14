@@ -1,0 +1,392 @@
+{
+  "schemaVersion": 1,
+  "approvalId": "staging-approval-20260710-001",
+  "stagingRunId": "staging-run-20260710-001",
+  "nonce": "nonce-7e75c8422f514e8f",
+  "release": {
+    "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "candidateImageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "rollbackSha": "cccccccccccccccccccccccccccccccccccccccc",
+    "rollbackImageDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "releaseManifestSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "rollbackReleaseManifestSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "operatorBundleSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "migrations": [
+    {
+      "filename": "033_create_internal_request_replays.sql",
+      "sha256": "4bbc33adc70470b4e33daf0d4ab02b491290f55e8b95b2635b3d4084bfe4a90d"
+    },
+    {
+      "filename": "034_complete_fresh_baseline.sql",
+      "sha256": "f0d17ca754a54e4930209e1eea6d8a5ec26b13e04cf021300a0a1a2ec636ea31"
+    },
+    {
+      "filename": "035_create_auto_accept_publication_controls.sql",
+      "sha256": "07081689c2acb1de6235ce3a2572ba8dbcac80a51924392d475fa7aaaff3c131"
+    },
+    {
+      "filename": "036_create_gate6_control_plane.sql",
+      "sha256": "28017d86825bc8d68e991728a4f583197bfba81ac4482a7071569f8eb6e8019a"
+    },
+    {
+      "filename": "037_create_n_minus_one_probe_fixtures.sql",
+      "sha256": "1175d9e5d41f405ef7372384d41ed765dd4111a144275277f73264b5e0e8e092"
+    }
+  ],
+  "target": {
+    "environment": "staging",
+    "composeProject": "spx-staging",
+    "database": "spx_staging",
+    "targetDescriptorSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "databaseTlsFingerprintSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "providerTargetFingerprintsSha256": [
+      "6666666666666666666666666666666666666666666666666666666666666666"
+    ]
+  },
+  "policy": {
+    "notBefore": "2026-07-10T00:00:00.000Z",
+    "expiresAt": "2026-07-11T00:00:00.000Z",
+    "maintenanceWindowId": "staging-window-20260710",
+    "sideEffectPolicy": "controlled-staging-only",
+    "evidencePolicy": "sanitized-attested-only",
+    "thresholds": {
+      "maxCpuPercent": 70,
+      "minMemoryFreeBytes": 4000000000,
+      "minMysqlConnectionsFree": 50,
+      "productionP95LatencyMs": 200,
+      "maxLatencyIncreasePercent": 20
+    },
+    "owners": {
+      "rolloutOwner": "staging-operator",
+      "recoveryOwner": "staging-supervisor"
+    }
+  },
+  "actions": [
+    {
+      "sequence": 1,
+      "actionId": "staging-db-bootstrap",
+      "scope": "database-bootstrap",
+      "kind": "forward",
+      "mutationSha256": "3a713151a69af66b2cd02238c959ef7d6693f3fa5ee4b4b59656f399dfbe41c9"
+    },
+    {
+      "sequence": 2,
+      "actionId": "staging-db-migrate",
+      "scope": "database-migrate",
+      "kind": "forward",
+      "mutationSha256": "87f4cd2b0166e0e68e1f65c684c6b60ed74db1c74ac8a366baddd560011825fd"
+    },
+    {
+      "sequence": 3,
+      "actionId": "staging-db-finalize",
+      "scope": "database-finalize",
+      "kind": "forward",
+      "mutationSha256": "9160eb0f0cd3e187d10740849090948cfaccfe756cd6a155a4c13de777a6bbb3"
+    },
+    {
+      "sequence": 4,
+      "actionId": "staging-db-bootstrap-revoke",
+      "scope": "database-revoke",
+      "kind": "forward",
+      "mutationSha256": "24e599e3e2fc97a69883f7cc4e66a3c61d4d323d45f493d0c25980288124635e"
+    },
+    {
+      "sequence": 5,
+      "actionId": "staging-runtime-start",
+      "scope": "runtime-start",
+      "kind": "forward",
+      "mutationSha256": "9bbd79e975cd465491bc3580fac8064a0686c790d5815bdacb67bc19d195f4e3"
+    },
+    {
+      "sequence": 6,
+      "actionId": "staging-gate-1-baseline",
+      "scope": "gate-1",
+      "kind": "forward",
+      "mutationSha256": "870bfd43a7165edb2fd17c6c3224617a27e874f784b7a394c18ba7d72ccf5921"
+    },
+    {
+      "sequence": 7,
+      "actionId": "staging-controlled-publish",
+      "scope": "notification-publish",
+      "kind": "forward",
+      "mutationSha256": "fb7c317ef20e20e3f3a0f9b3ce291fc2ce0dacd1e2453b98badc4a1a9da2927f"
+    },
+    {
+      "sequence": 8,
+      "actionId": "staging-line-fault",
+      "scope": "line-fault",
+      "kind": "forward",
+      "mutationSha256": "992439aa615d7b400cedea5c5052b03c1dd28de5215089bc060e79d3495e41a1"
+    },
+    {
+      "sequence": 9,
+      "actionId": "staging-line-recovery",
+      "scope": "line-recovery",
+      "kind": "forward",
+      "mutationSha256": "6b4628cf4d504ae34db7b4306e9cf228fd140a8368f5f2bfe0f1798842709e32"
+    },
+    {
+      "sequence": 10,
+      "actionId": "staging-ocr-fault",
+      "scope": "ocr-fault",
+      "kind": "forward",
+      "mutationSha256": "dcc48d723798a264246f75f06efee34255e3db47edbf179ecfc9669d257ff272"
+    },
+    {
+      "sequence": 11,
+      "actionId": "staging-ocr-recovery",
+      "scope": "ocr-recovery",
+      "kind": "forward",
+      "mutationSha256": "6904574dbd1085b9362ba3e2bb30abe9a5394aba1f67d308135e0cd9d55834a6"
+    },
+    {
+      "sequence": 12,
+      "actionId": "staging-worker-forward-handoff",
+      "scope": "worker-handoff-forward",
+      "kind": "forward",
+      "mutationSha256": "9cf12d0f9e38667f6267b06cef729232c5b7aa85a0548bf67d71ba39ef47c7ee"
+    },
+    {
+      "sequence": 13,
+      "actionId": "staging-worker-reverse-handoff",
+      "scope": "worker-handoff-reverse",
+      "kind": "forward",
+      "mutationSha256": "9275c1770bdf59dc29f443e068447f5c199dd1e6ac73eb06aa59b2adb7feac93"
+    },
+    {
+      "sequence": 14,
+      "actionId": "staging-gate-2-worker",
+      "scope": "gate-2",
+      "kind": "forward",
+      "mutationSha256": "ad4b9e4d44f4db68130ab812b47dee8c50678348830f8a7e5ebfda03d4e95895"
+    },
+    {
+      "sequence": 15,
+      "actionId": "staging-gate-3-handoff",
+      "scope": "gate-3",
+      "kind": "forward",
+      "mutationSha256": "6c0ed49458602a32e83a04381aa12414c3a049297275db5754d05d2764d9360b"
+    },
+    {
+      "sequence": 16,
+      "actionId": "phase3-consumer-start-disabled",
+      "scope": "phase3-consumer-start-disabled",
+      "kind": "forward",
+      "mutationSha256": "0e0d7fe8923264026763de210ac0a23f171cfdffebe747d4702c2beca663810c"
+    },
+    {
+      "sequence": 17,
+      "actionId": "phase3-legacy-lease-release",
+      "scope": "phase3-legacy-lease-release",
+      "kind": "forward",
+      "mutationSha256": "1c8bbc3f2493182f4a22204dca2a012c568694f0f1ca4f0ee7b8919a494c26c5"
+    },
+    {
+      "sequence": 18,
+      "actionId": "phase3-poller-start",
+      "scope": "phase3-poller-start",
+      "kind": "forward",
+      "mutationSha256": "a0b1009241e1453fef1aea783c41db55d9a9c3d018059c7d9a1590b0a10a12e1"
+    },
+    {
+      "sequence": 19,
+      "actionId": "phase3-publication-enable",
+      "scope": "phase3-publication-enable",
+      "kind": "forward",
+      "mutationSha256": "0228fc1cdc8ff91a21590f9909f82309e485d293405d720baf8255cad303bed7"
+    },
+    {
+      "sequence": 20,
+      "actionId": "phase3-execution-enable",
+      "scope": "phase3-execution-enable",
+      "kind": "forward",
+      "mutationSha256": "3b7774a56def336193b462d79418585f97858f76ceae766dcb3fefb1a13dff46"
+    },
+    {
+      "sequence": 21,
+      "actionId": "phase3-publication-fence",
+      "scope": "phase3-publication-fence",
+      "kind": "forward",
+      "mutationSha256": "0821c45d2247fd68781b05f559681d63c24973692e289cca4edce065d2f54e91"
+    },
+    {
+      "sequence": 22,
+      "actionId": "phase3-drain-or-quarantine",
+      "scope": "phase3-drain-or-quarantine",
+      "kind": "forward",
+      "mutationSha256": "211457ccea6251ce817d6e1246d772e95fd0fcab444b714a5a723da1bae79b75"
+    },
+    {
+      "sequence": 23,
+      "actionId": "phase3-inline-owner-restore",
+      "scope": "phase3-inline-owner-restore",
+      "kind": "forward",
+      "mutationSha256": "6e5e8bfdbc753a92c88670fc1933322fc91ad32667802e1466cab38691007bb5"
+    },
+    {
+      "sequence": 24,
+      "actionId": "staging-gate-4-phase3",
+      "scope": "gate-4",
+      "kind": "forward",
+      "mutationSha256": "b2f21ac8a5c766758e4046f46949c0d888dd0f9d5b0107f2e62756606a032e49"
+    },
+    {
+      "sequence": 25,
+      "actionId": "phase4-n1-preflight",
+      "scope": "phase4-n1-preflight",
+      "kind": "forward",
+      "mutationSha256": "b6a81cd4e7c69236c676ca6af093e75fb9b0db17929b214a8b93b91bf3191d68"
+    },
+    {
+      "sequence": 26,
+      "actionId": "phase4-n1-start",
+      "scope": "phase4-n1-start",
+      "kind": "forward",
+      "mutationSha256": "cd793b9a410fcd477bc987501166fe416be1364c9354492df4e17d92ee29a0e4"
+    },
+    {
+      "sequence": 27,
+      "actionId": "phase4-n1-verify",
+      "scope": "phase4-n1-verify",
+      "kind": "forward",
+      "mutationSha256": "57057cb29d8a06d2148443e1dbd4fc27c4e383c60f174c65491f32d33d76f668"
+    },
+    {
+      "sequence": 28,
+      "actionId": "phase4-n1-rollback-forward",
+      "scope": "phase4-n1-rollback-forward",
+      "kind": "forward",
+      "mutationSha256": "ce1e5658c1544132c63f3aea51e14eaf682d97f045fd27359160b1c5ac1015ad"
+    },
+    {
+      "sequence": 29,
+      "actionId": "phase4-n1-stop",
+      "scope": "phase4-n1-stop",
+      "kind": "forward",
+      "mutationSha256": "71c448e5c5505e8e9f0d76c15aa66e2d1921eedb962bc0b7e305e7a52f62f551"
+    },
+    {
+      "sequence": 30,
+      "actionId": "phase4-proxy-realtime-start",
+      "scope": "phase4-proxy-realtime-start",
+      "kind": "forward",
+      "mutationSha256": "6151f3f5a984c798bcf689e629af8180bab92b23608dea8013f5899e4effafe3"
+    },
+    {
+      "sequence": 31,
+      "actionId": "phase4-singleton-contender-probe",
+      "scope": "phase4-singleton-contender-probe",
+      "kind": "forward",
+      "mutationSha256": "24068c2735612a44a4b036ec4aeaa305a55da60187fafbaef212426ebc7ae1bf"
+    },
+    {
+      "sequence": 32,
+      "actionId": "phase4-route-producer",
+      "scope": "phase4-route-producer",
+      "kind": "forward",
+      "mutationSha256": "b6cf79345c96758d424554c453ffb309ffa22b5c4aa5bfa9a1f68087f26cd0b1"
+    },
+    {
+      "sequence": 33,
+      "actionId": "phase4-route-read",
+      "scope": "phase4-route-read",
+      "kind": "forward",
+      "mutationSha256": "2de5a8d7a4b34416cc79519284f6c8e7f6280cfbcb87e16228bfb1c60f4d1299"
+    },
+    {
+      "sequence": 34,
+      "actionId": "phase4-route-stream",
+      "scope": "phase4-route-stream",
+      "kind": "forward",
+      "mutationSha256": "09c20cbc65faf630a975b943cbb321985e089f8347d7ced601d90098c1ed5749"
+    },
+    {
+      "sequence": 35,
+      "actionId": "phase4-realtime-restart-probe",
+      "scope": "phase4-realtime-restart-probe",
+      "kind": "forward",
+      "mutationSha256": "1ba8b259d5b719e37df412336478b70991e3702b72dd49dd2fa70b4c20c02de8"
+    },
+    {
+      "sequence": 36,
+      "actionId": "phase4-route-local-rollback",
+      "scope": "phase4-route-local-rollback",
+      "kind": "forward",
+      "mutationSha256": "dec8b2207fcca45027a529f09a15e3e5f640f03d18095424605919b60f36327e"
+    },
+    {
+      "sequence": 37,
+      "actionId": "phase4-route-approved-final",
+      "scope": "phase4-route-approved-final",
+      "kind": "forward",
+      "mutationSha256": "d1022a7bcc3373eebfc1f09702fbda7d1eb3021a0c5bd8f8bba1fffa891377d8"
+    },
+    {
+      "sequence": 38,
+      "actionId": "phase4-db-proxy-fault",
+      "scope": "phase4-db-proxy-fault",
+      "kind": "forward",
+      "mutationSha256": "7b4a038958604f6cf7a88220bcf1e73008a754362b5f8e5ae17daf3c1ca6875c"
+    },
+    {
+      "sequence": 39,
+      "actionId": "phase4-db-proxy-recover",
+      "scope": "phase4-db-proxy-recover",
+      "kind": "forward",
+      "mutationSha256": "8cda8e7f51dc3c5aa8b00f4862c40a9a7b46d29d8cebf86e7c1e0c602f57d393"
+    },
+    {
+      "sequence": 40,
+      "actionId": "phase4-route-final-cleanup-baseline",
+      "scope": "phase4-route-final-cleanup-baseline",
+      "kind": "forward",
+      "mutationSha256": "fbbddb1144f7ecfb542e9a38e1021635ecb28bbc8db7de8026509eaa8eeefc07"
+    },
+    {
+      "sequence": 41,
+      "actionId": "staging-final-stop",
+      "scope": "final-stop",
+      "kind": "forward",
+      "mutationSha256": "7fd13e51ae9bf02120a0976f6df2786e28c5de1047a77be0c7092f11375623ac"
+    },
+    {
+      "sequence": 42,
+      "actionId": "guard-close",
+      "scope": "guard-close",
+      "kind": "forward",
+      "mutationSha256": "ebf462ec2d1eae54d06dac055f3c6aede7916024554c481032bca8f09fe0f7aa"
+    },
+    {
+      "sequence": 43,
+      "actionId": "staging-guard-emergency-stop",
+      "scope": "guard-emergency-stop",
+      "kind": "emergency",
+      "mutationSha256": "590f85f97f9df64105e2cd21249652d66ca430784b3fca219c80980f77cf2333"
+    },
+    {
+      "sequence": 44,
+      "actionId": "staging-watchdog-emergency-stop",
+      "scope": "watchdog-emergency-stop",
+      "kind": "emergency",
+      "mutationSha256": "48fca8495ebe9e2ed234d059b80f7d96659d3e5eb73ada2f563aa0ea72eb8ccc"
+    }
+  ],
+  "provenance": {
+    "repository": "example/spx",
+    "workflow": ".github/workflows/staging-rollout-signer.yml",
+    "workflowRef": "example/spx/.github/workflows/staging-rollout-signer.yml@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "workflowSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "jobWorkflowRef": "example/spx/.github/workflows/staging-rollout-signer.yml@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "jobWorkflowSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "workflowFileSha256": "8888888888888888888888888888888888888888888888888888888888888888",
+    "environment": "staging",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "audience": "spx-staging-rollout",
+    "subject": "repo:example/spx:environment:staging"
+  },
+  "keyId": "spx-staging-test-only-2026-07",
+  "signatureAlgorithm": "Ed25519",
+  "signedPayloadSha256": "",
+  "signature": ""
+}

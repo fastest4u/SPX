@@ -1,0 +1,56 @@
+FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ARG SPX_SOURCE_SHA
+RUN test -n "$SPX_SOURCE_SHA"
+LABEL org.opencontainers.image.revision=$SPX_SOURCE_SHA
+ARG SPX_BUILD_MANIFEST=build-manifest.json
+COPY --chown=node:node package*.json ./
+RUN npm ci --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+RUN install -d -o node -g node /app/data /app/data/line-state /app/data/line-images /app/deploy /app/spool /app/scripts/lib /home/node/.codex \
+  && printf '[]\n' > /app/notify-rules.json \
+  && chown node:node /app/notify-rules.json
+COPY --chown=node:node ${SPX_BUILD_MANIFEST} /app/build-manifest.json
+COPY --chown=node:node scripts/deployment-compatibility.mjs ./scripts/deployment-compatibility.mjs
+COPY --chown=node:node dist ./dist
+RUN node scripts/deployment-compatibility.mjs check dist/deployment-contract.json --require-protected-a3
+COPY --chown=node:node migrations ./migrations
+COPY --chown=node:node deploy/db-grants.json ./deploy/db-grants.json
+COPY --chown=node:node deploy/runtime-isolation-policy.json ./deploy/runtime-isolation-policy.json
+COPY --chown=node:node scripts/container-isolation-probe.mjs ./scripts/container-isolation-probe.mjs
+COPY --chown=node:node scripts/db-grants-check.mjs ./scripts/db-grants-check.mjs
+COPY --chown=node:node scripts/gate6-production-monitor-probe.mjs ./scripts/gate6-production-monitor-probe.mjs
+COPY --chown=node:node scripts/production-task9-controller.mjs ./scripts/production-task9-controller.mjs
+COPY --chown=node:node scripts/lib/gate6-controller.mjs ./scripts/lib/gate6-controller.mjs
+COPY --chown=node:node scripts/lib/gate6-cli-runtime.mjs ./scripts/lib/gate6-cli-runtime.mjs
+COPY --chown=node:node scripts/lib/gate6-mysql-ledger.mjs ./scripts/lib/gate6-mysql-ledger.mjs
+COPY --chown=node:node scripts/lib/evidence-artifact.mjs ./scripts/lib/evidence-artifact.mjs
+COPY --chown=node:node scripts/lib/staging-installed-context.mjs ./scripts/lib/staging-installed-context.mjs
+COPY --chown=node:node scripts/lib/task9-worker-evaluators.mjs ./scripts/lib/task9-worker-evaluators.mjs
+COPY --chown=node:node scripts/lib/file-backed-secret.mjs ./scripts/lib/file-backed-secret.mjs
+COPY --chown=node:node scripts/lib/safe-file.mjs ./scripts/lib/safe-file.mjs
+COPY --chown=node:node scripts/lib/mysql-connection-config.mjs ./scripts/lib/mysql-connection-config.mjs
+COPY --chown=node:node scripts/service-fault-check.mjs ./scripts/service-fault-check.mjs
+COPY --chown=node:node scripts/service-fault-publish-notification.mjs ./scripts/service-fault-publish-notification.mjs
+COPY --chown=node:node scripts/service-fault-evidence-check.mjs ./scripts/service-fault-evidence-check.mjs
+COPY --chown=node:node scripts/service-fault-outbox-check.mjs ./scripts/service-fault-outbox-check.mjs
+COPY --chown=node:node scripts/service-fault-ocr-boundary-probe.mjs ./scripts/service-fault-ocr-boundary-probe.mjs
+COPY --chown=node:node scripts/task9-ocr-fixture.png ./scripts/task9-ocr-fixture.png
+COPY --chown=node:node scripts/phase3-runtime-confidence-check.mjs ./scripts/phase3-runtime-confidence-check.mjs
+COPY --chown=node:node scripts/phase3-rollback-guard.mjs ./scripts/phase3-rollback-guard.mjs
+COPY --chown=node:node scripts/internal-replay-grant-preflight.mjs ./scripts/internal-replay-grant-preflight.mjs
+COPY --chown=node:node scripts/worker-healthcheck.mjs ./scripts/worker-healthcheck.mjs
+COPY --chown=node:node scripts/staging-db-proxy.mjs ./scripts/staging-db-proxy.mjs
+COPY --chown=node:node scripts/staging-db-sql-executor.mjs ./scripts/staging-db-sql-executor.mjs
+COPY --chown=node:node scripts/staging-phase3-db-controller.mjs ./scripts/staging-phase3-db-controller.mjs
+COPY --chown=node:node src/services/gate6-approval-runtime.mjs ./src/services/gate6-approval-runtime.mjs
+COPY --chown=node:node scripts/lib/phase3-staging-evidence.mjs ./scripts/lib/phase3-staging-evidence.mjs
+COPY --chown=node:node scripts/lib/staging-action-plan.mjs ./scripts/lib/staging-action-plan.mjs
+COPY --chown=node:node scripts/lib/staging-operation-registry.mjs ./scripts/lib/staging-operation-registry.mjs
+COPY --chown=node:node scripts/phase3-publication-control.mjs ./scripts/phase3-publication-control.mjs
+EXPOSE 3000 3002 3003 3004 3005 3006
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "const port=process.env.HTTP_PORT||3000; fetch('http://127.0.0.1:'+port+'/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+USER node
+CMD ["node", "dist/app.js"]

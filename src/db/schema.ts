@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, datetime, index, int, mediumtext, mysqlTable, primaryKey, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, char, datetime, index, int, json, mediumtext, mysqlTable, primaryKey, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const teams = mysqlTable("teams", {
   id: int("id").autoincrement().primaryKey(),
@@ -282,6 +282,9 @@ export const notificationOutbox = mysqlTable("notification_outbox", {
   availableAt: datetime("available_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   lockedBy: varchar("locked_by", { length: 120 }),
   lockedUntil: datetime("locked_until"),
+  providerRequestId: varchar("provider_request_id", { length: 128 }),
+  providerStartedAt: datetime("provider_started_at"),
+  providerExecutionStartedAt: datetime("provider_execution_started_at"),
   sentAt: datetime("sent_at"),
   lastError: varchar("last_error", { length: 1000 }),
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -304,6 +307,36 @@ export const notificationDeliveries = mysqlTable("notification_deliveries", {
   finishedAt: datetime("finished_at"),
 }, (table) => ({
   outboxIdx: index("notification_deliveries_outbox_idx").on(table.outboxId),
+}));
+
+export const notificationProviderReconciliations = mysqlTable("notification_provider_reconciliations", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  outboxId: bigint("outbox_id", { mode: "number", unsigned: true }).notNull(),
+  providerRequestId: varchar("provider_request_id", { length: 128 }).notNull(),
+  providerStartedAt: datetime("provider_started_at").notNull(),
+  expectedStatus: varchar("expected_status", { length: 32 }).notNull(),
+  action: varchar("action", { length: 32 }).notNull(),
+  resultStatus: varchar("result_status", { length: 32 }).notNull(),
+  actorUserId: int("actor_user_id").notNull(),
+  actorUsername: varchar("actor_username", { length: 50 }).notNull(),
+  actorTeamId: int("actor_team_id"),
+  targetTeamId: int("target_team_id").notNull(),
+  evidenceReference: varchar("evidence_reference", { length: 255 }).notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  providerMessageId: varchar("provider_message_id", { length: 255 }),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  providerFenceIdx: uniqueIndex("npr_outbox_provider_fence_uidx").on(table.outboxId, table.providerRequestId, table.providerStartedAt),
+}));
+
+export const internalRequestReplays = mysqlTable("internal_request_replays", {
+  replayKey: char("replay_key", { length: 64 }).primaryKey(),
+  partitionName: varchar("partition_name", { length: 64 }).notNull(),
+  expiresAt: datetime("expires_at", { fsp: 3 }).notNull(),
+  createdAt: datetime("created_at", { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  partitionExpiresIdx: index("internal_request_replays_partition_expires_idx").on(table.partitionName, table.expiresAt),
+  expiresIdx: index("internal_request_replays_expires_idx").on(table.expiresAt),
 }));
 
 export const runtimeNodes = mysqlTable("runtime_nodes", {
@@ -350,3 +383,231 @@ export const appSettings = mysqlTable("app_settings", {
   createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const autoAcceptJobs = mysqlTable("auto_accept_jobs", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  idempotencyKey: varchar("idempotency_key", { length: 512 }).notNull(),
+  schemaVersion: int("schema_version").notNull().default(1),
+  teamId: int("team_id").notNull(),
+  cutoverEpoch: varchar("cutover_epoch", { length: 80 }),
+  publicationGeneration: bigint("publication_generation", { mode: "number" }),
+  bookingId: bigint("booking_id", { mode: "number" }).notNull(),
+  requestId: bigint("request_id", { mode: "number" }).notNull(),
+  ruleId: varchar("rule_id", { length: 255 }).notNull(),
+  attemptKind: varchar("attempt_kind", { length: 32 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  payloadJson: text("payload_json").notNull(),
+  claimOwner: varchar("claim_owner", { length: 120 }),
+  claimToken: varchar("claim_token", { length: 80 }),
+  claimedAt: datetime("claimed_at"),
+  claimExpiresAt: datetime("claim_expires_at"),
+  lastHeartbeatAt: datetime("last_heartbeat_at"),
+  attemptCount: int("attempt_count").notNull().default(0),
+  verifyCount: int("verify_count").notNull().default(0),
+  maxAttempts: int("max_attempts").notNull().default(3),
+  nextRunAt: datetime("next_run_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastError: varchar("last_error", { length: 1000 }),
+  lastReasonCode: varchar("last_reason_code", { length: 64 }),
+  winningAttemptTraceId: varchar("winning_attempt_trace_id", { length: 160 }),
+  resultStatus: varchar("result_status", { length: 32 }),
+  resultReasonCode: varchar("result_reason_code", { length: 64 }),
+  progressSettledAt: datetime("progress_settled_at"),
+  historyWrittenAt: datetime("history_written_at"),
+  notificationEnqueuedAt: datetime("notification_enqueued_at"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  completedAt: datetime("completed_at"),
+}, (table) => ({
+  idempotencyKeyUidx: uniqueIndex("aaj_idempotency_key_uidx").on(table.idempotencyKey),
+  claimableIdx: index("aaj_claimable_idx").on(table.status, table.nextRunAt, table.claimExpiresAt),
+  teamStatusIdx: index("aaj_team_status_idx").on(table.teamId, table.status),
+  claimOwnerIdx: index("aaj_claim_owner_idx").on(table.claimOwner, table.claimExpiresAt),
+  resultTraceIdx: index("aaj_result_trace_idx").on(table.winningAttemptTraceId),
+  teamEpochGenerationStatusIdx: index("aaj_team_epoch_generation_status_idx").on(table.teamId, table.cutoverEpoch, table.publicationGeneration, table.status),
+}));
+
+export const realtimeEvents = mysqlTable("realtime_events", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  eventId: varchar("event_id", { length: 255 }).notNull(),
+  idempotencyKey: varchar("idempotency_key", { length: 512 }),
+  eventType: varchar("event_type", { length: 64 }).notNull(),
+  payloadVersion: int("payload_version").notNull(),
+  envelopeVersion: int("envelope_version").notNull(),
+  scopeKind: varchar("scope_kind", { length: 16 }).notNull(),
+  teamId: int("team_id"),
+  subjectType: varchar("subject_type", { length: 64 }),
+  subjectId: varchar("subject_id", { length: 160 }),
+  sourceService: varchar("source_service", { length: 64 }).notNull(),
+  sourceNodeId: varchar("source_node_id", { length: 120 }).notNull(),
+  sourceRole: varchar("source_role", { length: 64 }).notNull(),
+  traceId: varchar("trace_id", { length: 160 }),
+  replayable: int("replayable").notNull().default(0),
+  payloadJson: text("payload_json").notNull(),
+  envelopeJson: text("envelope_json").notNull(),
+  emittedAt: datetime("emitted_at").notNull(),
+  receivedAt: datetime("received_at").notNull(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  eventIdUidx: uniqueIndex("realtime_events_event_id_uidx").on(table.eventId),
+  idempotencyKeyUidx: uniqueIndex("realtime_events_idempotency_key_uidx").on(table.idempotencyKey),
+  scopeTeamIdIdx: index("realtime_events_scope_team_id_idx").on(table.scopeKind, table.teamId, table.id),
+  typeReceivedIdx: index("realtime_events_type_received_idx").on(table.eventType, table.receivedAt),
+  sourceNodeReceivedIdx: index("realtime_events_source_node_received_idx").on(table.sourceNodeId, table.receivedAt),
+  replayableIdIdx: index("realtime_events_replayable_id_idx").on(table.replayable, table.id),
+  replayScopeIdIdx: index("realtime_events_replay_scope_id_idx").on(table.replayable, table.scopeKind, table.teamId, table.id),
+  replayCreatedIdIdx: index("realtime_events_replay_created_id_idx").on(table.replayable, table.createdAt, table.id),
+}));
+
+export const realtimeExecutionMetrics = mysqlTable("realtime_execution_metrics", {
+  teamId: int("team_id").notNull(),
+  sourceNodeId: varchar("source_node_id", { length: 120 }).notNull(),
+  generation: varchar("generation", { length: 128 }).notNull(),
+  startedAt: datetime("started_at", { fsp: 3 }).notNull(),
+  snapshotJson: json("snapshot_json").notNull(),
+  emittedAt: datetime("emitted_at", { fsp: 3 }).notNull(),
+  receivedAt: datetime("received_at", { fsp: 3 }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.teamId, table.sourceNodeId] }),
+  receivedIdx: index("realtime_execution_metrics_received_idx").on(table.receivedAt),
+}));
+
+export const realtimeMetricsReadModels = mysqlTable("realtime_metrics_read_models", {
+  teamId: int("team_id").primaryKey(),
+  sourceNodeId: varchar("source_node_id", { length: 120 }).notNull(),
+  snapshotJson: json("snapshot_json").notNull(),
+  emittedAt: datetime("emitted_at", { fsp: 3 }).notNull(),
+  receivedAt: datetime("received_at", { fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  receivedTeamIdx: index("realtime_metrics_read_models_received_team_idx").on(table.receivedAt, table.teamId),
+}));
+
+export const autoAcceptJobSettlements = mysqlTable("auto_accept_job_settlements", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  settlementKey: varchar("settlement_key", { length: 512 }).notNull(),
+  jobId: bigint("job_id", { mode: "number" }).notNull(),
+  teamId: int("team_id").notNull(),
+  bookingId: bigint("booking_id", { mode: "number" }).notNull(),
+  requestId: bigint("request_id", { mode: "number" }).notNull(),
+  ruleId: varchar("rule_id", { length: 255 }).notNull(),
+  settlementStep: varchar("settlement_step", { length: 32 }).notNull(),
+  sideEffectId: bigint("side_effect_id", { mode: "number" }),
+  metadataJson: text("metadata_json"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  completedAt: datetime("completed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  settlementKeyUidx: uniqueIndex("aajs_settlement_key_uidx").on(table.settlementKey),
+  jobStepUidx: uniqueIndex("aajs_job_step_uidx").on(table.jobId, table.settlementStep),
+  teamStepCompletedIdx: index("aajs_team_step_completed_idx").on(table.teamId, table.settlementStep, table.completedAt),
+}));
+
+export const gate6EnvironmentSlots = mysqlTable("gate6_environment_slots", {
+  environment: varchar("environment", { length: 32 }).primaryKey(),
+  ownerType: varchar("owner_type", { length: 32 }).notNull(),
+  ownerId: varchar("owner_id", { length: 128 }).notNull(),
+  operationId: varchar("operation_id", { length: 128 }).notNull(),
+  transferTokenSha256: varchar("transfer_token_sha256", { length: 64 }),
+  state: varchar("state", { length: 40 }).notNull(),
+  version: bigint("version", { mode: "number" }).notNull().default(1),
+  uncompensatedWork: int("uncompensated_work").notNull().default(0),
+  protectedInstallEvidenceSha256: varchar("protected_install_evidence_sha256", { length: 64 }).notNull(),
+  releaseSha: varchar("release_sha", { length: 40 }).notNull(),
+  targetDescriptorSha256: varchar("target_descriptor_sha256", { length: 64 }).notNull(),
+  operatorBundleSha256: varchar("operator_bundle_sha256", { length: 64 }).notNull(),
+  installedMigrationSetSha256: varchar("installed_migration_set_sha256", { length: 64 }).notNull(),
+  installedSchemaVersion: int("installed_schema_version").notNull(),
+  heartbeatAt: datetime("heartbeat_at").notNull(),
+  expiresAt: datetime("expires_at").notNull(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  ownerUidx: uniqueIndex("gate6_slot_owner_uq").on(table.ownerType, table.ownerId),
+  stateExpiryIdx: index("gate6_slot_state_expiry_idx").on(table.state, table.expiresAt),
+}));
+
+export const gate6Runs = mysqlTable("gate6_runs", {
+  gate6Id: varchar("gate6_id", { length: 128 }).primaryKey(),
+  gate6Nonce: varchar("gate6_nonce", { length: 128 }).notNull(),
+  envelopeSha256: varchar("envelope_sha256", { length: 64 }).notNull(),
+  envelopeCoreSha256: varchar("envelope_core_sha256", { length: 64 }).notNull(),
+  releaseEnvironment: varchar("release_environment", { length: 32 }).notNull(),
+  runtimeEnvironment: varchar("runtime_environment", { length: 32 }).notNull(),
+  drillMode: varchar("drill_mode", { length: 40 }).notNull(),
+  composeProject: varchar("compose_project", { length: 64 }).notNull(),
+  candidateSha: varchar("candidate_sha", { length: 40 }).notNull(),
+  candidateImageDigest: varchar("candidate_image_digest", { length: 80 }).notNull(),
+  rollbackSha: varchar("rollback_sha", { length: 40 }).notNull(),
+  rollbackImageDigest: varchar("rollback_image_digest", { length: 80 }).notNull(),
+  productionTargetDescriptorSha256: varchar("production_target_descriptor_sha256", { length: 64 }).notNull(),
+  operatorBundleSha256: varchar("operator_bundle_sha256", { length: 64 }).notNull(),
+  protectedInstallEvidenceSha256: varchar("protected_install_evidence_sha256", { length: 64 }).notNull(),
+  installedMigrationSetSha256: varchar("installed_migration_set_sha256", { length: 64 }).notNull(),
+  installedSchemaVersion: int("installed_schema_version").notNull(),
+  status: varchar("status", { length: 32 }).notNull(),
+  currentStage: varchar("current_stage", { length: 64 }).notNull(),
+  stageVersion: bigint("stage_version", { mode: "number" }).notNull().default(1),
+  acceptedCheckerName: varchar("accepted_checker_name", { length: 128 }),
+  acceptedCheckerSha256: varchar("accepted_checker_sha256", { length: 64 }),
+  revocationReasonCode: varchar("revocation_reason_code", { length: 80 }),
+  monitorStatus: varchar("monitor_status", { length: 16 }).notNull(),
+  monitorLeaseExpiresAt: datetime("monitor_lease_expires_at").notNull(),
+  supervisorStatus: varchar("supervisor_status", { length: 16 }).notNull(),
+  supervisorLeaseExpiresAt: datetime("supervisor_lease_expires_at").notNull(),
+  emergencySupervisorLeaseExpiresAt: datetime("emergency_supervisor_lease_expires_at").notNull(),
+  terminalEvidenceSha256: varchar("terminal_evidence_sha256", { length: 64 }),
+  expiresAt: datetime("expires_at").notNull(),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  envelopeUidx: uniqueIndex("gate6_runs_envelope_uq").on(table.envelopeSha256),
+  nonceUidx: uniqueIndex("gate6_runs_nonce_uq").on(table.gate6Nonce),
+  statusExpiryIdx: index("gate6_runs_status_expiry_idx").on(table.status, table.expiresAt),
+}));
+
+export const gate6Actions = mysqlTable("gate6_actions", {
+  gate6Id: varchar("gate6_id", { length: 128 }).notNull(),
+  scope: varchar("scope", { length: 128 }).notNull(),
+  actionId: varchar("action_id", { length: 128 }).notNull(),
+  approvalSha256: varchar("approval_sha256", { length: 64 }).notNull(),
+  allowedMutationSha256: varchar("allowed_mutation_sha256", { length: 64 }).notNull(),
+  kind: varchar("kind", { length: 24 }).notNull(),
+  pairedActionId: varchar("paired_action_id", { length: 128 }),
+  predecessorActionIdsJson: text("predecessor_action_ids_json").notNull(),
+  requiredStage: varchar("required_stage", { length: 64 }).notNull(),
+  requiredCheckerSha256: varchar("required_checker_sha256", { length: 64 }),
+  status: varchar("status", { length: 24 }).notNull(),
+  beforeEvidenceSha256: varchar("before_evidence_sha256", { length: 64 }),
+  afterEvidenceSha256: varchar("after_evidence_sha256", { length: 64 }),
+  expiresAt: datetime("expires_at").notNull(),
+  consumedAt: datetime("consumed_at"),
+  completedAt: datetime("completed_at"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  actionUidx: uniqueIndex("gate6_actions_id_uq").on(table.gate6Id, table.actionId),
+  statusExpiryIdx: index("gate6_actions_status_expiry_idx").on(table.gate6Id, table.status, table.expiresAt),
+}));
+
+export const gate6FaultPermits = mysqlTable("gate6_fault_permits", {
+  permitId: varchar("permit_id", { length: 128 }).primaryKey(),
+  gate6Id: varchar("gate6_id", { length: 128 }).notNull(),
+  scope: varchar("scope", { length: 128 }).notNull(),
+  actionId: varchar("action_id", { length: 128 }).notNull(),
+  service: varchar("service", { length: 32 }).notNull(),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  teamId: int("team_id").notNull(),
+  drillSha256: varchar("drill_sha256", { length: 64 }).notNull(),
+  targetSha256: varchar("target_sha256", { length: 64 }),
+  fixtureSha256: varchar("fixture_sha256", { length: 64 }),
+  signedPermitSha256: varchar("signed_permit_sha256", { length: 64 }).notNull(),
+  verificationKeyId: varchar("verification_key_id", { length: 128 }).notNull(),
+  status: varchar("status", { length: 24 }).notNull(),
+  expiresAt: datetime("expires_at").notNull(),
+  consumedAt: datetime("consumed_at"),
+  disarmedAt: datetime("disarmed_at"),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => ({
+  permitActionUidx: uniqueIndex("gate6_permit_action_uq").on(table.gate6Id, table.scope, table.actionId),
+  statusExpiryIdx: index("gate6_permit_status_expiry_idx").on(table.gate6Id, table.status, table.expiresAt),
+}));

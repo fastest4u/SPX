@@ -10,12 +10,14 @@ async function testRemoteLineServiceUsedWhenConfigured(): Promise<void> {
     requestTimeoutMs: 25,
     allowLocalFallback: false,
     sendRemoteLineMessage: async (_options, request) => {
+      assert.equal(request.providerRequestId, "request-42");
+      assert.equal(request.providerStartedAt, "2030-06-29 09:00:03");
       calls.push(`${request.targetId}:${request.text}:${request.outboxId}:${request.traceId}`);
       return { ok: true, providerMessageId: "line-msg-1", retryable: false };
     },
   });
 
-  assert.deepEqual(await sender("C123", "hello", { outboxId: 42, eventKey: "event-42" }), {
+  assert.deepEqual(await sender("C123", "hello", { outboxId: 42, eventKey: "event-42", providerRequestId: "request-42", providerStartedAt: "2030-06-29 09:00:03" }), {
     ok: true,
     providerMessageId: "line-msg-1",
     retryable: false,
@@ -77,6 +79,7 @@ async function testMissingLineServiceUrlWithoutFallbackFails(): Promise<void> {
     ok: false,
     error: "LINE_SERVICE_URL is required",
     retryable: false,
+    deliveryCertainty: "not_sent",
   });
 }
 

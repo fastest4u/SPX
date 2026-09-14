@@ -80,6 +80,7 @@ async function testSendsSignedOcrRequest(): Promise<void> {
       path: OCR_INTERNAL_READ_LINE_IMAGE_PATH,
       secret: sharedSecret,
       signature: signature ?? "",
+      requestId: capturedHeaders?.get("x-spx-request-id") ?? undefined,
       now: new Date(timestamp ?? ""),
     }),
     { ok: true },

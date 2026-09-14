@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import diagnosticsChannel from "node:diagnostics_channel";
 import { Agent } from "undici";
 import { env } from "../config/env.js";
@@ -105,4 +106,22 @@ try {
 /** Number of fresh TCP+TLS connections opened to the SPX upstream (handshakes). */
 export function getUpstreamConnectionCount(): number {
   return newConnectionCount;
+}
+
+/** Process-lifetime ownership survives team collector and dispatcher replacements. */
+const connectionPoolId = randomUUID();
+let upstreamRequestCount = 0;
+
+export interface UpstreamConnectionPoolObservation {
+  id: string;
+  requests: number;
+  connections: number;
+}
+
+export function recordUpstreamPoolRequest(): void {
+  upstreamRequestCount++;
+}
+
+export function upstreamConnectionPoolObservation(): UpstreamConnectionPoolObservation {
+  return { id: connectionPoolId, requests: upstreamRequestCount, connections: newConnectionCount };
 }

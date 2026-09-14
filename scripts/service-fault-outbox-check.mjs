@@ -5,9 +5,11 @@
 // payload JSON, DB credentials, or raw error text.
 
 import { createHash } from "node:crypto";
+import { mysqlScriptConnectionConfigFromEnv } from "./lib/mysql-connection-config.mjs";
+import { evaluateDeliveryCounts } from "./lib/task9-worker-evaluators.mjs";
 
 const DEFAULT_SINCE_MINUTES = 30;
-const PENDING_STATUSES = new Set(["queued", "failed", "sending"]);
+const PENDING_STATUSES = new Set(["queued", "failed", "sending", "provider_sending", "delivery_ambiguous"]);
 
 function argValue(name) {
   const prefix = `--${name}=`;
@@ -38,11 +40,16 @@ Options:
   --min-total=<count>               Require at least this many matching outbox rows.
   --expect-sent                     Require at least one sent row.
   --expect-failed-attempt           Require at least one failed attempt.
-  --max-pending=<count>             Require pending/retryable rows at or below this count.
+  --max-pending=<count>             Require unresolved rows (including ambiguous deliveries) at or below this count.
+
+Database credential:
+  Set exactly one of DB_PASSWORD or DB_PASSWORD_FILE. Mounted secret files are
+  read with bounded validation and neither the path nor value is printed.
+  Production also requires DB_SSL_MODE=verify-identity and DB_SSL_CA_FILE.
 
 Output:
   Prints checkedAt, mode, sinceMinutes, event-key hash, expectation flags,
-  missing DB env names, expectation failure names, and aggregate counts only.
+  database configuration codes, expectation failure names, and aggregate counts only.
 `;
 }
 
@@ -64,6 +71,15 @@ function parseNonNegativeInteger(name) {
     throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
+}
+
+function parseDeliveryPhase() {
+  const phase = argValue("delivery-phase");
+  if (phase === undefined) return null;
+  if (!["baseline", "line-down", "recovery"].includes(phase)) {
+    throw new Error("delivery-phase is invalid");
+  }
+  return phase;
 }
 
 function countValueToNumber(value) {
@@ -93,8 +109,12 @@ function summarizeRows(rows) {
     byStatus[status] = { count, attempted, minAttempts, maxAttempts };
     total += count;
     if (PENDING_STATUSES.has(status)) pending += count;
-    retriedRows += attempted;
-    if (status === "failed") failedAttempts += attempted;
+    // First successful delivery has attempts=1. Failed/ambiguous first attempts
+    // still count as outage evidence; SQL supplies exact counts for mixed groups.
+    retriedRows += row.retried === undefined
+      ? (status === "sent" && minAttempts === 1 && maxAttempts === 1 ? 0 : attempted)
+      : countValueToNumber(row.retried);
+    if (["failed", "failed_terminal", "delivery_ambiguous"].includes(status)) failedAttempts += attempted;
     if (status === "sent") sent += count;
   }
 
@@ -122,18 +142,8 @@ function evaluateExpectations(summary, options) {
 }
 
 function dbConfigFromEnv() {
-  const required = ["DB_HOST", "DB_USERNAME", "DB_PASSWORD", "DB_NAME"];
-  const missing = required.filter((name) => !process.env[name]);
-  return {
-    missing,
-    config: {
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USERNAME,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-    },
-  };
+  const result = mysqlScriptConnectionConfigFromEnv();
+  return { missing: result.missing, config: result.value };
 }
 
 function missingDbEnvForLiveProbe() {
@@ -197,6 +207,7 @@ async function loadRowsFromDb(options) {
           status,
           COUNT(*) AS count,
           SUM(CASE WHEN attempts > 0 THEN 1 ELSE 0 END) AS attempted,
+          SUM(CASE WHEN attempts > 1 OR status IN ('failed', 'failed_terminal', 'delivery_ambiguous') THEN 1 ELSE 0 END) AS retried,
           MIN(attempts) AS minAttempts,
           MAX(attempts) AS maxAttempts
         FROM notification_outbox
@@ -205,7 +216,24 @@ async function loadRowsFromDb(options) {
       `,
       params,
     );
-    return { rows, missingDbEnv: [] };
+    let delivery = null;
+    if (options.deliveryPhase) {
+      const eventKey = argValue("event-key-contains");
+      const [deliveryRows] = await connection.execute(
+        `
+          SELECT
+            COUNT(DISTINCT o.id) AS matchedOutboxRows,
+            COALESCE(SUM(CASE WHEN d.status IN ('success', 'reconciled_success') THEN 1 ELSE 0 END), 0) AS success,
+            COALESCE(SUM(CASE WHEN d.status IN ('failed', 'ambiguous', 'reconciled_not_sent') THEN 1 ELSE 0 END), 0) AS failed
+          FROM notification_outbox o
+          LEFT JOIN notification_deliveries d ON d.outbox_id = o.id
+          WHERE o.created_at >= ? AND o.event_key = ?
+        `,
+        [formatMysqlTimestamp(since), eventKey],
+      );
+      delivery = deliveryRows[0] ?? null;
+    }
+    return { rows, delivery, missingDbEnv: [] };
   } finally {
     await connection.end();
   }
@@ -219,6 +247,25 @@ function loadRowsFromFixture() {
   return parsed;
 }
 
+function loadDeliveryFromFixture() {
+  const fixtureJson = argValue("delivery-fixture-json");
+  if (!fixtureJson) return null;
+  const parsed = JSON.parse(fixtureJson);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("delivery-fixture-json must be an object");
+  }
+  return parsed;
+}
+
+function numericDelivery(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    matchedOutboxRows: countValueToNumber(value.matchedOutboxRows),
+    success: countValueToNumber(value.success),
+    failed: countValueToNumber(value.failed),
+  };
+}
+
 if (hasFlag("help")) {
   console.log(helpText());
   process.exit();
@@ -230,6 +277,7 @@ const options = {
   expectSent: hasFlag("expect-sent"),
   expectFailedAttempt: hasFlag("expect-failed-attempt"),
   maxPending: parseNonNegativeInteger("max-pending"),
+  deliveryPhase: parseDeliveryPhase(),
 };
 const eventKeyContains = argValue("event-key-contains");
 const hasFixtureJson = argValue("fixture-json") !== undefined;
@@ -270,6 +318,7 @@ if (hasFlag("dry-run")) {
 
 try {
   let rows = loadRowsFromFixture();
+  let deliveryRow = loadDeliveryFromFixture();
   let missingDbEnv = [];
   let mode = "fixture";
 
@@ -277,12 +326,25 @@ try {
     mode = "mysql";
     const dbResult = await loadRowsFromDb(options);
     rows = dbResult.rows;
+    deliveryRow = dbResult.delivery;
     missingDbEnv = dbResult.missingDbEnv;
   }
 
   const summary = summarizeRows(rows);
   const expectationFailures = missingDbEnv.length > 0 ? [] : evaluateExpectations(summary, options);
-  const ok = missingDbEnv.length === 0 && expectationFailures.length === 0;
+  const deliveryCounts = options.deliveryPhase ? numericDelivery(deliveryRow) : null;
+  const deliveryResult = options.deliveryPhase
+    ? evaluateDeliveryCounts(deliveryCounts, options.deliveryPhase)
+    : { ok: true, failures: [] };
+  const delivery = options.deliveryPhase
+    ? {
+        phase: options.deliveryPhase,
+        ...(deliveryCounts ?? { matchedOutboxRows: 0, success: 0, failed: 0 }),
+        failures: deliveryResult.failures,
+      }
+    : undefined;
+  const ok =
+    missingDbEnv.length === 0 && expectationFailures.length === 0 && deliveryResult.ok;
 
   printJson({
     ok,
@@ -294,6 +356,7 @@ try {
     missingDbEnv,
     expectationFailures,
     summary,
+    ...(delivery ? { delivery } : {}),
   });
 
   if (!ok) process.exitCode = 1;

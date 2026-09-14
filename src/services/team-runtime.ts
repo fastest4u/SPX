@@ -1,8 +1,10 @@
+import { teamMetricsCollector } from "./metrics.js";
 import { ApiClient } from "./api-client.js";
 import { env } from "../config/env.js";
 import { Poller } from "../controllers/poller.js";
 import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
+import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
 import { createTeamRuntimeSession, type TeamRuntimeSession } from "./provider-auth/runtime-session.js";
 
@@ -27,6 +29,8 @@ export interface TeamRuntimeHandle {
 
 export interface TeamRuntimeOptions {
   intervalSec?: number;
+  realtimePublisher?: RealtimePublisher;
+  realtimeSource?: RealtimeSource;
 }
 
 export class TeamRuntime implements TeamRuntimeHandle {
@@ -34,6 +38,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private readonly teamName: string;
   private readonly config: TeamRuntimeConfig;
   private readonly intervalSec: number | undefined;
+  private readonly realtimePublisher: RealtimePublisher | undefined;
+  private readonly realtimeSource: RealtimeSource | undefined;
   private poller: Poller | null = null;
   private providerSession: TeamRuntimeSession | null = null;
   private statusValue: TeamRuntimeStatusValue = "stopped";
@@ -45,6 +51,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
     this.teamId = config.id;
     this.teamName = config.name;
     this.intervalSec = options.intervalSec;
+    this.realtimePublisher = options.realtimePublisher;
+    this.realtimeSource = options.realtimeSource;
   }
 
   async start(): Promise<void> {
@@ -60,12 +68,15 @@ export class TeamRuntime implements TeamRuntimeHandle {
         spxCookie: this.config.spxCookie,
         spxDeviceId: this.config.spxDeviceId,
       });
+      const metricsCollector = teamMetricsCollector(this.teamId, this.teamName);
       const apiClient = new ApiClient({
+        metricsCollector,
         credentialsProvider: this.providerSession.credentials,
         pollIntervalMsProvider: () => this.intervalSec !== undefined ? this.intervalSec * 1000 : env.POLL_INTERVAL_MS,
         biddingVehicleType: this.config.biddingVehicleType,
       });
       const context: TeamPollerContext = {
+        metricsCollector,
         teamId: this.config.id,
         teamName: this.config.name,
         apiClient,
@@ -78,6 +89,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
         biddingVehicleType: this.config.biddingVehicleType,
         beforePoll: this.providerSession.beforePoll,
         onSessionRejected: this.providerSession.recover,
+        realtimePublisher: this.realtimePublisher,
+        realtimeSource: this.realtimeSource,
       };
       this.poller = new Poller(this.intervalSec, context);
       await this.poller.start();

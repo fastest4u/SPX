@@ -1,16 +1,26 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { createNotificationEventAndOutbox } from "../repositories/notification-repository.js";
 import { getTeamRuntimeConfig } from "../repositories/team-repository.js";
-import { verifyInternalSignature } from "../services/internal-auth.js";
+import {
+  InternalRequestReplayGuard,
+  type InternalRequestReplayStore,
+  type NodeSecretKeyRing,
+  verifyInternalNodeSignature,
+  verifyInternalSignature,
+} from "../services/internal-auth.js";
 import { metrics, type MetricsSnapshot } from "../services/metrics.js";
 import { normalizeNotificationEvent, type NormalizedNotificationEvent, type NotificationEventInput } from "../services/notification-events.js";
-import { recordRuntimeMetricsSnapshot, runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
-import { sseBroadcaster } from "../services/sse.js";
+import { normalizeRuntimeMetricsSnapshot, recordRuntimeMetricsSnapshot, runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
+import { createInProcessRealtimePublisher, type LegacyRealtimeEvent } from "../services/realtime-publisher.js";
+import type { RealtimePublisher } from "../services/realtime-contract.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 
 export interface InternalNotificationControllerOptions {
-  sharedSecret: string;
+  sharedSecret?: string;
   allowedNodes?: Map<string, Set<number>>;
+  realtimePublisher?: RealtimePublisher;
+  nodeSecrets?: ReadonlyMap<string, NodeSecretKeyRing>;
+  replayGuard?: InternalRequestReplayStore;
 }
 
 const notificationEventsPath = "/internal/notification-events";
@@ -31,6 +41,87 @@ function sendInvalidNotification(reply: FastifyReply, error: unknown): void {
     "INTERNAL_NOTIFICATION_INVALID",
     error instanceof Error ? error.message : "Invalid notification event",
   );
+}
+
+interface AuthenticatedNotificationRequest {
+  nodeId: string;
+  requestId?: string;
+  timestamp: string;
+}
+
+function authenticateInternalRequest(input: {
+  eventKey?: string;
+  options: InternalNotificationControllerOptions;
+  path: string;
+  rawBody: string;
+  request: FastifyRequest;
+  onPreviousKeyUsed: (nodeId: string) => void;
+}): AuthenticatedNotificationRequest | null {
+  const nodeId = firstHeader(input.request.headers["x-spx-node-id"]);
+  const timestamp = firstHeader(input.request.headers["x-spx-timestamp"]);
+  const signature = firstHeader(input.request.headers["x-spx-signature"]);
+  const requestId = firstHeader(input.request.headers["x-spx-request-id"]);
+  if (!nodeId || !timestamp || !signature) return null;
+
+  if (input.options.nodeSecrets?.size) {
+    if (!requestId) return null;
+    const verified = verifyInternalNodeSignature({
+      body: input.rawBody,
+      timestamp,
+      nodeId,
+      path: input.path,
+      nodeSecrets: input.options.nodeSecrets,
+      signature,
+      eventKey: input.eventKey,
+      requestId,
+      onKeyGeneration: (generation) => {
+        if (generation === "previous") input.onPreviousKeyUsed(nodeId);
+      },
+    });
+    return verified.ok ? { nodeId, requestId, timestamp } : null;
+  }
+
+  const secret = input.options.sharedSecret;
+  if (typeof secret !== "string" || secret.trim() === "") return null;
+  const verified = verifyInternalSignature({
+    body: input.rawBody,
+    timestamp,
+    nodeId,
+    path: input.path,
+    secret,
+    signature,
+    eventKey: input.eventKey,
+    requestId,
+  });
+  return verified.ok ? { nodeId, requestId, timestamp } : null;
+}
+
+async function consumeInternalRequest(input: {
+  authenticated: AuthenticatedNotificationRequest;
+  partition: "notification-events" | "runtime-metrics";
+  replayGuard: InternalRequestReplayStore;
+  reply: FastifyReply;
+}): Promise<boolean> {
+  if (!input.authenticated.requestId) return true;
+  const replay = await input.replayGuard.consume({
+    nodeId: input.authenticated.nodeId,
+    requestId: input.authenticated.requestId,
+    signedTimestamp: input.authenticated.timestamp,
+    partition: input.partition,
+  });
+  if (replay.ok) return true;
+  if (replay.reason === "capacity") {
+    sendError(input.reply, 429, "INTERNAL_REPLAY_CAPACITY", "Internal request capacity exceeded", {
+      retryable: true,
+    });
+  } else if (replay.reason === "replay") {
+    sendError(input.reply, 409, "INTERNAL_REPLAY_DETECTED", "Internal request was already processed", {
+      retryable: false,
+    });
+  } else {
+    sendInternalAuthFailed(input.reply);
+  }
+  return false;
 }
 
 function isNodeAllowed(allowedNodes: Map<string, Set<number>> | undefined, nodeId: string, teamId: number): boolean {
@@ -59,10 +150,24 @@ function parseMetricsSnapshot(rawBody: string): MetricsSnapshot {
   for (const key of ["polling", "data", "autoAccept", "operations", "runtime"] as const) {
     if (!isObject(parsed[key])) throw new Error(`Runtime metrics snapshot missing ${key}`);
   }
-  return parsed as unknown as MetricsSnapshot;
+  return normalizeRuntimeMetricsSnapshot(parsed);
 }
 
 export const internalNotificationController: FastifyPluginAsync<InternalNotificationControllerOptions> = async (app, options) => {
+  const realtimePublisher = options.realtimePublisher ?? createInProcessRealtimePublisher();
+  const replayGuard = options.replayGuard ?? new InternalRequestReplayGuard();
+  const onPreviousKeyUsed = (nodeId: string) => {
+    app.log.warn({ nodeId, boundary: "notification" }, "internal-hmac-previous-key-used");
+  };
+  const publishLegacy = (event: LegacyRealtimeEvent): void => {
+    try {
+      (realtimePublisher as RealtimePublisher & {
+        publishLegacy?: (event: LegacyRealtimeEvent) => void;
+      }).publishLegacy?.(event);
+    } catch {
+      // Legacy fan-out is best-effort; durable state was already recorded.
+    }
+  };
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
     done(null, body);
@@ -70,25 +175,20 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
 
   app.post("/notification-events", async (request: FastifyRequest, reply: FastifyReply) => {
     const rawBody = typeof request.body === "string" ? request.body : "";
-    const nodeId = firstHeader(request.headers["x-spx-node-id"]);
-    const timestamp = firstHeader(request.headers["x-spx-timestamp"]);
-    const signature = firstHeader(request.headers["x-spx-signature"]);
     const eventKey = firstHeader(request.headers["idempotency-key"]);
 
-    if (!nodeId || !timestamp || !signature || !eventKey) {
+    if (!eventKey) {
       return sendInternalAuthFailed(reply);
     }
-
-    const authResult = verifyInternalSignature({
-      body: rawBody,
-      timestamp,
-      nodeId,
-      path: notificationEventsPath,
-      secret: options.sharedSecret,
-      signature,
+    const authenticated = authenticateInternalRequest({
       eventKey,
+      options,
+      path: notificationEventsPath,
+      rawBody,
+      request,
+      onPreviousKeyUsed,
     });
-    if (!authResult.ok) {
+    if (!authenticated) {
       return sendInternalAuthFailed(reply);
     }
 
@@ -99,16 +199,22 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
       return sendInvalidNotification(reply, error);
     }
 
-    if (Number.isInteger(body.teamId) && !isNodeAllowed(options.allowedNodes, nodeId, body.teamId)) {
+    if (Number.isInteger(body.teamId) && !isNodeAllowed(options.allowedNodes, authenticated.nodeId, body.teamId)) {
       return sendError(reply, 403, "INTERNAL_NODE_TEAM_FORBIDDEN", "Node is not allowed to publish for this team");
     }
 
     let event: NormalizedNotificationEvent;
     try {
-      event = normalizeNotificationEvent(body, nodeId, eventKey);
+      event = normalizeNotificationEvent(body, authenticated.nodeId, eventKey);
     } catch (error) {
       return sendInvalidNotification(reply, error);
     }
+    if (!await consumeInternalRequest({
+      authenticated,
+      partition: "notification-events",
+      replayGuard,
+      reply,
+    })) return;
 
     const team = await getTeamRuntimeConfig(event.teamId);
     if (event.eventType.startsWith("rate_limit_") && !team?.rateLimitNotifyEnabled) {
@@ -134,23 +240,14 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
 
   app.post("/runtime-metrics", async (request: FastifyRequest, reply: FastifyReply) => {
     const rawBody = typeof request.body === "string" ? request.body : "";
-    const nodeId = firstHeader(request.headers["x-spx-node-id"]);
-    const timestamp = firstHeader(request.headers["x-spx-timestamp"]);
-    const signature = firstHeader(request.headers["x-spx-signature"]);
-
-    if (!nodeId || !timestamp || !signature) {
-      return sendInternalAuthFailed(reply);
-    }
-
-    const authResult = verifyInternalSignature({
-      body: rawBody,
-      timestamp,
-      nodeId,
+    const authenticated = authenticateInternalRequest({
+      options,
       path: runtimeMetricsPath,
-      secret: options.sharedSecret,
-      signature,
+      rawBody,
+      request,
+      onPreviousKeyUsed,
     });
-    if (!authResult.ok) {
+    if (!authenticated) {
       return sendInternalAuthFailed(reply);
     }
 
@@ -161,13 +258,19 @@ export const internalNotificationController: FastifyPluginAsync<InternalNotifica
       return sendError(reply, 400, "INTERNAL_RUNTIME_METRICS_INVALID", error instanceof Error ? error.message : "Invalid runtime metrics");
     }
 
-    if (typeof snapshot.teamId === "number" && !isNodeAllowed(options.allowedNodes, nodeId, snapshot.teamId)) {
+    if (typeof snapshot.teamId === "number" && !isNodeAllowed(options.allowedNodes, authenticated.nodeId, snapshot.teamId)) {
       return sendError(reply, 403, "INTERNAL_NODE_TEAM_FORBIDDEN", "Node is not allowed to publish for this team");
     }
+    if (!await consumeInternalRequest({
+      authenticated,
+      partition: "runtime-metrics",
+      replayGuard,
+      reply,
+    })) return;
 
-    const record = recordRuntimeMetricsSnapshot({ nodeId, snapshot });
-    sseBroadcaster.broadcast({ event: "metrics", teamId: snapshot.teamId as number, data: snapshot });
-    sseBroadcaster.broadcastAdmin({
+    const record = recordRuntimeMetricsSnapshot({ nodeId: authenticated.nodeId, snapshot });
+    publishLegacy({ event: "metrics", teamId: snapshot.teamId as number, data: snapshot });
+    publishLegacy({
       event: "metrics",
       data: runtimeMetricsSnapshotFor(metrics.snapshot(), null),
     });

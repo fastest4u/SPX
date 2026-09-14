@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spx.invalid/schemas/protected-install-evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseEnvironment",
+    "operationId",
+    "candidateSha",
+    "candidateImageDigest",
+    "rollbackSha",
+    "rollbackImageDigest",
+    "releaseManifestSha256",
+    "rollbackReleaseManifestSha256",
+    "productionTargetDescriptorSha256",
+    "releaseOperatorBundleSha256",
+    "installedOperatorBundleSha256",
+    "databaseFingerprint",
+    "beforeSchema",
+    "afterSchema",
+    "installedMigrationSetSha256",
+    "pendingReleasedMigrationCount",
+    "backupRestoreEvidenceSha256",
+    "backupSha256",
+    "onlineDdl",
+    "activatedServices",
+    "serviceActivationJournalSha256",
+    "positiveGrantProofSha256",
+    "forbiddenGrantProofSha256",
+    "bootstrapPrincipalEvidenceSha256",
+    "hostLock",
+    "databaseSlot",
+    "watchdog",
+    "healthEvidenceSha256",
+    "watermarkEvidenceSha256",
+    "rollbackReadinessSha256",
+    "finalLease",
+    "issuedAt",
+    "producer",
+    "signatureSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseEnvironment": { "const": "production" },
+    "operationId": { "$ref": "#/$defs/id" },
+    "candidateSha": { "$ref": "#/$defs/commitSha" },
+    "candidateImageDigest": { "$ref": "#/$defs/digest" },
+    "rollbackSha": { "$ref": "#/$defs/commitSha" },
+    "rollbackImageDigest": { "$ref": "#/$defs/digest" },
+    "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+    "rollbackReleaseManifestSha256": { "$ref": "#/$defs/sha256" },
+    "productionTargetDescriptorSha256": { "$ref": "#/$defs/sha256" },
+    "releaseOperatorBundleSha256": { "$ref": "#/$defs/sha256" },
+    "installedOperatorBundleSha256": { "$ref": "#/$defs/sha256" },
+    "databaseFingerprint": { "$ref": "#/$defs/digest" },
+    "beforeSchema": { "type": "integer", "minimum": 0 },
+    "afterSchema": { "type": "integer", "minimum": 1 },
+    "installedMigrationSetSha256": { "$ref": "#/$defs/sha256" },
+    "pendingReleasedMigrationCount": { "const": 0 },
+    "backupRestoreEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "backupSha256": { "$ref": "#/$defs/sha256" },
+    "onlineDdl": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "migration",
+          "migrationSha256",
+          "tableSizeBucket",
+          "algorithm",
+          "lock",
+          "implicitFallback",
+          "durationMs",
+          "maximumDurationMs",
+          "headroomMs",
+          "latencyBudgetPassed",
+          "ioBudgetPassed",
+          "connectionBudgetPassed",
+          "rehearsalMysqlVersion",
+          "budgetsPassed"
+        ],
+        "properties": {
+          "migration": { "type": "string", "pattern": "^[0-9]{3}_[a-z0-9_]+\\.sql$" },
+          "migrationSha256": { "$ref": "#/$defs/sha256" },
+          "tableSizeBucket": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "algorithm": { "enum": ["INSTANT", "INPLACE"] },
+          "lock": { "const": "NONE" },
+          "implicitFallback": { "const": false },
+          "durationMs": { "type": "number", "minimum": 0 },
+          "maximumDurationMs": { "type": "number", "minimum": 0 },
+          "headroomMs": { "type": "number", "minimum": 0 },
+          "latencyBudgetPassed": { "const": true },
+          "ioBudgetPassed": { "const": true },
+          "connectionBudgetPassed": { "const": true },
+          "rehearsalMysqlVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "budgetsPassed": { "const": true }
+        }
+      }
+    },
+    "activatedServices": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        { "const": "web-api" },
+        { "const": "notification-service" },
+        { "const": "line-service" },
+        { "const": "ocr-service" },
+        { "const": "worker-ifn-split" },
+        { "const": "worker-ptwl-split" }
+      ],
+      "items": false
+    },
+    "serviceActivationJournalSha256": { "$ref": "#/$defs/sha256" },
+    "positiveGrantProofSha256": { "$ref": "#/$defs/sha256" },
+    "forbiddenGrantProofSha256": { "$ref": "#/$defs/sha256" },
+    "bootstrapPrincipalEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "hostLock": { "$ref": "#/$defs/ownedLock" },
+    "databaseSlot": { "$ref": "#/$defs/ownedLock" },
+    "watchdog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "journalSha256",
+        "startedAt",
+        "firstMutationAt",
+        "lastHeartbeatAt",
+        "finalizedAt",
+        "startedBeforeMutation",
+        "continuous",
+        "terminal"
+      ],
+      "properties": {
+        "journalSha256": { "$ref": "#/$defs/sha256" },
+        "startedAt": { "$ref": "#/$defs/dateTime" },
+        "firstMutationAt": { "$ref": "#/$defs/dateTime" },
+        "lastHeartbeatAt": { "$ref": "#/$defs/dateTime" },
+        "finalizedAt": { "$ref": "#/$defs/dateTime" },
+        "startedBeforeMutation": { "const": true },
+        "continuous": { "const": true },
+        "terminal": { "const": true }
+      }
+    },
+    "healthEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "watermarkEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "rollbackReadinessSha256": { "$ref": "#/$defs/sha256" },
+    "finalLease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heartbeatAt", "expiresAt"],
+      "properties": {
+        "heartbeatAt": { "$ref": "#/$defs/dateTime" },
+        "expiresAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "issuedAt": { "$ref": "#/$defs/dateTime" },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "environment", "workflow", "workflowSha", "workflowFileSha256"],
+      "properties": {
+        "repository": { "const": "fastest4u/SPX" },
+        "environment": { "const": "production" },
+        "workflow": { "const": ".github/workflows/trusted-deploy.yml" },
+        "workflowSha": { "$ref": "#/$defs/commitSha" },
+        "workflowFileSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "signatureSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "ownedLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "state", "version"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/id" },
+        "state": { "const": "installed-awaiting-gate6" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

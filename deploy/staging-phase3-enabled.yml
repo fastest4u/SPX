@@ -1,0 +1,10 @@
+services:
+  auto-accept-ifn-phase3:
+    environment:
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "true"
+
+  auto-accept-ptwl-phase3:
+    environment:
+      AUTO_ACCEPT_JOB_REAL_WORKER_ENABLED: "true"
+      AUTO_ACCEPT_JOB_SETTLEMENT_WORKER_ENABLED: "true"

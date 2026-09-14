@@ -1,17 +1,189 @@
+import { listMergedRealtimeMetricsReadModels } from "../repositories/realtime-execution-metrics-repository.js";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import type { ServerResponse } from "node:http";
 import { metrics, type MetricsSnapshot } from "../services/metrics.js";
 import { getPool, getPoolStats } from "../db/client.js";
 import { getRecentMetricsSnapshots } from "../repositories/metrics-repository.js";
 import { sseBroadcaster } from "../services/sse.js";
+import type { RealtimePublisher, RealtimeSource, RealtimeScope } from "../services/realtime-contract.js";
+import type {
+  RealtimeReadGateway,
+  RealtimeReadRequestBody,
+  RealtimeStreamRelayResult,
+} from "../services/realtime-service-client.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { fetchLineQuota } from "../services/notifier.js";
-import { runtimeMetricsSnapshotFor } from "../services/runtime-metrics.js";
+import { runtimeMetricsSnapshotFor, runtimeMetricsSummaryReadModelFromRecords } from "../services/runtime-metrics.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "../services/authz.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "../services/poller-control.js";
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 import { buildServiceReadiness } from "../services/service-health.js";
+
+export interface DashboardControllerOptions {
+  realtimePublisher?: RealtimePublisher;
+  realtimeSource?: RealtimeSource;
+  realtimeReadGateway?: RealtimeReadGateway;
+}
+
+function defaultDashboardRealtimeSource(): RealtimeSource {
+  return {
+    service: "web-api",
+    nodeId: env.SPX_NODE_ID || "web-api",
+    role: env.SPX_ROLE,
+  };
+}
+
+type DashboardRealtimeScope = RealtimeScope;
+
+function realtimeScopeForUser(
+  user: AuthUser,
+  queryTeamId: number | null | undefined,
+): DashboardRealtimeScope | null {
+  const teamId = typeof queryTeamId === "number" ? queryTeamId : undefined;
+  if (user.role === "admin") {
+    return typeof teamId === "number"
+      ? { kind: "team", teamId }
+      : { kind: "admin" };
+  }
+  return typeof user.teamId === "number" ? { kind: "team", teamId: user.teamId } : null;
+}
+
+function isMetricsSnapshotShape(value: unknown): value is MetricsSnapshot {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Partial<MetricsSnapshot>;
+  return (
+    (candidate.teamId === null || typeof candidate.teamId === "number")
+    && typeof candidate.uptime === "number"
+    && candidate.polling !== null
+    && typeof candidate.polling === "object"
+    && typeof (candidate.polling as { totalRequests?: unknown }).totalRequests === "number"
+    && candidate.data !== null
+    && typeof candidate.data === "object"
+    && candidate.runtime !== null
+    && typeof candidate.runtime === "object"
+  );
+}
+
+/**
+ * Fail-closed validation of a remote metrics read model: the snapshot must be
+ * present, the freshness must not report the read model missing, and the
+ * snapshot must carry the full public shape. Anything else is a 503 instead of
+ * a partially invented dashboard value.
+ */
+function validatedRemoteMetricsSnapshot(summary: unknown): MetricsSnapshot {
+  if (summary === null || typeof summary !== "object") {
+    throw new Error("malformed metrics summary");
+  }
+  const candidate = summary as { metrics?: unknown; freshness?: { status?: unknown } };
+  if (candidate.freshness?.status === "missing") {
+    throw new Error("metrics read model is missing");
+  }
+  if (!isMetricsSnapshotShape(candidate.metrics)) {
+    throw new Error("malformed metrics snapshot");
+  }
+  return candidate.metrics;
+}
+
+const HISTORY_ROW_FIELDS = [
+  "id",
+  "teamId",
+  "uptime",
+  "totalRequests",
+  "successCount",
+  "errorCount",
+  "successRate",
+  "latencyAvg",
+  "latencyP95",
+  "latencyP99",
+  "totalRecordsSeen",
+  "changesDetected",
+  "tripsInserted",
+  "tripsSkipped",
+  "createdAt",
+] as const;
+
+/**
+ * History rows are projected onto a fixed allowlist so upstream internals
+ * (debug fields, secrets) can never reach the browser. Team scopes also
+ * reject cross-team rows rather than silently serving another team's data.
+ */
+function sanitizedHistoryRow(scope: DashboardRealtimeScope, row: unknown): Record<string, unknown> {
+  if (row === null || typeof row !== "object") {
+    throw new Error("malformed history row");
+  }
+  const source = row as Record<string, unknown>;
+  if (scope.kind === "team" && source.teamId !== scope.teamId) {
+    throw new Error("cross-team history row");
+  }
+  const result: Record<string, unknown> = {};
+  for (const field of HISTORY_ROW_FIELDS) {
+    result[field] = source[field] ?? null;
+  }
+  return result;
+}
+
+/**
+ * Relays a dashboard SSE subscription through the realtime read gateway.
+ * A browser that disconnects before the upstream connection is established
+ * must never receive writes on its destroyed response.
+ */
+export async function relayDashboardRealtimeStream(input: {
+  gateway: RealtimeReadGateway;
+  body: RealtimeReadRequestBody;
+  downstream: ServerResponse;
+}): Promise<RealtimeStreamRelayResult> {
+  if (input.downstream.destroyed || input.downstream.writableEnded) {
+    return { connected: false, status: 499 };
+  }
+  try {
+    return await input.gateway.relayStream({
+      body: input.body,
+      downstream: input.downstream,
+    });
+  } catch {
+    return { connected: false, status: 503 };
+  }
+}
+
+/**
+ * Publishes the canonical non-replayable team-scoped metrics snapshot first,
+ * then the legacy `metrics` SSE event. A canonical publisher failure is logged
+ * and suppresses the legacy event so callers never observe a partial
+ * dual-emission.
+ */
+export async function publishDashboardMetricsSnapshot(
+  teamId: number,
+  snapshot: MetricsSnapshot,
+  options: { publisher: RealtimePublisher; source?: RealtimeSource },
+): Promise<void> {
+  try {
+    await options.publisher.publish({
+      type: "metrics.snapshot",
+      payloadVersion: 1,
+      payload: snapshot,
+      source: options.source ?? defaultDashboardRealtimeSource(),
+      scope: { kind: "team", teamId },
+      subject: { type: "team", id: String(teamId), teamId },
+      replayable: false,
+    });
+    const legacyPublisher = options.publisher as RealtimePublisher & {
+      publishLegacy?: (event: { event: string; teamId: number; data: MetricsSnapshot }) => Promise<void> | void;
+    };
+    if (typeof legacyPublisher.publishLegacy === "function") {
+      await legacyPublisher.publishLegacy({ event: "metrics", teamId, data: snapshot });
+    } else {
+      sseBroadcaster.broadcast({ event: "metrics", teamId, data: snapshot });
+    }
+  } catch (error) {
+    logger.warn("dashboard-realtime-publish-failed", {
+      teamId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 interface AuthTokenLike {
   username?: string;
@@ -116,10 +288,10 @@ export function buildDashboardHealthResponse(snap: MetricsSnapshot): {
   };
 }
 
-export const dashboardController: FastifyPluginAsync = async (app) => {
+export const dashboardController: FastifyPluginAsync<DashboardControllerOptions> = async (app, options) => {
   // Public — load balancer + uptime checks. Returns service health, no internals.
   app.get("/health", async (_req, reply) => {
-    const health = buildDashboardHealthResponse(metrics.snapshot());
+    const health = buildDashboardHealthResponse(runtimeMetricsSnapshotFor(metrics.snapshot(), null));
     return sendSuccess(reply, health.data, undefined, health.statusCode);
   });
 
@@ -166,15 +338,67 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const user = await authenticate(req, reply);
       if (!user) return;
-      return sendSuccess(reply, snapshotForUser(user, parseOptionalTeamId(req.query.teamId)));
+      const scope = realtimeScopeForUser(user, parseOptionalTeamId(req.query.teamId));
+      if (!scope) {
+        return sendError(reply, 403, "TEAM_REQUIRED", "User has no assigned team", { retryable: false });
+      }
+      if (options.realtimeReadGateway) {
+        try {
+          const summary = await options.realtimeReadGateway.readMetrics({ scope });
+          return sendSuccess(reply, validatedRemoteMetricsSnapshot(summary));
+        } catch {
+          return sendError(reply, 503, "REALTIME_READ_UNAVAILABLE", "Realtime read service unavailable", { retryable: true });
+        }
+      }
+      if (scope.kind === "team") {
+        const record = (await listMergedRealtimeMetricsReadModels()).find(row => row.teamId === scope.teamId);
+        if (!record) {
+          return sendError(reply, 503, "REALTIME_READ_UNAVAILABLE", "Realtime read service unavailable", { retryable: true });
+        }
+        return sendSuccess(reply, record.snapshot);
+      }
+      return sendSuccess(reply, runtimeMetricsSummaryReadModelFromRecords(
+        snapshotForUser(user, undefined),
+        await listMergedRealtimeMetricsReadModels(),
+        null,
+        { expectedTeamIds: [], now: Date.now() },
+      ).metrics);
     },
   );
 
   app.get("/events", async (req, reply) => {
     const user = await authenticate(req, reply);
     if (!user) return;
+    const scope = realtimeScopeForUser(user, undefined);
+    if (!scope) {
+      return sendError(reply, 403, "TEAM_REQUIRED", "User has no assigned team", { retryable: false });
+    }
+    if (options.realtimeReadGateway) {
+      const lastEventId = Array.isArray(req.headers["last-event-id"])
+        ? req.headers["last-event-id"][0]
+        : req.headers["last-event-id"];
+      const body: RealtimeReadRequestBody = {
+        scope,
+        ...(typeof lastEventId === "string" && lastEventId.length > 0 ? { lastEventId } : {}),
+      };
+      const result = await relayDashboardRealtimeStream({
+        gateway: options.realtimeReadGateway,
+        body,
+        downstream: reply.raw,
+      });
+      if (!result.connected) {
+        return sendError(
+          reply,
+          result.status === 429 ? 429 : 503,
+          "REALTIME_STREAM_UNAVAILABLE",
+          "Realtime stream unavailable",
+          { retryable: result.status === 429 },
+        );
+      }
+      return;
+    }
     reply.hijack();
-    sseBroadcaster.addClient(reply.raw, { teamId: user.role === "admin" ? null : user.teamId });
+    void sseBroadcaster.addClient(reply.raw, { teamId: user.role === "admin" ? null : user.teamId });
   });
 
   app.get<{ Querystring: { limit?: number; teamId?: number | string } }>(
@@ -193,14 +417,27 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const user = await authenticate(req, reply);
       if (!user) return;
+      const limit = (req.query as { limit?: number }).limit ?? 100;
+      const scope = realtimeScopeForUser(
+        user,
+        user.role === "admin" ? parseOptionalTeamId(req.query.teamId) : undefined,
+      );
+      if (!scope) {
+        return sendError(reply, 403, "TEAM_REQUIRED", "User has no assigned team", { retryable: false });
+      }
+      if (options.realtimeReadGateway) {
+        try {
+          const rows = await options.realtimeReadGateway.readMetricsHistory({ scope, limit });
+          if (!Array.isArray(rows)) throw new Error("malformed history");
+          return sendSuccess(reply, rows.map((row) => sanitizedHistoryRow(scope, row)));
+        } catch {
+          return sendError(reply, 503, "REALTIME_READ_UNAVAILABLE", "Realtime read service unavailable", { retryable: true });
+        }
+      }
       try {
-        const limit = (req.query as { limit?: number }).limit ?? 100;
-        const scopedTeamId =
-          user.role === "admin"
-            ? parseOptionalTeamId(req.query.teamId)
-            : (user.teamId ?? undefined);
+        const scopedTeamId = scope.kind === "team" ? scope.teamId : undefined;
         const history = await getRecentMetricsSnapshots(limit, scopedTeamId);
-        return sendSuccess(reply, history);
+        return sendSuccess(reply, history.map((row) => sanitizedHistoryRow(scope, row)));
       } catch {
         return sendSuccess(reply, []);
       }
@@ -233,7 +470,15 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       if (teamId === null)
         return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
       pauseTeam(teamId);
-      sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+      const snapshot = { ...runtimeMetricsSnapshotFor(metrics.snapshot({ teamId }), teamId), isPaused: true };
+      if (options.realtimePublisher) {
+        await publishDashboardMetricsSnapshot(teamId, snapshot, {
+          publisher: options.realtimePublisher,
+          source: options.realtimeSource,
+        });
+      } else {
+        sseBroadcaster.broadcast({ event: "metrics", teamId, data: snapshot });
+      }
       await insertAuditLog(user.username, "Pause Team Poller", `Paused team ${teamId} polling`, {
         actorUserId: user.id,
         actorTeamId: user.teamId,
@@ -253,7 +498,15 @@ export const dashboardController: FastifyPluginAsync = async (app) => {
       if (teamId === null)
         return sendError(reply, 400, "TEAM_REQUIRED", "Admin requests must include teamId");
       resumeTeam(teamId);
-      sseBroadcaster.broadcast({ event: "metrics", teamId, data: metrics.snapshot({ teamId }) });
+      const snapshot = { ...runtimeMetricsSnapshotFor(metrics.snapshot({ teamId }), teamId), isPaused: false };
+      if (options.realtimePublisher) {
+        await publishDashboardMetricsSnapshot(teamId, snapshot, {
+          publisher: options.realtimePublisher,
+          source: options.realtimeSource,
+        });
+      } else {
+        sseBroadcaster.broadcast({ event: "metrics", teamId, data: snapshot });
+      }
       await insertAuditLog(user.username, "Resume Team Poller", `Resumed team ${teamId} polling`, {
         actorUserId: user.id,
         actorTeamId: user.teamId,

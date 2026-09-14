@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spx.internal/schemas/staging-rollout-envelope.schema.json",
+  "title": "SPX staging rollout approval envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "approvalId",
+    "stagingRunId",
+    "nonce",
+    "release",
+    "migrations",
+    "target",
+    "policy",
+    "actions",
+    "provenance",
+    "keyId",
+    "signatureAlgorithm",
+    "signedPayloadSha256",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "approvalId": { "$ref": "#/$defs/id" },
+    "stagingRunId": { "$ref": "#/$defs/id" },
+    "nonce": { "$ref": "#/$defs/id" },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateSha",
+        "candidateImageDigest",
+        "rollbackSha",
+        "rollbackImageDigest",
+        "releaseManifestSha256",
+        "rollbackReleaseManifestSha256",
+        "operatorBundleSha256"
+      ],
+      "properties": {
+        "candidateSha": { "$ref": "#/$defs/commitSha" },
+        "candidateImageDigest": { "$ref": "#/$defs/imageDigest" },
+        "rollbackSha": { "$ref": "#/$defs/commitSha" },
+        "rollbackImageDigest": { "$ref": "#/$defs/imageDigest" },
+        "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
+        "rollbackReleaseManifestSha256": { "$ref": "#/$defs/sha256" },
+        "operatorBundleSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/migration" }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "composeProject",
+        "database",
+        "targetDescriptorSha256",
+        "databaseTlsFingerprintSha256",
+        "providerTargetFingerprintsSha256"
+      ],
+      "properties": {
+        "environment": { "const": "staging" },
+        "composeProject": { "const": "spx-staging" },
+        "database": { "const": "spx_staging" },
+        "targetDescriptorSha256": { "$ref": "#/$defs/sha256" },
+        "databaseTlsFingerprintSha256": { "$ref": "#/$defs/sha256" },
+        "providerTargetFingerprintsSha256": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notBefore",
+        "expiresAt",
+        "maintenanceWindowId",
+        "sideEffectPolicy",
+        "evidencePolicy",
+        "thresholds",
+        "owners"
+      ],
+      "properties": {
+        "notBefore": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "maintenanceWindowId": { "$ref": "#/$defs/id" },
+        "sideEffectPolicy": { "const": "controlled-staging-only" },
+        "evidencePolicy": { "const": "sanitized-attested-only" },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maxCpuPercent",
+            "minMemoryFreeBytes",
+            "minMysqlConnectionsFree",
+            "productionP95LatencyMs",
+            "maxLatencyIncreasePercent"
+          ],
+          "properties": {
+            "maxCpuPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "minMemoryFreeBytes": { "type": "integer", "minimum": 0 },
+            "minMysqlConnectionsFree": { "type": "integer", "minimum": 0 },
+            "productionP95LatencyMs": { "type": "number", "minimum": 0 },
+            "maxLatencyIncreasePercent": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "owners": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rolloutOwner", "recoveryOwner"],
+          "properties": {
+            "rolloutOwner": { "$ref": "#/$defs/id" },
+            "recoveryOwner": { "$ref": "#/$defs/id" }
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 44,
+      "maxItems": 44,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "actionId", "scope", "kind", "mutationSha256"],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 1 },
+          "actionId": { "$ref": "#/$defs/id" },
+          "scope": { "$ref": "#/$defs/id" },
+          "kind": { "enum": ["forward", "compensation", "emergency"] },
+          "mutationSha256": { "$ref": "#/$defs/sha256" },
+          "compensatesActionId": { "$ref": "#/$defs/id" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "compensation" } }, "required": ["kind"] },
+            "then": { "required": ["compensatesActionId"] },
+            "else": { "not": { "required": ["compensatesActionId"] } }
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "workflow",
+        "workflowRef",
+        "workflowSha",
+        "jobWorkflowRef",
+        "jobWorkflowSha",
+        "workflowFileSha256",
+        "environment",
+        "issuer",
+        "audience",
+        "subject"
+      ],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "workflow": { "const": ".github/workflows/staging-rollout-signer.yml" },
+        "workflowRef": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "workflowSha": { "$ref": "#/$defs/commitSha" },
+        "jobWorkflowRef": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "jobWorkflowSha": { "$ref": "#/$defs/commitSha" },
+        "workflowFileSha256": { "$ref": "#/$defs/sha256" },
+        "environment": { "const": "staging" },
+        "issuer": { "const": "https://token.actions.githubusercontent.com" },
+        "audience": { "const": "spx-staging-rollout" },
+        "subject": {
+          "type": "string",
+          "pattern": "^repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:environment:staging$"
+        }
+      }
+    },
+    "keyId": { "$ref": "#/$defs/id" },
+    "signatureAlgorithm": { "const": "Ed25519" },
+    "signedPayloadSha256": { "$ref": "#/$defs/sha256" },
+    "signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+      "minLength": 86,
+      "maxLength": 88
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "sha256"],
+      "properties": {
+        "filename": { "type": "string", "pattern": "^[0-9]{3}_[a-z0-9_]+\\.sql$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

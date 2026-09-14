@@ -1,0 +1,136 @@
+name: Build immutable release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Operator-approved full source commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spx-release-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Validate exact candidate SHA
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout only the approved source SHA
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove checked-out HEAD identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --short --untracked-files=no)"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.16.0"
+          cache: npm
+
+      - name: Run clean candidate gates without signer permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+          node scripts/deployment-compatibility.mjs check dist/deployment-contract.json --require-protected-a3
+          test -z "$(git status --short --untracked-files=no)"
+
+      - name: Build deterministic environment-neutral candidate
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          umask 022
+          test ! -e unsigned-release
+          install -d -m 0755 unsigned-release
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf unsigned-release/spx-dist.tar dist
+          node scripts/build-operator-bundle.mjs build \
+            --root=. \
+            --topology=a3 \
+            --archive=unsigned-release/operator-bundle.tar \
+            --index=unsigned-release/operator-bundle.index.json
+          node scripts/create-release-manifest.mjs \
+            --stage=build \
+            --source-sha="${SOURCE_SHA}" \
+            --build-id="${BUILD_ID}" \
+            --artifact=unsigned-release/spx-dist.tar \
+            --operator-bundle=unsigned-release/operator-bundle.tar \
+            --schema-min=33 \
+            --migrations=migrations/released-checksums.json \
+            --output=unsigned-release/build-manifest.json
+
+      - name: Build the image exactly once and finalize its manifest
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="spx-app:${SOURCE_SHA}"
+          docker build \
+            --file Dockerfile.a3 \
+            --iidfile unsigned-release/image.iid \
+            --build-arg SPX_BUILD_MANIFEST=unsigned-release/build-manifest.json \
+            --build-arg SPX_SOURCE_SHA=${SOURCE_SHA} \
+            --tag "${IMAGE_TAG}" \
+            .
+          node scripts/create-release-manifest.mjs \
+            --stage=release \
+            --build-manifest=unsigned-release/build-manifest.json \
+            --iidfile=unsigned-release/image.iid \
+            --image-tag="${IMAGE_TAG}" \
+            --output=unsigned-release/release-manifest.json
+          test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "$(tr -d '\r\n' < unsigned-release/image.iid)"
+          docker save --output unsigned-release/spx-image.tar "${IMAGE_TAG}"
+          rm -f unsigned-release/image.iid
+
+      - name: Upload short-lived unsigned candidate for trusted verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: unsigned-spx-release-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: unsigned-release/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # BOOTSTRAP-DENY: replace the coordinated zero SHA only in the reviewed pin change.
+  sign-release:
+    needs: build-candidate
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    uses: fastest4u/SPX/.github/workflows/trusted-release-artifact.yml@0000000000000000000000000000000000000000
+    with:
+      source_sha: ${{ inputs.source_sha }}

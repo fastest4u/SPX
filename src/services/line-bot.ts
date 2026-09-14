@@ -17,6 +17,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile, chmod } from "no
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { resolveOutboundNodeSecret } from "./notification-publisher.js";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { env } from "../config/env.js";
@@ -894,7 +895,11 @@ function attachImageListener(c: LineJsClient): void {
         traceId: `${msg.to.id}:${startedAt}`,
         timeoutMs,
         ocrServiceUrl: env.OCR_SERVICE_URL,
-        sharedSecret: env.NOTIFIER_SHARED_SECRET,
+        sharedSecret: resolveOutboundNodeSecret({
+          nodeSecret: env.OCR_NODE_SECRET,
+          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+          nodeEnv: env.NODE_ENV,
+        }).secret,
         nodeId: env.SPX_NODE_ID || "combined-line-service",
         ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
       });

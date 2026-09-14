@@ -1,0 +1,199 @@
+name: Trusted immutable release signer
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Operator-approved candidate source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign-release:
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Verify immutable trusted signer identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${EXPECTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" = "${EXPECTED_WORKFLOW_SHA}"
+
+      - name: Checkout only immutable trusted verifier source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ job.workflow_sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup trusted Node runtime
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.16.0"
+
+      - name: Download only this run's unsigned candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: unsigned-spx-release-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate
+
+      - name: Enforce exact candidate file set
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(find candidate -type l -print -quit)"
+          node --input-type=module - <<'NODE'
+          import { readdirSync, statSync } from "node:fs";
+          const expected = ["build-manifest.json", "operator-bundle.index.json", "operator-bundle.tar", "release-manifest.json", "spx-dist.tar", "spx-image.tar"];
+          const actual = readdirSync("candidate").sort();
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("unsigned candidate file set mismatch");
+          for (const path of actual) if (!statSync(`candidate/${path}`).isFile()) throw new Error("unsigned candidate contains non-regular entry");
+          NODE
+
+      - name: Re-verify candidate with trusted release code
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          node trusted/scripts/build-operator-bundle.mjs verify-archive \
+            --archive=candidate/operator-bundle.tar \
+            --index=candidate/operator-bundle.index.json
+          node --experimental-strip-types --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          import { canonicalJson, finalizeReleaseManifest } from "./trusted/src/services/release-manifest.ts";
+          const read = (path) => readFileSync(path);
+          const parseCanonical = (path, label) => {
+            const bytes = read(path);
+            const value = JSON.parse(bytes.toString("utf8"));
+            if (!bytes.equals(Buffer.from(canonicalJson(value)))) throw new Error(`${label} is not canonical`);
+            return { bytes, value };
+          };
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const build = parseCanonical("candidate/build-manifest.json", "build manifest");
+          const release = parseCanonical("candidate/release-manifest.json", "release manifest");
+          const { imageId, imageTag, buildManifestSha256, ...buildFromRelease } = release.value;
+          const validated = finalizeReleaseManifest({ build: buildFromRelease, imageId, imageTag });
+          if (canonicalJson(validated) !== canonicalJson(release.value)) throw new Error("release manifest derived fields mismatch");
+          if (buildManifestSha256 !== sha256(build.bytes) || canonicalJson(build.value) !== canonicalJson(buildFromRelease)) throw new Error("build manifest cross-reference mismatch");
+          if (release.value.sourceSha !== process.env.SOURCE_SHA || release.value.buildId !== process.env.EXPECTED_BUILD_ID) throw new Error("release source or build identity mismatch");
+          if (release.value.artifactSha256 !== sha256(read("candidate/spx-dist.tar"))) throw new Error("dist artifact digest mismatch");
+          if (release.value.operatorBundleSha256 !== sha256(read("candidate/operator-bundle.tar"))) throw new Error("operator bundle digest mismatch");
+          const operatorIndex = parseCanonical("candidate/operator-bundle.index.json", "operator index").value;
+          const migrations = operatorIndex.files.filter((entry) => /^migrations\/\d{3}_[A-Za-z0-9_-]+\.sql$/.test(entry.path)).map((entry) => ({ name: entry.path.slice("migrations/".length), sha256: entry.sha256 }));
+          if (canonicalJson(migrations) !== canonicalJson(release.value.migrations)) throw new Error("operator migration set mismatch");
+          NODE
+
+      - name: Verify saved image identity without rebuilding
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_ID="$(node -p 'require(process.argv[1]).imageId' candidate/release-manifest.json)"
+          IMAGE_TAG="$(node -p 'require(process.argv[1]).imageTag' candidate/release-manifest.json)"
+          tar -xOf candidate/spx-image.tar manifest.json > candidate/image-archive-manifest.json
+          IMAGE_ID="${IMAGE_ID}" IMAGE_TAG="${IMAGE_TAG}" node -e '
+            const fs=require("node:fs");
+            const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            const config=`${process.env.IMAGE_ID.slice("sha256:".length)}.json`;
+            if(value.length!==1 || value[0].Config!==config || JSON.stringify(value[0].RepoTags)!==JSON.stringify([process.env.IMAGE_TAG]) || !Array.isArray(value[0].Layers) || value[0].Layers.length===0) throw new Error("image archive identity mismatch");
+          ' candidate/image-archive-manifest.json
+          rm -f candidate/image-archive-manifest.json
+          docker load --input candidate/spx-image.tar >/dev/null
+          test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "${IMAGE_ID}"
+
+      - name: Assemble final tuple with trusted bootstrap and index
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          umask 022
+          test ! -e release
+          install -d -m 0755 release/bootstrap/scripts/lib release/bootstrap/src/services
+          install -m 0444 candidate/* release/
+          install -m 0444 trusted/scripts/build-operator-bundle.mjs release/bootstrap/scripts/build-operator-bundle.mjs
+          install -m 0444 trusted/scripts/deployment-target-descriptor.mjs release/bootstrap/scripts/deployment-target-descriptor.mjs
+          install -m 0444 trusted/scripts/lib/safe-file.mjs release/bootstrap/scripts/lib/safe-file.mjs
+          install -m 0444 trusted/src/services/deployment-target-descriptor.ts release/bootstrap/src/services/deployment-target-descriptor.ts
+          install -m 0444 trusted/src/services/release-manifest.ts release/bootstrap/src/services/release-manifest.ts
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+          const files = [
+            "bootstrap/scripts/build-operator-bundle.mjs", "bootstrap/scripts/deployment-target-descriptor.mjs",
+            "bootstrap/scripts/lib/safe-file.mjs", "bootstrap/src/services/deployment-target-descriptor.ts",
+            "bootstrap/src/services/release-manifest.ts",
+            "build-manifest.json", "operator-bundle.index.json", "operator-bundle.tar",
+            "release-manifest.json", "spx-dist.tar", "spx-image.tar",
+          ];
+          const sha256 = (path) => createHash("sha256").update(readFileSync(`release/${path}`)).digest("hex");
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const index = canonical({
+            schemaVersion: 1,
+            repository: process.env.GITHUB_REPOSITORY,
+            sourceSha: process.env.SOURCE_SHA,
+            releaseRunId: process.env.RELEASE_RUN_ID,
+            releaseRunAttempt: process.env.RELEASE_RUN_ATTEMPT,
+            files: files.map((path) => ({ path, sha256: sha256(path), size: readFileSync(`release/${path}`).length })),
+          });
+          writeFileSync("release/release-artifact.index.json", JSON.stringify(index), { mode: 0o444, flag: "wx" });
+          NODE
+
+      - name: Attest every deployable subject
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: |
+            release/bootstrap/scripts/build-operator-bundle.mjs
+            release/bootstrap/scripts/deployment-target-descriptor.mjs
+            release/bootstrap/scripts/lib/safe-file.mjs
+            release/bootstrap/src/services/deployment-target-descriptor.ts
+            release/bootstrap/src/services/release-manifest.ts
+            release/build-manifest.json
+            release/operator-bundle.index.json
+            release/operator-bundle.tar
+            release/release-artifact.index.json
+            release/release-manifest.json
+            release/spx-dist.tar
+            release/spx-image.tar
+
+      - name: Upload one immutable signed release tuple
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: spx-release-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Record immutable artifact identity
+        shell: bash
+        env:
+          RELEASE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          RELEASE_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
+          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'release_artifact_id=%s\nrelease_artifact_digest=%s\n' \
+            "${RELEASE_ARTIFACT_ID}" "${RELEASE_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"

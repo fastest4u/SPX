@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SendLineMessageResult } from "./notification-dispatcher.js";
 import { signedJsonPost } from "./internal-service-client.js";
 import {
@@ -82,6 +83,7 @@ async function signedLineServicePost<TBody, TData>(
     url,
     sharedSecret: options.sharedSecret,
     nodeId: options.nodeId,
+    requestId: randomUUID(),
     body,
     eventKey,
     fetchImpl: options.fetchImpl,
@@ -115,11 +117,23 @@ export async function sendLineServiceMessage(
   );
 
   if (!result.ok) {
+    let confirmedNotSent = false;
+    try {
+      const error = JSON.parse(result.error) as { error_code?: string };
+      // Only endpoint failures that occur before provider execution prove non-delivery.
+      confirmedNotSent = ["LINE_SERVICE_UNAVAILABLE", "LINE_PROVIDER_FENCE_REQUIRED", "INTERNAL_AUTH_FAILED", "INTERNAL_LINE_INVALID"]
+        .includes(error.error_code ?? "");
+    } catch { /* Transport failures and unstructured responses remain ambiguous. */ }
     return {
       ok: false,
       error: result.error,
       retryable: result.retryable,
+      ...(confirmedNotSent ? { deliveryCertainty: "not_sent" as const } : {}),
     };
+  }
+
+  if (!result.data || result.data.sent !== true || result.data.provider !== "linejs") {
+    return { ok: false, error: "Invalid LINE delivery acknowledgement", retryable: false, deliveryCertainty: "ambiguous" };
   }
 
   return {

@@ -116,6 +116,24 @@ def validate_identity(container, team_id, node_id, runner):
         raise DeploymentError('worker identity does not match the designated team/node')
 
 
+def require_legacy_contract(contract):
+    if (not isinstance(contract, dict) or set(contract) != {'schemaVersion', 'mode'}
+            or type(contract.get('schemaVersion')) is not int or contract['schemaVersion'] != 1
+            or contract.get('mode') not in ('legacy', 'protected-a3')):
+        raise DeploymentError('missing or unsupported deployment contract')
+    if contract['mode'] != 'legacy':
+        raise DeploymentError('runtime requires the protected A3 installer; legacy worker deployment is disabled')
+
+
+def require_legacy_image(image_id, runner):
+    try:
+        contract = json.loads(runner(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat',
+                                     image_id, '/app/dist/deployment-contract.json']))
+    except (ValueError, DeploymentError) as error:
+        raise DeploymentError('image deployment contract could not be verified') from error
+    require_legacy_contract(contract)
+
+
 def preflight(root, team_id, service, node_id, bootstrap_sha, runner=run_command):
     root = Path(root).resolve()
     if team_id < 1 or not re.fullmatch(r'worker-[a-z0-9-]+', service) or not re.fullmatch(r'[A-Za-z0-9_-]+', node_id):
@@ -188,6 +206,7 @@ def deploy_worker(root, release_dir, team_id, service, node_id, expected_commit,
     manifest = json.loads((release / 'manifest.json').read_text())
     if not re.fullmatch(r'[a-f0-9]{40}', expected_commit) or manifest.get('commit') != expected_commit:
         raise DeploymentError('release commit does not match this workflow')
+    require_legacy_contract(manifest.get('deploymentContract'))
     image_id = manifest.get('imageId', '')
     if not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
         raise DeploymentError('invalid release image identity')
@@ -199,6 +218,7 @@ def deploy_worker(root, release_dir, team_id, service, node_id, expected_commit,
     _, previous_image, previous_tag, previous_state, fingerprints = preflight(
         root, team_id, service, node_id, bootstrap_sha, runner)
     if previous_state and previous_state.get('commit') == expected_commit and previous_image == image_id:
+        require_legacy_image(image_id, runner)
         wait_ready(root, service, team_id, node_id, image_id, runner, sleep, health_attempts)
         return previous_state
 
@@ -210,6 +230,7 @@ def deploy_worker(root, release_dir, team_id, service, node_id, expected_commit,
                      image_id, '/app/dist/app.js']).split()
     if not bundle or bundle[0] != manifest['bundleSha256']:
         raise DeploymentError('loaded image bundle checksum mismatch')
+    require_legacy_image(image_id, runner)
     tag = f'spx-app:ci-{expected_commit}-{image_id[7:19]}'
     runner(['docker', 'tag', image_id, tag])
     runner(['docker', 'tag', previous_image, f'spx-app:rollback-team-{team_id}-{expected_commit}'])

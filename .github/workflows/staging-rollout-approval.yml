@@ -1,0 +1,73 @@
+name: Approve Staging Rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact 40-character release commit SHA
+        required: true
+        type: string
+      rollback_sha:
+        description: Exact 40-character rollback release commit SHA
+        required: true
+        type: string
+      release_run_id:
+        description: Workflow run containing the immutable release artifact
+        required: true
+        type: string
+      release_artifact_id:
+        description: Immutable numeric release artifact ID
+        required: true
+        type: string
+      rollback_release_run_id:
+        description: Workflow run containing the immutable rollback release artifact
+        required: true
+        type: string
+      rollback_release_artifact_id:
+        description: Immutable numeric rollback release artifact ID
+        required: true
+        type: string
+      target_descriptor_run_id:
+        description: Workflow run containing the attested A3 target descriptor
+        required: true
+        type: string
+      target_descriptor_artifact_id:
+        description: Immutable numeric target descriptor artifact ID
+        required: true
+        type: string
+      unsigned_envelope_run_id:
+        description: Workflow run containing the reviewed unsigned envelope
+        required: true
+        type: string
+      unsigned_envelope_artifact_id:
+        description: Immutable numeric unsigned envelope artifact ID
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: spx-staging-a3
+  cancel-in-progress: false
+
+jobs:
+  # BOOTSTRAP-DENY: replace the coordinated zero SHA only in the reviewed pin change.
+  sign:
+    name: Sign and attest reviewed staging actions
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    uses: fastest4u/SPX/.github/workflows/staging-rollout-signer.yml@0000000000000000000000000000000000000000
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      rollback_sha: ${{ inputs.rollback_sha }}
+      release_run_id: ${{ inputs.release_run_id }}
+      release_artifact_id: ${{ inputs.release_artifact_id }}
+      rollback_release_run_id: ${{ inputs.rollback_release_run_id }}
+      rollback_release_artifact_id: ${{ inputs.rollback_release_artifact_id }}
+      target_descriptor_run_id: ${{ inputs.target_descriptor_run_id }}
+      target_descriptor_artifact_id: ${{ inputs.target_descriptor_artifact_id }}
+      unsigned_envelope_run_id: ${{ inputs.unsigned_envelope_run_id }}
+      unsigned_envelope_artifact_id: ${{ inputs.unsigned_envelope_artifact_id }}

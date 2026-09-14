@@ -5,6 +5,15 @@ import { env } from "../config/env.js";
 import * as schema from "./schema.js";
 import { autoAcceptVerificationJobsMigrationSql } from "./migration-sql.js";
 import { getMemoryDb, closeMemoryDb } from "./client-memory.js";
+import { runtimeSchemaMutationsAllowed, verifyRuntimeSchemaReady } from "./runtime-schema-readiness.js";
+import { buildMysqlPoolOptions } from "./mysql-pool-options.js";
+
+async function ensureReleasedRuntimeSchema(): Promise<void> {
+  const pool = getPool();
+  if (pool) {
+    await verifyRuntimeSchemaReady(pool);
+  }
+}
 
 // Use any for DB type to allow both MySQL and SQLite Drizzle instances
 // This is acceptable since both have the same API surface (select, insert, update, delete)
@@ -23,27 +32,16 @@ function createPool(): Pool | null {
     throw new Error("Missing DB configuration in .env");
   }
 
-  const pool = mysql.createPool({
+  const pool = mysql.createPool(buildMysqlPoolOptions({
     host: env.DB_HOST,
     port: env.DB_PORT,
     user: env.DB_USERNAME,
     password: env.DB_PASSWORD,
     database: env.DB_NAME,
-    charset: "utf8mb4",
-    connectionLimit: 10,
-    waitForConnections: true,
-    queueLimit: 0,
-    // Explicit connection-establishment bound and idle-socket death
-    // detection (keepalive probes start after 10s idle instead of the OS
-    // default). Note: none of these bound an *in-flight* query on a
-    // black-holed link — that needs a per-query deadline at the call site
-    // (tracked follow-up for the hot-path jwt_blacklist lookup).
-    connectTimeout: 10_000,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10_000,
-    timezone: DB_TIMEZONE,
-    dateStrings: true,
-  });
+    sslMode: env.DB_SSL_MODE || "disabled",
+    sslCaFile: env.DB_SSL_CA_FILE,
+    sslServername: env.DB_SSL_SERVERNAME,
+  }));
 
   pool.on("connection", (connection) => {
     connection.query(`SET time_zone = '${DB_TIMEZONE}'`);
@@ -159,6 +157,13 @@ export async function ensureSpxBookingHistoryTable(): Promise<void> {
     return;
   }
 
+  const pool = getPool();
+  if (pool && !runtimeSchemaMutationsAllowed()) {
+    await ensureReleasedRuntimeSchema();
+    initialized = true;
+    return;
+  }
+
   initializationPromise = createSpxBookingHistoryTable();
 
   try {
@@ -178,6 +183,13 @@ export async function ensureDashboardTables(): Promise<void> {
 
   if (dashboardTablesInitializationPromise) {
     await dashboardTablesInitializationPromise;
+    return;
+  }
+
+  const pool = getPool();
+  if (pool && !runtimeSchemaMutationsAllowed()) {
+    await ensureReleasedRuntimeSchema();
+    dashboardTablesInitialized = true;
     return;
   }
 
@@ -230,6 +242,11 @@ async function createSpxBookingHistoryTable(): Promise<void> {
 async function createDashboardTables(): Promise<void> {
   const pool = getPool();
   if (!pool) return; // Skip in memory mode
+  if (!runtimeSchemaMutationsAllowed()) {
+    // Production roles run migrations from the release, not from DDL here.
+    await ensureReleasedRuntimeSchema();
+    return;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS teams (
@@ -389,6 +406,37 @@ async function createDashboardTables(): Promise<void> {
       KEY aah_trace_id_idx (trace_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await pool.query(`
+CREATE TABLE IF NOT EXISTS notification_provider_reconciliations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  outbox_id BIGINT UNSIGNED NOT NULL,
+  provider_request_id VARCHAR(128) NOT NULL,
+  provider_started_at DATETIME NOT NULL,
+  expected_status VARCHAR(32) NOT NULL,
+  action VARCHAR(32) NOT NULL,
+  result_status VARCHAR(32) NOT NULL,
+  actor_user_id INT NOT NULL,
+  actor_username VARCHAR(50) NOT NULL,
+  actor_team_id INT NULL,
+  target_team_id INT NOT NULL,
+  evidence_reference VARCHAR(255) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  provider_message_id VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY npr_outbox_provider_fence_uidx (outbox_id, provider_request_id, provider_started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  `);
+  await pool.query(`
+CREATE TABLE IF NOT EXISTS internal_request_replays (
+  replay_key CHAR(64) NOT NULL,
+  partition_name VARCHAR(64) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (replay_key),
+  KEY internal_request_replays_partition_expires_idx (partition_name, expires_at),
+  KEY internal_request_replays_expires_idx (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+`);
   await pool.query(autoAcceptVerificationJobsMigrationSql);
   await ensureMysqlColumn(pool, "auto_accept_history", "team_id", "ALTER TABLE auto_accept_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
   await ensureMysqlColumn(pool, "auto_accept_history", "failure_reason", "ALTER TABLE auto_accept_history ADD COLUMN failure_reason VARCHAR(64) NULL AFTER error_message");
@@ -482,6 +530,9 @@ async function createDashboardTables(): Promise<void> {
       available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       locked_by VARCHAR(120) NULL,
       locked_until DATETIME NULL,
+      provider_request_id VARCHAR(128) NULL,
+      provider_started_at DATETIME NULL,
+      provider_execution_started_at DATETIME NULL,
       sent_at DATETIME NULL,
       last_error VARCHAR(1000) NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -492,6 +543,9 @@ async function createDashboardTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await ensureMysqlColumn(pool, "notification_outbox", "locked_by", "ALTER TABLE notification_outbox ADD COLUMN locked_by VARCHAR(120) NULL AFTER available_at");
+  await ensureMysqlColumn(pool, "notification_outbox", "provider_request_id", "ALTER TABLE notification_outbox ADD COLUMN provider_request_id VARCHAR(128) NULL");
+  await ensureMysqlColumn(pool, "notification_outbox", "provider_started_at", "ALTER TABLE notification_outbox ADD COLUMN provider_started_at DATETIME NULL");
+  await ensureMysqlColumn(pool, "notification_outbox", "provider_execution_started_at", "ALTER TABLE notification_outbox ADD COLUMN provider_execution_started_at DATETIME NULL");
   await ensureMysqlColumn(pool, "notification_outbox", "locked_until", "ALTER TABLE notification_outbox ADD COLUMN locked_until DATETIME NULL AFTER locked_by");
   await ensureMysqlColumn(pool, "notification_outbox", "sent_at", "ALTER TABLE notification_outbox ADD COLUMN sent_at DATETIME NULL AFTER locked_until");
   await ensureMysqlColumn(pool, "notification_outbox", "last_error", "ALTER TABLE notification_outbox ADD COLUMN last_error VARCHAR(1000) NULL AFTER sent_at");
@@ -633,11 +687,278 @@ async function createDashboardTables(): Promise<void> {
   await ensureMysqlIndex(pool, "auto_accept_results", "aar_trace_idx", "ALTER TABLE auto_accept_results ADD INDEX aar_trace_idx (winning_attempt_trace_id)");
 
   await pool!.query(`
+    CREATE TABLE IF NOT EXISTS auto_accept_job_settlements (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      settlement_key VARCHAR(512) NOT NULL,
+      job_id BIGINT UNSIGNED NOT NULL,
+      team_id INT NOT NULL,
+      booking_id BIGINT UNSIGNED NOT NULL,
+      request_id BIGINT UNSIGNED NOT NULL,
+      rule_id VARCHAR(255) NOT NULL,
+      settlement_step VARCHAR(32) NOT NULL,
+      side_effect_id BIGINT UNSIGNED NULL,
+      metadata_json TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY aajs_settlement_key_uidx (settlement_key),
+      UNIQUE KEY aajs_job_step_uidx (job_id, settlement_step),
+      KEY aajs_team_step_completed_idx (team_id, settlement_step, completed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool!.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
       setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
       setting_value VARCHAR(4000) NOT NULL DEFAULT '',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS metrics_snapshots (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL DEFAULT 1,
+      uptime INT NOT NULL,
+      total_requests INT NOT NULL DEFAULT 0,
+      success_count INT NOT NULL DEFAULT 0,
+      error_count INT NOT NULL DEFAULT 0,
+      success_rate VARCHAR(10) NOT NULL DEFAULT '0',
+      latency_avg INT NOT NULL DEFAULT 0,
+      latency_p95 INT NOT NULL DEFAULT 0,
+      latency_p99 INT NOT NULL DEFAULT 0,
+      total_records_seen INT NOT NULL DEFAULT 0,
+      changes_detected INT NOT NULL DEFAULT 0,
+      trips_inserted INT NOT NULL DEFAULT 0,
+      trips_skipped INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY metrics_created_at_idx (created_at),
+      KEY metrics_team_created_at_idx (team_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auto_accept_jobs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      idempotency_key VARCHAR(512) NOT NULL,
+      schema_version INT NOT NULL DEFAULT 1,
+      team_id INT NOT NULL,
+      cutover_epoch VARCHAR(80) NULL,
+      publication_generation BIGINT UNSIGNED NULL,
+      booking_id BIGINT UNSIGNED NOT NULL,
+      request_id BIGINT UNSIGNED NOT NULL,
+      rule_id VARCHAR(255) NOT NULL,
+      attempt_kind VARCHAR(32) NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'pending',
+      payload_json TEXT NOT NULL,
+      claim_owner VARCHAR(120) NULL,
+      claim_token VARCHAR(80) NULL,
+      claimed_at DATETIME NULL,
+      claim_expires_at DATETIME NULL,
+      last_heartbeat_at DATETIME NULL,
+      attempt_count INT NOT NULL DEFAULT 0,
+      verify_count INT NOT NULL DEFAULT 0,
+      max_attempts INT NOT NULL DEFAULT 3,
+      next_run_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_error VARCHAR(1000) NULL,
+      last_reason_code VARCHAR(64) NULL,
+      winning_attempt_trace_id VARCHAR(160) NULL,
+      result_status VARCHAR(32) NULL,
+      result_reason_code VARCHAR(64) NULL,
+      progress_settled_at DATETIME NULL,
+      history_written_at DATETIME NULL,
+      notification_enqueued_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      completed_at DATETIME NULL,
+      UNIQUE KEY aaj_idempotency_key_uidx (idempotency_key),
+      KEY aaj_claimable_idx (status, next_run_at, claim_expires_at),
+      KEY aaj_team_status_idx (team_id, status),
+      KEY aaj_claim_owner_idx (claim_owner, claim_expires_at),
+      KEY aaj_result_trace_idx (winning_attempt_trace_id),
+      KEY aaj_team_epoch_generation_status_idx (team_id, cutover_epoch, publication_generation, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate6_environment_slots (
+      environment VARCHAR(32) NOT NULL,
+      owner_type VARCHAR(32) NOT NULL,
+      owner_id VARCHAR(128) NOT NULL,
+      operation_id VARCHAR(128) NOT NULL,
+      transfer_token_sha256 CHAR(64) NULL,
+      state VARCHAR(40) NOT NULL,
+      version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+      uncompensated_work TINYINT(1) NOT NULL DEFAULT 0,
+      protected_install_evidence_sha256 CHAR(64) NOT NULL,
+      release_sha CHAR(40) NOT NULL,
+      target_descriptor_sha256 CHAR(64) NOT NULL,
+      operator_bundle_sha256 CHAR(64) NOT NULL,
+      installed_migration_set_sha256 CHAR(64) NOT NULL,
+      installed_schema_version INT UNSIGNED NOT NULL,
+      heartbeat_at DATETIME(3) NOT NULL,
+      expires_at DATETIME(3) NOT NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (environment),
+      UNIQUE KEY gate6_slot_owner_uq (owner_type, owner_id),
+      KEY gate6_slot_state_expiry_idx (state, expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate6_runs (
+      gate6_id VARCHAR(128) NOT NULL,
+      gate6_nonce VARCHAR(128) NOT NULL,
+      envelope_sha256 CHAR(64) NOT NULL,
+      envelope_core_sha256 CHAR(64) NOT NULL,
+      release_environment VARCHAR(32) NOT NULL,
+      runtime_environment VARCHAR(32) NOT NULL,
+      drill_mode VARCHAR(40) NOT NULL,
+      compose_project VARCHAR(64) NOT NULL,
+      candidate_sha CHAR(40) NOT NULL,
+      candidate_image_digest VARCHAR(80) NOT NULL,
+      rollback_sha CHAR(40) NOT NULL,
+      rollback_image_digest VARCHAR(80) NOT NULL,
+      production_target_descriptor_sha256 CHAR(64) NOT NULL,
+      operator_bundle_sha256 CHAR(64) NOT NULL,
+      protected_install_evidence_sha256 CHAR(64) NOT NULL,
+      installed_migration_set_sha256 CHAR(64) NOT NULL,
+      installed_schema_version INT UNSIGNED NOT NULL,
+      status VARCHAR(32) NOT NULL,
+      current_stage VARCHAR(64) NOT NULL,
+      stage_version BIGINT UNSIGNED NOT NULL DEFAULT 1,
+      accepted_checker_name VARCHAR(128) NULL,
+      accepted_checker_sha256 CHAR(64) NULL,
+      revocation_reason_code VARCHAR(80) NULL,
+      monitor_status VARCHAR(16) NOT NULL,
+      monitor_lease_expires_at DATETIME(3) NOT NULL,
+      supervisor_status VARCHAR(16) NOT NULL,
+      supervisor_lease_expires_at DATETIME(3) NOT NULL,
+      emergency_supervisor_lease_expires_at DATETIME(3) NOT NULL,
+      terminal_evidence_sha256 CHAR(64) NULL,
+      expires_at DATETIME(3) NOT NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (gate6_id),
+      UNIQUE KEY gate6_runs_envelope_uq (envelope_sha256),
+      UNIQUE KEY gate6_runs_nonce_uq (gate6_nonce),
+      KEY gate6_runs_status_expiry_idx (status, expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate6_actions (
+      gate6_id VARCHAR(128) NOT NULL,
+      scope VARCHAR(128) NOT NULL,
+      action_id VARCHAR(128) NOT NULL,
+      approval_sha256 CHAR(64) NOT NULL,
+      allowed_mutation_sha256 CHAR(64) NOT NULL,
+      kind VARCHAR(24) NOT NULL,
+      paired_action_id VARCHAR(128) NULL,
+      predecessor_action_ids_json JSON NOT NULL,
+      required_stage VARCHAR(64) NOT NULL,
+      required_checker_sha256 CHAR(64) NULL,
+      status VARCHAR(24) NOT NULL,
+      before_evidence_sha256 CHAR(64) NULL,
+      after_evidence_sha256 CHAR(64) NULL,
+      expires_at DATETIME(3) NOT NULL,
+      consumed_at DATETIME(3) NULL,
+      completed_at DATETIME(3) NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (gate6_id, scope, action_id),
+      UNIQUE KEY gate6_actions_id_uq (gate6_id, action_id),
+      KEY gate6_actions_status_expiry_idx (gate6_id, status, expires_at),
+      CONSTRAINT gate6_actions_run_fk FOREIGN KEY (gate6_id) REFERENCES gate6_runs (gate6_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate6_fault_permits (
+      permit_id VARCHAR(128) NOT NULL,
+      gate6_id VARCHAR(128) NOT NULL,
+      scope VARCHAR(128) NOT NULL,
+      action_id VARCHAR(128) NOT NULL,
+      service VARCHAR(32) NOT NULL,
+      kind VARCHAR(64) NOT NULL,
+      team_id INT UNSIGNED NOT NULL,
+      drill_sha256 CHAR(64) NOT NULL,
+      target_sha256 CHAR(64) NULL,
+      fixture_sha256 CHAR(64) NULL,
+      signed_permit_sha256 CHAR(64) NOT NULL,
+      verification_key_id VARCHAR(128) NOT NULL,
+      status VARCHAR(24) NOT NULL,
+      expires_at DATETIME(3) NOT NULL,
+      consumed_at DATETIME(3) NULL,
+      disarmed_at DATETIME(3) NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (permit_id),
+      UNIQUE KEY gate6_permit_action_uq (gate6_id, scope, action_id),
+      KEY gate6_permit_status_expiry_idx (gate6_id, status, expires_at),
+      CONSTRAINT gate6_permit_action_fk FOREIGN KEY (gate6_id, scope, action_id)
+        REFERENCES gate6_actions (gate6_id, scope, action_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=ascii COLLATE=ascii_bin
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS realtime_events (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      event_id VARCHAR(255) NOT NULL,
+      idempotency_key VARCHAR(512) NULL,
+      event_type VARCHAR(64) NOT NULL,
+      payload_version INT NOT NULL,
+      envelope_version INT NOT NULL,
+      scope_kind VARCHAR(16) NOT NULL,
+      team_id INT NULL,
+      subject_type VARCHAR(64) NULL,
+      subject_id VARCHAR(160) NULL,
+      source_service VARCHAR(64) NOT NULL,
+      source_node_id VARCHAR(120) NOT NULL,
+      source_role VARCHAR(64) NOT NULL,
+      trace_id VARCHAR(160) NULL,
+      replayable INT NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL,
+      envelope_json TEXT NOT NULL,
+      emitted_at DATETIME NOT NULL,
+      received_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY realtime_events_event_id_uidx (event_id),
+      UNIQUE KEY realtime_events_idempotency_key_uidx (idempotency_key),
+      KEY realtime_events_scope_team_id_idx (scope_kind, team_id, id),
+      KEY realtime_events_type_received_idx (event_type, received_at),
+      KEY realtime_events_source_node_received_idx (source_node_id, received_at),
+      KEY realtime_events_replayable_id_idx (replayable, id),
+      KEY realtime_events_replay_scope_id_idx (replayable, scope_kind, team_id, id),
+      KEY realtime_events_replay_created_id_idx (replayable, created_at, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  await pool.query(`
+CREATE TABLE IF NOT EXISTS realtime_execution_metrics (
+  team_id INT NOT NULL,
+  source_node_id VARCHAR(120) NOT NULL,
+  generation VARCHAR(128) NOT NULL,
+  started_at DATETIME(3) NOT NULL,
+  snapshot_json JSON NOT NULL,
+  emitted_at DATETIME(3) NOT NULL,
+  received_at DATETIME(3) NOT NULL,
+  PRIMARY KEY (team_id, source_node_id),
+  KEY realtime_execution_metrics_received_idx (received_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS realtime_metrics_read_models (
+      team_id INT NOT NULL,
+      source_node_id VARCHAR(120) NOT NULL,
+      snapshot_json JSON NOT NULL,
+      emitted_at DATETIME(3) NOT NULL,
+      received_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (team_id),
+      KEY realtime_metrics_read_models_received_team_idx (received_at, team_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
 }

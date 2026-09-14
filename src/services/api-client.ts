@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { metrics } from "./metrics.js";
+import { metrics, type MetricsCollector } from "./metrics.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 import { getSpxDispatcher } from "../utils/http-dispatcher.js";
 import {
@@ -72,6 +72,10 @@ export function listPollTimeoutMs(intervalMs: number): number {
   return Math.min(FETCH_TIMEOUT_MS, Math.max(LIST_TIMEOUT_FLOOR_MS, intervalMs * 2));
 }
 
+export interface BiddingListFetchOptions {
+  onFirstPage?: (page: ApiResponse, observedAtMs: number) => void;
+}
+
 interface BookingRequestListOptions {
   tabPendingConfirmation?: boolean;
   onPage?: (page: BookingRequestListResponse) => boolean | void;
@@ -87,6 +91,7 @@ export interface ApiClientCredentials {
 }
 
 export interface ApiClientOptions {
+  metricsCollector?: MetricsCollector;
   credentials?: ApiClientCredentials;
   credentialsProvider?: () => ApiClientCredentials;
   pollIntervalMsProvider?: () => number;
@@ -147,6 +152,8 @@ async function fetchWithRetry(
   timeoutMs = FETCH_TIMEOUT_MS,
   idempotent = true,
   hooks: {
+    metricsCollector?: MetricsCollector;
+    onDispatch?: () => void;
     scheduleAttempt?: (read: () => Promise<Response>) => Promise<Response>;
     observeResponse?: (response: Response) => void | Promise<void>;
   } = {},
@@ -163,7 +170,8 @@ async function fetchWithRetry(
           // hops reuse warm connections (DOM's RequestInit type omits `dispatcher`,
           // which undici reads at runtime — hence the typed extension).
           // Count every request sent so the connection-reuse ratio (vs new sockets) is measurable.
-          metrics.recordUpstreamRequest();
+          hooks.onDispatch?.();
+          (hooks.metricsCollector ?? metrics).recordUpstreamRequest();
           const init: RequestInit & { dispatcher?: Dispatcher } = {
             ...options,
             signal: controller.signal,
@@ -183,6 +191,15 @@ async function fetchWithRetry(
       // error: the server may already have committed the side effect, so a retry
       // risks a duplicate. Return the response and let the caller reconcile.
       if (!response.ok && idempotent && attempt < retries && isRetryableStatus(response.status)) {
+        // This response is being discarded for an already-authorized retry.
+        // Never cancel terminal responses: callers still need their error body.
+        const bodyCleanup = (async () => {
+          try {
+            await response.body?.cancel();
+          } catch {
+            logger.warn("retry-body-cancel-failed", { label, status: response.status });
+          }
+        })();
         // Prefer a server-supplied Retry-After (429/503) when present, bounded
         // to MAX_RETRY_AFTER_MS; otherwise fall back to exponential backoff.
         const computedDelay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
@@ -196,7 +213,10 @@ async function fetchWithRetry(
           delayMs: Math.round(delay),
           retryAfter: retryAfterMs !== null,
         });
-        await sleep(delay);
+        // A broken stream cancellation must not extend the existing backoff.
+        const retryWait = sleep(delay);
+        await Promise.race([bodyCleanup, retryWait]);
+        await retryWait;
         continue;
       }
       return response;
@@ -394,9 +414,13 @@ export class ApiClient {
   private readonly readScheduler = new ProviderReadScheduler({ maxConcurrency: READ_CONCURRENCY });
   private readonly parsedReadResponses = new WeakMap<Response, ParsedReadResponse>();
   private verificationPriorityScopeDepth = 0;
+  private verificationReadStarted: (() => void) | undefined;
   private verificationAdmissionGuard: ProviderReadAdmissionGuard | undefined;
 
+  public readonly metricsCollector: MetricsCollector;
+
   constructor(optionsOrPollIntervalMsProvider: ApiClientOptions | (() => number) = {}) {
+    this.metricsCollector = typeof optionsOrPollIntervalMsProvider === "function" ? metrics : optionsOrPollIntervalMsProvider.metricsCollector ?? metrics;
     if (typeof optionsOrPollIntervalMsProvider === "function") {
       // Legacy constructor shape used by Poller tests.
       this.pollIntervalMsProvider = optionsOrPollIntervalMsProvider;
@@ -432,13 +456,17 @@ export class ApiClient {
   withVerificationPriority<T>(
     read: () => Promise<T>,
     admissionGuard?: ProviderReadAdmissionGuard,
+    onReadStarted?: () => void,
   ): Promise<T> {
+    const previousReadStarted = this.verificationReadStarted;
+    this.verificationReadStarted = onReadStarted;
     const previousAdmissionGuard = this.verificationAdmissionGuard;
     this.verificationPriorityScopeDepth += 1;
     this.verificationAdmissionGuard = admissionGuard;
     try {
       return read();
     } finally {
+      this.verificationReadStarted = previousReadStarted;
       this.verificationAdmissionGuard = previousAdmissionGuard;
       this.verificationPriorityScopeDepth -= 1;
     }
@@ -498,6 +526,8 @@ export class ApiClient {
     admissionGuard?: ProviderReadAdmissionGuard,
   ): Promise<Response> {
     return fetchWithRetry(url, options, label, retries, timeoutMs, true, {
+      metricsCollector: this.metricsCollector,
+      onDispatch: this.verificationReadStarted,
       scheduleAttempt: (read) => this.readScheduler.schedule(read, priority, admissionGuard),
       observeResponse: (response) => this.inspectReadResponse(response),
     });
@@ -517,7 +547,7 @@ export class ApiClient {
     return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept");
   }
 
-  async fetch(requestNumber: number): Promise<PollingResult> {
+  async fetch(requestNumber: number, options: BiddingListFetchOptions = {}): Promise<PollingResult> {
     const priority = this.captureReadPriority();
     const admissionGuard = this.captureReadAdmissionGuard();
     const startTime = Date.now();
@@ -598,6 +628,21 @@ export class ApiClient {
         };
       }
 
+      if (apiResponse.retcode !== 0) {
+        return {
+          success: false,
+          latencyMs,
+          httpStatus: response.status,
+          retcode: apiResponse.retcode,
+          error: `Bidding list rejected (retcode=${apiResponse.retcode}): ${apiResponse.message}`,
+          timestamp: new Date(),
+          requestNumber,
+        };
+      }
+
+      const observedAtMs = Date.now();
+      this.metricsCollector.recordInterval("biddingListPage1", startTime, observedAtMs);
+      options.onFirstPage?.(apiResponse, observedAtMs);
       const allPagesResponse = await this.fetchRemainingBiddingListPages(apiResponse, priority, admissionGuard);
       if (!allPagesResponse) {
         return {
@@ -899,9 +944,9 @@ export class ApiClient {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify(body),
-      }, `booking-accept:${body.booking_id}`, 0, ACCEPT_TIMEOUT_MS, false);
+      }, `booking-accept:${body.booking_id}`, 0, ACCEPT_TIMEOUT_MS, false, { metricsCollector: this.metricsCollector });
       if (response.status === 429) this.deferAfterRateLimit(response);
-      metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
+      this.metricsCollector.recordOperation("acceptRtt", Date.now() - acceptStart);
       acceptRttRecorded = true;
 
       const rawText = await response.text();
@@ -949,7 +994,7 @@ export class ApiClient {
       // bucket reflects failed attempts — but only if the upstream POST itself
       // failed. A post-response parse error has already recorded the real RTT,
       // so guard against double-counting (which would also inflate the value).
-      if (!acceptRttRecorded) metrics.recordOperation("acceptRtt", Date.now() - acceptStart);
+      if (!acceptRttRecorded) this.metricsCollector.recordOperation("acceptRtt", Date.now() - acceptStart);
       return { ok: false, httpStatus: 0, response: null, error: err instanceof Error ? err.message : String(err) };
     }
   }
