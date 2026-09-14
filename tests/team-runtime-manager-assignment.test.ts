@@ -3,6 +3,10 @@ import { eq } from "drizzle-orm";
 import { closePool, getDb } from "../src/db/client.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
 import { teamRuntimeDesiredState } from "../src/db/schema.js";
+import {
+  listTeamRuntimeDesiredStates,
+  setTeamRuntimeDesiredState,
+} from "../src/repositories/runtime-repository.js";
 import { createRoleAwareTeamRuntimeActions } from "../src/services/team-runtime-actions.js";
 import { TeamRuntimeManager, type TeamRuntimeLeaseOptions } from "../src/services/team-runtime-manager.js";
 import type { TeamRuntimeConfig } from "../src/repositories/team-repository.js";
@@ -79,6 +83,32 @@ async function main(): Promise<void> {
     assert.deepEqual(events, ["create:1", "start:1", "create:2", "start:2"]);
     assert.equal(manager.getStatus(1)?.status, "running");
     assert.equal(manager.getStatus(2)?.status, "running");
+  }
+
+  {
+    await closePool();
+    resetMemoryDb();
+    await setTeamRuntimeDesiredState({ teamId: 2, desiredState: "restart" });
+    await setTeamRuntimeDesiredState({
+      teamId: 2,
+      desiredState: "running",
+      expectedDesiredState: "restart",
+      reason: "restart applied by worker",
+    });
+    assert.equal((await listTeamRuntimeDesiredStates()).find((row) => row.teamId === 2)?.desiredState, "running");
+
+    await setTeamRuntimeDesiredState({ teamId: 2, desiredState: "stopped" });
+    await setTeamRuntimeDesiredState({
+      teamId: 2,
+      desiredState: "running",
+      expectedDesiredState: "restart",
+      reason: "stale restart acknowledgement",
+    });
+    assert.equal(
+      (await listTeamRuntimeDesiredStates()).find((row) => row.teamId === 2)?.desiredState,
+      "stopped",
+      "a stale restart acknowledgement must not overwrite a newer command",
+    );
   }
 
   {
