@@ -14,8 +14,7 @@ import {
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
 const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
-const ZERO_SHA = "0".repeat(40);
-const ZERO_SHA256 = "0".repeat(64);
+const BACKUP_PRODUCER_SHA = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
   ".github/workflows/gate6-final-verifier-exporter.yml": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291",
@@ -112,24 +111,22 @@ async function fixture(kind: Kind) {
   };
 }
 
-test("loads unchanged Stage A pins and denies the changed backup producer until repinned", async () => {
+test("loads the exact reviewed producer pins including the repinned backup producer", async () => {
   const map = loadProtectedEvidenceProducerMap();
   assert.deepEqual(Object.keys(map), Object.keys(EXPECTED).sort());
   assert.equal(Object.isFrozen(map), true);
   for (const kind of Object.keys(EXPECTED) as Kind[]) {
     const expected = EXPECTED[kind];
     const producer = producerFor(kind);
-    const bootstrapDenied = kind === "production-backup-restore";
+    const signerSha = kind === "production-backup-restore" ? BACKUP_PRODUCER_SHA : STAGE_A_SHA;
     assert.equal(sha256(readFileSync(expected.workflow)), WORKFLOW_DIGESTS[expected.workflow]);
     assert.deepEqual(producer, {
       workflow: expected.workflow,
       environment: expected.environment,
       files: [...expected.files],
-      signerSha: bootstrapDenied ? ZERO_SHA : STAGE_A_SHA,
-      workflowFileSha256: bootstrapDenied
-        ? ZERO_SHA256
-        : WORKFLOW_DIGESTS[expected.workflow],
-      bootstrapDenied,
+      signerSha,
+      workflowFileSha256: WORKFLOW_DIGESTS[expected.workflow],
+      bootstrapDenied: false,
     });
     assert.deepEqual(Object.keys(producer), [
       "workflow",

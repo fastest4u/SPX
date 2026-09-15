@@ -24,15 +24,15 @@
     "workflowFileSha256": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291"
   },
   "production-backup-restore": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": [
       "production-backup-restore-evidence.json",
       "production-backup-restore-signature.json"
     ],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "f4c103290ab30027e1fe7a426a91f1b8973b0426",
     "workflow": ".github/workflows/trusted-production-backup-restore.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "82e8b502a9cdb47544da19cfc9b4d64b5bfd727f3faf3e97af4cbab75151a87c"
   },
   "protected-install": {
     "bootstrapDenied": false,
