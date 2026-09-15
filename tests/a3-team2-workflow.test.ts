@@ -14,6 +14,26 @@ assert.match(trusted, /\$\{\{ job\.workflow_sha \}\}/);
 assert.match(trusted, /release_artifact_id/);
 assert.match(trusted, /target_descriptor_artifact_id/);
 assert.match(trusted, /gh attestation verify[\s\S]*trusted-release-artifact\.yml/);
+for (const trustedReleaseSubject of [
+  "bootstrap/scripts/build-operator-bundle.mjs",
+  "bootstrap/scripts/deployment-target-descriptor.mjs",
+  "bootstrap/scripts/lib/safe-file.mjs",
+  "bootstrap/src/services/deployment-target-descriptor.ts",
+  "bootstrap/src/services/release-manifest.ts",
+  "build-manifest.json",
+  "operator-bundle.index.json",
+  "operator-bundle.tar",
+  "release-artifact.index.json",
+  "release-manifest.json",
+  "spx-dist.tar",
+  "spx-image.tar",
+]) {
+  assert.ok(
+    trusted.includes(`verified/release/${trustedReleaseSubject}`),
+    `trusted workflow must verify ${trustedReleaseSubject}`,
+  );
+}
+assert.match(trusted, /--deny-self-hosted-runners/);
 assert.match(trusted, /deployment-target-descriptor\.mjs verify/);
 assert.match(trusted, /SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_SHA256/);
 assert.match(trusted, /descriptor\.deploymentUnit !== "team2"/);

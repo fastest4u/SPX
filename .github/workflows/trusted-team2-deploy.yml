@@ -89,14 +89,23 @@ jobs:
         run: |
           set -euo pipefail
           for artifact in \
-            verified/release/release-manifest.json \
-            verified/release/operator-bundle.tar \
+            verified/release/bootstrap/scripts/build-operator-bundle.mjs \
+            verified/release/bootstrap/scripts/deployment-target-descriptor.mjs \
+            verified/release/bootstrap/scripts/lib/safe-file.mjs \
+            verified/release/bootstrap/src/services/deployment-target-descriptor.ts \
+            verified/release/bootstrap/src/services/release-manifest.ts \
+            verified/release/build-manifest.json \
             verified/release/operator-bundle.index.json \
+            verified/release/operator-bundle.tar \
+            verified/release/release-artifact.index.json \
+            verified/release/release-manifest.json \
+            verified/release/spx-dist.tar \
             verified/release/spx-image.tar; do
             gh attestation verify "${artifact}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
-              --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}"
+              --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}" \
+              --deny-self-hosted-runners >/dev/null
           done
           for artifact in \
             verified/target/deployment-target-descriptor.json \
@@ -104,7 +113,8 @@ jobs:
             gh attestation verify "${artifact}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/deployment-target-descriptor-signer.yml" \
-              --signer-digest "${TRUSTED_DESCRIPTOR_SIGNER_SHA}"
+              --signer-digest "${TRUSTED_DESCRIPTOR_SIGNER_SHA}" \
+              --deny-self-hosted-runners >/dev/null
           done
 
       - name: Verify release index and materialize operator bundle
@@ -121,17 +131,23 @@ jobs:
           const bytes = readFileSync("verified/release/release-artifact.index.json");
           const index = JSON.parse(bytes);
           if (!bytes.equals(Buffer.from(JSON.stringify(canonical(index))))) throw new Error("release index is not canonical");
+          if (Object.keys(index).sort().join(",") !== "files,releaseRunAttempt,releaseRunId,repository,schemaVersion,sourceSha") throw new Error("release index fields mismatch");
           const expected = [
             "bootstrap/scripts/build-operator-bundle.mjs", "bootstrap/scripts/deployment-target-descriptor.mjs",
             "bootstrap/scripts/lib/safe-file.mjs", "bootstrap/src/services/deployment-target-descriptor.ts",
             "bootstrap/src/services/release-manifest.ts", "build-manifest.json", "operator-bundle.index.json",
             "operator-bundle.tar", "release-manifest.json", "spx-dist.tar", "spx-image.tar",
           ];
-          if (index.schemaVersion !== 1 || index.repository !== process.env.GITHUB_REPOSITORY || JSON.stringify(index.files.map((entry) => entry.path)) !== JSON.stringify(expected)) throw new Error("release index identity mismatch");
+          if (index.schemaVersion !== 1 || index.repository !== process.env.GITHUB_REPOSITORY || !/^[0-9a-f]{40}$/.test(index.sourceSha)) throw new Error("release index identity mismatch");
+          if (!/^[0-9]+$/.test(index.releaseRunId) || !/^[0-9]+$/.test(index.releaseRunAttempt)) throw new Error("release run identity mismatch");
+          if (JSON.stringify(index.files.map((entry) => entry.path)) !== JSON.stringify(expected)) throw new Error("release index paths mismatch");
           for (const entry of index.files) {
+            if (Object.keys(entry).sort().join(",") !== "path,sha256,size" || !/^[0-9a-f]{64}$/.test(entry.sha256) || !Number.isSafeInteger(entry.size) || entry.size < 0) throw new Error("release index entry invalid");
             const value = readFileSync(`verified/release/${entry.path}`);
             if (value.length !== entry.size || sha256(value) !== entry.sha256) throw new Error(`release index mismatch: ${entry.path}`);
           }
+          const manifest = JSON.parse(readFileSync("verified/release/release-manifest.json", "utf8"));
+          if (manifest.sourceSha !== index.sourceSha) throw new Error("release source SHA mismatch");
           NODE
           node verified/release/bootstrap/scripts/build-operator-bundle.mjs verify-archive \
             --archive=verified/release/operator-bundle.tar \

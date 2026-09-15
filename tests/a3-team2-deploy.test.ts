@@ -6,12 +6,14 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const installerSource = readFileSync("scripts/a3-team2-deploy.py", "utf8");
+const readinessSource = readFileSync("scripts/a3-team2-readiness.mjs", "utf8");
 assert.match(installerSource, /a3-team2-readiness\.mjs/);
 assert.match(installerSource, /socket\.create_connection\(\("127\.0\.0\.1", 3000\), timeout=5\)/);
 assert.match(
   installerSource,
   /identity\.get\("NOTIFIER_API_URL"\) != "http:\/\/127\.0\.0\.1:3000\/internal\/notification-events"/,
 );
+assert.match(readinessSource, /servername:\s*process\.env\.DB_SSL_SERVERNAME/);
 
 const normalize = (value: unknown): unknown => Array.isArray(value)
   ? value.map(normalize)

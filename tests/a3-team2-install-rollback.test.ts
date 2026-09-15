@@ -7,6 +7,6 @@ const result = spawnSync("python", ["tests/a3-team2-install-rollback.test.py"], 
 });
 
 assert.equal(result.status, 0, result.stderr || result.stdout);
-assert.match(result.stdout, /TEAM 2 failed activation restores the exact legacy worker/);
+assert.match(result.stdout, /TEAM 2 failed activation restores legacy and protected managed state/);
 
 console.log("A3 TEAM 2 installer rollback regression passes");

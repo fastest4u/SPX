@@ -66,6 +66,14 @@ def atomic_write(path, data, mode=0o400):
         temporary.unlink(missing_ok=True)
 
 
+def replace_current_link(managed_root, release):
+    current = Path(managed_root) / "current"
+    temporary = Path(managed_root) / ".current.new"
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(release, target_is_directory=True)
+    os.replace(temporary, current)
+
+
 def run_command(command, input_text=None, environment=None):
     result = subprocess.run(
         command,
@@ -304,6 +312,7 @@ def install_release(
     operation_id,
     runner=run_command,
     tunnel_probe=verify_notification_tunnel,
+    linker=replace_current_link,
 ):
     managed_root = Path(managed_root).resolve()
     state_root = Path(state_root).resolve()
@@ -354,39 +363,43 @@ def install_release(
             runner(command + ["--profile", "split", "stop", "-t", "120", SERVICE], environment=environment)
         runner(command + ["--profile", "split", "up", "-d", "--no-build", "--pull", "never", "--force-recreate", SERVICE], environment=environment)
         container = wait_ready(validated, environment_file, runner)
+        state = {
+            "schemaVersion": 1,
+            "deploymentUnit": "team2",
+            "service": SERVICE,
+            "teamId": TEAM_ID,
+            "nodeId": NODE_ID,
+            "releaseDir": str(validated["release"]),
+            "sourceSha": validated["manifest"]["sourceSha"],
+            "imageId": image_id,
+            "releaseManifestSha256": validated["manifestSha256"],
+            "targetDescriptorSha256": validated["descriptorSha256"],
+            "containerId": container,
+        }
+        atomic_write(state_path, canonical_json(state).encode(), 0o400)
+        linker(managed_root, validated["release"])
     except Exception as failure:
         try:
             runner(command + ["--profile", "split", "rm", "-s", "-f", SERVICE], environment=environment)
             if stopped_legacy:
                 runner(["docker", "start", stopped_legacy])
+                state_path.unlink(missing_ok=True)
+                current = managed_root / "current"
+                if current.is_symlink() and current.resolve() == validated["release"]:
+                    current.unlink()
             elif previous_state:
                 previous_release = Path(previous_state["releaseDir"])
                 previous = validate_release(previous_release, previous_state["releaseManifestSha256"], previous_state["targetDescriptorSha256"])
                 previous_command = compose(previous, environment_file)
                 runner(previous_command + ["--profile", "split", "up", "-d", "--no-build", "--pull", "never", "--force-recreate", SERVICE], environment=compose_environment(previous))
-                wait_ready(previous, environment_file, runner)
+                restored_container = wait_ready(previous, environment_file, runner)
+                restored_state = {**previous_state, "containerId": restored_container}
+                atomic_write(state_path, canonical_json(restored_state).encode(), 0o400)
+                linker(managed_root, previous_release)
         except Exception as rollback_failure:
             raise DeploymentError("TEAM 2 deployment and rollback both failed") from rollback_failure
         raise DeploymentError("TEAM 2 deployment failed and the verified prior worker was restored") from failure
 
-    state = {
-        "schemaVersion": 1,
-        "deploymentUnit": "team2",
-        "service": SERVICE,
-        "teamId": TEAM_ID,
-        "nodeId": NODE_ID,
-        "releaseDir": str(validated["release"]),
-        "sourceSha": validated["manifest"]["sourceSha"],
-        "imageId": image_id,
-        "releaseManifestSha256": validated["manifestSha256"],
-        "targetDescriptorSha256": validated["descriptorSha256"],
-        "containerId": container,
-    }
-    atomic_write(state_path, canonical_json(state).encode(), 0o400)
-    active_new = managed_root / ".current.new"
-    active_new.unlink(missing_ok=True)
-    active_new.symlink_to(validated["release"], target_is_directory=True)
-    os.replace(active_new, managed_root / "current")
     return state
 
 

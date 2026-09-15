@@ -23,6 +23,7 @@ try {
     database: process.env.DB_NAME,
     ssl: process.env.DB_SSL_CA_FILE ? {
       ca: readFileSync(process.env.DB_SSL_CA_FILE),
+      servername: process.env.DB_SSL_SERVERNAME,
       rejectUnauthorized: true,
     } : undefined,
     connectTimeout: 5_000,
