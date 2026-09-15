@@ -43,10 +43,10 @@ function runBlocks(source: string): string[] {
 assert.match(dispatcher, /^permissions:\s*\{\}\s*$/m);
 assert.doesNotMatch(dispatcher, /\bruns-on:|^\s+steps:|\benvironment:/m);
 assert.doesNotMatch(dispatcher, /\$\{\{\s*secrets\.|\bssh\b|\bscp\b|secrets:\s*inherit/);
-assert.match(dispatcher, /BOOTSTRAP-DENY/);
+assert.match(dispatcher, /STAGE-C-PIN/);
 assert.match(
   dispatcher,
-  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-staging-protected-evidence\.yml@0000000000000000000000000000000000000000/,
+  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-staging-protected-evidence\.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad/,
 );
 for (const input of inputs) {
   assert.equal(

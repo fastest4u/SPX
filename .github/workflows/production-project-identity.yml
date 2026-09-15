@@ -29,8 +29,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    # BOOTSTRAP-DENY: replace the zero SHA only in the reviewed stage-two pin commit.
-    uses: fastest4u/SPX/.github/workflows/trusted-production-project-identity.yml@0000000000000000000000000000000000000000
+    # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
+    uses: fastest4u/SPX/.github/workflows/trusted-production-project-identity.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad
     with:
       action: ${{ inputs.action }}
       approved_release_artifact_id: ${{ inputs.approved_release_artifact_id }}

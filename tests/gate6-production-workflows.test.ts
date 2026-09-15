@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const bootstrapDenySha = "0".repeat(40);
+const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const consumerSnapshotSha = "1c25f4b3fac398f30c70d26a94c15cefc6f73d15";
 
 function readWorkflow(name: string): string {
   return readFileSync(`.github/workflows/${name}`, "utf8");
@@ -450,23 +452,13 @@ assert.equal(
   1,
   "all protected-evidence producer dispatchers must pin the producer snapshot",
 );
-const pins = [
-  approvalPin,
-  linePin,
-  ocrPin,
-  postproofPin,
-  runtimePin,
-  acceptedEvidencePin,
-  finalVerifierPin,
-];
-if (pins.some((pin) => pin === bootstrapDenySha)) {
-  assert.ok(pins.every((pin) => pin === bootstrapDenySha));
-} else {
-  assert.notEqual(
-    consumerPins[0],
-    producerPins[0],
-    "activated consumers must read the map snapshot that authorizes the earlier producer SHA",
-  );
-}
+assert.ok(
+  consumerPins.every((pin) => pin === consumerSnapshotSha),
+  "activated consumers must pin the reviewed Stage B map snapshot",
+);
+assert.ok(
+  producerPins.every((pin) => pin === producerSnapshotSha),
+  "activated evidence producers must pin the reviewed Stage A snapshot",
+);
 
 console.log("Gate 6 production workflow trust tests passed");

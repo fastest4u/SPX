@@ -40,8 +40,8 @@ jobs:
       attestations: write
       contents: read
       id-token: write
-    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
-    uses: fastest4u/SPX/.github/workflows/trusted-deploy.yml@0000000000000000000000000000000000000000
+    # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
+    uses: fastest4u/SPX/.github/workflows/trusted-deploy.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad
     with:
       target: ${{ inputs.target }}
       release_artifact_id: ${{ inputs.release_artifact_id }}
@@ -57,8 +57,8 @@ jobs:
       attestations: write
       contents: read
       id-token: write
-    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
-    uses: fastest4u/SPX/.github/workflows/trusted-team2-deploy.yml@0000000000000000000000000000000000000000
+    # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
+    uses: fastest4u/SPX/.github/workflows/trusted-team2-deploy.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad
     with:
       release_artifact_id: ${{ inputs.release_artifact_id }}
       target_descriptor_artifact_id: ${{ inputs.team2_target_descriptor_artifact_id }}

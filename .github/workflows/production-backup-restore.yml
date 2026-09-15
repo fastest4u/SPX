@@ -55,8 +55,8 @@ jobs:
       attestations: write
       contents: read
       id-token: write
-    # BOOTSTRAP-DENY: replace the zero SHA only in the separately reviewed pin authorization.
-    uses: fastest4u/SPX/.github/workflows/trusted-production-backup-restore.yml@0000000000000000000000000000000000000000
+    # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
+    uses: fastest4u/SPX/.github/workflows/trusted-production-backup-restore.yml@f4c103290ab30027e1fe7a426a91f1b8973b0426
     with:
       candidate_sha: ${{ inputs.candidate_sha }}
       release_artifact_id: ${{ inputs.release_artifact_id }}
