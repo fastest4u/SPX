@@ -205,6 +205,7 @@ const EXPLICITLY_EXCLUDED_OPERATIONAL_FILES = new Set([
   // Owner-managed trust roots are installed and pinned outside the release bundle.
   "deploy/nginx/spx-descriptor-signer.location.conf",
   "deploy/systemd/spx-descriptor-signer.service",
+  "scripts/build-descriptor-signer.mjs",
   "scripts/spx-descriptor-signer.mjs",
   "scripts/spx-kms-envelope.mjs",
   "deploy/tmpfiles/spx-owner-capabilities.conf",
