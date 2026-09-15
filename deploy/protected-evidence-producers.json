@@ -1,53 +1,53 @@
 {
   "accepted-db-transition": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": ["accepted-db-transition-evidence.json"],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/gate6-accepted-evidence-exporter.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e"
   },
   "accepted-pre-close": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": ["accepted-pre-close-evidence.json"],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/gate6-accepted-evidence-exporter.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e"
   },
   "final-verifier": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": ["final-verifier.json"],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/gate6-final-verifier-exporter.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291"
   },
   "production-backup-restore": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": [
       "production-backup-restore-evidence.json",
       "production-backup-restore-signature.json"
     ],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/trusted-production-backup-restore.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "20313849df98c83f2c36581aa9cf1f829cea595ab13c97f46ce343c0d339c241"
   },
   "protected-install": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "production",
     "files": ["protected-install-evidence.json", "protected-install-signature.json"],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/trusted-deploy.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "20f5e9bed1de14f8d7c8d4d3de5da7bf0dcba80c1ae7fc145565bed76a64ca57"
   },
   "staging-gates": {
-    "bootstrapDenied": true,
+    "bootstrapDenied": false,
     "environment": "staging",
     "files": ["staging-protected-evidence.json"],
-    "signerSha": "0000000000000000000000000000000000000000",
+    "signerSha": "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad",
     "workflow": ".github/workflows/trusted-staging-protected-evidence.yml",
-    "workflowFileSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "workflowFileSha256": "be09053d94990f762e7f60a7f4957dcee7f9fe19440959eb21d2ab1bb27608d8"
   }
 }

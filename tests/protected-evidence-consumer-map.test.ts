@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,8 +13,14 @@ import {
 } from "../scripts/lib/protected-evidence-producers.mjs";
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
-const ZERO_SHA = "0".repeat(40);
-const ZERO_SHA256 = "0".repeat(64);
+const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const WORKFLOW_DIGESTS: Record<string, string> = {
+  ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
+  ".github/workflows/gate6-final-verifier-exporter.yml": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291",
+  ".github/workflows/trusted-production-backup-restore.yml": "20313849df98c83f2c36581aa9cf1f829cea595ab13c97f46ce343c0d339c241",
+  ".github/workflows/trusted-deploy.yml": "20f5e9bed1de14f8d7c8d4d3de5da7bf0dcba80c1ae7fc145565bed76a64ca57",
+  ".github/workflows/trusted-staging-protected-evidence.yml": "be09053d94990f762e7f60a7f4957dcee7f9fe19440959eb21d2ab1bb27608d8",
+};
 const EXPECTED = {
   "staging-gates": {
     workflow: ".github/workflows/trusted-staging-protected-evidence.yml",
@@ -103,20 +110,21 @@ async function fixture(kind: Kind) {
   };
 }
 
-test("loads the exact frozen six-kind bootstrap-denied producer map", async () => {
+test("loads the exact frozen six-kind Stage A producer map", async () => {
   const map = loadProtectedEvidenceProducerMap();
   assert.deepEqual(Object.keys(map), Object.keys(EXPECTED).sort());
   assert.equal(Object.isFrozen(map), true);
   for (const kind of Object.keys(EXPECTED) as Kind[]) {
     const expected = EXPECTED[kind];
     const producer = producerFor(kind);
+    assert.equal(sha256(readFileSync(expected.workflow)), WORKFLOW_DIGESTS[expected.workflow]);
     assert.deepEqual(producer, {
       workflow: expected.workflow,
       environment: expected.environment,
       files: [...expected.files],
-      signerSha: ZERO_SHA,
-      workflowFileSha256: ZERO_SHA256,
-      bootstrapDenied: true,
+      signerSha: STAGE_A_SHA,
+      workflowFileSha256: WORKFLOW_DIGESTS[expected.workflow],
+      bootstrapDenied: false,
     });
     assert.deepEqual(Object.keys(producer), [
       "workflow",
