@@ -238,11 +238,14 @@ function validateJwks(value) {
   return value.keys;
 }
 
-function createOidcVerifier(config, fetchImplementation) {
+function defaultDelay(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function createOidcVerifier(config, fetchImplementation, delayImplementation = defaultDelay) {
   let cachedKeys = null;
   let expiresAt = 0;
-  async function keys(nowMilliseconds) {
-    if (cachedKeys && nowMilliseconds < expiresAt) return cachedKeys;
+  async function fetchKeys() {
     let response;
     try {
       response = await fetchImplementation(config.oidcJwksUrl, {
@@ -273,9 +276,22 @@ function createOidcVerifier(config, fetchImplementation) {
     } catch {
       fail("jwks-invalid");
     }
-    cachedKeys = validateJwks(parsed);
-    expiresAt = nowMilliseconds + (config.jwksCacheSeconds * 1000);
-    return cachedKeys;
+    return validateJwks(parsed);
+  }
+  async function keys(nowMilliseconds) {
+    if (cachedKeys && nowMilliseconds < expiresAt) return cachedKeys;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const fetched = await fetchKeys();
+        cachedKeys = fetched;
+        expiresAt = nowMilliseconds + (config.jwksCacheSeconds * 1000);
+        return cachedKeys;
+      } catch (error) {
+        if (error?.message === "jwks-invalid" || attempt === 1) throw error;
+        await delayImplementation(100 * (2 ** attempt));
+      }
+    }
+    fail("jwks-unavailable");
   }
   return async function verifyOidc(token) {
     const parsed = parseJwt(token);
@@ -376,7 +392,7 @@ export function createDescriptorSignerServer(inputConfig, options = {}) {
     if (privateKey.type !== "private" || privateKey.asymmetricKeyType !== "ed25519") fail("private-key-invalid");
   }
   const fetchImplementation = options.fetch ?? fetch;
-  const verifyOidc = createOidcVerifier(config, fetchImplementation);
+  const verifyOidc = createOidcVerifier(config, fetchImplementation, options.delay);
   const server = createServer({ maxHeaderSize: 40 * 1024 }, async (request, response) => {
     if (request.url !== config.path) {
       jsonResponse(response, 404, { error: "not-found" });

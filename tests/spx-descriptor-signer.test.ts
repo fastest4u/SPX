@@ -67,7 +67,7 @@ function claims(overrides: Record<string, unknown> = {}) {
   }
 }
 
-async function fixture() {
+async function fixture(options: { jwksFailuresBeforeSuccess?: number } = {}) {
   const githubKeys = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const signerKeys = generateKeyPairSync('ed25519')
   const jwk = githubKeys.publicKey.export({ format: 'jwk' })
@@ -97,11 +97,18 @@ async function fixture() {
     privateKey: signerKeys.privateKey,
     fetch: async () => {
       jwksRequests += 1
+      if (jwksRequests <= (options.jwksFailuresBeforeSuccess ?? 0)) {
+        return new Response('{"error":"temporary"}', {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
       return new Response(JSON.stringify({ keys: [jwk] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
     },
+    delay: async () => {},
   })
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
@@ -147,6 +154,22 @@ test('verifies GitHub OIDC provenance and signs only the digest-bound canonical 
     })
     assert.equal(second.status, 200)
     assert.equal(f.jwksRequests(), 1, 'JWKS is cached for the configured bounded interval')
+  } finally {
+    f.server.close()
+  }
+})
+
+test('retries one transient JWKS failure before denying a valid request', async () => {
+  const f = await fixture({ jwksFailuresBeforeSuccess: 1 })
+  try {
+    const payload = descriptorPayload()
+    const response = await request(f, jwt(f.githubKeys.privateKey, claims()), {
+      algorithm: 'Ed25519',
+      descriptorSha256: createHash('sha256').update(payload).digest('hex'),
+      payloadBase64: payload.toString('base64'),
+    })
+    assert.equal(response.status, 200)
+    assert.equal(f.jwksRequests(), 2)
   } finally {
     f.server.close()
   }
