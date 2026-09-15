@@ -1,10 +1,21 @@
 import { TextDecoder } from "node:util";
-import { isIP } from "node:net";
+import { createConnection, isIP } from "node:net";
 import { resolveFileBackedSecret } from "./file-backed-secret.mjs";
 import { readStableRegularFile } from "./safe-file.mjs";
 
 const MAX_CA_FILE_BYTES = 1024 * 1024;
 const PEM_CERTIFICATE_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----/;
+
+export function mysqlVerifiedTransport(host, port, servername) {
+  if (!isDnsHostname(servername ?? "") || isIpLiteral(servername)) {
+    throw new Error("database-servername-required");
+  }
+  return {
+    host: servername,
+    port,
+    ...(host === servername ? {} : { stream: () => createConnection({ host, port }) }),
+  };
+}
 
 function stringValue(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -107,7 +118,7 @@ export function mysqlScriptConnectionConfigFromEnv(env = process.env) {
       user,
       password,
       database,
-      ...(ssl === null ? {} : { ssl }),
+      ...(ssl === null ? {} : { ...mysqlVerifiedTransport(host, port, ssl.servername), ssl }),
     },
   };
 }

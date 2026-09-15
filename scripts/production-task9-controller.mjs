@@ -46,7 +46,7 @@ export const GATE6_TASK9_ONE_SHOT_CONTRACT = Object.freeze({
   database: Object.freeze({
     host: "gate6-db-proxy",
     port: "3306",
-    name: "spx",
+    name: "SPX",
     passwordFile: "/run/secrets/db_password",
     principalEnv: "SPX_DB_USERNAME_GATE6_CONTROL",
   }),

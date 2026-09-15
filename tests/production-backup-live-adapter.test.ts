@@ -71,14 +71,14 @@ async function defaultRun(calls: Call[], spec: { command: string; argv: string[]
     return { stdout: "absent\n" };
   }
   if (spec.command === MYSQL_EXECUTABLE && sql.includes("@@server_uuid")) {
-    return { stdout: "550e8400-e29b-41d4-a716-446655440000\t8.4.0\tspx\n" };
+    return { stdout: "550e8400-e29b-41d4-a716-446655440000\t8.4.0\tSPX\n" };
   }
   if (sql.includes("REFERENTIAL_CONSTRAINTS")) return { stdout: "fk-shape\n" };
   if (sql.includes("COLUMNS")) return { stdout: "schema-shape\n" };
   if (sql.includes("TRIGGERS")) return { stdout: "runtime-shape\n" };
   if (spec.command === DOCKER_EXECUTABLE && spec.argv.includes("exec")) {
     if (sql.includes("TABLE_ROWS")) return { stdout: "bookings\t12\nusers\t4\n" };
-    if (sql.includes("DATABASE()")) return { stdout: "isolated-server\tspx\n" };
+    if (sql.includes("DATABASE()")) return { stdout: "isolated-server\tSPX\n" };
   }
   if (spec.command === KMS_EXECUTABLE && spec.argv[0] === "sign") {
     return { stdout: `${Buffer.from("kms-signature-value").toString("base64")}\n` };
@@ -165,7 +165,7 @@ async function prepareRetainedBackupForSigning(
 test("context, invariant, and Compose contracts are exact and isolated", async () => {
   assert.deepEqual(validateVerifiedBackupContext(validContext), validContext);
   assert.throws(
-    () => validateVerifiedBackupContext({ ...validContext, database: "spx" }),
+    () => validateVerifiedBackupContext({ ...validContext, database: "SPX" }),
     /context.*invalid/i,
   );
   assert.equal(
@@ -318,8 +318,15 @@ test("live adapter fixes executable, credential, snapshot, KMS, and isolation bo
     .map((call) => (call.spec as { argv: string[] }).argv)
     .filter((argv) => argv.some((value) => value.startsWith("--execute=")));
   assert.ok(queryRuns.length >= 2);
+  const quiescenceArgv = queryRuns.find((argv) =>
+    argv.some((value) => value.includes("gate6_environment_slots")),
+  );
+  const quiescenceSql = quiescenceArgv?.find((value) => value.startsWith("--execute=")) ?? "";
+  assert.match(quiescenceSql, /information_schema\.TABLES/);
+  assert.match(quiescenceSql, /PREPARE spx_gate6_quiescence/);
+  assert.ok(quiescenceSql.includes("'SELECT ''absent'''"));
   for (const argv of queryRuns) {
-    assert.ok(argv.findIndex((value) => value.startsWith("--execute=")) < argv.lastIndexOf("spx"));
+    assert.ok(argv.findIndex((value) => value.startsWith("--execute=")) < argv.lastIndexOf("SPX"));
   }
 
   const pipelines = port.calls
@@ -343,7 +350,7 @@ test("live adapter fixes executable, credential, snapshot, KMS, and isolation bo
     "--triggers",
     "--events",
   ]);
-  assert.equal(encrypt.source.argv.at(-1), "spx");
+  assert.equal(encrypt.source.argv.at(-1), "SPX");
   assert.equal(encrypt.sink.command, KMS_EXECUTABLE);
   assert.equal(encrypt.sink.argv[0], "encrypt");
 
@@ -357,7 +364,7 @@ test("live adapter fixes executable, credential, snapshot, KMS, and isolation bo
     "isolated-mysql",
     "mysql",
     "--defaults-extra-file=/run/secrets/isolated-client.cnf",
-    "spx",
+    "SPX",
   ]);
   assert.ok(decrypt.sink.argv.includes("exec"));
   assert.ok(decrypt.sink.argv.includes("-T"));
@@ -645,8 +652,8 @@ test("backup capture rejects a changed authenticated source identity", async () 
         return {
           stdout:
             identityProbe === 1
-              ? "550e8400-e29b-41d4-a716-446655440000\t8.4.0\tspx\n"
-              : "550e8400-e29b-41d4-a716-446655440001\t8.4.0\tspx\n",
+              ? "550e8400-e29b-41d4-a716-446655440000\t8.4.0\tSPX\n"
+              : "550e8400-e29b-41d4-a716-446655440001\t8.4.0\tSPX\n",
         };
       }
       return defaultRun(port.calls as Call[], spec);
@@ -715,7 +722,7 @@ test("caller-selected path, SQL, database, service, and process options are reje
   for (const unsafe of [
     { path: "/tmp/backup.sql" },
     { sql: "DROP DATABASE spx" },
-    { database: "spx" },
+    { database: "SPX" },
     { service: "production-mysql" },
     { argv: ["rm", "-rf", "/"] },
     { env: { PATH: "/tmp" } },

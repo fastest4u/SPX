@@ -332,7 +332,7 @@ productionInput.target.canonicalPaths = {
 };
 productionInput.database = {
   ...productionInput.database,
-  name: "spx",
+  name: "SPX",
   accountHosts: { "web-api": "172.17.0.1" },
 };
 productionInput.signing = {
@@ -341,6 +341,12 @@ productionInput.signing = {
   subject: "repo:example/SPX:environment:production",
 };
 productionInput.targetFactsSha256 = deploymentTargetFactsSha256(productionInput);
+assert.throws(
+  () => buildDeploymentTargetDescriptor({
+    ...productionInput, database: { ...productionInput.database, name: "spx" },
+  }),
+  /database.name must equal SPX/,
+);
 assert.equal(
   buildDeploymentTargetDescriptor(productionInput).target.productionObserverPolicySha256,
   null,

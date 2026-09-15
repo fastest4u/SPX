@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise'
 import { readFileSync } from 'node:fs'
+import { mysqlVerifiedTransport } from './lib/mysql-connection-config.mjs'
 
 const teamId = Number(process.argv[2])
 const nodeId = process.argv[3]
@@ -14,10 +15,13 @@ try {
     || process.env.SPX_NODE_ID !== nodeId) throw new Error('invalid TEAM 2 worker identity')
   const passwordFile = process.env.DB_PASSWORD_FILE
   if (!passwordFile) throw new Error('database password file is missing')
+  if (process.env.DB_SSL_MODE !== 'verify-identity' || !process.env.DB_SSL_CA_FILE) {
+    throw new Error('verified database TLS is required')
+  }
   const startedSecond = new Date(startedAt).toISOString().slice(0, 19).replace('T', ' ')
   connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT || 3306),
+    ...mysqlVerifiedTransport(process.env.DB_HOST, Number(process.env.DB_PORT || 3306),
+      process.env.DB_SSL_SERVERNAME || process.env.DB_HOST),
     user: process.env.DB_USERNAME,
     password: readFileSync(passwordFile, 'utf8').trimEnd(),
     database: process.env.DB_NAME,
@@ -25,6 +29,7 @@ try {
       ca: readFileSync(process.env.DB_SSL_CA_FILE),
       servername: process.env.DB_SSL_SERVERNAME,
       rejectUnauthorized: true,
+      verifyIdentity: true,
     } : undefined,
     connectTimeout: 5_000,
   })

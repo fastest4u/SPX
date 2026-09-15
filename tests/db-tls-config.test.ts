@@ -113,7 +113,8 @@ try {
       host: proxyHost,
       sslServername: "mysql-upstream.example.test",
     });
-    assert.equal(proxied.host, proxyHost);
+    assert.equal(proxied.host, "mysql-upstream.example.test");
+    assert.equal(typeof proxied.stream, "function");
     assert.equal(proxied.ssl && "servername" in proxied.ssl ? proxied.ssl.servername : null, "mysql-upstream.example.test");
     for (const sslServername of ["", proxyHost, "127.0.0.1", "::1"]) {
       assert.throws(

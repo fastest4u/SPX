@@ -123,7 +123,7 @@
           "additionalProperties": false,
           "required": ["name", "tlsFingerprintSha256", "accountHosts"],
           "properties": {
-            "name": { "enum": ["spx_staging", "spx"] },
+            "name": { "enum": ["spx_staging", "SPX"] },
             "tlsFingerprintSha256": { "$ref": "#/$defs/sha256" },
             "accountHosts": {
               "type": "object",
@@ -266,7 +266,7 @@
             "properties": {
               "runtimeEnvironment": { "const": "production" },
               "composeProject": { "const": "spx-production" },
-              "database": { "properties": { "name": { "const": "spx" } } },
+              "database": { "properties": { "name": { "const": "SPX" } } },
               "target": {
                 "properties": {
                   "productionObserverPolicySha256": { "type": "null" }

@@ -100,6 +100,8 @@ try {
     DB_SSL_SERVERNAME: "mysql-upstream.internal",
   }));
   assert.deepEqual(proxied.missing, []);
+  assert.equal(proxied.value?.host, "mysql-upstream.internal");
+  assert.equal(typeof (proxied.value as Record<string, unknown>)?.stream, "function");
   assert.equal((proxied.value?.ssl as { servername?: string } | undefined)?.servername, "mysql-upstream.internal");
   assert.deepEqual(
     mysqlScriptConnectionConfigFromEnv(baseEnv({

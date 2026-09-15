@@ -4,7 +4,7 @@
   "deploymentOrder": ["primary", "team2"],
   "rollbackOrder": ["team2", "primary"],
   "database": {
-    "name": "spx",
+    "name": "SPX",
     "migrationUnit": "primary"
   },
   "notificationIngress": {

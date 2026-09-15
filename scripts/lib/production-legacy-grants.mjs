@@ -42,7 +42,7 @@ export function validateProductionLegacyGrantPlan(bytes, expected) {
       "backupEvidenceSha256", "accounts",
     ])
     || value.schemaVersion !== 1
-    || value.database !== "spx"
+    || value.database !== "SPX"
     || priorGrantsSha256 !== expected.priorGrantsSha256
     || value.targetDescriptorSha256 !== expected.targetDescriptorSha256
     || value.positiveGrantProofSha256 !== expected.positiveGrantProofSha256
@@ -77,7 +77,7 @@ export function validateProductionLegacyGrantPlan(bytes, expected) {
         !exactKeys(grant, ["scope", "resource", "privileges"])
         || !["database", "table"].includes(grant.scope)
         || !IDENTIFIER.test(grant.resource ?? "")
-        || (grant.scope === "database" && grant.resource !== "spx")
+        || (grant.scope === "database" && grant.resource !== "SPX")
         || !assertSortedUnique(grant.privileges)
         || grant.privileges.some((privilege) => !PRIVILEGES.has(privilege))
       ) throw new Error("production legacy grant entry is invalid");

@@ -847,7 +847,7 @@ services:
       HTTP_PORT: "3006"
       DB_HOST: gate6-db-proxy
       DB_PORT: "3306"
-      DB_NAME: spx
+      DB_NAME: SPX
       DB_USERNAME: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
       DB_PASSWORD_FILE: /run/secrets/db_password
       GATE6_REPOSITORY: ${SPX_GATE6_REPOSITORY:?SPX_GATE6_REPOSITORY is required}
@@ -884,7 +884,7 @@ services:
       <<: *spx-db-environment
       DB_HOST: gate6-db-proxy
       DB_PORT: "3306"
-      DB_NAME: spx
+      DB_NAME: SPX
       DB_USERNAME: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
       SPX_DB_USERNAME_GATE6_CONTROL: ${SPX_DB_USERNAME_GATE6_CONTROL:?SPX_DB_USERNAME_GATE6_CONTROL is required}
       DB_PASSWORD_FILE: /run/secrets/db_password
@@ -965,7 +965,7 @@ services:
       <<: *spx-db-environment
       DB_HOST: gate6-db-proxy
       DB_PORT: "3306"
-      DB_NAME: spx
+      DB_NAME: SPX
       DB_USERNAME: ${SPX_DB_USERNAME_GATE6_MONITOR:?SPX_DB_USERNAME_GATE6_MONITOR is required}
       DB_PASSWORD_FILE: /run/secrets/db_password
     volumes:
