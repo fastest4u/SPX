@@ -101,14 +101,13 @@
     },
     "activatedServices": {
       "type": "array",
-      "minItems": 6,
-      "maxItems": 6,
+      "minItems": 5,
+      "maxItems": 5,
       "prefixItems": [
-        { "const": "web-api" },
-        { "const": "notification-service" },
         { "const": "line-service" },
+        { "const": "notification-service" },
         { "const": "ocr-service" },
-        { "const": "worker-ifn-split" },
+        { "const": "web-api" },
         { "const": "worker-ptwl-split" }
       ],
       "items": false

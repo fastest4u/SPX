@@ -20,11 +20,10 @@ import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact
 const digest = (label: string): string => createHash("sha256").update(label).digest("hex");
 const image = (label: string): string => `sha256:${digest(label)}`;
 const BASELINE_SERVICES = [
-  "web-api",
-  "notification-service",
   "line-service",
+  "notification-service",
   "ocr-service",
-  "worker-ifn-split",
+  "web-api",
   "worker-ptwl-split",
 ] as const;
 

@@ -10,7 +10,9 @@ const preflight = source.match(/node --input-type=module -e '\s*(import \{ readF
 assert.ok(preflight, "production upgrade preflight must be executable");
 const code = preflight[1].replace('import { readFileSync } from "node:fs";', "");
 const directory = mkdtempSync(join(tmpdir(), "spx-protected-upgrade-"));
-const services = ["web-api", "notification-service", "line-service", "ocr-service", "worker-ifn-split", "worker-ptwl-split"];
+const services = ["line-service", "notification-service", "ocr-service", "web-api", "worker-ptwl-split"];
+const legacyPrimaryServices = ["notifier", "worker-ptwl"];
+const formerSameHostServices = [...services, "worker-ifn-split"].sort();
 
 function check(previous: unknown, candidate: unknown, context: unknown = { topology: "split" }, approvedServices = services) {
   const values = [previous, candidate, { migrations: {} }, context, { services: approvedServices }];
@@ -28,8 +30,8 @@ try {
     ["rollback cannot read expanded schema", { schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 37 } }],
     ["previous schema range is inverted", { schema: { min: 38, max: 36 } }, { schema: { min: 33, max: 36 } }],
     ["candidate schema range is inverted", { schema: { min: 33, max: 36 } }, { schema: { min: 37, max: 36 } }],
-    ["legacy baseline requires coordinated adoption", { schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "legacy" }],
-    ["remote worker is not owned by local baseline", { schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "split" }, services.filter((service) => service !== "worker-ifn-split")],
+    ["legacy baseline cannot contain TEAM 2 on primary", { schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "legacy" }, [...legacyPrimaryServices, "worker-ifn"]],
+    ["primary split baseline must retain TEAM 1", { schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "split" }, services.filter((service) => service !== "worker-ptwl-split")],
   ] as Array<[string, unknown, unknown, unknown?, string[]?]>) {
     try {
       assert.throws(() => check(previous, candidate, context, approvedServices), undefined, name);
@@ -38,6 +40,8 @@ try {
     }
   }
   assert.doesNotThrow(() => check({ schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }));
+  assert.doesNotThrow(() => check({ schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "legacy" }, legacyPrimaryServices));
+  assert.doesNotThrow(() => check({ schema: { min: 33, max: 36 } }, { schema: { min: 33, max: 36 } }, { topology: "split" }, formerSameHostServices));
 
   const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
   if (process.platform === "win32") assert.ok(existsSync(bash), "Git Bash is required for actual deployment-shell regressions");

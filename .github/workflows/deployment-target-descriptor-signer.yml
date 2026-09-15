@@ -6,6 +6,9 @@ on:
       target:
         required: true
         type: string
+      deployment_unit:
+        required: true
+        type: string
       request_artifact_id:
         required: true
         type: string
@@ -39,6 +42,7 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ inputs.target }}
+          DEPLOYMENT_UNIT: ${{ inputs.deployment_unit }}
           TRUSTED_WORKFLOW_REF: ${{ job.workflow_ref }}
           TRUSTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
           EXPECTED_TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
@@ -50,6 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           case "${TARGET}" in staging|production) ;; *) exit 1 ;; esac
+          case "${DEPLOYMENT_UNIT}" in primary|team2) ;; *) exit 1 ;; esac
+          if [ "${TARGET}" = staging ]; then test "${DEPLOYMENT_UNIT}" = primary; fi
           [[ "${TRUSTED_WORKFLOW_REF}" =~ @[0-9a-f]{40}$ ]]
           [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${REQUEST_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
@@ -91,6 +97,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_TARGET: ${{ inputs.target }}
+          EXPECTED_DEPLOYMENT_UNIT: ${{ inputs.deployment_unit }}
           EXPECTED_REQUEST_RUN_ID: ${{ inputs.request_run_id }}
           EXPECTED_RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
           EXPECTED_RELEASE_RUN_ID: ${{ inputs.release_run_id }}
@@ -103,9 +110,10 @@ jobs:
             import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
             const request = JSON.parse(readStableRegularFile("request/descriptor-request.json", "descriptor request").toString("utf8"));
             const keys = Object.keys(request).sort().join(",");
-            if (keys !== "releaseArtifactId,releaseRunId,releaseSourceSha,repository,requestRunId,requestWorkflowSha,schemaVersion,target") throw new Error("invalid request fields");
+            if (keys !== "deploymentUnit,releaseArtifactId,releaseRunId,releaseSourceSha,repository,requestRunId,requestWorkflowSha,schemaVersion,target") throw new Error("invalid request fields");
             if (request.schemaVersion !== 1 || request.repository !== process.env.GITHUB_REPOSITORY) throw new Error("invalid request identity");
             if (request.target !== process.env.EXPECTED_TARGET) throw new Error("request target mismatch");
+            if (request.deploymentUnit !== process.env.EXPECTED_DEPLOYMENT_UNIT) throw new Error("request deployment unit mismatch");
             if (request.requestRunId !== process.env.EXPECTED_REQUEST_RUN_ID) throw new Error("request run mismatch");
             if (request.releaseArtifactId !== process.env.EXPECTED_RELEASE_ARTIFACT_ID) throw new Error("request artifact mismatch");
             if (request.releaseRunId !== process.env.EXPECTED_RELEASE_RUN_ID) throw new Error("release run mismatch");
@@ -126,11 +134,19 @@ jobs:
       - name: Materialize protected target facts
         shell: bash
         env:
-          TARGET_FACTS_B64: ${{ vars.SPX_DESCRIPTOR_TARGET_FACTS_B64 }}
+          PRIMARY_TARGET_FACTS_B64: ${{ vars.SPX_DESCRIPTOR_TARGET_FACTS_B64 }}
+          TEAM2_TARGET_FACTS_B64: ${{ vars.SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_B64 }}
           EXPECTED_TARGET: ${{ inputs.target }}
+          EXPECTED_DEPLOYMENT_UNIT: ${{ inputs.deployment_unit }}
         run: |
           set -euo pipefail
           umask 077
+          if [ "${EXPECTED_DEPLOYMENT_UNIT}" = team2 ]; then
+            TARGET_FACTS_B64="${TEAM2_TARGET_FACTS_B64}"
+          else
+            TARGET_FACTS_B64="${PRIMARY_TARGET_FACTS_B64}"
+          fi
+          export TARGET_FACTS_B64
           test -n "${TARGET_FACTS_B64}"
           TARGET_FACTS_B64="${TARGET_FACTS_B64}" node --input-type=module -e '
             import { writeFileSync } from "node:fs";
@@ -141,6 +157,11 @@ jobs:
           node scripts/deployment-target-descriptor.mjs validate-facts \
             --facts=target-facts.json \
             --environment="${EXPECTED_TARGET}"
+          EXPECTED_DEPLOYMENT_UNIT="${EXPECTED_DEPLOYMENT_UNIT}" node --input-type=module -e '
+            import { readStableRegularFile } from "./scripts/lib/safe-file.mjs";
+            const facts = JSON.parse(readStableRegularFile("target-facts.json", "protected target facts").toString("utf8"));
+            if (facts.deploymentUnit !== process.env.EXPECTED_DEPLOYMENT_UNIT) throw new Error("protected facts deployment unit mismatch");
+          '
 
       - name: Request OIDC and preserve actual immutable issuer provenance
         shell: bash
@@ -192,6 +213,7 @@ jobs:
         shell: bash
         env:
           RELEASE_SOURCE_SHA: ${{ inputs.release_source_sha }}
+          DEPLOYMENT_UNIT: ${{ inputs.deployment_unit }}
           DESCRIPTOR_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -318,7 +340,7 @@ jobs:
       - name: Upload immutable descriptor artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: spx-target-descriptor-${{ inputs.target }}-${{ inputs.release_source_sha }}
+          name: spx-target-descriptor-${{ inputs.target }}-${{ inputs.deployment_unit }}-${{ inputs.release_source_sha }}
           path: |
             deployment-target-descriptor.json
             deployment-target-descriptor.attestation-claims.json

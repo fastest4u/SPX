@@ -625,6 +625,7 @@ jobs:
           const signed = JSON.parse(read("verified/target/deployment-target-descriptor.json"));
           const descriptor = signed.descriptor;
           if (descriptor.releaseEnvironment !== process.env.TARGET || descriptor.runtimeEnvironment !== process.env.TARGET) throw new Error("descriptor target mismatch");
+          if (descriptor.deploymentUnit !== "primary") throw new Error("descriptor deployment unit is not primary");
           const expectedProject = process.env.TARGET === "production" ? "spx-production" : "spx-staging";
           if (descriptor.composeProject !== expectedProject) throw new Error("descriptor compose project mismatch");
           if (descriptor.topology !== process.env.APPROVED_PRODUCTION_TOPOLOGY) throw new Error("descriptor topology is not the approved production topology");
@@ -1042,6 +1043,7 @@ jobs:
           ROLLBACK_IMAGE=""
           ROLLBACK_RELEASE_MANIFEST_SHA256=""
           ROLLBACK_SERVICE_SET_SHA256=""
+          ROLLBACK_SERVICES=""
           ROLLBACK_CONFIG_SHA256=""
           ROLLBACK_RUNTIME_COMPATIBLE=false
           PROTECTED_ADOPTION_PRECONDITION=/var/lib/spx-production-mutation
@@ -1061,7 +1063,8 @@ jobs:
             ROLLBACK_RELEASE_MANIFEST_SHA256="$(sha256sum "${CURRENT_PARENT}/release-manifest.json" | cut -d' ' -f1)"
             ROLLBACK_CONFIG_SHA256="$(sha256sum "${CURRENT_PARENT}/deployment-context.json" | cut -d' ' -f1)"
             previous_topology="$(node -p 'require(process.argv[1]).topology' "${CURRENT_PARENT}/deployment-context.json")"
-            ROLLBACK_SERVICE_SET_SHA256="$(printf '%s' "${previous_topology}|web-api|notification-service|line-service|ocr-service|worker-ifn-split|worker-ptwl-split" | sha256sum | cut -d' ' -f1)"
+            ROLLBACK_SERVICES="$(node -p 'require(process.argv[1]).services.join(" ")' "${CURRENT_PARENT}/production-identity-approval.json")"
+            ROLLBACK_SERVICE_SET_SHA256="$(printf '%s' "${previous_topology}|${ROLLBACK_SERVICES}" | sha256sum | cut -d' ' -f1)"
             node --input-type=module -e '
               import { readFileSync } from "node:fs";
               const previous=JSON.parse(readFileSync(process.argv[1],"utf8"));
@@ -1074,8 +1077,13 @@ jobs:
               }
               if(candidate.schema.max < previous.schema.max || candidate.schema.min > previous.schema.max) throw new Error("candidate schema transition would require an unsafe downgrade or gap");
               if(previous.schema.max < candidate.schema.max) throw new Error("previous runtime cannot roll back on the candidate schema; install a compatible baseline first");
-              const requiredServices=["line-service","notification-service","ocr-service","web-api","worker-ifn-split","worker-ptwl-split"];
-              if(previousContext.topology!=="split" || !Array.isArray(previousApproval.services) || JSON.stringify([...previousApproval.services].sort())!==JSON.stringify(requiredServices)) throw new Error("protected upgrade requires the complete existing same-host split baseline; legacy or separate-host adoption requires coordinated producer retirement");
+              const actual=Array.isArray(previousApproval.services)?[...previousApproval.services].sort():[];
+              const primarySplit=["line-service","notification-service","ocr-service","web-api","worker-ptwl-split"];
+              const formerSameHostSplit=[...primarySplit,"worker-ifn-split"].sort();
+              const legacyPrimary=["notifier","worker-ptwl"];
+              const equal=(left,right)=>JSON.stringify(left)===JSON.stringify(right);
+              const accepted=(previousContext.topology==="split"&&(equal(actual,primarySplit)||equal(actual,formerSameHostSplit)))||(previousContext.topology==="legacy"&&equal(actual,legacyPrimary));
+              if(!accepted) throw new Error("protected upgrade requires an approved primary-only baseline or the former same-host split baseline");
               for(const [name, item] of Object.entries(classification.migrations ?? {})) {
                 const version=Number.parseInt(name.slice(0,3),10);
                 if(version > previous.schema.max && version <= candidate.schema.max && !["expand","control-plane"].includes(item?.class)) throw new Error("forward migration is not rollback-safe expansion");
@@ -1440,7 +1448,7 @@ jobs:
 
           candidate_compose() {
             if [ "${TARGET}" = production ]; then
-              SPX_IMAGE="${IMAGE_TAG}" SPX_RELEASE_SHA="${SOURCE_SHA}" SPX_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" SPX_OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" SPX_RUNTIME_ENVIRONMENT="${RUNTIME_ENVIRONMENT}" SPX_STAGING_RUN_ID="${STAGING_RUN_ID}" SPX_RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" SPX_TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" SPX_DEPLOYMENT_CONTEXT_PATH="${RELEASE_PARENT}/deployment-context.json" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${RELEASE_DIR}/docker-compose.yml" "$@"
+              SPX_IMAGE="${IMAGE_TAG}" SPX_RELEASE_SHA="${SOURCE_SHA}" SPX_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" SPX_OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" SPX_RUNTIME_ENVIRONMENT="${RUNTIME_ENVIRONMENT}" SPX_STAGING_RUN_ID="${STAGING_RUN_ID}" SPX_RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" SPX_TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" SPX_DEPLOYMENT_CONTEXT_PATH="${RELEASE_PARENT}/deployment-context.json" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${RELEASE_DIR}/docker-compose.yml" -f "${RELEASE_DIR}/deploy/production-primary.yml" "$@"
             else
               SPX_IMAGE="${IMAGE_TAG}" SPX_RELEASE_SHA="${SOURCE_SHA}" SPX_TARGET_DESCRIPTOR_SHA256="${TARGET_SHA256}" SPX_OPERATOR_BUNDLE_SHA256="${OPERATOR_BUNDLE_SHA256}" SPX_RUNTIME_ENVIRONMENT="${RUNTIME_ENVIRONMENT}" SPX_STAGING_RUN_ID="${STAGING_RUN_ID}" SPX_RELEASE_MANIFEST_PATH="${RELEASE_PARENT}/release-manifest.json" SPX_TARGET_DESCRIPTOR_PATH="${RELEASE_PARENT}/deployment-target-descriptor.json" SPX_DEPLOYMENT_CONTEXT_PATH="${RELEASE_PARENT}/deployment-context.json" docker compose -p spx-staging --env-file "${ENVIRONMENT_FILE}" -f "${RELEASE_DIR}/docker-compose.yml" -f "${RELEASE_DIR}/docker-compose.staging.yml" "$@"
             fi
@@ -1466,7 +1474,11 @@ jobs:
           }
           previous_compose() {
             if [ "${TARGET}" = production ]; then
-              SPX_IMAGE="${previous_image}" SPX_RELEASE_SHA="${previous_release_sha}" SPX_TARGET_DESCRIPTOR_SHA256="${previous_target_sha}" SPX_OPERATOR_BUNDLE_SHA256="${previous_bundle_sha}" SPX_RUNTIME_ENVIRONMENT=production SPX_STAGING_RUN_ID=not-staging SPX_RELEASE_MANIFEST_PATH="${previous_manifest}" SPX_TARGET_DESCRIPTOR_PATH="${previous_descriptor}" SPX_DEPLOYMENT_CONTEXT_PATH="${previous_context}" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${CURRENT_RELEASE}/docker-compose.yml" "$@"
+              local production_overlay_args=()
+              if [ -f "${CURRENT_RELEASE}/deploy/production-primary.yml" ]; then
+                production_overlay_args=(-f "${CURRENT_RELEASE}/deploy/production-primary.yml")
+              fi
+              SPX_IMAGE="${previous_image}" SPX_RELEASE_SHA="${previous_release_sha}" SPX_TARGET_DESCRIPTOR_SHA256="${previous_target_sha}" SPX_OPERATOR_BUNDLE_SHA256="${previous_bundle_sha}" SPX_RUNTIME_ENVIRONMENT=production SPX_STAGING_RUN_ID=not-staging SPX_RELEASE_MANIFEST_PATH="${previous_manifest}" SPX_TARGET_DESCRIPTOR_PATH="${previous_descriptor}" SPX_DEPLOYMENT_CONTEXT_PATH="${previous_context}" docker compose -p spx-production --env-file "${ENVIRONMENT_FILE}" -f "${CURRENT_RELEASE}/docker-compose.yml" "${production_overlay_args[@]}" "$@"
             else
               SPX_IMAGE="${previous_image}" SPX_RELEASE_SHA="${previous_release_sha}" SPX_TARGET_DESCRIPTOR_SHA256="${previous_target_sha}" SPX_OPERATOR_BUNDLE_SHA256="${previous_bundle_sha}" SPX_RUNTIME_ENVIRONMENT=staging SPX_STAGING_RUN_ID="${previous_staging_run_id}" SPX_RELEASE_MANIFEST_PATH="${previous_manifest}" SPX_TARGET_DESCRIPTOR_PATH="${previous_descriptor}" SPX_DEPLOYMENT_CONTEXT_PATH="${previous_context}" docker compose -p spx-staging --env-file "${ENVIRONMENT_FILE}" -f "${CURRENT_RELEASE}/docker-compose.yml" -f "${CURRENT_RELEASE}/docker-compose.staging.yml" "$@"
             fi
@@ -1497,10 +1509,14 @@ jobs:
               previous_staging_run_id="$(node -p 'require(process.argv[1]).operationId' "${previous_context}")"
               previous_compose --profile "*" stop --timeout 120
               if [ "${previous_topology}" = split ]; then
-                ROLLBACK_SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+                if [ "${TARGET}" != production ]; then
+                  ROLLBACK_SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+                fi
                 previous_compose --profile split up -d ${ROLLBACK_SERVICES}
               else
-                ROLLBACK_SERVICES="notifier worker-ifn worker-ptwl"
+                if [ "${TARGET}" != production ]; then
+                  ROLLBACK_SERVICES="notifier worker-ifn worker-ptwl"
+                fi
                 previous_compose up -d ${ROLLBACK_SERVICES}
               fi
               if [ "${TARGET}" = production ] && [ -n "${WATCHDOG_UNIT:-}" ]; then
@@ -1901,8 +1917,14 @@ jobs:
             printf '%s\t%s\n' "${service}" "$(printf '%s' "${grant_preflight_json}" | base64 -w0)" \
               >> "${GRANT_PREFLIGHT_FACTS}"
           }
-          SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
-          GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ifn-split worker-ptwl-split"
+          if [ "${TARGET}" = production ]; then
+            node "${RELEASE_DIR}/scripts/production-topology.mjs" check "${RELEASE_DIR}/deploy/production-topology.json" >/dev/null
+            SERVICES="$(node "${RELEASE_DIR}/scripts/production-topology.mjs" services "${RELEASE_DIR}/deploy/production-topology.json" --unit=primary --format=shell)"
+            GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ptwl-split"
+          else
+            SERVICES="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+            GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ifn-split worker-ptwl-split"
+          fi
           REPLAY_PREFLIGHT_SERVICES="web-api notification-service line-service"
           if [[ " ${SERVICES} " == *" realtime-service "* ]]; then
             GRANT_PREFLIGHT_SERVICES="${GRANT_PREFLIGHT_SERVICES} realtime-service"
@@ -1914,8 +1936,8 @@ jobs:
           for service in ${REPLAY_PREFLIGHT_SERVICES}; do
             run_replay_preflight "${service}"
           done
-          candidate_compose stop notifier worker-ifn worker-ptwl
-          candidate_compose --profile split up -d web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split
+          candidate_compose stop notifier worker-ifn worker-ptwl worker-ifn-split
+          candidate_compose --profile split up -d ${SERVICES}
           for service in ${SERVICES}; do
             container="$(candidate_compose ps -a -q "${service}")"
             verify_host_inventory "${service}" "${container}"
@@ -2019,11 +2041,10 @@ jobs:
             const COMMIT = /^[0-9a-f]{40}$/;
             const IMAGE = /^sha256:[0-9a-f]{64}$/;
             const BASELINE_SERVICES = [
-              "web-api",
-              "notification-service",
               "line-service",
+              "notification-service",
               "ocr-service",
-              "worker-ifn-split",
+              "web-api",
               "worker-ptwl-split",
             ];
             const producerRoot = process.env.PROTECTED_INSTALL_PRODUCER_ROOT;

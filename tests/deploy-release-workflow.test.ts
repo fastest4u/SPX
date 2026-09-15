@@ -832,6 +832,7 @@ assert.match(
   /case "\$\{APPROVED_PRODUCTION_TOPOLOGY\}" in\s*split\) ;; \*\) exit 1 ;;\s*esac/,
   "the current production candidate must be split-only; legacy is rollback-only",
 );
+assert.match(deploySource, /descriptor\.deploymentUnit !== "primary"/);
 assert.match(deploySource, /docker start "\$\{MIGRATOR_CONTAINER\}"/);
 assert.match(deploySource, /docker wait "\$\{MIGRATOR_CONTAINER\}"/);
 assert.match(
@@ -852,13 +853,31 @@ assert.doesNotMatch(deploySource, /REPLAY_PREFLIGHT_SERVICES="[^"]*ocr-service/)
 assert.match(deploySource, /databaseAccountHosts:\s*descriptor\.database\.accountHosts/);
 assert.match(
   deploySource,
-  /GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ifn-split worker-ptwl-split"/,
+  /node "\$\{RELEASE_DIR\}\/scripts\/production-topology\.mjs" check "\$\{RELEASE_DIR\}\/deploy\/production-topology\.json"/,
+);
+assert.match(
+  deploySource,
+  /SERVICES="\$\(node "\$\{RELEASE_DIR\}\/scripts\/production-topology\.mjs" services "\$\{RELEASE_DIR\}\/deploy\/production-topology\.json" --unit=primary --format=shell\)"/,
+);
+assert.match(
+  deploySource,
+  /GRANT_PREFLIGHT_SERVICES="migrator web-api notification-service line-service worker-ptwl-split"/,
 );
 assert.match(
   deploySource,
   /db-grants-check\.mjs[\s\S]*--role="\$\{service\}"[\s\S]*--expected-account-host="\$\{expected_account_host\}"/,
 );
 assert.doesNotMatch(deploySource, /GRANT_PREFLIGHT_SERVICES="[^"]*ocr-service/);
+assert.match(
+  deploySource,
+  /docker compose -p spx-production[\s\S]*-f "\$\{RELEASE_DIR\}\/docker-compose\.yml" -f "\$\{RELEASE_DIR\}\/deploy\/production-primary\.yml"/,
+);
+assert.match(deploySource, /candidate_compose --profile split up -d \$\{SERVICES\}/);
+assert.match(deploySource, /candidate_compose stop notifier worker-ifn worker-ptwl worker-ifn-split/);
+assert.doesNotMatch(
+  deploySource,
+  /candidate_compose --profile split up -d web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split/,
+);
 assert.match(
   deploySource,
   /for service in \$\{SERVICES\}; do[\s\S]*verify_host_inventory "\$\{service\}" "\$\{container\}"[\s\S]*deadline=/,
@@ -905,7 +924,7 @@ for (const [file, source] of [
 }
 assertExactReusableWorkflowPin(
   deployDispatcherSource,
-  "deploy",
+  "deploy-primary",
   "fastest4u/SPX/.github/workflows/trusted-deploy.yml",
 );
 assertExactReusableWorkflowPin(
@@ -913,7 +932,7 @@ assertExactReusableWorkflowPin(
   "maintain-identity",
   "fastest4u/SPX/.github/workflows/trusted-production-project-identity.yml",
 );
-assert.deepEqual(jobPermissions(deployDispatcherSource, "deploy"), {
+assert.deepEqual(jobPermissions(deployDispatcherSource, "deploy-primary"), {
   actions: "read",
   attestations: "write",
   contents: "read",

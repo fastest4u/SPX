@@ -1,0 +1,21 @@
+services:
+  # Legacy services are rollback-only. Removing their default profile prevents an
+  # accidental broad `up` from running legacy and split workers together.
+  notifier:
+    profiles: !override ["forbidden-primary-legacy"]
+    entrypoint: ["/bin/false"]
+    restart: "no"
+  worker-ifn:
+    profiles: !override ["forbidden-primary-legacy"]
+    entrypoint: ["/bin/false"]
+    restart: "no"
+  worker-ptwl:
+    profiles: !override ["forbidden-primary-legacy"]
+    entrypoint: ["/bin/false"]
+    restart: "no"
+  # TEAM 2 is owned by 147.50.240.44. This deny projection makes a broad
+  # primary-host profile startup fail closed instead of creating a second poller.
+  worker-ifn-split:
+    profiles: !override ["forbidden-primary-team2"]
+    entrypoint: ["/bin/false"]
+    restart: "no"
