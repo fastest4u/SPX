@@ -1003,6 +1003,19 @@ assert.match(
 );
 const candidateJob = releaseSource.match(/\n {2}build-candidate:[\s\S]*?\n {2}sign-release:/)?.[0];
 assert.ok(candidateJob);
+assert.match(candidateJob, /npx --no-install playwright install --with-deps chromium/);
+assertAppearsBefore(
+  candidateJob,
+  "npm ci",
+  "npx --no-install playwright install --with-deps chromium",
+  "release candidate must install the locked Playwright browser after dependencies",
+);
+assertAppearsBefore(
+  candidateJob,
+  "npx --no-install playwright install --with-deps chromium",
+  "npm test",
+  "release candidate must install Playwright before browser regression tests",
+);
 assert.deepEqual(jobPermissions(releaseSource, "build-candidate"), { contents: "read" });
 assert.doesNotMatch(candidateJob, /attestations:\s*write|id-token:\s*write/);
 assert.doesNotMatch(releaseSource, /environment:\s*release/);
