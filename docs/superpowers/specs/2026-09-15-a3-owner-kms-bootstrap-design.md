@@ -31,6 +31,7 @@ Nginx exposes only the descriptor signing endpoint over the existing production 
 - `/run/credentials/spx-production-backup-source.cnf`: root-owned mode `0400`, restricted read/lock backup account.
 - `/etc/spx-descriptor-signer/config.json`: root-owned mode `0400`, public policy plus a private-key file reference.
 - `/etc/spx-descriptor-signer/private-key.pem`: root-owned mode `0400`.
+- `/usr/local/libexec/spx-descriptor-signer`: root-owned mode `0500`, built with `node scripts/build-descriptor-signer.mjs <absolute-output-path>`. Install this self-contained bundle; the repository source file is not a deployable executable because it imports TypeScript source from the checkout.
 
 ## Failure behavior
 
@@ -39,7 +40,7 @@ All validation fails closed. Errors sent to callers and logs contain stable reas
 ## Deployment sequence
 
 1. Review and merge the owner tooling.
-2. Install the fixed helper and signer on the primary host and pin their digests.
+2. Build the self-contained signer bundle, install the fixed helper and bundled signer on the primary host, and pin their digests.
 3. Create backup and service database principals and root-only credential files.
 4. Publish the signer public key and endpoint policy to GitHub environment variables.
 5. Capture exact live target facts and current production identity approval.
