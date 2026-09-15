@@ -110,17 +110,19 @@ function parseCommaSeparated(value: string | undefined): string[] {
  * client IP (used for rate-limit identity and logs) is derived from
  * X-Forwarded-For. Accepts:
  *   - "true"/"false"         → trust all / trust none
- *   - an integer (e.g. "1")  → trust that many proxy hops closest to the server
  *   - a comma list of IPs/CIDRs → trust exactly those proxy addresses
  * Defaults to `false`; production deployments behind a reverse proxy should
- * set this to the hop count or proxy CIDR after verifying the proxy path.
+ * set this to the proxy IP/CIDR after verifying the proxy path. Hop-count-only
+ * trust cannot authenticate the immediate peer and is rejected fail-closed.
  */
-export function parseTrustProxy(value: string | undefined): boolean | number | string[] {
+export function parseTrustProxy(value: string | undefined): boolean | string[] {
   if (value === undefined || value.trim() === "") return false;
   const v = value.trim();
   if (v === "true") return true;
   if (v === "false") return false;
-  if (/^\d+$/.test(v)) return Number(v);
+  if (/^\d+$/.test(v)) {
+    throw new Error("HTTP_TRUST_PROXY hop-count values are not supported; use proxy IPs or CIDRs");
+  }
   return v
     .split(",")
     .map((s) => s.trim())

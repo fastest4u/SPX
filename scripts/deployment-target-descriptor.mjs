@@ -149,6 +149,7 @@ function materializeProtectedFacts(
     [
       "releaseEnvironment",
       "runtimeEnvironment",
+      "deploymentUnit",
       "composeProject",
       "topology",
       "target",

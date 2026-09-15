@@ -10,9 +10,9 @@ aliases:
   - Production Setup
 ---
 
-# A3 candidate deployment reference
+# A3 two-host candidate deployment reference
 
-> This is the default-off A3 candidate runbook. It does not describe the currently released separate-host deployment. Use [the current deployment runbook](deployment.md) for that deployment. No A3 rollout is implied by local validation.
+> This is the default-off protected A3 runbook for the production placement already used operationally: the control plane and TEAM 1 on the primary host, with one TEAM 2 worker on `147.50.240.44`. Use [the current deployment runbook](deployment.md) for the currently released runtime. No A3 rollout is implied by local validation.
 >
 > In a source checkout use `Dockerfile.a3` and `docker-compose.a3.yml`. The A3 release workflow selects `--topology=a3`; the verified operator archive projects these reviewed bytes to its canonical `Dockerfile` and `docker-compose.yml`. Installed commands below use that canonical archive path. The source checkout's released files are preserved. The manual dispatcher is `.github/workflows/a3-deploy.yml`.
 
@@ -24,15 +24,15 @@ path to supply the build manifest, matching release manifest, target descriptor 
 deployment context together. Do not change the contract to `legacy` to bypass the
 node HMAC, schema or split LINE service requirements.
 
-Normal protected production upgrades require an already adopted, healthy same-host
-split baseline owning all six baseline services, including both team workers. The
-previous runtime must support the candidate schema before any image load or
-migration. A legacy or separate-host baseline is rejected before mutation; moving
-the current remote TEAM 2 requires a separately verified producer-retirement and
-initial-adoption procedure. A stale lease or a missing heartbeat alone is not
-retirement evidence. The current descriptor does not authorize remote-host cutover.
-Stop failures abort activation, and verified image loading precedes dependency
-extraction so installation also works without a pre-existing image cache.
+Normal protected production upgrades use one immutable release with two signed target
+descriptors. The `primary` descriptor authorizes the five primary services and the
+`team2` descriptor authorizes only `worker-ifn-split` on `147.50.240.44`. The previous
+runtime must support the candidate schema before image load or migration. First
+adoption requires exactly one verified legacy TEAM 2 worker; the remote installer
+stops that container before it starts the protected worker and restores it if
+activation fails. A stale lease or missing heartbeat alone is not retirement
+evidence. Stop failures abort activation, and verified image loading precedes
+dependency extraction so installation also works without a pre-existing image cache.
 
 ## Local candidate execution admission (2026-09-12)
 
@@ -93,10 +93,10 @@ npm run smoke:test
 Production and staging deployment is artifact-driven. The target host is not a Git checkout and never builds the application image.
 
 1. Dispatch `.github/workflows/release-artifact.yml` with one operator-approved 40-character `source_sha`. Its unprivileged build job runs the candidate gates and builds the image once. Its privilege-bearing job can only call full-SHA-pinned `.github/workflows/trusted-release-artifact.yml`; that protected reusable workflow checks out its own trusted SHA, re-verifies the inert candidate tuple, attests every subject, and publishes the immutable release artifact ID. New releases declare schema minimum `33` because signed internal intake requires `internal_request_replays`.
-2. Create the protected, signed target descriptor for that release. Its topology, host/database facts, canonical paths, image identity, release-manifest digest, and operator-bundle digest must match the release tuple.
-3. Dispatch `.github/workflows/a3-deploy.yml` with exactly `target`, `release_artifact_id`, and `target_descriptor_artifact_id`. There is no branch, run ID, topology, Compose project, or identity-adoption override.
-4. The deploy verifies both artifact attestations against full trusted signer SHAs, verifies their complete file indexes and cross-references, and only then uploads a checksum-bound payload over the pinned `SPX_KNOWN_HOSTS` identity.
-5. Production verifies sole `spx-production` ownership and acquires the durable host mutation lock before image load, migration, Compose changes, or release projection changes. Only the systemd reconciler may clear a terminal lock after a healthy baseline or verified rollback.
+2. Create two protected, signed production target descriptors for the same release: `deployment_unit=primary` and `deployment_unit=team2`. Their topology, host/database facts, canonical paths, image identity, release-manifest digest, and operator-bundle digest must match the release tuple. Staging accepts only `deployment_unit=primary`.
+3. Dispatch `.github/workflows/a3-deploy.yml` with `target`, `release_artifact_id`, `target_descriptor_artifact_id`, and, for production, `team2_target_descriptor_artifact_id`. There is no branch, run ID, topology, Compose project, or identity-adoption override.
+4. The primary deploy verifies the immutable release and primary descriptor, migrates once, and activates only the five services assigned to the primary host. After that job succeeds, the TEAM 2 deploy independently verifies the same release and its TEAM 2 descriptor, then uploads a checksum-bound payload over the pinned TEAM 2 SSH identity.
+5. Each host uses its own mutation lock and local verified rollback. A successful TEAM 2 install emits `team2-deployment.json`, binds the release/image/descriptor/container identities, and receives GitHub build-provenance attestation from the pinned trusted workflow. The dispatcher succeeds only after both jobs succeed. If the second host restores its previous release after a failure, keep the run failed and dispatch the previously approved release plus both of its descriptors to return both hosts to one release deliberately.
 
 Mutable jobs that delegate environment, OIDC, attestation, or host credentials never
 execute steps or request an environment themselves. Deploy, project-identity, and
@@ -113,7 +113,7 @@ pin the commit that introduces itself, so bootstrap is a reviewed two-stage chan
    still points at the zero SHA. Production requests must fail to resolve in this
    state.
 2. Record that commit's full SHA, independently verify the trusted workflow files at
-   that commit, then make a second change that replaces all five zero-SHA pins with
+   that commit, then make a second change that replaces all six foundational zero-SHA pins with
    that same immutable SHA. Do not change the trusted workflow bodies in the pin
    change.
 3. Set the protected trusted-workflow SHA variables to that reviewed commit and keep
@@ -129,7 +129,7 @@ Required reviewers must reject a request whose call chain is not the pinned reus
 workflow. The repository YAML alone cannot enforce this platform-side rule.
 
 Never replace the sentinel with `main`, a tag, a local workflow reference, or the SHA
-of a commit that does not contain all five trusted reusable workflows. Until the
+of a commit that does not contain all six foundational trusted reusable workflows. Until the
 stage-two pin change and protected-environment configuration are complete, release
 signing, deployment, descriptor signing, staging rollout signing, and project-identity
 maintenance remain intentionally disabled.
@@ -155,6 +155,9 @@ artifact during the bootstrap change:
 The runbook treats these as six zero-SHA dispatcher routes across five public workflow
 files. The two accepted-evidence kinds share one step-free dispatcher and exporter,
 but remain separate map entries with different exact filenames and semantic bindings.
+The TEAM 2 deployment result is a separate provenance-attested operational artifact
+from `trusted-team2-deploy.yml`; the complete A3 dispatcher remains failed unless both
+the primary protected install and this remote result succeed for the same release.
 Enable the six routes only with this reviewed **three-commit activation**; a single
 pin-and-map change is self-referential because each consumer checks out the map from
 its own `job.workflow_sha`:
@@ -196,11 +199,13 @@ policy, or receives source/KMS capability values through dispatch inputs.
 
 Protected environment configuration required by these workflows includes:
 
-- `SPX_TRUSTED_DEPLOY_WORKFLOW_SHA`, `SPX_TRUSTED_RELEASE_WORKFLOW_SHA`, `SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA`, `SPX_TRUSTED_STAGING_SIGNER_SHA`, `SPX_DESCRIPTOR_SIGNER_FILE_SHA256`, `STAGING_SIGNER_WORKFLOW_SHA256`, and `SPX_TRUSTED_IDENTITY_WORKFLOW_SHA`
+- `SPX_TRUSTED_DEPLOY_WORKFLOW_SHA`, `SPX_TRUSTED_TEAM2_DEPLOY_WORKFLOW_SHA`, `SPX_TRUSTED_RELEASE_WORKFLOW_SHA`, `SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA`, `SPX_TRUSTED_STAGING_SIGNER_SHA`, `SPX_DESCRIPTOR_SIGNER_FILE_SHA256`, `STAGING_SIGNER_WORKFLOW_SHA256`, and `SPX_TRUSTED_IDENTITY_WORKFLOW_SHA`
 - `SPX_DESCRIPTOR_KEY_ID`, `SPX_DESCRIPTOR_PUBLIC_KEY_B64`, `SPX_DESCRIPTOR_OIDC_AUDIENCE`, and `SPX_TARGET_FACTS_SHA256`
-- `SPX_APPROVED_PRODUCTION_TOPOLOGY`, `SPX_TARGET_HOST_IDENTITY_SHA256`, and `SPX_KNOWN_HOSTS_SHA256`
+- `SPX_APPROVED_PRODUCTION_TOPOLOGY`, `SPX_TARGET_HOST_IDENTITY_SHA256`, `SPX_TEAM2_TARGET_HOST_IDENTITY_SHA256`, `SPX_KNOWN_HOSTS_SHA256`, and `SPX_TEAM2_KNOWN_HOSTS_SHA256`
+- `SPX_DESCRIPTOR_TARGET_FACTS_B64`/`SPX_TARGET_FACTS_SHA256` for the primary target and `SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_B64`/`SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_SHA256` for TEAM 2
 - `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64` and its exact `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256`; this approval is bound to the candidate release SHA, image tag/ID, service set, Compose config, volumes, networks, ports, health thresholds, maintenance window, and rollback owner
-- `SPX_HOST`, `SPX_PORT`, `SPX_USER`, `SPX_SSH_KEY`, and pinned `SPX_KNOWN_HOSTS`
+- `SPX_HOST`, `SPX_PORT`, `SPX_USER`, `SPX_SSH_KEY`, and pinned `SPX_KNOWN_HOSTS` for the primary host
+- `SPX_TEAM2_HOST`, `SPX_TEAM2_PORT`, `SPX_TEAM2_USER`, `SPX_TEAM2_SSH_KEY`, and pinned `SPX_TEAM2_KNOWN_HOSTS` for `147.50.240.44`
 
 For the current release, `SPX_APPROVED_PRODUCTION_TOPOLOGY` must be exactly `split`.
 
@@ -408,12 +413,13 @@ spx_production_compose() {
   docker compose -p spx-production \
     --project-directory /root/SPX \
     --env-file /etc/spx-production/runtime.env \
-    -f /root/SPX/docker-compose.yml "$@"
+    -f /root/SPX/docker-compose.yml \
+    -f /root/SPX/deploy/production-primary.yml "$@"
 }
 spx_production_compose --profile migration run --rm migrator
 spx_production_compose --profile split up -d \
   web-api notification-service line-service ocr-service \
-  worker-ifn-split worker-ptwl-split
+  worker-ptwl-split
 ```
 
 Run the preamble in the same root shell before any manual production Compose command. It refuses a mutable checkout or a release path outside the immutable projection and binds Compose to the installed image and release manifest. Do not replace `spx_production_compose` with a default-project command.
@@ -446,27 +452,48 @@ service and the trusted deploy accepts `SPX_APPROVED_PRODUCTION_TOPOLOGY=split` 
 
 Workers in a previous legacy release call that release's notifier over Docker networking. Notification events use `/internal/notification-events`; runtime telemetry uses `/internal/runtime-metrics`.
 
-### Split-Service Production Topology
+### Split-Service Two-Host Production Topology
 
-The current production release uses the `profile: split` services. Run the signed one-shot migrator for the same release descriptor before application rollout. Secret-file paths in `/etc/spx-production/runtime.env` must point to the role-specific files prepared by the approved secret-distribution procedure. Stop legacy services first, then name every split service explicitly so legacy and split workers cannot run together:
+`deploy/production-topology.json` is the release-bound placement contract. The primary
+host owns migrations, the public web listener, internal notification/LINE/OCR services,
+and TEAM 1. The remote host owns only TEAM 2 and publishes no port. Both units use the
+Compose project name `spx-production`, but their Compose files and host mutation locks
+are independent.
+
+Run the signed one-shot migrator on the primary host before application rollout.
+Secret-file paths in `/etc/spx-production/runtime.env` must point to role-specific files
+prepared by the approved secret-distribution procedure. Stop every legacy primary
+service first, then name the five primary services explicitly:
 
 ```bash
 spx_production_compose stop notifier worker-ifn worker-ptwl
 spx_production_compose --profile split up -d \
   web-api notification-service line-service ocr-service \
-  worker-ifn-split worker-ptwl-split
+  worker-ptwl-split
 ```
 
-Target single-host topology:
+Target topology:
 
-| Service                | Role                                              | Port Exposure                 | Notes                                                                                                    |
-| ---------------------- | ------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `web-api`              | `SPX_ROLE=api`, `HTTP_PORT=3000`                  | Published on `127.0.0.1:3000` | Runs dashboard, API, health/readiness                                                                    |
-| `notification-service` | `SPX_ROLE=notification-service`, `HTTP_PORT=3002` | Internal Docker network only  | Accepts worker notification events and dispatches outbox via `LINE_SERVICE_URL=http://line-service:3003` |
-| `line-service`         | `SPX_ROLE=line-service`, `HTTP_PORT=3003`         | Internal Docker network only  | Owns LINEJS send/status/listener and calls `OCR_SERVICE_URL=http://ocr-service:3004` when configured     |
-| `ocr-service`          | `SPX_ROLE=ocr-service`, `HTTP_PORT=3004`          | Internal Docker network only  | Owns Codex image OCR provider work                                                                       |
-| `worker-ifn-split`     | `SPX_ROLE=worker`, `RUN_TEAM_IDS=2`               | none                          | Publishes to `http://notification-service:3002/internal/notification-events`                             |
-| `worker-ptwl-split`    | `SPX_ROLE=worker`, `RUN_TEAM_IDS=1`               | none                          | Publishes to `http://notification-service:3002/internal/notification-events`                             |
+| Unit | Host | Services | Published ports | Migrations |
+| --- | --- | --- | --- | --- |
+| `primary` | `45.83.207.139` | `line-service`, `notification-service`, `ocr-service`, `web-api`, `worker-ptwl-split` | `127.0.0.1:3000:3000` | yes |
+| `team2` | `147.50.240.44` | `worker-ifn-split` with `RUN_TEAM_IDS=2` and node `prod-worker-ifn-node2` | none | no |
+
+TEAM 2 uses only `deploy/production-team2.yml`. Its required
+`SPX_TEAM2_NOTIFICATION_API_URL` is exactly
+`http://127.0.0.1:3000/internal/notification-events`; a separately managed private SSH
+tunnel maps that loopback listener to the primary notification intake. Validate the
+tunnel before activation and keep it supervised outside Compose. The topology parser
+rejects a public TEAM 2 port, a second worker, another notification URL, or migration
+ownership on that host.
+
+The signed TEAM 2 target facts must use these exact canonical paths:
+
+```text
+releaseRoot:    /opt/spx-production-team2
+environmentFile: /etc/spx-production/runtime.env
+stateRoot:      /var/lib/spx-production-team2-rollout
+```
 
 Only `web-api` should be published through nginx/public ports. Keep `notification-service`, `line-service`, and `ocr-service` on internal Docker network ports unless an operator intentionally exposes them for a private admin network.
 
@@ -505,7 +532,7 @@ DB-backed boundaries atomically reserve a SHA-256 request fingerprint in shared 
 Before Task 9, rerun the same sanitized isolation gate inside every selected split container. Use project `spx-staging` on staging and `spx-production` only in the supervised production window. Every command must print `{"ok":true,"service":"<service>","failureCodes":[]}`; stop the drill on any other result:
 
 ```bash
-for service in web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split; do
+for service in web-api notification-service line-service ocr-service worker-ptwl-split; do
   spx_production_compose --profile split \
     exec -T "$service" node scripts/container-isolation-probe.mjs --service="$service"
 done
@@ -513,13 +540,13 @@ done
 
 `SPX_NODE_ID` must be unique for every running service process and every worker machine. Keep `RUN_TEAM_IDS` explicit and non-overlapping. `SPX_NOTIFICATION_ALLOWED_NODE_TEAMS`, `SPX_LINE_SEND_ALLOWED_NODE_IDS`, `SPX_LINE_ADMIN_ALLOWED_NODE_IDS`, and the OCR node classifications are non-secret authorization maps in the Compose env file. Only notification-service receives `SPX_LINE_SERVICE_SEND_SECRET_NOTIFICATION_SERVICE_FILE`, and it must be the only current production entry in `SPX_LINE_SEND_ALLOWED_NODE_IDS`; line-service receives the matching inbound key ring through `SPX_LINE_SERVICE_SEND_NODE_SECRETS_FILE`. Web-api receives only the separate admin key in `SPX_LINE_SERVICE_ADMIN_SECRET_FILE`; workers receive no LINE credential.
 
-Rollback path:
-
-1. Stop split containers: `spx_production_compose --profile split stop web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split`.
-2. Restore the prior immutable release projection, its prior image digest, prior release manifest, and prior Compose file. Never start legacy services from the current candidate projection.
-3. Re-run the immutable production preamble from that restored prior projection, then start legacy services: `spx_production_compose up -d notifier worker-ifn worker-ptwl`.
-4. Confirm workers in the restored release point to `NOTIFIER_API_URL=http://notifier:3000/internal/notification-events`.
-5. Confirm `curl -s http://127.0.0.1:3000/ready` returns `ready: true` and verify the recorded prior image digest on all three containers.
+Forward order is `primary`, then `team2`; rollback order is `team2`, then `primary`.
+Each installer restores its verified prior container locally when its own activation
+fails. For an operator-requested whole-release rollback, dispatch the previously
+approved release artifact with its primary and TEAM 2 descriptors. Confirm the remote
+worker is healthy and owns TEAM 2 before restoring the primary projection. Never start
+`worker-ifn` or `worker-ifn-split` on the primary host. Confirm the primary `/ready`,
+both exact image IDs, and fresh TEAM 1/TEAM 2 runtime leases before closing rollback.
 
 ### Phase 3 Poller/Auto-Accept Compose Profile
 
@@ -1320,8 +1347,8 @@ test "$(basename "$RELEASE_PARENT")" = "$EXPECTED_SOURCE_SHA"
 test "$(sha256sum "$SPX_RELEASE_MANIFEST_PATH" | awk '{print $1}')" = "$EXPECTED_MANIFEST_SHA256"
 spx_production_compose --profile split ps \
   web-api notification-service line-service ocr-service \
-  worker-ifn-split worker-ptwl-split
-for service in web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split; do
+  worker-ptwl-split
+for service in web-api notification-service line-service ocr-service worker-ptwl-split; do
   container="$(spx_production_compose --profile split ps -q "$service")"
   test -n "$container"
   test "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")" = spx-production
@@ -1330,16 +1357,33 @@ for service in web-api notification-service line-service ocr-service worker-ifn-
 done
 curl --fail --silent --show-error http://127.0.0.1:3000/ready >/dev/null
 test "$(spx_production_compose --profile split logs --since=5m notification-service | grep -c 'POST /internal/runtime-metrics 200')" -gt 0
-test "$(spx_production_compose --profile split logs --since=5m worker-ifn-split worker-ptwl-split | grep -c 'runtime-metrics-publish-failed\|runtime-metrics-url-invalid')" -eq 0
+test "$(spx_production_compose --profile split logs --since=5m worker-ptwl-split | grep -c 'runtime-metrics-publish-failed\|runtime-metrics-url-invalid')" -eq 0
+```
+
+On `147.50.240.44`, inspect the root-owned TEAM 2 state written by the protected
+installer and verify the one container it names:
+
+```bash
+TEAM2_STATE=/var/lib/spx-production-team2-rollout/state.json
+test -f "$TEAM2_STATE" && test ! -L "$TEAM2_STATE"
+TEAM2_CONTAINER="$(node -p 'require(process.argv[1]).containerId' "$TEAM2_STATE")"
+TEAM2_IMAGE_ID="$(node -p 'require(process.argv[1]).imageId' "$TEAM2_STATE")"
+test "$(docker inspect --format '{{.Image}}' "$TEAM2_CONTAINER")" = "$TEAM2_IMAGE_ID"
+test "$(docker inspect --format '{{.State.Status}}|{{.State.Health.Status}}|{{.RestartCount}}' "$TEAM2_CONTAINER")" = 'running|healthy|0'
+test "$(docker exec "$TEAM2_CONTAINER" printenv SPX_ROLE RUN_TEAM_IDS SPX_NODE_ID | paste -sd '|')" = 'worker|2|prod-worker-ifn-node2'
+test "$(docker ps -q --filter label=com.docker.compose.service=worker-ifn | wc -l)" -eq 0
+test "$(docker ps -q --filter label=com.docker.compose.service=worker-ifn-split | wc -l)" -eq 1
+test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/internal/notification-events)" != 000
 ```
 
 Expected runtime state:
 
 - The active projection SHA, manifest digest, image ID, Compose project label, and container health all match the verified immutable deployment context.
-- `web-api`, `notification-service`, `line-service`, `ocr-service`, `worker-ifn-split`, and `worker-ptwl-split` are running; only `web-api` is public.
+- The primary runs `web-api`, `notification-service`, `line-service`, `ocr-service`, and `worker-ptwl-split`; only `web-api` is public.
+- `147.50.240.44` runs exactly one `worker-ifn-split`, no legacy `worker-ifn`, no published port, and a fresh TEAM 2 lease.
 - `/ready` returns HTTP 200 with `ready: true`.
 - `POST /internal/runtime-metrics 200` appears frequently in the legacy `notifier` logs or split `notification-service` logs.
-- Worker logs have zero runtime-metrics publish/url failures.
+- Worker logs on both hosts have zero runtime-metrics publish/url failures.
 - Admin Pipeline telemetry should update after the next worker metrics publish cycle; hard-refresh the dashboard if the browser still has stale UI state.
 
 ## Production Checklist
@@ -1354,6 +1398,11 @@ Expected runtime state:
 - [ ] DB-backed operator/team secrets อยู่ใน `app_settings` หรือ encrypted team fields; per-node HMAC keys อยู่เฉพาะ process secret files/environment
 - [ ] Monitor `/health`, `/ready`, `/metrics` ผ่าน Uptime Kuma หรือ Datadog
 - [ ] Verify the notifier/notification-service receives worker runtime metrics (`POST /internal/runtime-metrics 200`) after deploy
+- [ ] Create both production descriptors from the same release (`deployment_unit=primary` and `deployment_unit=team2`)
+- [ ] Provision and independently pin the TEAM 2 target facts, host identity, SSH known-hosts digest, trusted workflow SHA, and root SSH deployment principal
+- [ ] Verify the managed private tunnel on `147.50.240.44` listens on `127.0.0.1:3000` before activation
+- [ ] Confirm the A3 dispatcher and provenance-attested `team2-deployment.json` both reference the same source SHA and image ID
+- [ ] Confirm the primary has no `worker-ifn`/`worker-ifn-split` and TEAM 2 has exactly one `worker-ifn-split`
 - [ ] `notify-rules.json` ต้องมี controlled write access เฉพาะ local/dev fallback; production rules อยู่ใน DB
 - [ ] ตรวจว่า `npm run build` ผ่านก่อน release (includes typecheck + frontend build)
 - [ ] ตรวจว่า `dist/public/` มี `index.html` และ assets ครบ

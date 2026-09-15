@@ -71,11 +71,10 @@ export const PROTECTED_INSTALL_INPUT_FILES = Object.freeze({
 });
 
 export const PROTECTED_INSTALL_BASELINE_SERVICES = Object.freeze([
-  "web-api",
-  "notification-service",
   "line-service",
+  "notification-service",
   "ocr-service",
-  "worker-ifn-split",
+  "web-api",
   "worker-ptwl-split",
 ]);
 

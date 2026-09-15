@@ -1,0 +1,329 @@
+name: Trusted immutable TEAM 2 deployment
+
+on:
+  workflow_call:
+    inputs:
+      release_artifact_id:
+        required: true
+        type: string
+      target_descriptor_artifact_id:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: spx-production-team2-mutation
+  cancel-in-progress: false
+
+jobs:
+  deploy-team2:
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Enforce immutable workflow and artifact identities
+        shell: bash
+        env:
+          CALLED_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          TRUSTED_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_TEAM2_DEPLOY_WORKFLOW_SHA }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${CALLED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_RELEASE_WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TRUSTED_DESCRIPTOR_SIGNER_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${RELEASE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${TARGET_DESCRIPTOR_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          test "${RELEASE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
+          test "${CALLED_WORKFLOW_SHA}" = "${TRUSTED_WORKFLOW_SHA}"
+
+      - name: Checkout only immutable trusted deployment source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+
+      - name: Download exact immutable artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+          TARGET_DESCRIPTOR_ARTIFACT_ID: ${{ inputs.target_descriptor_artifact_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 downloads verified/release verified/target
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${RELEASE_ARTIFACT_ID}/zip" > downloads/release.zip
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${TARGET_DESCRIPTOR_ARTIFACT_ID}/zip" > downloads/target.zip
+          test "$(stat -c %s downloads/release.zip)" -le 2147483648
+          test "$(stat -c %s downloads/target.zip)" -le 10485760
+          for archive in release target; do
+            unzip -Z1 "downloads/${archive}.zip" | node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const paths = readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean);
+              if (paths.length === 0 || paths.length > 64) throw new Error("unsafe artifact entry count");
+              for (const path of paths) {
+                if (path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("unsafe artifact path");
+              }
+            '
+            unzip -q "downloads/${archive}.zip" -d "verified/${archive}"
+            test -z "$(find "verified/${archive}" -type l -print -quit)"
+          done
+
+      - name: Verify release and TEAM 2 descriptor attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED_RELEASE_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_RELEASE_WORKFLOW_SHA }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            verified/release/release-manifest.json \
+            verified/release/operator-bundle.tar \
+            verified/release/operator-bundle.index.json \
+            verified/release/spx-image.tar; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/trusted-release-artifact.yml" \
+              --signer-digest "${TRUSTED_RELEASE_WORKFLOW_SHA}"
+          done
+          for artifact in \
+            verified/target/deployment-target-descriptor.json \
+            verified/target/deployment-target-descriptor.attestation-claims.json; do
+            gh attestation verify "${artifact}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/deployment-target-descriptor-signer.yml" \
+              --signer-digest "${TRUSTED_DESCRIPTOR_SIGNER_SHA}"
+          done
+
+      - name: Verify release index and materialize operator bundle
+        shell: bash
+        env:
+          EXPECTED_RELEASE_ARTIFACT_ID: ${{ inputs.release_artifact_id }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          const bytes = readFileSync("verified/release/release-artifact.index.json");
+          const index = JSON.parse(bytes);
+          if (!bytes.equals(Buffer.from(JSON.stringify(canonical(index))))) throw new Error("release index is not canonical");
+          const expected = [
+            "bootstrap/scripts/build-operator-bundle.mjs", "bootstrap/scripts/deployment-target-descriptor.mjs",
+            "bootstrap/scripts/lib/safe-file.mjs", "bootstrap/src/services/deployment-target-descriptor.ts",
+            "bootstrap/src/services/release-manifest.ts", "build-manifest.json", "operator-bundle.index.json",
+            "operator-bundle.tar", "release-manifest.json", "spx-dist.tar", "spx-image.tar",
+          ];
+          if (index.schemaVersion !== 1 || index.repository !== process.env.GITHUB_REPOSITORY || JSON.stringify(index.files.map((entry) => entry.path)) !== JSON.stringify(expected)) throw new Error("release index identity mismatch");
+          for (const entry of index.files) {
+            const value = readFileSync(`verified/release/${entry.path}`);
+            if (value.length !== entry.size || sha256(value) !== entry.sha256) throw new Error(`release index mismatch: ${entry.path}`);
+          }
+          NODE
+          node verified/release/bootstrap/scripts/build-operator-bundle.mjs verify-archive \
+            --archive=verified/release/operator-bundle.tar \
+            --index=verified/release/operator-bundle.index.json
+          node verified/release/bootstrap/scripts/build-operator-bundle.mjs materialize \
+            --archive=verified/release/operator-bundle.tar \
+            --index=verified/release/operator-bundle.index.json \
+            --root=verified/operator
+
+      - name: Verify signed TEAM 2 descriptor against protected trust
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESCRIPTOR_SIGNER_FILE_SHA256: ${{ vars.SPX_DESCRIPTOR_SIGNER_FILE_SHA256 }}
+          DESCRIPTOR_KEY_ID: ${{ vars.SPX_DESCRIPTOR_KEY_ID }}
+          DESCRIPTOR_PUBLIC_KEY_B64: ${{ vars.SPX_DESCRIPTOR_PUBLIC_KEY_B64 }}
+          DESCRIPTOR_OIDC_AUDIENCE: ${{ vars.SPX_DESCRIPTOR_OIDC_AUDIENCE }}
+          TARGET_FACTS_SHA256: ${{ vars.SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_SHA256 }}
+          TARGET_HOST_IDENTITY_SHA256: ${{ vars.SPX_TEAM2_TARGET_HOST_IDENTITY_SHA256 }}
+          TRUSTED_DESCRIPTOR_SIGNER_SHA: ${{ vars.SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module - <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const release = JSON.parse(readFileSync("verified/release/release-manifest.json", "utf8"));
+          const signed = JSON.parse(readFileSync("verified/target/deployment-target-descriptor.json", "utf8"));
+          const descriptor = signed.descriptor;
+          if (descriptor.deploymentUnit !== "team2") throw new Error("descriptor deployment unit mismatch");
+          if (descriptor.releaseEnvironment !== "production" || descriptor.runtimeEnvironment !== "production" || descriptor.composeProject !== "spx-production" || descriptor.topology !== "split") throw new Error("TEAM 2 descriptor target mismatch");
+          if (descriptor.target.hostIdentitySha256 !== process.env.TARGET_HOST_IDENTITY_SHA256) throw new Error("TEAM 2 descriptor host identity mismatch");
+          if (JSON.stringify(descriptor.nodeIds) !== JSON.stringify(["prod-worker-ifn-node2"]) || descriptor.publishedPorts.length !== 0) throw new Error("TEAM 2 descriptor scope mismatch");
+          const workflowRef = `${process.env.GITHUB_REPOSITORY}/.github/workflows/deployment-target-descriptor-signer.yml@${process.env.TRUSTED_DESCRIPTOR_SIGNER_SHA}`;
+          const trust = {
+            keyId: process.env.DESCRIPTOR_KEY_ID, repository: process.env.GITHUB_REPOSITORY,
+            workflowRef, environment: "production", subject: `repo:${process.env.GITHUB_REPOSITORY}:environment:production`,
+            audience: process.env.DESCRIPTOR_OIDC_AUDIENCE, issuer: "https://token.actions.githubusercontent.com",
+            jobWorkflowRef: workflowRef, signingWorkflowSourceSha: process.env.TRUSTED_DESCRIPTOR_SIGNER_SHA,
+            signingWorkflowFileSha256: process.env.DESCRIPTOR_SIGNER_FILE_SHA256,
+            releaseSourceSha: release.sourceSha, imageId: release.imageId, imageTag: release.imageTag,
+            targetFactsSha256: process.env.TARGET_FACTS_SHA256,
+          };
+          const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+          writeFileSync("verified/descriptor-trust.json", JSON.stringify(canonical(trust)), { mode: 0o400, flag: "wx" });
+          writeFileSync("verified/descriptor-public-key.pem", Buffer.from(process.env.DESCRIPTOR_PUBLIC_KEY_B64, "base64"), { mode: 0o400, flag: "wx" });
+          NODE
+          node verified/release/bootstrap/scripts/deployment-target-descriptor.mjs verify \
+            --artifact=verified/target/deployment-target-descriptor.json \
+            --attestation=verified/target/deployment-target-descriptor.attestation-claims.json \
+            --trust=verified/descriptor-trust.json \
+            --public-key=verified/descriptor-public-key.pem \
+            --release-manifest=verified/release/release-manifest.json \
+            --operator-bundle=verified/release/operator-bundle.tar \
+            --operator-index=verified/release/operator-bundle.index.json \
+            --operator-root=verified/operator
+
+      - name: Build immutable TEAM 2 payload
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          install -d -m 0700 verified/team2-payload
+          cp -a verified/operator verified/team2-payload/operator
+          install -m 0444 verified/release/release-manifest.json verified/team2-payload/release-manifest.json
+          install -m 0444 verified/release/spx-image.tar verified/team2-payload/spx-image.tar
+          install -m 0444 verified/target/deployment-target-descriptor.json verified/team2-payload/deployment-target-descriptor.json
+          install -m 0444 verified/target/deployment-target-descriptor.attestation-claims.json verified/team2-payload/deployment-target-descriptor.attestation-claims.json
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf verified/team2-payload.tar -C verified/team2-payload .
+          echo "payload_sha256=$(sha256sum verified/team2-payload.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+          echo "release_manifest_sha256=$(sha256sum verified/release/release-manifest.json | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+          echo "target_descriptor_sha256=$(sha256sum verified/target/deployment-target-descriptor.json | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
+          echo "operation_id=deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-team2" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure pinned TEAM 2 SSH identity
+        shell: bash
+        env:
+          SPX_TEAM2_HOST: ${{ secrets.SPX_TEAM2_HOST }}
+          SPX_TEAM2_PORT: ${{ secrets.SPX_TEAM2_PORT || '22' }}
+          SPX_TEAM2_SSH_KEY: ${{ secrets.SPX_TEAM2_SSH_KEY }}
+          SPX_TEAM2_KNOWN_HOSTS: ${{ vars.SPX_TEAM2_KNOWN_HOSTS }}
+          EXPECTED_KNOWN_HOSTS_SHA256: ${{ vars.SPX_TEAM2_KNOWN_HOSTS_SHA256 }}
+        run: |
+          set -euo pipefail
+          test "${SPX_TEAM2_HOST}" = 147.50.240.44
+          [[ "${SPX_TEAM2_PORT}" =~ ^[0-9]{1,5}$ ]]
+          test -n "${SPX_TEAM2_SSH_KEY}"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${SPX_TEAM2_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          printf '%s\n' "${SPX_TEAM2_SSH_KEY}" > ~/.ssh/spx_team2_key
+          chmod 0600 ~/.ssh/known_hosts ~/.ssh/spx_team2_key
+          test "$(sha256sum ~/.ssh/known_hosts | cut -d' ' -f1)" = "${EXPECTED_KNOWN_HOSTS_SHA256}"
+          lookup="${SPX_TEAM2_HOST}"
+          if [ "${SPX_TEAM2_PORT}" != 22 ]; then lookup="[${SPX_TEAM2_HOST}]:${SPX_TEAM2_PORT}"; fi
+          ssh-keygen -F "${lookup}" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Upload and install only TEAM 2
+        shell: bash
+        env:
+          SPX_TEAM2_HOST: ${{ secrets.SPX_TEAM2_HOST }}
+          SPX_TEAM2_PORT: ${{ secrets.SPX_TEAM2_PORT || '22' }}
+          SPX_TEAM2_USER: ${{ secrets.SPX_TEAM2_USER }}
+          PAYLOAD_SHA256: ${{ steps.payload.outputs.payload_sha256 }}
+          RELEASE_MANIFEST_SHA256: ${{ steps.payload.outputs.release_manifest_sha256 }}
+          TARGET_DESCRIPTOR_SHA256: ${{ steps.payload.outputs.target_descriptor_sha256 }}
+          SOURCE_SHA: ${{ steps.payload.outputs.source_sha }}
+          OPERATION_ID: ${{ steps.payload.outputs.operation_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SPX_TEAM2_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          remote_payload="/tmp/${OPERATION_ID}.tar"
+          scp -q -P "${SPX_TEAM2_PORT}" -i ~/.ssh/spx_team2_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            verified/team2-payload.tar "${SPX_TEAM2_USER}@${SPX_TEAM2_HOST}:${remote_payload}"
+          ssh -p "${SPX_TEAM2_PORT}" -i ~/.ssh/spx_team2_key \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "${SPX_TEAM2_USER}@${SPX_TEAM2_HOST}" \
+            bash -s -- "${remote_payload}" "${PAYLOAD_SHA256}" "${SOURCE_SHA}" \
+              "${RELEASE_MANIFEST_SHA256}" "${TARGET_DESCRIPTOR_SHA256}" "${OPERATION_ID}" <<'REMOTE' \
+            | tee team2-deployment.json
+          set -euo pipefail
+          umask 077
+          payload="$1"; payload_sha="$2"; source_sha="$3"; release_sha="$4"; descriptor_sha="$5"; operation_id="$6"
+          test "$(id -u)" -eq 0
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${release_sha}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${descriptor_sha}" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum "${payload}" | cut -d' ' -f1)" = "${payload_sha}"
+          python3 - "${payload}" <<'PY'
+          import sys
+          import tarfile
+          from pathlib import PurePosixPath
+
+          with tarfile.open(sys.argv[1], "r:") as archive:
+              members = archive.getmembers()
+              if not members or len(members) > 5000:
+                  raise SystemExit("unsafe TEAM 2 payload member count")
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if (
+                      member.name != "."
+                      and (
+                          path.is_absolute()
+                          or ".." in path.parts
+                          or "\\" in member.name
+                          or not path.parts
+                      )
+                  ):
+                      raise SystemExit("unsafe TEAM 2 payload member path")
+                  if not (member.isfile() or member.isdir()):
+                      raise SystemExit("unsafe TEAM 2 payload member type")
+          PY
+          managed=/opt/spx-production-team2
+          release_dir="${managed}/releases/${source_sha}-${descriptor_sha:0:12}"
+          stage="${release_dir}.new-${operation_id}"
+          cleanup() { rm -rf -- "${stage}" "${payload}"; }
+          trap cleanup EXIT
+          install -d -m 0700 "${managed}" "${managed}/releases"
+          if [ ! -d "${release_dir}" ]; then
+            test ! -e "${stage}"
+            install -d -m 0700 "${stage}"
+            tar -xf "${payload}" -C "${stage}" --no-same-owner --no-same-permissions
+            test -z "$(find "${stage}" -type l -print -quit)"
+            chmod -R go-rwx "${stage}"
+            mv "${stage}" "${release_dir}"
+          fi
+          python3 "${release_dir}/operator/scripts/a3-team2-deploy.py" validate \
+            --release-dir="${release_dir}" \
+            --release-manifest-sha256="${release_sha}" \
+            --target-descriptor-sha256="${descriptor_sha}" >/dev/null
+          python3 "${release_dir}/operator/scripts/a3-team2-deploy.py" install \
+            --release-dir="${release_dir}" \
+            --release-manifest-sha256="${release_sha}" \
+            --target-descriptor-sha256="${descriptor_sha}" \
+            --managed-root='/opt/spx-production-team2' \
+            --state-root='/var/lib/spx-production-team2-rollout' \
+            --environment-file='/etc/spx-production/runtime.env' \
+            --operation-id="${operation_id}"
+          REMOTE
+
+      - name: Attest TEAM 2 deployment result
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: team2-deployment.json
+
+      - name: Upload TEAM 2 deployment result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a3-team2-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: team2-deployment.json
+          if-no-files-found: warn
+          retention-days: 30

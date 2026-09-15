@@ -43,6 +43,13 @@ assert.equal(
   true,
 );
 assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("deploy/runtime-isolation-policy.json"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("deploy/production-topology.json"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("deploy/production-primary.yml"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("deploy/production-team2.yml"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/production-topology.mjs"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/a3-team2-deploy.py"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/a3-team2-readiness.mjs"), true);
+assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("src/services/production-topology.ts"), true);
 assert.equal(
   OPERATOR_BUNDLE_STATIC_FILES.includes("deploy/gate6-production-keyring.schema.json"),
   true,

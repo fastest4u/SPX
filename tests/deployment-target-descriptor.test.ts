@@ -83,6 +83,7 @@ assert.deepEqual(verifyDeploymentTargetDescriptor({ artifact, attestation, trust
 assert.equal("signature" in descriptor, false);
 assert.equal(descriptor.releaseEnvironment, "staging");
 assert.equal(descriptor.runtimeEnvironment, "staging");
+assert.equal(descriptor.deploymentUnit, "primary");
 assert.equal(descriptor.composeProject, "spx-staging");
 assert.equal(
   descriptor.target.productionObserverPolicySha256,
@@ -133,6 +134,8 @@ assert.doesNotMatch(
 assert.doesNotMatch(wrapperWorkflowSource, /actions\/checkout/);
 assert.match(wrapperWorkflowSource, /descriptor-request/);
 assert.match(wrapperWorkflowSource, /release_run_id/);
+assert.match(wrapperWorkflowSource, /deployment_unit:/);
+assert.match(wrapperWorkflowSource, /DEPLOYMENT_UNIT: \$\{\{ inputs\.deployment_unit \}\}/);
 assert.match(
   wrapperWorkflowSource,
   /sign-request:[\s\S]*uses:\s*fastest4u\/SPX\/\.github\/workflows\/deployment-target-descriptor-signer\.yml@[0-9a-f]{40}/,
@@ -146,6 +149,8 @@ assert.match(signerWorkflowSource, /job\.workflow_sha/);
 assert.match(signerWorkflowSource, /job_workflow_ref/);
 assert.match(signerWorkflowSource, /job_workflow_sha/);
 assert.match(signerWorkflowSource, /SPX_DESCRIPTOR_SIGNER_URL/);
+assert.match(signerWorkflowSource, /SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_B64/);
+assert.match(signerWorkflowSource, /request\.deploymentUnit !== process\.env\.EXPECTED_DEPLOYMENT_UNIT/);
 assert.match(signerWorkflowSource, /run-id:\s+\$\{\{ inputs\.request_run_id \}\}/);
 assert.match(signerWorkflowSource, /run-id:\s+\$\{\{ inputs\.release_run_id \}\}/);
 assert.match(signerWorkflowSource, /github-token:\s+\$\{\{ github\.token \}\}/);
@@ -257,6 +262,7 @@ assert.notEqual(
 const protectedFacts = {
   releaseEnvironment: fixture.releaseEnvironment,
   runtimeEnvironment: fixture.runtimeEnvironment,
+  deploymentUnit: fixture.deploymentUnit,
   composeProject: fixture.composeProject,
   topology: fixture.topology,
   target: fixture.target,
@@ -338,6 +344,35 @@ productionInput.targetFactsSha256 = deploymentTargetFactsSha256(productionInput)
 assert.equal(
   buildDeploymentTargetDescriptor(productionInput).target.productionObserverPolicySha256,
   null,
+);
+const team2ProductionFacts = structuredClone(productionInput);
+team2ProductionFacts.deploymentUnit = "team2";
+team2ProductionFacts.publishedPorts = [];
+team2ProductionFacts.database.accountHosts = { "worker-ifn-split": "172.17.0.1" };
+team2ProductionFacts.nodeIds = ["prod-worker-ifn-node2"];
+team2ProductionFacts.target.canonicalPaths = {
+  releaseRoot: "/opt/spx-production-team2",
+  environmentFile: "/etc/spx-production/runtime.env",
+  stateRoot: "/var/lib/spx-production-team2-rollout",
+};
+team2ProductionFacts.targetFactsSha256 = deploymentTargetFactsSha256(team2ProductionFacts);
+assert.equal(buildDeploymentTargetDescriptor(team2ProductionFacts).deploymentUnit, "team2");
+assert.deepEqual(buildDeploymentTargetDescriptor(team2ProductionFacts).publishedPorts, []);
+assert.deepEqual(
+  buildDeploymentTargetDescriptor(team2ProductionFacts).target.canonicalPaths,
+  team2ProductionFacts.target.canonicalPaths,
+);
+const invalidPrimaryWithoutPorts = structuredClone(productionInput);
+invalidPrimaryWithoutPorts.publishedPorts = [];
+assert.throws(
+  () => buildDeploymentTargetDescriptor(invalidPrimaryWithoutPorts),
+  /publishedPorts/,
+);
+const invalidStagingTeam2 = structuredClone(fixture);
+invalidStagingTeam2.deploymentUnit = "team2";
+assert.throws(
+  () => buildDeploymentTargetDescriptor(invalidStagingTeam2),
+  /deploymentUnit/,
 );
 const productionWithObserverHash = structuredClone(productionInput);
 productionWithObserverHash.target.productionObserverPolicySha256 = "7".repeat(64);
@@ -566,6 +601,7 @@ try {
   const staticFacts = {
     releaseEnvironment: fixture.releaseEnvironment,
     runtimeEnvironment: fixture.runtimeEnvironment,
+    deploymentUnit: fixture.deploymentUnit,
     composeProject: fixture.composeProject,
     topology: fixture.topology,
     target: fixture.target,

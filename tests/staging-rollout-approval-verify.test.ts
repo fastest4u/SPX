@@ -449,6 +449,7 @@ async function main() {
     descriptorId: "dtd-staging-a3-20260710-01",
     releaseEnvironment: "staging",
     runtimeEnvironment: "staging",
+    deploymentUnit: "primary",
     composeProject: "spx-staging",
     topology: "split",
     releaseManifestSha256,

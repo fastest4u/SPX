@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
 const source = readFileSync('scripts/ci-worker-readiness.mjs', 'utf8')
+assert.match(source, /DB_PASSWORD_FILE/,
+  'protected A3 workers must be able to read their file-mounted database password')
 const startedAt = '2026-09-12T01:02:03.123456789Z'
 
 function check(overrides: Record<string, unknown> = {}, start = startedAt, environment = {}) {

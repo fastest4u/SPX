@@ -35,6 +35,7 @@ function assertUnprivilegedDispatcher(source: string, label: string): void {
 
 const deployDispatcher = read(".github/workflows/a3-deploy.yml");
 const trustedDeploy = read(".github/workflows/trusted-deploy.yml");
+const trustedTeam2Deploy = read(".github/workflows/trusted-team2-deploy.yml");
 const identityDispatcher = read(".github/workflows/production-project-identity.yml");
 const trustedIdentity = read(".github/workflows/trusted-production-project-identity.yml");
 const descriptorDispatcher = read(".github/workflows/deployment-target-descriptor.yml");
@@ -116,6 +117,7 @@ assert.deepEqual(productionSecretCapableWorkflows, [
   "trusted-production-backup-restore.yml",
   "trusted-production-project-identity.yml",
   "trusted-staging-protected-evidence.yml",
+  "trusted-team2-deploy.yml",
 ]);
 
 assertUnprivilegedDispatcher(deployDispatcher, "deploy dispatcher");
@@ -124,6 +126,11 @@ const deployPin = assertPinnedReusableCall(
   deployDispatcher,
   "trusted-deploy.yml",
   "deploy dispatcher",
+);
+const team2DeployPin = assertPinnedReusableCall(
+  deployDispatcher,
+  "trusted-team2-deploy.yml",
+  "TEAM 2 deploy dispatcher",
 );
 const identityPin = assertPinnedReusableCall(
   identityDispatcher,
@@ -137,6 +144,13 @@ assert.match(trustedDeploy, /\$\{\{\s*secrets\.SPX_SSH_KEY\s*\}\}/);
 assert.match(trustedDeploy, /\b(?:ssh|scp)\b/);
 assert.match(trustedDeploy, /CALLED_WORKFLOW_SHA:\s*\$\{\{\s*job\.workflow_sha\s*\}\}/);
 assert.match(trustedDeploy, /SPX_TRUSTED_DEPLOY_WORKFLOW_SHA/);
+assert.match(trustedTeam2Deploy, /on:\s*\n\s*workflow_call:/);
+assert.doesNotMatch(trustedTeam2Deploy, /workflow_dispatch:/);
+assert.match(trustedTeam2Deploy, /environment:\s*production/);
+assert.match(trustedTeam2Deploy, /\$\{\{\s*secrets\.SPX_TEAM2_SSH_KEY\s*\}\}/);
+assert.match(trustedTeam2Deploy, /\b(?:ssh|scp)\b/);
+assert.match(trustedTeam2Deploy, /CALLED_WORKFLOW_SHA:\s*\$\{\{\s*job\.workflow_sha\s*\}\}/);
+assert.match(trustedTeam2Deploy, /SPX_TRUSTED_TEAM2_DEPLOY_WORKFLOW_SHA/);
 assert.deepEqual(
   trustedDeploy
     .split(/\r?\n/)
@@ -295,6 +309,7 @@ const privilegedReusableNames = new Set([
   "trusted-production-project-identity.yml",
   "trusted-release-artifact.yml",
   "trusted-staging-protected-evidence.yml",
+  "trusted-team2-deploy.yml",
 ]);
 const privilegedJobs: string[] = [];
 // The released host deployment is a separate, explicitly inventoried trust
@@ -350,6 +365,7 @@ for (const [name, source] of Object.entries(workflowSources)) {
 
 const producerSnapshotPins = [
   deployPin,
+  team2DeployPin,
   identityPin,
   descriptorPin,
   releasePin,

@@ -88,12 +88,14 @@ function sha256Hex(value: string | Uint8Array): string {
 
 export type ReleaseEnvironment = "staging" | "production";
 export type DeploymentTopology = "legacy" | "split";
+export type DeploymentUnit = "primary" | "team2";
 
 export interface DeploymentTargetDescriptorInput {
   schemaVersion: 1;
   descriptorId: string;
   releaseEnvironment: ReleaseEnvironment;
   runtimeEnvironment: ReleaseEnvironment;
+  deploymentUnit: DeploymentUnit;
   composeProject: "spx-staging" | "spx-production";
   topology: DeploymentTopology;
   releaseManifestSha256: string;
@@ -327,6 +329,11 @@ function targetFactsProjection(input: Record<string, unknown>): Record<string, u
   const runtimeEnvironment = string(input.runtimeEnvironment, "runtimeEnvironment");
   if (runtimeEnvironment !== releaseEnvironment)
     throw new Error("runtimeEnvironment must equal releaseEnvironment");
+  const deploymentUnit = string(input.deploymentUnit, "deploymentUnit");
+  if (deploymentUnit !== "primary" && deploymentUnit !== "team2")
+    throw new Error("deploymentUnit must equal primary or team2");
+  if (releaseEnvironment === "staging" && deploymentUnit !== "primary")
+    throw new Error("deploymentUnit must equal primary in staging");
   const composeProject = string(input.composeProject, "composeProject");
   const expectedProject = releaseEnvironment === "staging" ? "spx-staging" : "spx-production";
   if (composeProject !== expectedProject)
@@ -355,14 +362,32 @@ function targetFactsProjection(input: Record<string, unknown>): Record<string, u
     ["releaseRoot", "environmentFile", "stateRoot"],
     "target facts canonical paths",
   );
-  const pathPrefix = releaseEnvironment === "staging" ? "spx-staging" : "spx-production";
+  const canonicalPathDefaults = releaseEnvironment === "staging"
+    ? {
+        releaseRoot: "/opt/spx-staging/release",
+        environmentFile: "/etc/spx-staging/runtime.env",
+        stateRoot: "/var/lib/spx-staging-rollout",
+      }
+    : deploymentUnit === "team2"
+      ? {
+          releaseRoot: "/opt/spx-production-team2",
+          environmentFile: "/etc/spx-production/runtime.env",
+          stateRoot: "/var/lib/spx-production-team2-rollout",
+        }
+      : {
+          releaseRoot: "/opt/spx-production/release",
+          environmentFile: "/etc/spx-production/runtime.env",
+          stateRoot: "/var/lib/spx-production-rollout",
+        };
   const database = record(input.database, "target facts database");
   exact(database, ["accountHosts", "name", "tlsFingerprintSha256"], "target facts database");
   const expectedDatabase = releaseEnvironment === "staging" ? "spx_staging" : "spx";
   if (database.name !== expectedDatabase)
     throw new Error(`database.name must equal ${expectedDatabase}`);
-  if (!Array.isArray(input.publishedPorts) || input.publishedPorts.length === 0)
-    throw new Error("publishedPorts must be a non-empty array");
+  if (!Array.isArray(input.publishedPorts))
+    throw new Error("publishedPorts must be an array");
+  if (input.publishedPorts.length === 0 && !(releaseEnvironment === "production" && deploymentUnit === "team2"))
+    throw new Error("publishedPorts must be non-empty outside the TEAM 2 production unit");
   const ports = input.publishedPorts.map((port, index) => {
     if (!Number.isSafeInteger(port) || Number(port) < 1 || Number(port) > 65535)
       throw new Error(`publishedPorts[${index}] is invalid`);
@@ -374,6 +399,7 @@ function targetFactsProjection(input: Record<string, unknown>): Record<string, u
   return {
     releaseEnvironment,
     runtimeEnvironment,
+    deploymentUnit,
     composeProject,
     topology,
     target: {
@@ -394,17 +420,17 @@ function targetFactsProjection(input: Record<string, unknown>): Record<string, u
       canonicalPaths: {
         releaseRoot: validateAbsolutePath(
           paths.releaseRoot,
-          `/opt/${pathPrefix}/release`,
+          canonicalPathDefaults.releaseRoot,
           "target.canonicalPaths.releaseRoot",
         ),
         environmentFile: validateAbsolutePath(
           paths.environmentFile,
-          `/etc/${pathPrefix}/runtime.env`,
+          canonicalPathDefaults.environmentFile,
           "target.canonicalPaths.environmentFile",
         ),
         stateRoot: validateAbsolutePath(
           paths.stateRoot,
-          `/var/lib/${pathPrefix}-rollout`,
+          canonicalPathDefaults.stateRoot,
           "target.canonicalPaths.stateRoot",
         ),
       },
@@ -444,6 +470,7 @@ export function validateDeploymentTargetFacts(
     [
       "releaseEnvironment",
       "runtimeEnvironment",
+      "deploymentUnit",
       "composeProject",
       "topology",
       "target",
@@ -496,6 +523,7 @@ export function buildDeploymentTargetDescriptor(
       "descriptorId",
       "releaseEnvironment",
       "runtimeEnvironment",
+      "deploymentUnit",
       "composeProject",
       "topology",
       "releaseManifestSha256",
@@ -528,6 +556,11 @@ export function buildDeploymentTargetDescriptor(
   const runtimeEnvironment = string(raw.runtimeEnvironment, "runtimeEnvironment");
   if (runtimeEnvironment !== releaseEnvironment)
     throw new Error("runtimeEnvironment must equal releaseEnvironment");
+  const deploymentUnit = string(raw.deploymentUnit, "deploymentUnit");
+  if (deploymentUnit !== "primary" && deploymentUnit !== "team2")
+    throw new Error("deploymentUnit must equal primary or team2");
+  if (releaseEnvironment === "staging" && deploymentUnit !== "primary")
+    throw new Error("deploymentUnit must equal primary in staging");
   const expectedProject = releaseEnvironment === "staging" ? "spx-staging" : "spx-production";
   const composeProject = string(raw.composeProject, "composeProject");
   if (composeProject !== expectedProject)
@@ -561,21 +594,37 @@ export function buildDeploymentTargetDescriptor(
     throw new Error("target.dockerContext must be the local protected Docker socket");
   const paths = record(target.canonicalPaths, "target.canonicalPaths");
   exact(paths, ["releaseRoot", "environmentFile", "stateRoot"], "target.canonicalPaths");
-  const pathPrefix = releaseEnvironment === "staging" ? "spx-staging" : "spx-production";
+  const canonicalPathDefaults = releaseEnvironment === "staging"
+    ? {
+        releaseRoot: "/opt/spx-staging/release",
+        environmentFile: "/etc/spx-staging/runtime.env",
+        stateRoot: "/var/lib/spx-staging-rollout",
+      }
+    : deploymentUnit === "team2"
+      ? {
+          releaseRoot: "/opt/spx-production-team2",
+          environmentFile: "/etc/spx-production/runtime.env",
+          stateRoot: "/var/lib/spx-production-team2-rollout",
+        }
+      : {
+          releaseRoot: "/opt/spx-production/release",
+          environmentFile: "/etc/spx-production/runtime.env",
+          stateRoot: "/var/lib/spx-production-rollout",
+        };
   const canonicalPaths = {
     releaseRoot: validateAbsolutePath(
       paths.releaseRoot,
-      `/opt/${pathPrefix}/release`,
+      canonicalPathDefaults.releaseRoot,
       "target.canonicalPaths.releaseRoot",
     ),
     environmentFile: validateAbsolutePath(
       paths.environmentFile,
-      `/etc/${pathPrefix}/runtime.env`,
+      canonicalPathDefaults.environmentFile,
       "target.canonicalPaths.environmentFile",
     ),
     stateRoot: validateAbsolutePath(
       paths.stateRoot,
-      `/var/lib/${pathPrefix}-rollout`,
+      canonicalPathDefaults.stateRoot,
       "target.canonicalPaths.stateRoot",
     ),
   };
@@ -596,8 +645,10 @@ export function buildDeploymentTargetDescriptor(
     SHA256,
   );
   const nodeIds = uniqueSortedStrings(raw.nodeIds, "nodeIds", NODE_ID);
-  if (!Array.isArray(raw.publishedPorts) || raw.publishedPorts.length === 0)
-    throw new Error("publishedPorts must be a non-empty array");
+  if (!Array.isArray(raw.publishedPorts))
+    throw new Error("publishedPorts must be an array");
+  if (raw.publishedPorts.length === 0 && !(releaseEnvironment === "production" && deploymentUnit === "team2"))
+    throw new Error("publishedPorts must be non-empty outside the TEAM 2 production unit");
   const publishedPorts = raw.publishedPorts.map((port, index) => {
     if (!Number.isSafeInteger(port) || Number(port) < 1 || Number(port) > 65535)
       throw new Error(`publishedPorts[${index}] is invalid`);
@@ -657,6 +708,7 @@ export function buildDeploymentTargetDescriptor(
   const normalizedTargetFacts = {
     releaseEnvironment,
     runtimeEnvironment: releaseEnvironment,
+    deploymentUnit,
     composeProject: expectedProject,
     topology,
     target: {

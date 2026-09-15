@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   deploymentTargetDescriptorArtifactSha256,
+  deploymentTargetFactsSha256,
   signDeploymentTargetDescriptor,
   type DeploymentTargetDescriptorInput,
 } from "../src/services/deployment-target-descriptor.js";
@@ -51,6 +52,7 @@ try {
     imageId: release.imageId,
     imageTag: release.imageTag,
   };
+  descriptorInput.targetFactsSha256 = deploymentTargetFactsSha256(descriptorInput as unknown as Record<string, unknown>);
   const { privateKey } = generateKeyPairSync("ed25519");
   const signedDescriptor = signDeploymentTargetDescriptor(descriptorInput, {
     keyId: "runtime-identity-test-key",

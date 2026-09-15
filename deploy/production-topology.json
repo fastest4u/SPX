@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "topology": "split-two-host",
+  "deploymentOrder": ["primary", "team2"],
+  "rollbackOrder": ["team2", "primary"],
+  "database": {
+    "name": "spx",
+    "migrationUnit": "primary"
+  },
+  "notificationIngress": {
+    "producerUnit": "team2",
+    "targetUnit": "primary",
+    "transport": "private-ssh-tunnel",
+    "url": "http://127.0.0.1:3000/internal/notification-events"
+  },
+  "units": [
+    {
+      "id": "primary",
+      "host": "45.83.207.139",
+      "composeProject": "spx-production",
+      "composeFiles": ["docker-compose.a3.yml", "deploy/production-primary.yml"],
+      "services": [
+        {
+          "name": "line-service",
+          "role": "line-service",
+          "nodeId": "prod-line-service-1",
+          "teamIds": []
+        },
+        {
+          "name": "notification-service",
+          "role": "notification-service",
+          "nodeId": "prod-notification-service-1",
+          "teamIds": []
+        },
+        {
+          "name": "ocr-service",
+          "role": "ocr-service",
+          "nodeId": "prod-ocr-service-1",
+          "teamIds": []
+        },
+        {
+          "name": "web-api",
+          "role": "api",
+          "nodeId": "prod-web-api-1",
+          "teamIds": []
+        },
+        {
+          "name": "worker-ptwl-split",
+          "role": "worker",
+          "nodeId": "prod-worker-ptwl-split-1",
+          "teamIds": [1]
+        }
+      ],
+      "publishedPorts": ["127.0.0.1:3000:3000"],
+      "runsMigrations": true
+    },
+    {
+      "id": "team2",
+      "host": "147.50.240.44",
+      "composeProject": "spx-production",
+      "composeFiles": ["deploy/production-team2.yml"],
+      "services": [
+        {
+          "name": "worker-ifn-split",
+          "role": "worker",
+          "nodeId": "prod-worker-ifn-node2",
+          "teamIds": [2]
+        }
+      ],
+      "publishedPorts": [],
+      "runsMigrations": false
+    }
+  ]
+}

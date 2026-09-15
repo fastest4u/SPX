@@ -142,6 +142,7 @@ and approve every value through the protected bootstrap process.
 | Variable | Purpose |
 | --- | --- |
 | `SPX_TRUSTED_DEPLOY_WORKFLOW_SHA` | Full reviewed commit SHA authorized to run the trusted deploy and protected-install producer |
+| `SPX_TRUSTED_TEAM2_DEPLOY_WORKFLOW_SHA` | Full reviewed commit SHA authorized to deploy only the protected TEAM 2 unit |
 | `SPX_TRUSTED_RELEASE_WORKFLOW_SHA` | Full reviewed signer SHA required for the immutable release artifact |
 | `SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA` | Full reviewed signer SHA required for the target descriptor artifact |
 | `SPX_TRUSTED_STAGING_SIGNER_SHA` | Full reviewed signer SHA required for the staging rollout approval artifact |
@@ -152,6 +153,10 @@ and approve every value through the protected bootstrap process.
 | `SPX_DESCRIPTOR_SIGNER_FILE_SHA256` | Exact digest of the trusted descriptor signer workflow file |
 | `SPX_TARGET_FACTS_SHA256` | Digest binding for protected target facts |
 | `SPX_TARGET_HOST_IDENTITY_SHA256` | Digest binding for the protected target host identity |
+| `SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_B64` | Canonical protected target facts used only when signing the TEAM 2 descriptor |
+| `SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_SHA256` | Digest binding for the TEAM 2 protected target facts |
+| `SPX_TEAM2_TARGET_HOST_IDENTITY_SHA256` | Digest binding for the `147.50.240.44` host identity |
+| `SPX_TEAM2_KNOWN_HOSTS_SHA256` | Digest binding for the exact TEAM 2 SSH known-hosts bytes |
 | `SPX_APPROVED_PRODUCTION_TOPOLOGY` | Exact production topology admitted by trusted deploy |
 | `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256` | Digest binding for the protected candidate-identity approval capability |
 | `SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256` | Digest binding for the protected staging action-capability bundle |
@@ -187,7 +192,9 @@ and approve every value through the protected bootstrap process.
 
 These producer workflows reuse the following protected-environment secrets. Record
 only their names and roles; never place their values in this document, dispatch
-inputs, artifacts, logs, or the application `.env`.
+inputs, artifacts, logs, or the application `.env`. `SPX_TEAM2_KNOWN_HOSTS` is a
+protected-environment variable in the current workflow; its digest pin is a separate
+variable. The TEAM 2 host, port, user, and private key remain secrets.
 
 | Secret | Purpose |
 | --- | --- |
@@ -196,6 +203,11 @@ inputs, artifacts, logs, or the application `.env`.
 | `SPX_USER` | Restricted SSH principal |
 | `SPX_SSH_KEY` | Protected SSH private-key capability |
 | `SPX_KNOWN_HOSTS` | Pinned SSH host-key material; `SPX_KNOWN_HOSTS_SHA256` binds its exact bytes |
+| `SPX_TEAM2_HOST` | TEAM 2 host selector; the workflow requires exactly `147.50.240.44` |
+| `SPX_TEAM2_PORT` | TEAM 2 SSH port selector; defaults to `22` |
+| `SPX_TEAM2_USER` | TEAM 2 deployment principal; the current protected installer requires root |
+| `SPX_TEAM2_SSH_KEY` | Protected SSH private-key capability for TEAM 2 |
+| `SPX_TEAM2_KNOWN_HOSTS` | Pinned TEAM 2 SSH host-key material; `SPX_TEAM2_KNOWN_HOSTS_SHA256` binds its exact bytes |
 | `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64` | Protected candidate-identity approval capability bound by `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256` |
 | `SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64` | Protected staging action-capability bundle bound by `SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256` |
 
@@ -265,6 +277,7 @@ Internal service URLs:
 | Variable                          | Used By                                    | Example                                                                                                                                              |
 | --------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NOTIFIER_API_URL`                | workers                                    | `http://notification-service:3002/internal/notification-events` in split mode, or `http://notifier:3000/internal/notification-events` in legacy mode |
+| `SPX_TEAM2_NOTIFICATION_API_URL`  | TEAM 2 Compose input                       | Must be exactly `http://127.0.0.1:3000/internal/notification-events`; the managed private tunnel terminates this loopback route on the primary intake |
 | `NOTIFICATION_NODE_SECRET`        | each notification producer                | unique outbound key matching that producer's `SPX_NODE_ID`                                                                                           |
 | `NOTIFICATION_NODE_SECRETS`       | notification receiver                     | inbound map containing only allowed producer node ids and their unique keys                                                                           |
 | `NOTIFICATION_ALLOWED_NODE_TEAMS` | notification receiver                     | exact node/team authorization map matching the inbound key map                                                                                        |
@@ -312,6 +325,11 @@ Important DB-first keys include:
 | `LINE_CHANNEL_ACCESS_TOKEN`, `LINEJS_*`, `DISCORD_WEBHOOK_URL`                               | Notification providers                   |
 | `LINE_IMAGE_LISTENER_CHAT_ID`                                                               | LINE image/OCR integration               |
 
+`HTTP_TRUST_PROXY` defaults to `false`. Set it to an exact proxy IP/CIDR or a comma-separated
+list such as `127.0.0.1,10.0.0.0/8`; use `true` only when every direct connection reaches the
+service through a controlled trusted proxy. Numeric hop-count values such as `1` are rejected
+because they do not authenticate the immediate proxy peer.
+
 Process identity keys such as `SPX_ROLE`, `SPX_NODE_ID`, `SPX_NODE_NAME`, `RUN_TEAM_IDS`, `NOTIFIER_API_URL`, `NOTIFIER_LOCAL_SPOOL_PATH`, `HTTP_ENABLED`, `HTTP_PORT`, split LINE/OCR routing, `CODEX_IMAGE_*`, `REALTIME_*` routing/auth, and all `AUTO_ACCEPT_JOB_*` worker/cutover controls are intentionally not DB-first keys. They are process-local so each role can keep its own identity, team assignment, internal peer URLs, per-node credentials, headless loop selection, and bounded peer-call timeouts without mutating shared `app_settings`.
 
 Team-scoped SPX credentials and LINE targets are stored encrypted on each `teams` row. Do not keep `COOKIE`, `DEVICE_ID`, `LINE_USER_ID`, or auto-accept success/failure LINE targets as global runtime env after migration.
@@ -324,15 +342,15 @@ The protected evidence producer chain uses GitHub repository variables (`vars.*`
 
 | Group | Names | Purpose |
 | --- | --- | --- |
-| Trusted producer pins | `SPX_TRUSTED_RELEASE_WORKFLOW_SHA`, `SPX_TRUSTED_STAGING_SIGNER_SHA`, `SPX_TRUSTED_STAGING_PROTECTED_EVIDENCE_WORKFLOW_SHA`, `SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA`, `SPX_TRUSTED_IDENTITY_WORKFLOW_SHA`, `SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA`, `SPX_TRUSTED_DEPLOY_WORKFLOW_SHA` | Immutable commit SHA of each foundational trusted reusable workflow |
+| Trusted producer pins | `SPX_TRUSTED_RELEASE_WORKFLOW_SHA`, `SPX_TRUSTED_STAGING_SIGNER_SHA`, `SPX_TRUSTED_STAGING_PROTECTED_EVIDENCE_WORKFLOW_SHA`, `SPX_TRUSTED_DESCRIPTOR_SIGNER_SHA`, `SPX_TRUSTED_IDENTITY_WORKFLOW_SHA`, `SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA`, `SPX_TRUSTED_DEPLOY_WORKFLOW_SHA`, `SPX_TRUSTED_TEAM2_DEPLOY_WORKFLOW_SHA` | Immutable commit SHA of each foundational trusted reusable workflow |
 | Gate 6 signer pins | `SPX_TRUSTED_GATE6_ENVELOPE_SIGNER_SHA`, `SPX_TRUSTED_GATE6_LINE_PERMIT_SIGNER_SHA`, `SPX_TRUSTED_GATE6_OCR_PERMIT_SIGNER_SHA`, `SPX_TRUSTED_GATE6_POSTPROOF_SIGNER_SHA`, `SPX_TRUSTED_GATE6_RUNTIME_EXECUTOR_SHA`, `SPX_TRUSTED_GATE6_ACCEPTED_EVIDENCE_EXPORTER_SHA`, `SPX_TRUSTED_GATE6_FINAL_VERIFIER_EXPORTER_SHA` | Independently pinned reusable signer/exporter commit SHAs; never inferred from the candidate SHA |
 | Gate 6 file/module digests | `SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_WORKFLOW_SHA256`, `SPX_GATE6_ACCEPTED_EVIDENCE_EXPORTER_MODULE_SHA256`, `SPX_GATE6_FINAL_VERIFIER_EXPORTER_WORKFLOW_SHA256`, `SPX_GATE6_FINAL_VERIFIER_EXPORTER_MODULE_SHA256` | Exact workflow-file and exporter-module byte digests |
 | Gate 6 KMS key material | `SPX_GATE6_ENVELOPE_KEY_ID`, `SPX_GATE6_ENVELOPE_SIGNER_URL`, `SPX_GATE6_LINE_PERMIT_KEY_ID`, `SPX_GATE6_LINE_PERMIT_SIGNER_URL`, `SPX_GATE6_OCR_PERMIT_KEY_ID`, `SPX_GATE6_OCR_PERMIT_SIGNER_URL`, `SPX_GATE6_POSTPROOF_KEY_ID`, `SPX_GATE6_POSTPROOF_SIGNER_URL` | KMS key identifiers and signer endpoints for each signing role |
-| Descriptor/target identity | `SPX_APPROVED_PRODUCTION_TOPOLOGY`, `SPX_DESCRIPTOR_KEY_ID`, `SPX_DESCRIPTOR_OIDC_AUDIENCE`, `SPX_DESCRIPTOR_PUBLIC_KEY_B64`, `SPX_DESCRIPTOR_SIGNER_URL`, `SPX_DESCRIPTOR_SIGNER_FILE_SHA256`, `SPX_DESCRIPTOR_TARGET_FACTS_B64`, `SPX_TARGET_FACTS_SHA256`, `SPX_TARGET_HOST_IDENTITY_SHA256` | Approved topology and deployment target descriptor verification material |
+| Descriptor/target identity | `SPX_APPROVED_PRODUCTION_TOPOLOGY`, `SPX_DESCRIPTOR_KEY_ID`, `SPX_DESCRIPTOR_OIDC_AUDIENCE`, `SPX_DESCRIPTOR_PUBLIC_KEY_B64`, `SPX_DESCRIPTOR_SIGNER_URL`, `SPX_DESCRIPTOR_SIGNER_FILE_SHA256`, `SPX_DESCRIPTOR_TARGET_FACTS_B64`, `SPX_TARGET_FACTS_SHA256`, `SPX_TARGET_HOST_IDENTITY_SHA256`, `SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_B64`, `SPX_DESCRIPTOR_TEAM2_TARGET_FACTS_SHA256`, `SPX_TEAM2_TARGET_HOST_IDENTITY_SHA256` | Approved topology and unit-specific deployment target descriptor verification material |
 | Backup chain pins | `SPX_PRODUCTION_BACKUP_WORKFLOW_FILE_SHA256`, `SPX_PRODUCTION_BACKUP_CONTROLLER_SHA256`, `SPX_PRODUCTION_BACKUP_LIVE_ADAPTER_SHA256`, `SPX_PRODUCTION_BACKUP_EVIDENCE_VERIFIER_SHA256`, `SPX_PRODUCTION_BACKUP_EVIDENCE_SIGNING_KEY_ID`, `SPX_PRODUCTION_BACKUP_INVARIANTS_SHA256`, `SPX_PRODUCTION_BACKUP_ISOLATED_COMPOSE_SHA256`, `SPX_PRODUCTION_BACKUP_DOCKER_SHA256`, `SPX_PRODUCTION_BACKUP_MYSQL_SHA256`, `SPX_PRODUCTION_BACKUP_MYSQLDUMP_SHA256`, `SPX_PRODUCTION_BACKUP_MYSQL_IMAGE`, `SPX_PRODUCTION_BACKUP_KMS_ENVELOPE_SHA256`, `SPX_PRODUCTION_BACKUP_KMS_CAPABILITY_SHA256`, `SPX_PRODUCTION_BACKUP_KMS_KEY_ID`, `SPX_PRODUCTION_BACKUP_SOURCE_CREDENTIAL_SHA256`, `SPX_PRODUCTION_BACKUP_MAXIMUM_AGE_MINUTES`, `SPX_PRODUCTION_BACKUP_MAXIMUM_RPO_MINUTES`, `SPX_PRODUCTION_BACKUP_MAXIMUM_RTO_MINUTES` | Backup controller, tool, compose, KMS capability, and RPO/RTO/age bounds for pre-mutation backup evidence |
 | Protected install pins | `SPX_PROTECTED_INSTALL_EVIDENCE_WORKFLOW_FILE_SHA256`, `SPX_PROTECTED_INSTALL_EVIDENCE_ASSEMBLER_SHA256`, `SPX_PROTECTED_INSTALL_EVIDENCE_SCHEMA_SHA256`, `SPX_PROTECTED_INSTALL_EVIDENCE_SIGNING_KEY_ID`, `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_SHA256` | Protected-install evidence assembly and signing pins |
 | Staging capability | `SPX_STAGING_ACTION_CAPABILITY_BUNDLE_SHA256` | Digest of the signed staging action capability bundle |
-| Host SSH material (secrets) | `SPX_HOST`, `SPX_PORT`, `SPX_USER`, `SPX_SSH_KEY`, `SPX_KNOWN_HOSTS` with `SPX_KNOWN_HOSTS_SHA256` (var) | Pinned SSH transport for protected evidence delivery; the known-hosts digest must match |
+| Host SSH material | Primary secrets `SPX_HOST`, `SPX_PORT`, `SPX_USER`, `SPX_SSH_KEY`; primary variable `SPX_KNOWN_HOSTS`; TEAM 2 secrets `SPX_TEAM2_HOST`, `SPX_TEAM2_PORT`, `SPX_TEAM2_USER`, `SPX_TEAM2_SSH_KEY`; TEAM 2 variable `SPX_TEAM2_KNOWN_HOSTS`; digest variables `SPX_KNOWN_HOSTS_SHA256`, `SPX_TEAM2_KNOWN_HOSTS_SHA256` | Independently pinned SSH transport for each protected host |
 | Approval capability (secrets) | `SPX_PRODUCTION_IDENTITY_APPROVAL_B64`, `SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64`, `SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64` | Operator-approved identity/capability documents consumed by trusted workflows |
 | Node-scoped HMAC keys | `NOTIFICATION_NODE_SECRET`, `NOTIFICATION_NODE_SECRETS`, `NOTIFICATION_ALLOWED_NODE_TEAMS`, `OCR_NODE_SECRET`, `OCR_NODE_SECRETS`, `OCR_ALLOWED_LINE_NODE_IDS`, `OCR_ADMIN_NODE_IDS`, `LINE_SEND_ALLOWED_NODE_IDS`, `LINE_ADMIN_ALLOWED_NODE_IDS` | Process-local node keys for signed internal calls (worker→notification-service, line-service→ocr-service, web-api admin). In production the runtime does not fall back to `NOTIFIER_SHARED_SECRET` for these callers; each receiver allowlist must exactly match its node-key set, and previous node keys remain valid via `previousExpiresAt` for a 7-day rotation window |
 

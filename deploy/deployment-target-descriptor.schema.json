@@ -45,6 +45,7 @@
         "descriptorId",
         "releaseEnvironment",
         "runtimeEnvironment",
+        "deploymentUnit",
         "composeProject",
         "topology",
         "releaseManifestSha256",
@@ -71,6 +72,7 @@
         "descriptorId": { "$ref": "#/$defs/safeId" },
         "releaseEnvironment": { "enum": ["staging", "production"] },
         "runtimeEnvironment": { "enum": ["staging", "production"] },
+        "deploymentUnit": { "enum": ["primary", "team2"] },
         "composeProject": { "enum": ["spx-staging", "spx-production"] },
         "topology": { "enum": ["legacy", "split"] },
         "releaseManifestSha256": { "$ref": "#/$defs/sha256" },
@@ -140,7 +142,6 @@
         "providerTargetFingerprints": { "$ref": "#/$defs/fingerprints" },
         "publishedPorts": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
         },
@@ -199,6 +200,7 @@
           "then": {
             "properties": {
               "runtimeEnvironment": { "const": "staging" },
+              "deploymentUnit": { "const": "primary" },
               "composeProject": { "const": "spx-staging" },
               "database": {
                 "properties": {
@@ -267,7 +269,40 @@
               "database": { "properties": { "name": { "const": "spx" } } },
               "target": {
                 "properties": {
-                  "productionObserverPolicySha256": { "type": "null" },
+                  "productionObserverPolicySha256": { "type": "null" }
+                }
+              },
+              "signing": { "properties": { "environment": { "const": "production" } } }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "releaseEnvironment": { "const": "production" },
+              "deploymentUnit": { "const": "team2" }
+            },
+            "required": ["releaseEnvironment", "deploymentUnit"]
+          },
+          "then": {
+            "properties": { "publishedPorts": { "maxItems": 0 } }
+          },
+          "else": {
+            "properties": { "publishedPorts": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "releaseEnvironment": { "const": "production" },
+              "deploymentUnit": { "const": "primary" }
+            },
+            "required": ["releaseEnvironment", "deploymentUnit"]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "properties": {
                   "canonicalPaths": {
                     "properties": {
                       "releaseRoot": { "const": "/opt/spx-production/release" },
@@ -276,8 +311,31 @@
                     }
                   }
                 }
-              },
-              "signing": { "properties": { "environment": { "const": "production" } } }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "releaseEnvironment": { "const": "production" },
+              "deploymentUnit": { "const": "team2" }
+            },
+            "required": ["releaseEnvironment", "deploymentUnit"]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "properties": {
+                  "canonicalPaths": {
+                    "properties": {
+                      "releaseRoot": { "const": "/opt/spx-production-team2" },
+                      "environmentFile": { "const": "/etc/spx-production/runtime.env" },
+                      "stateRoot": { "const": "/var/lib/spx-production-team2-rollout" }
+                    }
+                  }
+                }
+              }
             }
           }
         }

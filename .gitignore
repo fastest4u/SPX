@@ -12,6 +12,9 @@ logs
 !.agents/skills/
 !.agents/skills/**
 notify-rules.json
+__pycache__/
+*.py[cod]
+output/playwright/
 
 # Kiro IDE workspace settings (per-developer)
 .kiro/
