@@ -3,6 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 
 const repository = "fastest4u/SPX";
 const bootstrapDenySha = "0".repeat(40);
+const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const backupProducerSnapshotSha = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -371,7 +373,6 @@ const producerSnapshotPins = [
   releasePin,
   stagingPin,
   protectedEvidencePin,
-  productionBackupPin,
   acceptedEvidencePin,
   finalVerifierPin,
 ];
@@ -380,15 +381,14 @@ assert.equal(
   1,
   "foundational and protected producer dispatchers must pin the producer snapshot",
 );
-if (producerSnapshotPins.some((pin) => pin === bootstrapDenySha)) {
-  assert.ok(producerSnapshotPins.every((pin) => pin === bootstrapDenySha));
-  const deploymentDocs = read("docs/deployment-a3.md");
-  assert.match(deploymentDocs, /BOOTSTRAP-DENY/);
-  assert.match(deploymentDocs, /three-commit/i);
-  assert.match(deploymentDocs, /producer SHA A/i);
-  assert.match(deploymentDocs, /map\/consumer SHA B/i);
-  assert.match(deploymentDocs, /dispatcher activation SHA C/i);
-  assert.match(deploymentDocs, /not workflow-scoped/i);
-}
+assert.ok(
+  producerSnapshotPins.every((pin) => pin === producerSnapshotSha),
+  "activated producer dispatchers must pin the reviewed Stage A snapshot",
+);
+assert.equal(
+  productionBackupPin,
+  backupProducerSnapshotSha,
+  "the backup dispatcher must pin the reviewed backup producer revision",
+);
 
 console.log("privileged workflow trust tests passed");

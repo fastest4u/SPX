@@ -44,9 +44,9 @@ for (const input of ["candidate_sha", "approval_artifact_id", "approval_run_id"]
 }
 assert.match(
   dispatcher,
-  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/gate6-final-verifier-exporter\.yml@0{40}/,
+  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/gate6-final-verifier-exporter\.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad/,
 );
-assert.match(dispatcher, /BOOTSTRAP-DENY/);
+assert.match(dispatcher, /STAGE-C-PIN/);
 for (const permission of [
   "actions: read",
   "attestations: write",

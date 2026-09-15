@@ -47,10 +47,10 @@ function runBlocks(source: string): string[] {
 assert.match(dispatcher, /^permissions:\s*\{\}\s*$/m);
 assert.doesNotMatch(dispatcher, /\bruns-on:|^\s+steps:|\benvironment:/m);
 assert.doesNotMatch(dispatcher, /\$\{\{\s*secrets\.|\bssh\b|\bscp\b|\bdocker\b|secrets:\s*inherit/);
-assert.match(dispatcher, /BOOTSTRAP-DENY/);
+assert.match(dispatcher, /STAGE-C-PIN/);
 assert.match(
   dispatcher,
-  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-production-backup-restore\.yml@0000000000000000000000000000000000000000/,
+  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-production-backup-restore\.yml@f4c103290ab30027e1fe7a426a91f1b8973b0426/,
 );
 for (const input of inputs) {
   assert.equal(

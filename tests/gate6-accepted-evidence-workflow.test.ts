@@ -67,10 +67,10 @@ for (const name of ["candidate_sha", "approval_artifact_id", "approval_run_id"])
 assert.doesNotMatch(dispatcher, /\bruns-on:|^\s+steps:|\benvironment:/m);
 assert.doesNotMatch(dispatcher, /\$\{\{\s*secrets\.|secrets:\s*inherit/);
 assert.doesNotMatch(dispatcher, /\b(?:ssh|scp|docker)\b/);
-assert.match(dispatcher, /BOOTSTRAP-DENY/);
+assert.match(dispatcher, /STAGE-C-PIN/);
 assert.match(
   dispatcher,
-  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/gate6-accepted-evidence-exporter\.yml@0000000000000000000000000000000000000000/,
+  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/gate6-accepted-evidence-exporter\.yml@4c0b0cf57481eda1c88ac754fa70500cf0fb59ad/,
 );
 assert.deepEqual(jobPermissions(dispatcher, "export-accepted-evidence"), {
   actions: "read",

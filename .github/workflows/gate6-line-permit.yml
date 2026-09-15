@@ -29,8 +29,8 @@ permissions:
 
 jobs:
   sign:
-    # BOOTSTRAP-DENY: Stage 2 replaces this coordinated zero SHA only after Stage 1 exists.
-    uses: fastest4u/SPX/.github/workflows/gate6-line-permit-signer.yml@0000000000000000000000000000000000000000
+    # STAGE-C-PIN: immutable reviewed Stage B map/consumer snapshot.
+    uses: fastest4u/SPX/.github/workflows/gate6-line-permit-signer.yml@1c25f4b3fac398f30c70d26a94c15cefc6f73d15
     permissions:
       actions: read
       attestations: write
