@@ -200,7 +200,7 @@ const gate6Task9 = serviceSource("gate6-task9-controller");
 assert.match(gate6Task9, /profiles:\s*\["gate6"\]/);
 assert.match(gate6Task9, /restart:\s*"no"/);
 assert.match(gate6Task9, /DB_HOST:\s*gate6-db-proxy/);
-assert.match(gate6Task9, /DB_NAME:\s*spx/);
+assert.match(gate6Task9, /DB_NAME:\s*SPX/);
 assert.match(gate6Task9, /SPX_DB_USERNAME_GATE6_CONTROL:\s*\$\{SPX_DB_USERNAME_GATE6_CONTROL:\?/);
 assert.match(gate6Task9, /DB_PASSWORD_FILE:\s*\/run\/secrets\/db_password/);
 assert.match(gate6Task9, /GATE6_TASK9_LINE_CALLER_SECRET_FILE:\s*\/run\/secrets\/gate6_task9_line_caller_secret/);

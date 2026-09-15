@@ -117,7 +117,7 @@ export interface DeploymentTargetDescriptorInput {
     };
   };
   database: {
-    name: "spx_staging" | "spx";
+    name: "spx_staging" | "SPX";
     tlsFingerprintSha256: string;
     accountHosts: Record<string, string>;
   };
@@ -381,7 +381,7 @@ function targetFactsProjection(input: Record<string, unknown>): Record<string, u
         };
   const database = record(input.database, "target facts database");
   exact(database, ["accountHosts", "name", "tlsFingerprintSha256"], "target facts database");
-  const expectedDatabase = releaseEnvironment === "staging" ? "spx_staging" : "spx";
+  const expectedDatabase = releaseEnvironment === "staging" ? "spx_staging" : "SPX";
   if (database.name !== expectedDatabase)
     throw new Error(`database.name must equal ${expectedDatabase}`);
   if (!Array.isArray(input.publishedPorts))
@@ -631,7 +631,7 @@ export function buildDeploymentTargetDescriptor(
 
   const database = record(raw.database, "database");
   exact(database, ["accountHosts", "name", "tlsFingerprintSha256"], "database");
-  const expectedDatabase = releaseEnvironment === "staging" ? "spx_staging" : "spx";
+  const expectedDatabase = releaseEnvironment === "staging" ? "spx_staging" : "SPX";
   if (database.name !== expectedDatabase)
     throw new Error(`database.name must equal ${expectedDatabase}`);
   const providerTargetFingerprints = uniqueSortedStrings(

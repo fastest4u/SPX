@@ -185,7 +185,7 @@ jobs:
             || descriptor.releaseEnvironment !== "production"
             || descriptor.runtimeEnvironment !== "production"
             || descriptor.composeProject !== "spx-production"
-            || descriptor.database?.name !== "spx"
+            || descriptor.database?.name !== "SPX"
             || !/^[0-9a-f]{64}$/.test(descriptor.database.tlsFingerprintSha256 ?? "")
           ) {
             throw new Error("production target mismatch");
@@ -347,7 +347,7 @@ jobs:
             || descriptor?.releaseSourceSha !== process.env.CANDIDATE_SHA
             || descriptor.releaseEnvironment !== "production"
             || descriptor.runtimeEnvironment !== "production"
-            || descriptor.database?.name !== "spx"
+            || descriptor.database?.name !== "SPX"
             || !/^[0-9a-f]{64}$/.test(descriptor.database.tlsFingerprintSha256 ?? "")
           ) {
             throw new Error("verified release and target binding mismatch");

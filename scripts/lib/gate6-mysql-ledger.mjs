@@ -4,6 +4,7 @@ import { lstat, open } from "node:fs/promises";
 import { isIP } from "node:net";
 
 import mysql from "mysql2/promise";
+import { mysqlVerifiedTransport } from "./mysql-connection-config.mjs";
 
 const CONTAINER_PASSWORD_FILE = "/run/secrets/db_password";
 const CONTAINER_CA_FILE = "/run/config/db-ca.pem";
@@ -91,7 +92,7 @@ export function validateProductionGate6DbCapability(value, expectedTargetDescrip
     !Number.isSafeInteger(value.port) ||
     value.port <= 0 ||
     value.port > 65_535 ||
-    value.database !== "spx" ||
+    value.database !== "SPX" ||
     !/^[A-Za-z0-9_$-]{1,64}$/.test(value.username ?? "") ||
     !DNS_NAME.test(value.sslServername ?? "") ||
     isIP(value.sslServername) !== 0 ||
@@ -104,7 +105,7 @@ export function validateProductionGate6DbCapability(value, expectedTargetDescrip
   return Object.freeze({
     host: value.host,
     port: value.port,
-    database: "spx",
+    database: "SPX",
     username: value.username,
     sslServername: value.sslServername,
     passwordSha256: value.passwordSha256,
@@ -211,8 +212,7 @@ export async function createProductionGate6MysqlPool(input = {}) {
 
 function createProductionPool(config, password, ca) {
   return mysql.createPool({
-    host: config.host,
-    port: config.port,
+    ...mysqlVerifiedTransport(config.host, config.port, config.sslServername),
     database: config.database,
     user: config.username,
     password,
@@ -221,6 +221,7 @@ function createProductionPool(config, password, ca) {
       rejectUnauthorized: true,
       minVersion: "TLSv1.2",
       servername: config.sslServername,
+      verifyIdentity: true,
     },
     connectionLimit: 2,
     waitForConnections: true,

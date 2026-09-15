@@ -24,7 +24,7 @@ function validate(overrides: Record<string, string>) {
     DB_MODE: "mysql",
     DB_HOST: "mysql.example.test",
     DB_PORT: "3306",
-    DB_NAME: "spx",
+    DB_NAME: "SPX",
     DB_USERNAME: "spx_gate6_control",
     DB_PASSWORD: "database-password-value",
     DB_SSL_MODE: "verify-identity",

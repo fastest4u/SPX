@@ -202,6 +202,12 @@ export const OPERATOR_BUNDLE_STATIC_FILES = Object.freeze([
   "src/services/release-manifest.ts",
 ]);
 const EXPLICITLY_EXCLUDED_OPERATIONAL_FILES = new Set([
+  // Owner-managed trust roots are installed and pinned outside the release bundle.
+  "deploy/nginx/spx-descriptor-signer.location.conf",
+  "deploy/systemd/spx-descriptor-signer.service",
+  "scripts/spx-descriptor-signer.mjs",
+  "scripts/spx-kms-envelope.mjs",
+  "deploy/tmpfiles/spx-owner-capabilities.conf",
   // Released host deployment helpers belong to its existing CI path.
   "scripts/ci-deploy-worker.py",
   "scripts/ci-worker-readiness.mjs",

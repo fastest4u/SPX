@@ -27,7 +27,7 @@ class Connection {
 
 const plan = {
   schemaVersion: 1,
-  database: "spx",
+  database: "SPX",
   targetDescriptorSha256: H("1"),
   positiveGrantProofSha256: H("2"),
   forbiddenGrantProofSha256: H("3"),
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   assert.doesNotThrow(() => assertLegacyGrantExecutorEnvironment({
     DB_HOST: "gate6-db-proxy",
     DB_PORT: "3306",
-    DB_NAME: "spx",
+    DB_NAME: "SPX",
     DB_USERNAME: "spx_gate6_postproof",
     DB_PASSWORD_FILE: "/run/secrets/db_password",
     DB_SSL_MODE: "verify-identity",
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
       backupEvidenceSha256: H("4"),
     }),
   }), { status: "revoked", idempotent: false });
-  assert.match(revoke.calls[1].sql, /^REVOKE SELECT, UPDATE ON `spx`\.`auto_accept_jobs` FROM 'spx_legacy'@'10\.0\.0\.10'$/);
+  assert.match(revoke.calls[1].sql, /^REVOKE SELECT, UPDATE ON `SPX`\.`auto_accept_jobs` FROM 'spx_legacy'@'10\.0\.0\.10'$/);
   assert.doesNotMatch(revoke.calls[1].sql, /DROP|ALTER USER/i);
 
   const restore = new Connection([
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
       backupEvidenceSha256: H("4"),
     }),
   }), { status: "granted", idempotent: false });
-  assert.match(restore.calls[1].sql, /^GRANT SELECT, UPDATE ON `spx`\.`auto_accept_jobs` TO 'spx_legacy'@'10\.0\.0\.10'$/);
+  assert.match(restore.calls[1].sql, /^GRANT SELECT, UPDATE ON `SPX`\.`auto_accept_jobs` TO 'spx_legacy'@'10\.0\.0\.10'$/);
 
   const partial = new Connection([[{ PRIVILEGE_TYPE: "SELECT" }]]);
   await assert.rejects(() => convergeProductionLegacyGrants({

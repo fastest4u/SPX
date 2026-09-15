@@ -8,7 +8,7 @@ import {
   type BigIntStats,
 } from "node:fs";
 import { TextDecoder } from "node:util";
-import { isIP } from "node:net";
+import { createConnection, isIP } from "node:net";
 import type { PoolOptions } from "mysql2/promise";
 
 export type DatabaseSslMode = "disabled" | "verify-identity";
@@ -151,6 +151,12 @@ export function buildMysqlPoolOptions(config: MysqlPoolRuntimeConfig): PoolOptio
 
   return {
     ...options,
+    // mysql2 derives the TLS identity from host, ignoring ssl.servername.
+    // Keep the proxy as the transport destination while authenticating the upstream.
+    host: servername,
+    ...(servername === config.host ? {} : {
+      stream: () => createConnection({ host: config.host, port: config.port }),
+    }),
     ssl,
   };
 }

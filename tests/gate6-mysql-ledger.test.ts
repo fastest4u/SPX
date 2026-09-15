@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     schemaVersion: 1,
     host: "mysql.internal.example",
     port: 3306,
-    database: "spx",
+    database: "SPX",
     username: "spx_gate6_control",
     sslServername: "mysql.internal.example",
     targetDescriptorSha256: H("0"),
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   }, H("0")), {
     host: "mysql.internal.example",
     port: 3306,
-    database: "spx",
+    database: "SPX",
     username: "spx_gate6_control",
     sslServername: "mysql.internal.example",
     passwordSha256: H("1"),

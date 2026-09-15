@@ -17,7 +17,7 @@ export const GATE6_LEGACY_GRANT_EXECUTOR_CONTRACT = Object.freeze({
   service: "gate6-postproof-db-executor",
   command: Object.freeze(["node", "scripts/gate6-legacy-grant-executor.mjs"]),
   databaseHost: "gate6-db-proxy",
-  databaseName: "spx",
+  databaseName: "SPX",
   databasePrincipalEnv: "SPX_DB_USERNAME_GATE6_POSTPROOF",
   passwordSecret: "db_password_gate6_postproof",
   grantPlan: PLAN_FILE,
@@ -50,7 +50,7 @@ export function assertLegacyGrantExecutorEnvironment(environment) {
   if (
     environment.DB_HOST !== "gate6-db-proxy"
     || environment.DB_PORT !== "3306"
-    || environment.DB_NAME !== "spx"
+    || environment.DB_NAME !== "SPX"
     || environment.DB_PASSWORD_FILE !== "/run/secrets/db_password"
     || environment.DB_SSL_MODE !== "verify-identity"
     || environment.DB_SSL_CA_FILE !== "/run/config/db-ca.pem"

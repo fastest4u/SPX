@@ -430,7 +430,7 @@ async function main(): Promise<void> {
       DB_MODE: "mysql",
       DB_HOST: "gate6-db-proxy",
       DB_PORT: "3306",
-      DB_NAME: "spx",
+      DB_NAME: "SPX",
       DB_USERNAME: "spx_gate6_control",
       DB_PASSWORD: "test-only",
       DB_SSL_MODE: "verify-identity",
@@ -452,7 +452,7 @@ async function main(): Promise<void> {
     schemaVersion: 1,
     host: "mysql.production.example",
     port: 3306,
-    database: "spx",
+    database: "SPX",
     username: "spx_gate6_control",
     sslServername: "mysql.production.example",
     targetDescriptorSha256: slotInput.targetDescriptorSha256,
@@ -545,7 +545,7 @@ async function main(): Promise<void> {
   );
   assert.equal(capturedOptions.shell, false);
   assert.equal(capturedArgs.includes("--ssl-mode=VERIFY_IDENTITY"), true);
-  assert.equal(capturedArgs.includes("--database=spx"), true);
+  assert.equal(capturedArgs.includes("--database=SPX"), true);
   assert.equal(capturedArgs.includes("--host=mysql.production.example"), true);
   assert.equal(capturedArgs.includes("--user=spx_gate6_control"), true);
   assert.equal(capturedArgs.some((argument) => argument.includes(safePassword)), false);

@@ -135,21 +135,21 @@ async function main(): Promise<void> {
   assert.deepEqual(assertGate6Task9ContainerEnvironment({
     DB_HOST: "gate6-db-proxy",
     DB_PORT: "3306",
-    DB_NAME: "spx",
+    DB_NAME: "SPX",
     DB_USERNAME: "spx_gate6_control",
     DB_PASSWORD_FILE: "/run/secrets/db_password",
-  }).database, "spx");
+  }).database, "SPX");
   assert.throws(() => assertGate6Task9ContainerEnvironment({
     DB_HOST: "mysql.example.test",
     DB_PORT: "3306",
-    DB_NAME: "spx",
+    DB_NAME: "SPX",
     DB_USERNAME: "spx_gate6_control",
     DB_PASSWORD_FILE: "/run/secrets/db_password",
   }), /container environment/i);
   assert.throws(() => assertGate6Task9ContainerEnvironment({
     DB_HOST: "gate6-db-proxy",
     DB_PORT: "3306",
-    DB_NAME: "spx",
+    DB_NAME: "SPX",
     DB_USERNAME: "spx_gate6_control",
     DB_PASSWORD_FILE: "/run/secrets/db_password",
     OPENAI_API_KEY: "must-not-enter-task9",

@@ -3,6 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
 import { canonicalJson, readEvidenceJson } from "./evidence-artifact.mjs";
+import { mysqlVerifiedTransport } from "./mysql-connection-config.mjs";
 
 export const STAGING_ACTION_CAPABILITY_PATH = "/etc/spx-staging/action-capability.json";
 export const STAGING_DATABASE_SECRET_ROOT = "/run/spx-staging-actions/database";
@@ -197,8 +198,7 @@ export function buildStagingDatabaseConnectionConfig(capability, actor, password
     throw new Error("fixed staging database credential capability is invalid");
   }
   return {
-    host: database.host,
-    port: database.port,
+    ...mysqlVerifiedTransport(database.host, database.port, database.sslServername),
     user,
     password,
     database: database.name,
@@ -206,6 +206,7 @@ export function buildStagingDatabaseConnectionConfig(capability, actor, password
       ca: caBytes.toString("utf8"),
       rejectUnauthorized: true,
       servername: database.sslServername,
+      verifyIdentity: true,
     },
   };
 }

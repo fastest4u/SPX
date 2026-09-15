@@ -31,7 +31,7 @@ const EXACT_ACCOUNT_HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|
 export function productionAccountHost(descriptor, role) {
   if (
     descriptor?.environment !== "production"
-    || descriptor?.database?.name !== "spx"
+    || descriptor?.database?.name !== "SPX"
     || descriptor.database.accountHosts === null
     || typeof descriptor.database.accountHosts !== "object"
     || Array.isArray(descriptor.database.accountHosts)

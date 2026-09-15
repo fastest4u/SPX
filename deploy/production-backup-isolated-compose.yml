@@ -6,7 +6,7 @@ services:
     restart: "no"
     init: true
     environment:
-      MYSQL_DATABASE: spx
+      MYSQL_DATABASE: SPX
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/isolated-root-password
     command:
       - --skip-name-resolve

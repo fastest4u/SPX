@@ -15,7 +15,7 @@ const accountHosts = Object.fromEntries([
 ].map((role) => [role, "10.0.0.10"]));
 const descriptor = {
   environment: "production",
-  database: { name: "spx", accountHosts },
+  database: { name: "SPX", accountHosts },
 };
 
 async function main(): Promise<void> {

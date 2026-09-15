@@ -915,7 +915,7 @@ function validateDbCapability(value, expectedTargetDescriptorSha256) {
     !Number.isSafeInteger(value.port) ||
     value.port < 1 ||
     value.port > 65_535 ||
-    value.database !== "spx" ||
+    value.database !== "SPX" ||
     !/^[A-Za-z0-9_$-]{1,64}$/.test(value.username ?? "") ||
     value.targetDescriptorSha256 !== expectedTargetDescriptorSha256 ||
     !SHA256.test(value.passwordSha256 ?? "") ||
@@ -936,7 +936,7 @@ function renderMysqlDefaults(capability, password) {
     `port=${capability.port}`,
     `user=${capability.username}`,
     `password=${password}`,
-    "database=spx",
+    "database=SPX",
     "protocol=TCP",
     "ssl-mode=VERIFY_IDENTITY",
     `ssl-ca=${FIXED_DB_CA}`,
@@ -1032,7 +1032,7 @@ async function executeMysqlQuery(loaded, query, label) {
         `--user=${loaded.capability.username}`,
         "--ssl-mode=VERIFY_IDENTITY",
         `--ssl-ca=${FIXED_DB_CA}`,
-        "--database=spx",
+        "--database=SPX",
         "--connect-timeout=5",
         "--batch",
         "--raw",

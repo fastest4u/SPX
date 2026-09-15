@@ -180,6 +180,7 @@ async function main(): Promise<void> {
         ca: "test-ca",
         rejectUnauthorized: true,
         servername: "mysql.staging.internal",
+        verifyIdentity: true,
       },
     });
     assert.equal(

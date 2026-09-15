@@ -183,7 +183,7 @@ export function createProductionDbCredentialAdapter(options = {}) {
     async descriptor() {
       const accountHosts = {};
       for (const role of PRODUCTION_DB_ROLE_ORDER) accountHosts[role] = (await loaded(role)).binding.accountHost;
-      return { environment: "production", database: { name: "spx", accountHosts } };
+      return { environment: "production", database: { name: "SPX", accountHosts } };
     },
     async captureBaseline({ role }) {
       return { active: docker ? await docker.isRunning(role) : false, mode: await activeMode(role) };

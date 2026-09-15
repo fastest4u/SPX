@@ -39,7 +39,7 @@ export interface ProductionTopology {
   deploymentOrder: UnitId[];
   rollbackOrder: UnitId[];
   database: {
-    name: "spx";
+    name: "SPX";
     migrationUnit: "primary";
   };
   notificationIngress: {
@@ -183,7 +183,7 @@ export function parseProductionTopology(value: unknown): ProductionTopology {
 
   const database = record(topology.database, "production topology database");
   exact(database, ["name", "migrationUnit"], "production topology database");
-  if (database.name !== "spx" || database.migrationUnit !== "primary") {
+  if (database.name !== "SPX" || database.migrationUnit !== "primary") {
     throw new Error("production database and migration owner are invalid");
   }
 
@@ -244,7 +244,7 @@ export function parseProductionTopology(value: unknown): ProductionTopology {
     topology: "split-two-host",
     deploymentOrder: [...DEPLOYMENT_ORDER],
     rollbackOrder: [...ROLLBACK_ORDER],
-    database: { name: "spx", migrationUnit: "primary" },
+    database: { name: "SPX", migrationUnit: "primary" },
     notificationIngress: {
       producerUnit: "team2",
       targetUnit: "primary",

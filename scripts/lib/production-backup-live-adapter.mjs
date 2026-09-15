@@ -129,37 +129,43 @@ const SOURCE_FINGERPRINT_SQL = [
   "SELECT CONCAT(@@server_uuid, CHAR(9), @@version, CHAR(9), DATABASE())",
 ].join(" ");
 const GATE6_QUIESCENCE_SQL = [
-  "SELECT CASE",
-  "WHEN COUNT(*) = 0 THEN 'absent'",
-  "WHEN SUM(CASE WHEN state = 'released' AND uncompensated_work = 0 THEN 0 ELSE 1 END) = 0 THEN 'absent'",
-  "ELSE 'busy' END",
-  "FROM gate6_environment_slots WHERE environment = 'production'",
+  "SET @spx_gate6_quiescence_sql = IF(",
+  "EXISTS (SELECT 1 FROM information_schema.TABLES",
+  "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'gate6_environment_slots'),",
+  "'SELECT CASE WHEN COUNT(*) = 0 THEN ''absent''",
+  "WHEN SUM(CASE WHEN state = ''released'' AND uncompensated_work = 0 THEN 0 ELSE 1 END) = 0",
+  "THEN ''absent'' ELSE ''busy'' END FROM gate6_environment_slots",
+  "WHERE environment = ''production''',",
+  "'SELECT ''absent''');",
+  "PREPARE spx_gate6_quiescence FROM @spx_gate6_quiescence_sql;",
+  "EXECUTE spx_gate6_quiescence;",
+  "DEALLOCATE PREPARE spx_gate6_quiescence",
 ].join(" ");
 const ISOLATED_FINGERPRINT_SQL = ["SELECT CONCAT(@@server_uuid, CHAR(9), DATABASE())"].join(" ");
 const ISOLATED_SCHEMA_DIGEST_SQL = [
   "SELECT TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA",
-  "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'spx'",
+  "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'SPX'",
   "ORDER BY TABLE_NAME, ORDINAL_POSITION",
 ].join(" ");
 const ISOLATED_FOREIGN_KEY_DIGEST_SQL = [
   "SELECT CONSTRAINT_NAME, TABLE_NAME, REFERENCED_TABLE_NAME, UPDATE_RULE, DELETE_RULE",
-  "FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = 'spx'",
+  "FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = 'SPX'",
   "ORDER BY CONSTRAINT_NAME, TABLE_NAME",
 ].join(" ");
 const ISOLATED_RUNTIME_OBJECT_DIGEST_SQL = [
   "SELECT 'trigger' AS OBJECT_KIND, TRIGGER_NAME AS OBJECT_NAME, EVENT_MANIPULATION AS OBJECT_TYPE, EVENT_OBJECT_TABLE AS OBJECT_TARGET, ACTION_TIMING AS OBJECT_STATE",
-  "FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'spx'",
+  "FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'SPX'",
   "UNION ALL",
   "SELECT 'routine' AS OBJECT_KIND, ROUTINE_NAME AS OBJECT_NAME, ROUTINE_TYPE AS OBJECT_TYPE, COALESCE(DATA_TYPE, '') AS OBJECT_TARGET, SECURITY_TYPE AS OBJECT_STATE",
-  "FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'spx'",
+  "FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'SPX'",
   "UNION ALL",
   "SELECT 'event' AS OBJECT_KIND, EVENT_NAME AS OBJECT_NAME, 'EVENT' AS OBJECT_TYPE, COALESCE(EVENT_TYPE, '') AS OBJECT_TARGET, STATUS AS OBJECT_STATE",
-  "FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'spx'",
+  "FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'SPX'",
   "ORDER BY OBJECT_KIND, OBJECT_NAME",
 ].join(" ");
 const ISOLATED_ROW_COUNT_SQL = [
   "SELECT TABLE_NAME, COALESCE(TABLE_ROWS, 0)",
-  "FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'spx' AND TABLE_TYPE = 'BASE TABLE'",
+  "FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'SPX' AND TABLE_TYPE = 'BASE TABLE'",
   "ORDER BY TABLE_NAME",
 ].join(" ");
 const INVARIANT_QUERIES = Object.freeze([
@@ -246,7 +252,7 @@ function bindAuthenticatedSourceIdentity(value, context) {
       fields[0] ?? "",
     ) ||
     !/^[0-9A-Za-z._+-]{1,128}$/.test(fields[1] ?? "") ||
-    fields[2] !== "spx"
+    fields[2] !== "SPX"
   ) {
     fail("production-backup-source-identity-invalid");
   }
@@ -375,7 +381,7 @@ function sourceMysqlArgv(sql) {
     "--skip-column-names",
     "--raw",
     `--execute=${sql}`,
-    "spx",
+    "SPX",
   ];
 }
 
@@ -389,7 +395,7 @@ function isolatedMysqlArgv(identity, sql = undefined) {
     "--defaults-extra-file=/run/secrets/isolated-client.cnf",
   ];
   if (sql !== undefined) argv.push("--batch", "--skip-column-names", "--raw", `--execute=${sql}`);
-  argv.push("spx");
+  argv.push("SPX");
   return argv;
 }
 
@@ -1063,7 +1069,7 @@ export function createProductionBackupLiveAdapter(contextInput, testPort = undef
             "--no-tablespaces",
             "--set-gtid-purged=OFF",
             "--skip-comments",
-            "spx",
+            "SPX",
           ],
           { timeoutMs: PROCESS_TIMEOUT_MS },
         ),

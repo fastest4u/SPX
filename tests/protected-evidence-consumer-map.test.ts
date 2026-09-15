@@ -14,10 +14,12 @@ import {
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
 const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const ZERO_SHA = "0".repeat(40);
+const ZERO_SHA256 = "0".repeat(64);
 const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
   ".github/workflows/gate6-final-verifier-exporter.yml": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291",
-  ".github/workflows/trusted-production-backup-restore.yml": "20313849df98c83f2c36581aa9cf1f829cea595ab13c97f46ce343c0d339c241",
+  ".github/workflows/trusted-production-backup-restore.yml": "82e8b502a9cdb47544da19cfc9b4d64b5bfd727f3faf3e97af4cbab75151a87c",
   ".github/workflows/trusted-deploy.yml": "20f5e9bed1de14f8d7c8d4d3de5da7bf0dcba80c1ae7fc145565bed76a64ca57",
   ".github/workflows/trusted-staging-protected-evidence.yml": "be09053d94990f762e7f60a7f4957dcee7f9fe19440959eb21d2ab1bb27608d8",
 };
@@ -110,21 +112,24 @@ async function fixture(kind: Kind) {
   };
 }
 
-test("loads the exact frozen six-kind Stage A producer map", async () => {
+test("loads unchanged Stage A pins and denies the changed backup producer until repinned", async () => {
   const map = loadProtectedEvidenceProducerMap();
   assert.deepEqual(Object.keys(map), Object.keys(EXPECTED).sort());
   assert.equal(Object.isFrozen(map), true);
   for (const kind of Object.keys(EXPECTED) as Kind[]) {
     const expected = EXPECTED[kind];
     const producer = producerFor(kind);
+    const bootstrapDenied = kind === "production-backup-restore";
     assert.equal(sha256(readFileSync(expected.workflow)), WORKFLOW_DIGESTS[expected.workflow]);
     assert.deepEqual(producer, {
       workflow: expected.workflow,
       environment: expected.environment,
       files: [...expected.files],
-      signerSha: STAGE_A_SHA,
-      workflowFileSha256: WORKFLOW_DIGESTS[expected.workflow],
-      bootstrapDenied: false,
+      signerSha: bootstrapDenied ? ZERO_SHA : STAGE_A_SHA,
+      workflowFileSha256: bootstrapDenied
+        ? ZERO_SHA256
+        : WORKFLOW_DIGESTS[expected.workflow],
+      bootstrapDenied,
     });
     assert.deepEqual(Object.keys(producer), [
       "workflow",

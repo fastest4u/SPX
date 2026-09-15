@@ -178,7 +178,7 @@ export function parseGate6ControlDatabaseConfig(source, expectedTargetDescriptor
   );
   if (
     values.schemaVersion !== 1 ||
-    values.database !== "spx" ||
+    values.database !== "SPX" ||
     !Number.isSafeInteger(values.port) ||
     values.port < 1 ||
     values.port > 65535 ||
@@ -243,7 +243,7 @@ export function renderGate6MysqlDefaults(capability, password) {
     `port=${capability.port}`,
     `user=${capability.username}`,
     `password=${validatedPassword}`,
-    "database=spx",
+    "database=SPX",
     "protocol=TCP",
     "ssl-mode=VERIFY_IDENTITY",
     `ssl-ca=${HOST_MYSQL_CA_FILE}`,
@@ -460,7 +460,7 @@ function executeGate6MysqlCommand({
         `--user=${capability.username}`,
         "--ssl-mode=VERIFY_IDENTITY",
         `--ssl-ca=${HOST_MYSQL_CA_FILE}`,
-        "--database=spx",
+        "--database=SPX",
         "--connect-timeout=5",
         "--batch",
         "--raw",
