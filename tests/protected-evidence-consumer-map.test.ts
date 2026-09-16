@@ -14,6 +14,7 @@ import {
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
 const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const CUTOVER_PRODUCER_SHA = "1f5d7a419ea23e85e2b09888572063be0798169a";
 const BACKUP_PRODUCER_SHA = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
@@ -118,7 +119,11 @@ test("loads the exact reviewed producer pins including the repinned backup produ
   for (const kind of Object.keys(EXPECTED) as Kind[]) {
     const expected = EXPECTED[kind];
     const producer = producerFor(kind);
-    const signerSha = kind === "production-backup-restore" ? BACKUP_PRODUCER_SHA : STAGE_A_SHA;
+    const signerSha = kind === "production-backup-restore"
+      ? BACKUP_PRODUCER_SHA
+      : kind === "protected-install"
+        ? CUTOVER_PRODUCER_SHA
+        : STAGE_A_SHA;
     assert.equal(sha256(readFileSync(expected.workflow)), WORKFLOW_DIGESTS[expected.workflow]);
     assert.deepEqual(producer, {
       workflow: expected.workflow,
