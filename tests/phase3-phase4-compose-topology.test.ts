@@ -138,9 +138,9 @@ assert.match(realtime, /^ {4}healthcheck: \*spx-http-healthcheck$/m);
 assert.match(realtime, /^ {4}deploy:\r?\n {6}replicas: 1$/m, "compose must declare one realtime replica");
 
 const realtimeClients = [
-  { name: "notifier", urlVariable: "SPX_REALTIME_NOTIFIER_URL", hasIntakeSecrets: true },
+  { name: "notifier", urlVariable: "SPX_REALTIME_NOTIFIER_URL", hasIntakeSecrets: false },
   { name: "web-api", urlVariable: "SPX_REALTIME_WEB_API_URL", hasIntakeSecrets: true },
-  { name: "notification-service", urlVariable: "SPX_REALTIME_NOTIFICATION_SERVICE_URL", hasIntakeSecrets: true },
+  { name: "notification-service", urlVariable: "SPX_REALTIME_NOTIFICATION_SERVICE_URL", hasIntakeSecrets: false },
   { name: "worker-ifn-split", urlVariable: "SPX_REALTIME_WORKER_IFN_SPLIT_URL", hasIntakeSecrets: false },
   { name: "worker-ptwl-split", urlVariable: "SPX_REALTIME_WORKER_PTWL_SPLIT_URL", hasIntakeSecrets: false },
   { name: "worker-ifn", urlVariable: "SPX_REALTIME_WORKER_IFN_URL", hasIntakeSecrets: false },

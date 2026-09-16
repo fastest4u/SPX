@@ -76,8 +76,7 @@
         "ADMIN_PASSWORD_FILE",
         "NOTIFICATION_NODE_SECRETS_FILE",
         "OCR_NODE_SECRET_FILE",
-        "REALTIME_SHARED_SECRET_FILE",
-        "REALTIME_NODE_SECRETS_FILE"
+        "REALTIME_SHARED_SECRET_FILE"
       ],
       "allowedSecretFiles": [
         "DB_PASSWORD_FILE",
@@ -87,8 +86,7 @@
         "ADMIN_PASSWORD_FILE",
         "NOTIFICATION_NODE_SECRETS_FILE",
         "OCR_NODE_SECRET_FILE",
-        "REALTIME_SHARED_SECRET_FILE",
-        "REALTIME_NODE_SECRETS_FILE"
+        "REALTIME_SHARED_SECRET_FILE"
       ],
       "mounts": [
         {
@@ -237,16 +235,14 @@
         "SECRETS_KEY_FILE",
         "LINE_SERVICE_SEND_SECRET_FILE",
         "NOTIFICATION_NODE_SECRETS_FILE",
-        "REALTIME_SHARED_SECRET_FILE",
-        "REALTIME_NODE_SECRETS_FILE"
+        "REALTIME_SHARED_SECRET_FILE"
       ],
       "allowedSecretFiles": [
         "DB_PASSWORD_FILE",
         "SECRETS_KEY_FILE",
         "LINE_SERVICE_SEND_SECRET_FILE",
         "NOTIFICATION_NODE_SECRETS_FILE",
-        "REALTIME_SHARED_SECRET_FILE",
-        "REALTIME_NODE_SECRETS_FILE"
+        "REALTIME_SHARED_SECRET_FILE"
       ],
       "mounts": [
         {

@@ -91,6 +91,8 @@ export const OPERATOR_BUNDLE_STATIC_FILES = Object.freeze([
   "scripts/a3-capacity-check.mjs",
   "scripts/a3-team2-deploy.py",
   "scripts/a3-team2-readiness.mjs",
+  "scripts/a3-production-runtime-bootstrap.py",
+  "scripts/a3-primary-deploy.py",
   "scripts/deployment-compatibility.mjs",
   "scripts/a3-capacity-guard.mjs",
   "scripts/a3-capacity-watchdog.mjs",
