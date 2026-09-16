@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 const repository = "fastest4u/SPX";
 const bootstrapDenySha = "0".repeat(40);
 const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
+const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
 const backupProducerSnapshotSha = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 
 function read(path: string): string {
@@ -365,12 +366,18 @@ for (const [name, source] of Object.entries(workflowSources)) {
   );
 }
 
-const producerSnapshotPins = [
+const cutoverProducerSnapshotPins = [
   deployPin,
   team2DeployPin,
+  releasePin,
+];
+assert.ok(
+  cutoverProducerSnapshotPins.every((pin) => pin === cutoverProducerSnapshotSha),
+  "cutover dispatchers must pin the reviewed cutover producer snapshot",
+);
+const producerSnapshotPins = [
   identityPin,
   descriptorPin,
-  releasePin,
   stagingPin,
   protectedEvidencePin,
   acceptedEvidencePin,
@@ -379,11 +386,11 @@ const producerSnapshotPins = [
 assert.equal(
   new Set(producerSnapshotPins).size,
   1,
-  "foundational and protected producer dispatchers must pin the producer snapshot",
+  "unchanged foundational and protected producer dispatchers must pin the producer snapshot",
 );
 assert.ok(
   producerSnapshotPins.every((pin) => pin === producerSnapshotSha),
-  "activated producer dispatchers must pin the reviewed Stage A snapshot",
+  "unchanged producer dispatchers must retain the reviewed Stage A snapshot",
 );
 assert.equal(
   productionBackupPin,
