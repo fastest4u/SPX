@@ -30,9 +30,9 @@
       "production-backup-restore-evidence.json",
       "production-backup-restore-signature.json"
     ],
-    "signerSha": "da3b4e1dda30ee153fec7f00454caaa95c6e547b",
+    "signerSha": "bac819724aa8164f22df4c8fcc3a136200ba28d5",
     "workflow": ".github/workflows/trusted-production-backup-restore.yml",
-    "workflowFileSha256": "0d82f79801e7b4d78c83701b376f965347c67b9ca5d8176c8acbc7db9ef0b6b9"
+    "workflowFileSha256": "282d434564fe1a534812ef666c3886b6113c2a66f59cfcf23275ad1ec544fc04"
   },
   "protected-install": {
     "bootstrapDenied": false,
