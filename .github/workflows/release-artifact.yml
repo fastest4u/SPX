@@ -132,6 +132,6 @@ jobs:
       attestations: write
       contents: read
       id-token: write
-    uses: fastest4u/SPX/.github/workflows/trusted-release-artifact.yml@4a61edf8bba45b2101e8fd3654607b3f58ca5976
+    uses: fastest4u/SPX/.github/workflows/trusted-release-artifact.yml@d770ebd35a0bc1ea8627f938c9b1a43bc446a4a4
     with:
       source_sha: ${{ inputs.source_sha }}
