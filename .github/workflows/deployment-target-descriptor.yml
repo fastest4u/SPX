@@ -102,7 +102,7 @@ jobs:
       contents: read
       id-token: write
     # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
-    uses: fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml@d770ebd35a0bc1ea8627f938c9b1a43bc446a4a4
+    uses: fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml@b6c7e9b9e43302a7d1671af4dd8cd1c7cfba0cc4
     with:
       target: ${{ inputs.target }}
       deployment_unit: ${{ inputs.deployment_unit }}
