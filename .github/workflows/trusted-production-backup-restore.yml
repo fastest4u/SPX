@@ -1,4 +1,4 @@
-# STAGE-C-PIN updated: isolated MySQL compose fix (user 999:999 for cap_drop ALL).
+# STAGE-C-PIN updated: isolated MySQL capabilities (SETGID/SETUID/DAC_OVERRIDE/CHOWN) + client cnf target.
 name: Trusted production backup and isolated restore evidence
 
 on:
