@@ -46,7 +46,19 @@ function runBlocks(source: string): string[] {
 
 assert.match(dispatcher, /^permissions:\s*\{\}\s*$/m);
 assert.doesNotMatch(dispatcher, /\bruns-on:|^\s+steps:|\benvironment:/m);
-assert.doesNotMatch(dispatcher, /\$\{\{\s*secrets\.|\bssh\b|\bscp\b|\bdocker\b|secrets:\s*inherit/);
+assert.doesNotMatch(dispatcher, /\bssh\b|\bscp\b|\bdocker\b|secrets:\s*inherit/);
+for (const secret of ["SPX_HOST", "SPX_PORT", "SPX_USER", "SPX_KNOWN_HOSTS", "SPX_SSH_KEY"]) {
+  assert.match(
+    dispatcher,
+    new RegExp(`${secret}:\\s*\\$\\{\\{\\s*secrets\\.${secret}\\s*\\}\\}`),
+    `dispatcher must pass ${secret} explicitly to the trusted reusable workflow`,
+  );
+  assert.match(
+    trusted,
+    new RegExp(`^\\s{6}${secret}:$`, "m"),
+    `trusted workflow must declare ${secret} as a workflow-call secret`,
+  );
+}
 assert.match(dispatcher, /STAGE-C-PIN/);
 assert.match(
   dispatcher,
