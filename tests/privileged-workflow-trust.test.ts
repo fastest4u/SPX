@@ -5,7 +5,7 @@ const repository = "fastest4u/SPX";
 const bootstrapDenySha = "0".repeat(40);
 const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
 const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
-const releaseProducerSnapshotSha = "65c06fe060d29db0280211526202aef3bc7597b7";
+const releaseProducerSnapshotSha = "4a61edf8bba45b2101e8fd3654607b3f58ca5976";
 const backupProducerSnapshotSha = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 
 function read(path: string): string {
