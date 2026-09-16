@@ -5,6 +5,7 @@ const repository = "fastest4u/SPX";
 const bootstrapDenySha = "0".repeat(40);
 const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
 const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
+const releaseProducerSnapshotSha = "65c06fe060d29db0280211526202aef3bc7597b7";
 const backupProducerSnapshotSha = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
 
 function read(path: string): string {
@@ -369,11 +370,15 @@ for (const [name, source] of Object.entries(workflowSources)) {
 const cutoverProducerSnapshotPins = [
   deployPin,
   team2DeployPin,
-  releasePin,
 ];
 assert.ok(
   cutoverProducerSnapshotPins.every((pin) => pin === cutoverProducerSnapshotSha),
   "cutover dispatchers must pin the reviewed cutover producer snapshot",
+);
+assert.equal(
+  releasePin,
+  releaseProducerSnapshotSha,
+  "release dispatcher must pin the reviewed archive-layout producer snapshot",
 );
 const producerSnapshotPins = [
   identityPin,
