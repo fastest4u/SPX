@@ -130,7 +130,6 @@ services:
       NOTIFICATION_NODE_SECRETS_FILE: /run/secrets/notification_node_secrets
       OCR_NODE_SECRET_FILE: /run/secrets/ocr_node_secret
       REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
-      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
       NOTIFICATION_ALLOWED_NODE_TEAMS: ${SPX_NOTIFICATION_ALLOWED_NODE_TEAMS:?SPX_NOTIFICATION_ALLOWED_NODE_TEAMS is required}
       ADMIN_USERNAME: ${SPX_ADMIN_USERNAME:?SPX_ADMIN_USERNAME is required}
       ADMIN_ROLE: admin
@@ -174,9 +173,6 @@ services:
         mode: 0444
       - source: realtime_shared_secret_notifier
         target: realtime_shared_secret
-        mode: 0444
-      - source: realtime_node_secrets_notifier
-        target: realtime_node_secrets
         mode: 0444
     command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
@@ -271,7 +267,6 @@ services:
       LINE_SERVICE_SEND_SECRET_FILE: /run/secrets/line_service_send_secret
       NOTIFICATION_NODE_SECRETS_FILE: /run/secrets/notification_node_secrets
       REALTIME_SHARED_SECRET_FILE: /run/secrets/realtime_shared_secret
-      REALTIME_NODE_SECRETS_FILE: /run/secrets/realtime_node_secrets
       NOTIFICATION_ALLOWED_NODE_TEAMS: ${SPX_NOTIFICATION_ALLOWED_NODE_TEAMS:?SPX_NOTIFICATION_ALLOWED_NODE_TEAMS is required}
       LINE_SERVICE_URL: http://line-service:3003
       REALTIME_SERVICE_URL: ${SPX_REALTIME_NOTIFICATION_SERVICE_URL:-}
@@ -297,9 +292,6 @@ services:
         mode: 0444
       - source: realtime_shared_secret_notification_service
         target: realtime_shared_secret
-        mode: 0444
-      - source: realtime_node_secrets_notification_service
-        target: realtime_node_secrets
         mode: 0444
     command: ["node", "dist/app.js"]
     healthcheck: *spx-http-healthcheck
@@ -1085,12 +1077,8 @@ secrets:
     file: ${SPX_GATE6_LINE_PERMIT_PUBLIC_KEY_FILE:?SPX_GATE6_LINE_PERMIT_PUBLIC_KEY_FILE is required}
   gate6_ocr_permit_public_key:
     file: ${SPX_GATE6_OCR_PERMIT_PUBLIC_KEY_FILE:?SPX_GATE6_OCR_PERMIT_PUBLIC_KEY_FILE is required}
-  realtime_node_secrets_notifier:
-    file: ${SPX_REALTIME_NODE_SECRETS_NOTIFIER_FILE:?SPX_REALTIME_NODE_SECRETS_NOTIFIER_FILE is required}
   realtime_node_secrets_web_api:
     file: ${SPX_REALTIME_NODE_SECRETS_WEB_API_FILE:?SPX_REALTIME_NODE_SECRETS_WEB_API_FILE is required}
-  realtime_node_secrets_notification_service:
-    file: ${SPX_REALTIME_NODE_SECRETS_NOTIFICATION_SERVICE_FILE:?SPX_REALTIME_NODE_SECRETS_NOTIFICATION_SERVICE_FILE is required}
   realtime_node_secrets_realtime_service:
     file: ${SPX_REALTIME_NODE_SECRETS_REALTIME_SERVICE_FILE:?SPX_REALTIME_NODE_SECRETS_REALTIME_SERVICE_FILE is required}
   realtime_shared_secret_notifier:
