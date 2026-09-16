@@ -972,6 +972,10 @@ assert.match(
   /node trusted\/scripts\/verify-saved-image-archive\.mjs[\s\S]*--manifest=candidate\/image-archive-manifest\.json[\s\S]*--image-id="\$\{IMAGE_ID\}"[\s\S]*--image-tag="\$\{IMAGE_TAG\}"/,
   "trusted release must verify both supported docker save layouts with trusted code",
 );
+assert.ok(
+  trustedReleaseSource.includes('[[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^[0-9a-f]{64}$ ]]'),
+  "trusted release must validate the bare SHA-256 digest emitted by upload-artifact",
+);
 
 const composeCommands = extractComposeCommands(deploySource);
 for (const command of composeCommands) {

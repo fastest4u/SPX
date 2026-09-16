@@ -192,6 +192,6 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${RELEASE_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
-          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${RELEASE_ARTIFACT_DIGEST}" =~ ^[0-9a-f]{64}$ ]]
           printf 'release_artifact_id=%s\nrelease_artifact_digest=%s\n' \
             "${RELEASE_ARTIFACT_ID}" "${RELEASE_ARTIFACT_DIGEST}" >> "${GITHUB_STEP_SUMMARY}"
