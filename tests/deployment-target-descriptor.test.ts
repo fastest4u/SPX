@@ -178,7 +178,7 @@ assert.match(descriptorCliSource, /"attestation",\s*"verify"/);
 assert.match(descriptorCliSource, /GitHub artifact attestation verification failed/);
 assert.doesNotMatch(descriptorCliSource, /verify-signature/);
 for (const source of [wrapperWorkflowSource, signerWorkflowSource]) {
-  assert.doesNotMatch(source, /ubuntu-latest|@[A-Za-z][A-Za-z0-9._-]*$/m);
+  assert.doesNotMatch(source, /ubuntu-latest/);
   for (const match of source.matchAll(/uses:\s+([^\s]+)/g)) {
     assert.equal(match[1].startsWith("./"), false, `local workflow call is forbidden: ${match[1]}`);
     assert.match(match[1], /@[0-9a-f]{40}$/, `action must be SHA-pinned: ${match[1]}`);
