@@ -2,6 +2,22 @@ name: Trusted production backup and isolated restore evidence
 
 on:
   workflow_call:
+    secrets:
+      SPX_HOST:
+        description: Pinned production backup host
+        required: true
+      SPX_PORT:
+        description: Pinned production backup SSH port
+        required: true
+      SPX_USER:
+        description: Pinned production backup SSH user
+        required: true
+      SPX_KNOWN_HOSTS:
+        description: Pinned production SSH host key record
+        required: true
+      SPX_SSH_KEY:
+        description: Production backup SSH private key
+        required: true
     inputs:
       candidate_sha:
         description: Immutable release source SHA

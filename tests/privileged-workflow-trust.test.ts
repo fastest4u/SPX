@@ -7,7 +7,7 @@ const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
 const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
 const releaseProducerSnapshotSha = "d770ebd35a0bc1ea8627f938c9b1a43bc446a4a4";
 const descriptorProducerSnapshotSha = "b6c7e9b9e43302a7d1671af4dd8cd1c7cfba0cc4";
-const backupProducerSnapshotSha = "f4c103290ab30027e1fe7a426a91f1b8973b0426";
+const backupProducerSnapshotSha = "da3b4e1dda30ee153fec7f00454caaa95c6e547b";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -29,13 +29,21 @@ function assertPinnedReusableCall(source: string, workflow: string, label: strin
   return match[1];
 }
 
-function assertUnprivilegedDispatcher(source: string, label: string): void {
+function assertUnprivilegedDispatcher(
+  source: string,
+  label: string,
+  allowExplicitSecretPassthrough = false,
+): void {
   assert.doesNotMatch(source, /\bruns-on:/, `${label} must not execute mutable steps`);
   assert.doesNotMatch(source, /^\s+steps:/m, `${label} must not contain mutable steps`);
   assert.doesNotMatch(source, /\benvironment:/, `${label} must not request an environment`);
-  assert.doesNotMatch(source, /\$\{\{\s*secrets\./, `${label} must not read secrets`);
-  assert.doesNotMatch(source, /\b(?:ssh|scp|docker)\b|SPX_SSH_KEY|SPX_KNOWN_HOSTS/);
   assert.doesNotMatch(source, /secrets:\s*inherit/);
+  if (allowExplicitSecretPassthrough) {
+    assert.doesNotMatch(source, /\b(?:ssh|scp|docker)\b/);
+  } else {
+    assert.doesNotMatch(source, /\$\{\{\s*secrets\./, `${label} must not read secrets`);
+    assert.doesNotMatch(source, /\b(?:ssh|scp|docker)\b|SPX_SSH_KEY|SPX_KNOWN_HOSTS/);
+  }
 }
 
 const deployDispatcher = read(".github/workflows/a3-deploy.yml");
@@ -118,6 +126,7 @@ assert.deepEqual(productionSecretCapableWorkflows, [
   "gate6-accepted-evidence-exporter.yml",
   "gate6-final-verifier-exporter.yml",
   "gate6-runtime-executor.yml",
+  "production-backup-restore.yml",
   "trusted-deploy.yml",
   "trusted-production-backup-restore.yml",
   "trusted-production-project-identity.yml",
@@ -239,7 +248,7 @@ const productionBackupPin = assertPinnedReusableCall(
   "trusted-production-backup-restore.yml",
   "production backup dispatcher",
 );
-assertUnprivilegedDispatcher(productionBackupDispatcher, "production backup dispatcher");
+assertUnprivilegedDispatcher(productionBackupDispatcher, "production backup dispatcher", true);
 const productionBackupCallJob = productionBackupDispatcher.match(
   /\n {2}produce-backup-evidence:[\s\S]*$/,
 )?.[0];
