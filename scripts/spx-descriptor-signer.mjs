@@ -196,7 +196,8 @@ function parseJwt(token) {
 
 function validateClaims(claims, config, nowSeconds) {
   const tolerance = config.clockToleranceSeconds;
-  const callerWorkflowRef = `${config.repository}/${CALLER_WORKFLOW_PATH}@${claims.workflow_sha}`;
+  const callerRef = "refs/heads/main";
+  const callerWorkflowRef = `${config.repository}/${CALLER_WORKFLOW_PATH}@${callerRef}`;
   if (
     claims.iss !== config.oidcIssuer
     || claims.aud !== config.oidcAudience
@@ -207,6 +208,9 @@ function validateClaims(claims, config, nowSeconds) {
     || claims.job_workflow_sha !== config.trustedWorkflowSha
     || !COMMIT_SHA.test(claims.workflow_sha ?? "")
     || claims.workflow_ref !== callerWorkflowRef
+    || claims.ref !== callerRef
+    || claims.ref_type !== "branch"
+    || claims.sha !== claims.workflow_sha
     || claims.event_name !== "workflow_dispatch"
     || !Number.isSafeInteger(claims.iat)
     || !Number.isSafeInteger(claims.nbf)

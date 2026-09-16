@@ -9,6 +9,7 @@ import { deploymentTargetFactsSha256 } from '../src/services/deployment-target-d
 import { canonicalJson } from '../src/services/release-manifest.js'
 
 const trustedSha = '4c0b0cf57481eda1c88ac754fa70500cf0fb59ad'
+const callerSha = '29dd79355ce8d9b458cb502549d7b03b1d095de1'
 const audience = 'https://pathwaylogistic.com/_spx/descriptor-signer'
 const issuer = 'https://token.actions.githubusercontent.com'
 const route = '/_spx/descriptor-signer/v1/sign'
@@ -57,8 +58,11 @@ function claims(overrides: Record<string, unknown> = {}) {
     repository_owner: 'fastest4u',
     job_workflow_ref: `fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml@${trustedSha}`,
     job_workflow_sha: trustedSha,
-    workflow_ref: `fastest4u/SPX/.github/workflows/deployment-target-descriptor.yml@${trustedSha}`,
-    workflow_sha: trustedSha,
+    workflow_ref: 'fastest4u/SPX/.github/workflows/deployment-target-descriptor.yml@refs/heads/main',
+    workflow_sha: callerSha,
+    ref: 'refs/heads/main',
+    ref_type: 'branch',
+    sha: callerSha,
     event_name: 'workflow_dispatch',
     iat: now - 5,
     nbf: now - 5,
@@ -175,7 +179,7 @@ test('retries one transient JWKS failure before denying a valid request', async 
   }
 })
 
-test('fails closed for wrong audience, mutable workflow provenance, and digest mismatch', async () => {
+test('fails closed for wrong audience, caller provenance, and digest mismatch', async () => {
   const f = await fixture()
   try {
     const payload = Buffer.from('{"schemaVersion":1}', 'utf8')
@@ -190,8 +194,10 @@ test('fails closed for wrong audience, mutable workflow provenance, and digest m
         job_workflow_ref: 'fastest4u/SPX/.github/workflows/deployment-target-descriptor-signer.yml@main',
       })),
       jwt(f.githubKeys.privateKey, claims({
-        workflow_ref: `fastest4u/SPX/.github/workflows/other.yml@${trustedSha}`,
+        workflow_ref: 'fastest4u/SPX/.github/workflows/other.yml@refs/heads/main',
       })),
+      jwt(f.githubKeys.privateKey, claims({ ref: 'refs/heads/feature', workflow_ref: 'fastest4u/SPX/.github/workflows/deployment-target-descriptor.yml@refs/heads/feature' })),
+      jwt(f.githubKeys.privateKey, claims({ sha: trustedSha })),
       jwt(f.githubKeys.privateKey, claims({ event_name: 'pull_request' })),
       jwt(f.githubKeys.privateKey, claims({ sub: 'repo:fastest4u/SPX:environment:development' })),
     ]
