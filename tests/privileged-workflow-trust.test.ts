@@ -7,7 +7,7 @@ const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
 const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
 const releaseProducerSnapshotSha = "d770ebd35a0bc1ea8627f938c9b1a43bc446a4a4";
 const descriptorProducerSnapshotSha = "b6c7e9b9e43302a7d1671af4dd8cd1c7cfba0cc4";
-const backupProducerSnapshotSha = "bac819724aa8164f22df4c8fcc3a136200ba28d5";
+const backupProducerSnapshotSha = "b0210e1825197ebd5a746bf0de2b2d382e449fd0";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");

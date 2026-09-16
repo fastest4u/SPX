@@ -62,7 +62,7 @@ for (const secret of ["SPX_HOST", "SPX_PORT", "SPX_USER", "SPX_KNOWN_HOSTS", "SP
 assert.match(dispatcher, /STAGE-C-PIN/);
 assert.match(
   dispatcher,
-  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-production-backup-restore\.yml@bac819724aa8164f22df4c8fcc3a136200ba28d5/,
+  /uses:\s*fastest4u\/SPX\/\.github\/workflows\/trusted-production-backup-restore\.yml@b0210e1825197ebd5a746bf0de2b2d382e449fd0/,
 );
 for (const input of inputs) {
   assert.equal(
