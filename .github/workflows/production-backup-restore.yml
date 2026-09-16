@@ -56,7 +56,7 @@ jobs:
       contents: read
       id-token: write
     # STAGE-C-PIN: immutable reviewed Stage A producer snapshot.
-    uses: fastest4u/SPX/.github/workflows/trusted-production-backup-restore.yml@da3b4e1dda30ee153fec7f00454caaa95c6e547b
+    uses: fastest4u/SPX/.github/workflows/trusted-production-backup-restore.yml@bac819724aa8164f22df4c8fcc3a136200ba28d5
     with:
       candidate_sha: ${{ inputs.candidate_sha }}
       release_artifact_id: ${{ inputs.release_artifact_id }}
