@@ -162,6 +162,8 @@ export const OPERATOR_BUNDLE_STATIC_FILES = Object.freeze([
   "scripts/production-backup-restore-controller.mjs",
   "scripts/production-canary-evidence-check.mjs",
   "scripts/production-canary-monitor.mjs",
+  "scripts/production-db-principal-bootstrap.mjs",
+  "scripts/production-first-cutover.mjs",
   "scripts/production-db-principal-controller.mjs",
   "scripts/production-db-transition-evidence-check.mjs",
   "scripts/production-mutation-host-lock.mjs",

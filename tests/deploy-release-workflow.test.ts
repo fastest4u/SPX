@@ -954,6 +954,19 @@ assert.deepEqual(jobPermissions(identitySource, "maintain-identity"), {
 });
 assertPinnedActions(releaseSource, ".github/workflows/release-artifact.yml");
 assertPinnedActions(trustedReleaseSource, ".github/workflows/trusted-release-artifact.yml");
+assert.equal(
+  [...trustedReleaseSource.matchAll(/node -p 'require\(process\.argv\[1\]\)\.(?:imageId|imageTag)'\s+(\S+)/g)]
+    .every((match) => match[1].startsWith("./")),
+  true,
+  "trusted release JSON paths must be explicit relative paths for Node module resolution",
+);
+for (const field of ["sourceSha", "operatorBundleSha256", "migrationSetSha256"]) {
+  assert.match(
+    deploySource,
+    new RegExp(`node -p 'require\\(process\\.argv\\[1\\]\\)\\.${field}(?:[^']*)?' \\.\\/verified\\/release\\/release-manifest\\.json`),
+    `trusted deploy ${field} lookup must use an explicit relative JSON path`,
+  );
+}
 
 const composeCommands = extractComposeCommands(deploySource);
 for (const command of composeCommands) {

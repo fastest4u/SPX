@@ -5,6 +5,12 @@ const trustedPath = ".github/workflows/trusted-team2-deploy.yml";
 const trusted = readFileSync(trustedPath, "utf8");
 const dispatcher = readFileSync(".github/workflows/a3-deploy.yml", "utf8");
 
+assert.match(
+  trusted,
+  /node -p 'require\(process\.argv\[1\]\)\.sourceSha' \.\/verified\/release\/release-manifest\.json/,
+  "TEAM 2 payload identity lookup must use an explicit relative JSON path",
+);
+
 assert.match(trusted, /workflow_call:/);
 assert.match(trusted, /environment:\s+production/);
 assert.match(trusted, /attestations:\s+write/);
