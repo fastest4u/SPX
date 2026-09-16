@@ -1,3 +1,4 @@
+# STAGE-C-PIN updated: isolated MySQL compose fix (user 999:999 for cap_drop ALL).
 name: Trusted production backup and isolated restore evidence
 
 on:
