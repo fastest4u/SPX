@@ -967,6 +967,11 @@ for (const field of ["sourceSha", "operatorBundleSha256", "migrationSetSha256"])
     `trusted deploy ${field} lookup must use an explicit relative JSON path`,
   );
 }
+assert.match(
+  trustedReleaseSource,
+  /node trusted\/scripts\/verify-saved-image-archive\.mjs[\s\S]*--manifest=candidate\/image-archive-manifest\.json[\s\S]*--image-id="\$\{IMAGE_ID\}"[\s\S]*--image-tag="\$\{IMAGE_TAG\}"/,
+  "trusted release must verify both supported docker save layouts with trusted code",
+);
 
 const composeCommands = extractComposeCommands(deploySource);
 for (const command of composeCommands) {

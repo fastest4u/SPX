@@ -109,12 +109,10 @@ jobs:
           IMAGE_ID="$(node -p 'require(process.argv[1]).imageId' ./candidate/release-manifest.json)"
           IMAGE_TAG="$(node -p 'require(process.argv[1]).imageTag' ./candidate/release-manifest.json)"
           tar -xOf candidate/spx-image.tar manifest.json > candidate/image-archive-manifest.json
-          IMAGE_ID="${IMAGE_ID}" IMAGE_TAG="${IMAGE_TAG}" node -e '
-            const fs=require("node:fs");
-            const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-            const config=`${process.env.IMAGE_ID.slice("sha256:".length)}.json`;
-            if(value.length!==1 || value[0].Config!==config || JSON.stringify(value[0].RepoTags)!==JSON.stringify([process.env.IMAGE_TAG]) || !Array.isArray(value[0].Layers) || value[0].Layers.length===0) throw new Error("image archive identity mismatch");
-          ' candidate/image-archive-manifest.json
+          node trusted/scripts/verify-saved-image-archive.mjs \
+            --manifest=candidate/image-archive-manifest.json \
+            --image-id="${IMAGE_ID}" \
+            --image-tag="${IMAGE_TAG}"
           rm -f candidate/image-archive-manifest.json
           docker load --input candidate/spx-image.tar >/dev/null
           test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "${IMAGE_ID}"

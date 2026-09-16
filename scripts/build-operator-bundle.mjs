@@ -197,6 +197,7 @@ export const OPERATOR_BUNDLE_STATIC_FILES = Object.freeze([
   "scripts/staging-rollout-controller.mjs",
   "scripts/staging-rollout-approval-verify.mjs",
   "scripts/task9-ocr-fixture.png",
+  "scripts/verify-saved-image-archive.mjs",
   "scripts/worker-healthcheck.mjs",
   "src/services/deployment-target-descriptor.ts",
   "src/services/gate6-approval-runtime.mjs",
