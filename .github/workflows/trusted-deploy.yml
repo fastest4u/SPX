@@ -679,7 +679,7 @@ jobs:
           PAYLOAD_SHA256="$(sha256sum verified/deploy-payload.tar | cut -d' ' -f1)"
           echo "operation_id=${OPERATION_ID}" >> "${GITHUB_OUTPUT}"
           echo "payload_sha256=${PAYLOAD_SHA256}" >> "${GITHUB_OUTPUT}"
-          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' ./verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
 
       - name: Configure pinned SSH host identity
         shell: bash
@@ -2562,11 +2562,11 @@ jobs:
           done
           test "$(find protected-install-output -maxdepth 1 -type f | wc -l)" -eq 2
           test -z "$(find protected-install-output -mindepth 1 ! -type f -print -quit)"
-          SOURCE_SHA="$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)"
+          SOURCE_SHA="$(node -p 'require(process.argv[1]).sourceSha' ./verified/release/release-manifest.json)"
           TARGET_SHA256="$(sha256sum verified/target/deployment-target-descriptor.json | cut -d' ' -f1)"
-          OPERATOR_BUNDLE_SHA256="$(node -p 'require(process.argv[1]).operatorBundleSha256' verified/release/release-manifest.json)"
-          INSTALLED_MIGRATION_SET_SHA256="$(node -p 'require(process.argv[1]).migrationSetSha256' verified/release/release-manifest.json)"
-          INSTALLED_SCHEMA_VERSION="$(node -p 'require(process.argv[1]).schema.max' verified/release/release-manifest.json)"
+          OPERATOR_BUNDLE_SHA256="$(node -p 'require(process.argv[1]).operatorBundleSha256' ./verified/release/release-manifest.json)"
+          INSTALLED_MIGRATION_SET_SHA256="$(node -p 'require(process.argv[1]).migrationSetSha256' ./verified/release/release-manifest.json)"
+          INSTALLED_SCHEMA_VERSION="$(node -p 'require(process.argv[1]).schema.max' ./verified/release/release-manifest.json)"
           VERIFIER_EXPECTATION_B64="$(
             ssh -p "${SPX_PORT}" -i ~/.ssh/spx_deploy_key \
               -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \

@@ -221,7 +221,7 @@ jobs:
           echo "payload_sha256=$(sha256sum verified/team2-payload.tar | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
           echo "release_manifest_sha256=$(sha256sum verified/release/release-manifest.json | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
           echo "target_descriptor_sha256=$(sha256sum verified/target/deployment-target-descriptor.json | cut -d' ' -f1)" >> "${GITHUB_OUTPUT}"
-          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=$(node -p 'require(process.argv[1]).sourceSha' ./verified/release/release-manifest.json)" >> "${GITHUB_OUTPUT}"
           echo "operation_id=deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-team2" >> "${GITHUB_OUTPUT}"
 
       - name: Configure pinned TEAM 2 SSH identity

@@ -106,8 +106,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_ID="$(node -p 'require(process.argv[1]).imageId' candidate/release-manifest.json)"
-          IMAGE_TAG="$(node -p 'require(process.argv[1]).imageTag' candidate/release-manifest.json)"
+          IMAGE_ID="$(node -p 'require(process.argv[1]).imageId' ./candidate/release-manifest.json)"
+          IMAGE_TAG="$(node -p 'require(process.argv[1]).imageTag' ./candidate/release-manifest.json)"
           tar -xOf candidate/spx-image.tar manifest.json > candidate/image-archive-manifest.json
           IMAGE_ID="${IMAGE_ID}" IMAGE_TAG="${IMAGE_TAG}" node -e '
             const fs=require("node:fs");

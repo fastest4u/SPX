@@ -172,6 +172,14 @@ for (const phase3RuntimePath of PHASE3_GATE4_BUNDLE_PATHS) {
   );
 }
 assert.equal(OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/staging-rollout-controller.mjs"), true);
+assert.equal(
+  OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/production-db-principal-bootstrap.mjs"),
+  true,
+);
+assert.equal(
+  OPERATOR_BUNDLE_STATIC_FILES.includes("scripts/production-first-cutover.mjs"),
+  true,
+);
 for (const protectedEvidencePath of [
   ".github/workflows/staging-protected-evidence.yml",
   ".github/workflows/trusted-staging-protected-evidence.yml",
