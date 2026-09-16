@@ -10,6 +10,7 @@ import {
 import { constants, lstatSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { createServer } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isAbsolute, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDeploymentTargetDescriptor } from "../src/services/deployment-target-descriptor.ts";
@@ -246,6 +247,29 @@ function defaultDelay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
+function fetchJwks(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(url, {
+      method: options.method ?? "GET",
+      headers: options.headers,
+      signal: options.signal,
+    }, (response) => {
+      resolve({
+        ok: response.statusCode >= 200 && response.statusCode < 300,
+        headers: {
+          get(name) {
+            const value = response.headers[name.toLowerCase()];
+            return Array.isArray(value) ? value.join(", ") : value ?? null;
+          },
+        },
+        body: response,
+      });
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 function createOidcVerifier(config, fetchImplementation, delayImplementation = defaultDelay) {
   let cachedKeys = null;
   let expiresAt = 0;
@@ -395,7 +419,7 @@ export function createDescriptorSignerServer(inputConfig, options = {}) {
   if (privateKey) {
     if (privateKey.type !== "private" || privateKey.asymmetricKeyType !== "ed25519") fail("private-key-invalid");
   }
-  const fetchImplementation = options.fetch ?? fetch;
+  const fetchImplementation = options.fetch ?? fetchJwks;
   const verifyOidc = createOidcVerifier(config, fetchImplementation, options.delay);
   const server = createServer({ maxHeaderSize: 40 * 1024 }, async (request, response) => {
     if (request.url !== config.path) {
