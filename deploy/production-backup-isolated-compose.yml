@@ -22,6 +22,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
       - /run/mysqld:rw,noexec,nosuid,nodev,size=32m
+    user: "999:999"
     cap_drop:
       - ALL
     security_opt:
