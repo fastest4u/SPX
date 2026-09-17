@@ -48,6 +48,14 @@ jobs:
       target_descriptor_artifact_id: ${{ inputs.target_descriptor_artifact_id }}
       backup_evidence_artifact_id: ${{ inputs.backup_evidence_artifact_id }}
       backup_evidence_run_id: ${{ inputs.backup_evidence_run_id }}
+    secrets:
+      SPX_HOST: ${{ secrets.SPX_HOST }}
+      SPX_PORT: ${{ secrets.SPX_PORT }}
+      SPX_USER: ${{ secrets.SPX_USER }}
+      SPX_KNOWN_HOSTS: ${{ secrets.SPX_KNOWN_HOSTS }}
+      SPX_SSH_KEY: ${{ secrets.SPX_SSH_KEY }}
+      SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64: ${{ secrets.SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64 }}
+      SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64: ${{ secrets.SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64 }}
 
   deploy-team2:
     needs: deploy-primary
@@ -62,3 +70,8 @@ jobs:
     with:
       release_artifact_id: ${{ inputs.release_artifact_id }}
       target_descriptor_artifact_id: ${{ inputs.team2_target_descriptor_artifact_id }}
+    secrets:
+      SPX_TEAM2_HOST: ${{ secrets.SPX_TEAM2_HOST }}
+      SPX_TEAM2_PORT: ${{ secrets.SPX_TEAM2_PORT }}
+      SPX_TEAM2_USER: ${{ secrets.SPX_TEAM2_USER }}
+      SPX_TEAM2_SSH_KEY: ${{ secrets.SPX_TEAM2_SSH_KEY }}

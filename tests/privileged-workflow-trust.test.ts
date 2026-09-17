@@ -122,6 +122,7 @@ const productionSecretCapableWorkflows = readdirSync(".github/workflows")
   .filter((name) => /secrets\.SPX_/.test(read(`.github/workflows/${name}`)))
   .sort();
 assert.deepEqual(productionSecretCapableWorkflows, [
+  "a3-deploy.yml",
   "deploy.yml",
   "gate6-accepted-evidence-exporter.yml",
   "gate6-final-verifier-exporter.yml",
@@ -134,7 +135,7 @@ assert.deepEqual(productionSecretCapableWorkflows, [
   "trusted-team2-deploy.yml",
 ]);
 
-assertUnprivilegedDispatcher(deployDispatcher, "deploy dispatcher");
+assertUnprivilegedDispatcher(deployDispatcher, "deploy dispatcher", true);
 assertUnprivilegedDispatcher(identityDispatcher, "identity dispatcher");
 const deployPin = assertPinnedReusableCall(
   deployDispatcher,
