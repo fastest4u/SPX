@@ -247,4 +247,25 @@ assertFailure(
   /SPX_ROLE=combined is not allowed in production/,
 );
 
+// Legacy deployment mode allows standard notifier and worker without A3 secret rings
+const legacyProductionNotifier = {
+  DEPLOYMENT_MODE: "legacy",
+  SPX_ROLE: "notifier",
+  SPX_NODE_ID: "prod-notifier-1",
+  DB_SSL_MODE: "disabled",
+  DB_SSL_CA_FILE: "",
+};
+assertSuccess(legacyProductionNotifier);
+
+const legacyProductionWorker = {
+  DEPLOYMENT_MODE: "legacy",
+  SPX_ROLE: "worker",
+  SPX_NODE_ID: "prod-worker-ptwl-1",
+  DB_SSL_MODE: "disabled",
+  DB_SSL_CA_FILE: "",
+  RUN_TEAM_IDS: "1",
+  NOTIFIER_API_URL: "http://notifier:3000/internal/notification-events",
+};
+assertSuccess(legacyProductionWorker);
+
 console.log("node-scoped-hmac-config: production fallback and allowlist guards verified");

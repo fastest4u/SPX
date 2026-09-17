@@ -486,6 +486,31 @@ export const env = {
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
 } as const;
 
+function isLegacyDeployMode(): boolean {
+  if (process.env.DEPLOYMENT_MODE === "legacy") return true;
+  if (process.env.DEPLOYMENT_MODE === "protected-a3") return false;
+  try {
+    const candidates = [
+      resolve(process.cwd(), "dist/deployment-contract.json"),
+      "/app/dist/deployment-contract.json",
+    ];
+    for (const candidate of candidates) {
+      try {
+        if (existsSync(candidate)) {
+          const content = JSON.parse(readFileSync(candidate, "utf8")) as { mode?: unknown };
+          if (content?.mode === "legacy") return true;
+          if (content?.mode === "protected-a3") return false;
+        }
+      } catch {
+        // continue
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export function validateRuntimeConfig(): void {
   const missing: string[] = [];
   const invalid: string[] = [];
@@ -662,9 +687,12 @@ export function validateRuntimeConfig(): void {
   } else if (runtimeRole !== "api" && env.REALTIME_NODE_SECRETS.size > 0) {
     invalid.push(`REALTIME_NODE_SECRETS is not allowed for SPX_ROLE=${runtimeRole}`);
   }
+
   if (runtimeRole === "notification-service" && !env.LINE_SERVICE_URL.trim())
     missing.push("LINE_SERVICE_URL");
+  const isLegacy = isLegacyDeployMode();
   const productionRuntime = env.NODE_ENV === "production";
+  const productionA3Runtime = productionRuntime && !isLegacy;
   if (
     (runtimeRole === "notification-service" ||
       runtimeRole === "line-service" ||
@@ -700,6 +728,16 @@ export function validateRuntimeConfig(): void {
   if (productionRuntime) {
     if (runtimeRole === "combined")
       invalid.push("SPX_ROLE=combined is not allowed in production");
+    if (
+      (runtimeRole === "api" ||
+        runtimeRole === "worker" ||
+        runtimeRole === "notifier" ||
+        runtimeRole === "notification-service") &&
+      (process.env.SECRETS_KEY ?? "").trim().length < 32
+    )
+      missing.push("SECRETS_KEY");
+  }
+  if (productionA3Runtime) {
     if (env.DB_MODE === "mysql" && env.DB_HOST && isIpLiteral(env.DB_HOST.trim()))
       invalid.push("DB_HOST must be a DNS hostname in production");
     if (env.DB_MODE === "mysql" && runtimeRole !== "ocr-service") {
@@ -716,14 +754,6 @@ export function validateRuntimeConfig(): void {
       if (!env.DB_PASSWORD) missing.push("DB_PASSWORD");
       if (!env.DB_NAME) missing.push("DB_NAME");
     }
-    if (
-      (runtimeRole === "api" ||
-        runtimeRole === "worker" ||
-        runtimeRole === "notifier" ||
-        runtimeRole === "notification-service") &&
-      (process.env.SECRETS_KEY ?? "").trim().length < 32
-    )
-      missing.push("SECRETS_KEY");
     if (runtimeRole === "worker" && !env.NOTIFICATION_NODE_SECRET.trim())
       missing.push("NOTIFICATION_NODE_SECRET");
     if (runtimeRole === "notifier" || runtimeRole === "notification-service") {

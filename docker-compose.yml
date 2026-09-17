@@ -42,6 +42,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: notifier
       SPX_NODE_ID: prod-notifier-1
       HTTP_ENABLED: "true"
@@ -172,6 +173,7 @@ services:
       notifier:
         condition: service_healthy
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ifn-1
       HTTP_ENABLED: "false"
@@ -187,6 +189,7 @@ services:
       notifier:
         condition: service_healthy
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ptwl-1
       HTTP_ENABLED: "false"
