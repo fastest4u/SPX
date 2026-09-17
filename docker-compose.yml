@@ -67,6 +67,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: api
       SPX_NODE_ID: prod-web-api-1
       HTTP_ENABLED: "true"
@@ -88,6 +89,7 @@ services:
       line-service:
         condition: service_started
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: notification-service
       SPX_NODE_ID: prod-notification-service-1
       HTTP_ENABLED: "true"
@@ -108,6 +110,7 @@ services:
       ocr-service:
         condition: service_started
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: line-service
       SPX_NODE_ID: prod-line-service-1
       HTTP_ENABLED: "true"
@@ -115,6 +118,8 @@ services:
       LINEJS_TEST_ENABLED: "true"
       LINE_SERVICE_SEND_SECRET: ${LINE_SERVICE_SEND_SECRET:-}
       LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
+      LINE_SEND_ALLOWED_NODE_IDS: ${LINE_SEND_ALLOWED_NODE_IDS:-prod-notifier-1,prod-web-api-1,prod-notification-service-1,web-api,combined}
+      LINE_ADMIN_ALLOWED_NODE_IDS: ${LINE_ADMIN_ALLOWED_NODE_IDS:-prod-notifier-1,prod-web-api-1,prod-notification-service-1,web-api,combined}
       OCR_SERVICE_URL: http://ocr-service:3004
     command: ["sh", "-c", "exec node dist/app.js"]
     healthcheck: *spx-http-healthcheck
@@ -128,6 +133,7 @@ services:
       web-api:
         condition: service_healthy
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: ocr-service
       SPX_NODE_ID: prod-ocr-service-1
       HTTP_ENABLED: "true"
@@ -142,6 +148,7 @@ services:
       notification-service:
         condition: service_healthy
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ifn-split-1
       HTTP_ENABLED: "false"
@@ -158,6 +165,7 @@ services:
       notification-service:
         condition: service_healthy
     environment:
+      DEPLOYMENT_MODE: legacy
       SPX_ROLE: worker
       SPX_NODE_ID: prod-worker-ptwl-split-1
       HTTP_ENABLED: "false"

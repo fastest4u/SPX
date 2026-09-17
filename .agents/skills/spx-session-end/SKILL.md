@@ -16,13 +16,17 @@ This workflow persists the current session into long-term memory without hooks, 
 ## MCP Steps
 
 1. Gather concrete closeout details:
-   - `outcomes[]`
-   - `decisionsMade[]`
-   - `filesTouched[]`
-   - `openFollowUps[]`
-   - precise `verification`
+   - `topic` (string, **REQUIRED**): Brief clear summary of what this session accomplished.
+   - `outcomes` (string[]): Concrete accomplishments and state changes.
+   - `decisionsMade` (string[]): Architectural, design, or configuration choices made.
+   - `filesTouched` (string[]): Relative or absolute paths of modified/created files.
+   - `openFollowUps` (string[]): Any pending unclosed tasks or next steps.
+   - `verification` (string): Exact command line outputs, test counts, or SSH checks verifying success.
+   - `agent` (string): e.g. "antigravity" or "codex".
+   - `date` (string, "YYYY-MM-DD"): Current session date.
 
-2. Call `memory_sessionEnd` with `verify: true`.
+2. Call `memory_sessionEnd` with `{ topic, outcomes, decisionsMade, filesTouched, openFollowUps, verification, verify: true }`.
+   - `topic` is mandatory; omitting it will throw an MCP schema validation error.
    - Use `autoCompact: true` by default.
    - If the MCP process has a stale in-memory index and closeout fails during auto-compact, call `memory_reindex`, retry with `autoCompact: false`, then run `memory_verifyVault`.
 

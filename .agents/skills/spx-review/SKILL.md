@@ -86,6 +86,7 @@ Before reviewing:
 
 - แก้ไข `dist/`, generated files, หรือ commit secret values: P0.
 - อ่านหรือพิมพ์ secret values จาก `.env`: P0.
+- บังคับใช้ Protected A3 requirements (เช่น บังคับ TLS certificate verify-identity, notification node secret rings) เมื่อระบบรันในโหมด `legacy` ตาม `deploy/runtime-deployment-contract.json`: P0 (จะทำให้ container startup แครชบน production).
 - เขียน DB ที่ควร idempotent แต่ไม่ได้ทำ: P1.
 - เรียก API ภายนอกโดยไม่มี retry/backoff ที่เหมาะสม: P1.
 - import ใน TypeScript ไม่มี `.js` suffix ภายใต้ NodeNext: P2.
@@ -170,47 +171,58 @@ git pull origin <base>
 git branch -d <branch-name>
 ```
 
-แจ้งผู้ใช้ว่า merge สำเร็จแล้ว. ไม่ deploy หลัง merge ยกเว้นผู้ใช้สั่งโดยตรง.
+> **Auto Deploy Notice:** เมื่อ merge เข้า `main` ระบบ GitHub Actions จะเริ่มกระบวนการ Build & Auto Deploy ไปยังเซิร์ฟเวอร์ทั้งสองเครื่องโดยอัตโนมัติทันที
 
 ### ถ้าไม่ผ่านเงื่อนไข → หยุดและรายงาน
 
 แจ้งผู้ใช้ว่าเงื่อนไขข้อใดยังไม่ผ่าน พร้อมรายละเอียด และรอคำสั่ง.
 
-## Step 7: Post-Merge Production Check
+## Step 7: Post-Merge Auto-Deploy & Two-Host Production Check
 
-หลัง merge สำเร็จ ให้ทำ **production verification แบบ read-only** เสมอ เพื่อไม่ให้จบงานทั้งที่ server ยังรัน commit เก่า:
+หลัง merge สำเร็จ เฝ้าติดตาม GitHub Actions CI/CD และตรวจสอบ production ทั้งสองเครื่อง:
 
-1. ตรวจ local/remote base head:
-
-```bash
-git rev-parse --short HEAD
-git log --oneline -n 3
-```
-
-2. ตรวจ production server แบบไม่พิมพ์ secrets:
+### 7a. Monitor GitHub Actions Auto Deploy
 
 ```bash
-ssh root@45.83.207.139 "cd /root/SPX && git rev-parse --short HEAD && git log --oneline -n 3"
-ssh root@45.83.207.139 "docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'"
+# ตรวจสอบ workflow run ล่าสุดบน main
+gh run list --limit 1
+# เฝ้าติดตามการ deploy จนเสร็จสิ้นครบทั้ง 4 ขั้นตอน
+gh run watch <run-id>
 ```
 
-3. ถ้า change มี runtime/env behavior ให้ตรวจ container bundle และ runtime config เฉพาะ key ที่เกี่ยวข้องเท่านั้น เช่น:
+4 ขั้นตอนของ CI/CD pipeline:
+1. `Build Check`: Typecheck, lint, build, test (385 tests)
+2. `Preflight TEAM 2 on 147.50.240.44`: SSH check
+3. `Deploy API and TEAM 1 on primary host`: Deploy `45.83.207.139`
+4. `Deploy TEAM 2 on 147.50.240.44`: Deploy `147.50.240.44`
 
-```bash
-ssh root@45.83.207.139 "docker exec spx-app-1 printenv BIDDING_VEHICLE_TYPE || true"
-ssh root@45.83.207.139 "docker exec spx-app-1 sh -c 'cd /app && grep -c BIDDING_VEHICLE_TYPE dist/app.js || true'"
-```
+### 7b. Two-Host Production Verification (Read-Only)
 
-4. ถ้ามี DB/runtime effect ให้ query แบบ read-only เฉพาะ aggregate/sample ที่ไม่เปิดเผย secrets เช่น count by `vehicle_type`, recent rows, หรือ app setting key ที่เกี่ยวข้อง.
-5. ถ้า production server ยังไม่ตรงกับ merged commit ให้รายงานเป็น **deployment pending** พร้อมหลักฐาน commit/container/runtime.
-6. ห้าม deploy/restart เอง เว้นแต่ user สั่งชัดเจนว่า deploy/restart/ship production.
+ตรวจสถานะ production ทั้งสองโฮสต์ด้วย SSH key `C:\Users\Server\.ssh\id_ed25519`:
 
-เมื่อ user สั่ง deploy/restart ชัดเจน:
+1. **เครื่องหลัก (Primary Host: `45.83.207.139`)**:
+   - Web API, Notifier, Database Migrations, Poller Team 1 (PTWL)
+   ```bash
+   ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.207.139 "cd /root/SPX && git rev-parse --short HEAD && docker ps --format 'table {{.Names}}\t{{.Status}}' && curl -s http://127.0.0.1:3000/ready"
+   ```
+   Containers ที่ต้องรัน: `spx-notifier-1`, `spx-worker-ptwl-1` (ต้องขึ้น `Up (healthy)`)
 
-1. อ่าน deploy files ก่อน (`docker-compose.yml`, deploy scripts, README deploy notes).
-2. รัน deploy ตาม pattern repo/server ปัจจุบัน.
-3. ตรวจซ้ำว่า server git head, container image/build, health, runtime key, และ behavior สำคัญตรงกับ change.
-4. บันทึกผลใน memory session log.
+2. **เครื่อง Team 2 (Worker Host: `147.50.240.44`)**:
+   - Poller Team 2 (IFN)
+   ```bash
+   ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@147.50.240.44 "docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
+   ```
+   Container ที่ต้องรัน: `spx-worker-ifn-1` (ต้องขึ้น `Up (healthy)`)
+
+3. **ตรวจสอบ Polling Logs**:
+   ```bash
+   # ตรวจ Team 1
+   ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.207.139 "docker logs --tail 15 spx-worker-ptwl-1"
+   # ตรวจ Team 2
+   ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@147.50.240.44 "docker logs --tail 15 spx-worker-ifn-1"
+   ```
+
+4. สรุปผลการ deploy และสถานะ production ทั้งสองเครื่องให้ผู้ใช้ทราบเป็นภาษาไทย.
 
 ## Step 8: Session End
 

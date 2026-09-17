@@ -50,6 +50,7 @@ type LineJsClient = {
       }): Promise<{ chats: Array<{ chatMid: string; chatName: string }> }>;
     };
   };
+  profile?: { displayName?: string; mid?: string; statusMessage?: string };
   authToken: string;
   on(event: string, handler: (...args: unknown[]) => void): void;
   listen(opts: { talk?: boolean }): void;
@@ -284,6 +285,66 @@ async function hasStoredE2EEKeys(): Promise<boolean> {
   }
 }
 
+/**
+ * Synchronize E2EE storage keys in linejs-storage.json.
+ * Ensures the self mid mapping points to the latest registered keyId,
+ * and clears stale group keys so fresh group sender keys are negotiated.
+ */
+export async function syncE2EEStorageKeys(storagePath: string, selfMid?: string): Promise<void> {
+  try {
+    if (!existsSync(storagePath)) return;
+    const raw = await readFile(storagePath, "utf-8");
+    const data = JSON.parse(raw) as Record<string, unknown>;
+
+    const keyEntries = Object.keys(data)
+      .filter((k) => /^e2eeKeys:\d+$/.test(k))
+      .map((k) => ({
+        key: k,
+        keyId: Number(k.replace("e2eeKeys:", "")),
+        value: data[k],
+      }))
+      .filter((entry) => Number.isFinite(entry.keyId))
+      .sort((a, b) => b.keyId - a.keyId);
+
+    let changed = false;
+
+    if (selfMid && keyEntries.length > 0) {
+      const newestKey = keyEntries[0];
+      const selfKeyProp = `e2eeKeys:${selfMid}`;
+      const currentSelfKey = data[selfKeyProp] as { keyId?: string | number } | undefined;
+      if (!currentSelfKey || String(currentSelfKey.keyId) !== String(newestKey.keyId)) {
+        logger.info("line-bot-sync-e2ee-self-key", {
+          oldKeyId: currentSelfKey?.keyId,
+          newKeyId: newestKey.keyId,
+        });
+        data[selfKeyProp] = newestKey.value;
+        changed = true;
+      }
+    }
+
+    let clearedGroupKeys = 0;
+    for (const k of Object.keys(data)) {
+      if (k.startsWith("e2eeGroupKeys:")) {
+        delete data[k];
+        clearedGroupKeys++;
+        changed = true;
+      }
+    }
+    if (clearedGroupKeys > 0) {
+      logger.info("line-bot-cleared-stale-group-keys", { count: clearedGroupKeys });
+    }
+
+    if (changed) {
+      await writeFile(storagePath, JSON.stringify(data, null, 2));
+    }
+  } catch (err) {
+    logger.warn("line-bot-sync-e2ee-storage-failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+
 async function readStoredAuthToken(): Promise<{ token: string; device: string } | null> {
   if (env.LINE_IMAGE_LISTENER_CHAT_ID && !(await hasStoredE2EEKeys())) {
     logger.warn("line-bot-skip-token-restore-missing-e2ee-keys", {
@@ -366,6 +427,7 @@ export async function getClient(): Promise<LineJsClient> {
           client = c;
           attachImageListener(c);
           logger.info("line-bot-restored-from-token");
+          await syncE2EEStorageKeys(storagePath, c.profile?.mid);
           return c;
         } catch (error) {
           logger.warn("line-bot-token-restore-failed", {
@@ -400,6 +462,7 @@ export async function getClient(): Promise<LineJsClient> {
       currentPincode = "";
       await saveAuthToken(c.authToken);
       logger.info("line-bot-authenticated");
+      await syncE2EEStorageKeys(storagePath, c.profile?.mid);
       return c;
     })().catch((error) => {
       clientPromise = null;
@@ -491,7 +554,24 @@ export async function sendMessage(to: string, text: string): Promise<LineBotSend
       await c.base.talk.sendMessage({ to, text, e2ee: true });
     } catch (e2eeError: unknown) {
       const errMsg = e2eeError instanceof Error ? e2eeError.message : String(e2eeError);
-      if (errMsg.includes("E2EE_RETRY_PLAIN") || errMsg.includes("E2EE Key has not been saved")) {
+      if (
+        errMsg.includes("E2EE_UPDATE_SENDER_KEY") ||
+        errMsg.includes("invalid sender key")
+      ) {
+        logger.warn("line-bot-e2ee-sender-key-outdated-retrying", { to, error: errMsg });
+        await syncE2EEStorageKeys(getStoragePath(), c.profile?.mid);
+        try {
+          await c.base.talk.sendMessage({ to, text, e2ee: true });
+        } catch (retryError: unknown) {
+          const retryErrMsg = retryError instanceof Error ? retryError.message : String(retryError);
+          if (retryErrMsg.includes("E2EE_RETRY_PLAIN") || retryErrMsg.includes("E2EE Key has not been saved")) {
+            logger.warn("line-bot-e2ee-fallback-plain", { to, error: retryErrMsg });
+            await c.base.talk.sendMessage({ to, text, e2ee: false });
+          } else {
+            throw retryError;
+          }
+        }
+      } else if (errMsg.includes("E2EE_RETRY_PLAIN") || errMsg.includes("E2EE Key has not been saved")) {
         logger.warn("line-bot-e2ee-fallback-plain", { to, error: errMsg });
         await c.base.talk.sendMessage({ to, text, e2ee: false });
       } else {

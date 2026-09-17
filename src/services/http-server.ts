@@ -487,13 +487,20 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     const notifier = await import("./notifier.js");
     await app.register(internalLineController, {
       prefix: "/internal",
-      sharedSecret: env.NODE_ENV === "production" ? undefined : env.LINE_SERVICE_SEND_SECRET,
-      nodeSecrets: env.NODE_ENV === "production" || env.LINE_SERVICE_SEND_NODE_SECRETS.size > 0
-        ? env.LINE_SERVICE_SEND_NODE_SECRETS : undefined,
+      sharedSecret: env.NODE_ENV === "production" && env.DEPLOYMENT_MODE !== "legacy"
+        ? undefined
+        : env.LINE_SERVICE_SEND_SECRET,
+      nodeSecrets: (env.NODE_ENV === "production" && env.DEPLOYMENT_MODE !== "legacy") || env.LINE_SERVICE_SEND_NODE_SECRETS.size > 0
+        ? env.LINE_SERVICE_SEND_NODE_SECRETS
+        : undefined,
       adminSharedSecret: env.LINE_SERVICE_ADMIN_SECRET,
-      sendAllowedNodeIds: env.LINE_SEND_ALLOWED_NODE_IDS,
-      adminAllowedNodeIds: env.LINE_ADMIN_ALLOWED_NODE_IDS,
-      requireOutboxFence: env.NODE_ENV === "production",
+      sendAllowedNodeIds: env.LINE_SEND_ALLOWED_NODE_IDS.size > 0
+        ? env.LINE_SEND_ALLOWED_NODE_IDS
+        : undefined,
+      adminAllowedNodeIds: env.LINE_ADMIN_ALLOWED_NODE_IDS.size > 0
+        ? env.LINE_ADMIN_ALLOWED_NODE_IDS
+        : undefined,
+      requireOutboxFence: env.NODE_ENV === "production" && env.DEPLOYMENT_MODE !== "legacy",
       replayGuard: databaseReplayGuard,
       line: {
         isEnabled: lineBot.isLineBotEnabled,

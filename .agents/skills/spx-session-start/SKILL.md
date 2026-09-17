@@ -15,18 +15,16 @@ This workflow primes Codex with persistent SPX project memory without hooks, she
 
 ## MCP Steps
 
-1. Call `memory_sessionStart`.
-   - Use a short `taskArea`.
-   - Pick `mode` from the task: `coding`, `debugging`, `deploy`, `planning`, or `docs`.
+1. Call `memory_sessionStart` as the **MANDATORY FIRST ACTION** before any other tool call (no arguments required: `{}`).
    - Confirm `vaultRoot` is `C:\Users\Server\Desktop\SPX\memory`. Stop and report if it is not.
 
-2. Call `memory_contextPack`.
-   - Use the same `taskArea` and mode.
-   - Include ADRs, runbooks, mistakes, and recent sessions when useful.
+2. Call `memory_contextPack` with `{ mode, taskArea }`:
+   - Pick `mode`: `coding` (feature/refactor), `debugging` (bugs/errors), `deploy` (deploy/SSH/pipeline), `planning` (architecture), or `docs` (memory/vault).
+   - Use a short `taskArea` (e.g. `deploy`, `poller`, `skills`, `database`).
    - Read `contextPack.selected[]`; call `memory_get` only for selected notes that need full body.
 
-3. Call `memory_followUpRadar`.
-   - Mention relevant open follow-ups before editing.
+3. Call `memory_followUpRadar` with `{ taskArea }`:
+   - Mention relevant open follow-ups to the user before editing code or taking risky actions.
    - Carry still-relevant follow-ups into `memory_sessionEnd.openFollowUps`.
 
 4. Call `memory_lifecycleStatus` when resuming a long or interrupted thread.
