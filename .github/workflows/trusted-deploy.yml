@@ -1487,7 +1487,7 @@ jobs:
             test ! -e "${RELEASE_PARENT}.new"
             install -d -m 0700 "$(dirname "${RELEASE_PARENT}")" "${RELEASE_PARENT}.new"
             cp -a "${INCOMING}/operator" "${RELEASE_PARENT}.new/operator"
-            RUNTIME_DEPS_CONTAINER="$(docker create --entrypoint /bin/true "${IMAGE_TAG}")"
+            RUNTIME_DEPS_CONTAINER="$(docker create --entrypoint /bin/true "${IMAGE_ID}" 2>/dev/null || docker create --entrypoint /bin/true "${IMAGE_TAG}")"
             [[ "${RUNTIME_DEPS_CONTAINER}" =~ ^[0-9a-f]{64}$ ]]
             docker cp "${RUNTIME_DEPS_CONTAINER}:/app/node_modules" "${RELEASE_PARENT}.new/operator/node_modules"
             docker rm "${RUNTIME_DEPS_CONTAINER}" >/dev/null
