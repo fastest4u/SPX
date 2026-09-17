@@ -116,18 +116,79 @@ function freeze<T extends object>(value: T): Readonly<T> {
   return Object.freeze(value);
 }
 
+function isLegacyDeployment(): boolean {
+  try {
+    const candidates = [
+      "dist/deployment-contract.json",
+      "deploy/runtime-deployment-contract.json",
+      "/app/dist/deployment-contract.json",
+    ];
+    for (const candidate of candidates) {
+      try {
+        const stat = lstatSync(candidate);
+        if (stat.isFile()) {
+          const content = JSON.parse(readFileSync(candidate, "utf8")) as { mode?: unknown };
+          if (content?.mode === "legacy") return true;
+        }
+      } catch {
+        // continue
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export function loadRuntimeReleaseIdentity(options: {
+  buildManifestPath: string;
+  releaseManifestPath: string;
+  targetDescriptorPath: string;
+  deploymentContextPath: string;
+}): Readonly<RuntimeReleaseIdentity>;
+export function loadRuntimeReleaseIdentity(options?: {
+  buildManifestPath?: string;
+  releaseManifestPath?: string;
+  targetDescriptorPath?: string;
+  deploymentContextPath?: string;
+}): Readonly<RuntimeReleaseIdentity> | undefined;
 export function loadRuntimeReleaseIdentity(options: {
   buildManifestPath?: string;
   releaseManifestPath?: string;
   targetDescriptorPath?: string;
   deploymentContextPath?: string;
-} = {}): Readonly<RuntimeReleaseIdentity> {
+} = {}): Readonly<RuntimeReleaseIdentity> | undefined {
+  const isExplicit = Boolean(
+    options.buildManifestPath ||
+    options.releaseManifestPath ||
+    options.targetDescriptorPath ||
+    options.deploymentContextPath
+  );
+
+  const buildManifestPath = options.buildManifestPath ?? RUNTIME_BUILD_MANIFEST_PATH;
+  const releaseManifestPath = options.releaseManifestPath ?? RUNTIME_RELEASE_MANIFEST_PATH;
+
+  if (!isExplicit) {
+    let hasBuild = false;
+    let hasRelease = false;
+    try {
+      hasBuild = lstatSync(buildManifestPath).isFile();
+    } catch {}
+    try {
+      hasRelease = lstatSync(releaseManifestPath).isFile();
+    } catch {}
+
+    if (!hasBuild || !hasRelease || isLegacyDeployment()) {
+      return undefined;
+    }
+  }
+
   const buildFile = readCanonicalJson(
-    options.buildManifestPath ?? RUNTIME_BUILD_MANIFEST_PATH,
+    buildManifestPath,
     "build manifest",
   );
   const releaseFile = readCanonicalJson(
-    options.releaseManifestPath ?? RUNTIME_RELEASE_MANIFEST_PATH,
+    releaseManifestPath,
     "release manifest",
   );
   const targetFile = readCanonicalJson(
