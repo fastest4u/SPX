@@ -38,7 +38,7 @@
     "bootstrapDenied": false,
     "environment": "production",
     "files": ["protected-install-evidence.json", "protected-install-signature.json"],
-    "signerSha": "15a2493717df2d92f2e5f5fdcabb080256b315fc",
+    "signerSha": "d7a2e049e3b162799654ffe80f64284f65fb59e1",
     "workflow": ".github/workflows/trusted-deploy.yml",
     "workflowFileSha256": "2067b69dcaf294bf19a786a4ea2e7a73fee65ffe1faafa36a51b84675d738d40"
   },
