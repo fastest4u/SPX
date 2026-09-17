@@ -141,18 +141,25 @@ jobs:
           umask 077
           mkdir -p ~/.ssh
           python3 - <<'PY'
-          import base64, os
+          import base64, os, re
           raw = os.environ.get("WORKER_SSH_KEY", "").strip()
           path = os.path.expanduser("~/.ssh/spx_worker_key")
           if "BEGIN" not in raw:
               try:
                   decoded = base64.b64decode(raw).decode("utf-8")
                   if "BEGIN" in decoded:
-                      raw = decoded
+                      raw = decoded.strip()
               except Exception:
                   pass
           if "\\n" in raw and "\n" not in raw:
               raw = raw.replace("\\n", "\n")
+          m = re.search(r'(-----BEGIN [^-]+-----)\s+(.+?)\s+(-----END [^-]+-----)', raw, re.DOTALL)
+          if m:
+              header = m.group(1)
+              body = re.sub(r'\s+', '', m.group(2))
+              footer = m.group(3)
+              chunks = [body[i:i+64] for i in range(0, len(body), 64)]
+              raw = header + '\n' + '\n'.join(chunks) + '\n' + footer + '\n'
           if not raw.endswith("\n"):
               raw += "\n"
           with open(path, "w", encoding="utf-8") as f:
@@ -207,18 +214,25 @@ jobs:
           set -euo pipefail
           install -m 700 -d ~/.ssh
           python3 - <<'PY'
-          import base64, os
+          import base64, os, re
           raw = os.environ.get("SPX_SSH_KEY", "").strip()
           path = os.path.expanduser("~/.ssh/spx_deploy_key")
           if "BEGIN" not in raw:
               try:
                   decoded = base64.b64decode(raw).decode("utf-8")
                   if "BEGIN" in decoded:
-                      raw = decoded
+                      raw = decoded.strip()
               except Exception:
                   pass
           if "\\n" in raw and "\n" not in raw:
               raw = raw.replace("\\n", "\n")
+          m = re.search(r'(-----BEGIN [^-]+-----)\s+(.+?)\s+(-----END [^-]+-----)', raw, re.DOTALL)
+          if m:
+              header = m.group(1)
+              body = re.sub(r'\s+', '', m.group(2))
+              footer = m.group(3)
+              chunks = [body[i:i+64] for i in range(0, len(body), 64)]
+              raw = header + '\n' + '\n'.join(chunks) + '\n' + footer + '\n'
           if not raw.endswith("\n"):
               raw += "\n"
           with open(path, "w", encoding="utf-8") as f:
