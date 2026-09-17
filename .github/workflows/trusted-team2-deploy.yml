@@ -2,6 +2,15 @@ name: Trusted immutable TEAM 2 deployment
 
 on:
   workflow_call:
+    secrets:
+      SPX_TEAM2_HOST:
+        required: true
+      SPX_TEAM2_PORT:
+        required: true
+      SPX_TEAM2_USER:
+        required: true
+      SPX_TEAM2_SSH_KEY:
+        required: true
     inputs:
       release_artifact_id:
         required: true

@@ -2,6 +2,21 @@ name: Trusted immutable release deployment
 
 on:
   workflow_call:
+    secrets:
+      SPX_HOST:
+        required: true
+      SPX_PORT:
+        required: true
+      SPX_USER:
+        required: true
+      SPX_KNOWN_HOSTS:
+        required: true
+      SPX_SSH_KEY:
+        required: true
+      SPX_PRODUCTION_CANDIDATE_IDENTITY_APPROVAL_B64:
+        required: false
+      SPX_STAGING_ACTION_CAPABILITY_BUNDLE_B64:
+        required: false
     inputs:
       target:
         description: Protected deployment target
