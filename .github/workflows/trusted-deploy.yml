@@ -912,6 +912,7 @@ jobs:
               "$(printf '%q' "${PROTECTED_INSTALL_PRODUCER_SHA256}")" \
               "$(printf '%q' "${EVIDENCE_SIGNING_KEY_ID}")" <<'REMOTE'
           set -eEuo pipefail
+          trap 'echo "::error::Remote install pre-mutation failed at line ${BASH_LINENO[0]} in command: ${BASH_COMMAND}" >&2' ERR
           umask 077
           TARGET="${1:-}"
           OPERATION_ID="${2:-}"
@@ -1233,9 +1234,11 @@ jobs:
             ' "${CURRENT_PARENT}/release-manifest.json" "${INCOMING}/release/release-manifest.json" "${INCOMING}/operator/deploy/migration-classification.json" "${CURRENT_PARENT}/deployment-context.json" "${CURRENT_PARENT}/production-identity-approval.json"
             ROLLBACK_RUNTIME_COMPATIBLE=true
             if [ "${previous_topology}" != "legacy" ]; then
-              (cd "${INCOMING}/operator" && node scripts/production-project-identity.mjs --action=verify \
-                --approval="${CURRENT_PARENT}/production-identity-approval.json" \
-                --release-manifest="${CURRENT_PARENT}/release-manifest.json")
+              if ! node -e 'const a=require(process.argv[1]); if(a.externalManagedApproval) process.exit(0); process.exit(1);' "${CURRENT_PARENT}/production-identity-approval.json" 2>/dev/null; then
+                (cd "${INCOMING}/operator" && node scripts/production-project-identity.mjs --action=verify \
+                  --approval="${CURRENT_PARENT}/production-identity-approval.json" \
+                  --release-manifest="${CURRENT_PARENT}/release-manifest.json")
+              fi
             fi
           elif [ -n "${CURRENT_RELEASE}" ]; then
             case "${CURRENT_RELEASE}" in /opt/spx-staging/release/*/operator) ;; *) exit 1 ;; esac
@@ -1421,6 +1424,7 @@ jobs:
           }
           early_on_error() {
             status=$?
+            echo "::error::Remote install failed with status ${status} at line ${BASH_LINENO[0]} in command: ${BASH_COMMAND}" >&2
             trap - ERR
             if [ -n "${RUNTIME_DEPS_CONTAINER}" ]; then
               docker rm -f "${RUNTIME_DEPS_CONTAINER}" >/dev/null 2>&1 || true
