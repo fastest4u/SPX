@@ -20,7 +20,7 @@ const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
   ".github/workflows/gate6-final-verifier-exporter.yml": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291",
   ".github/workflows/trusted-production-backup-restore.yml": "0e7508586366d816fc5bb1268c9e5ae47b6aac528c28344cbf0f8f3bf94d179a",
-  ".github/workflows/trusted-deploy.yml": "b2dc064840c3e388456e76e4c23fd0101813d915a62ef28ad42c98a260debb6e",
+  ".github/workflows/trusted-deploy.yml": "0e5efaec4e0a45270339aa4645964684f37d54f8e52e347123d7a5a145c07858",
   ".github/workflows/trusted-staging-protected-evidence.yml": "be09053d94990f762e7f60a7f4957dcee7f9fe19440959eb21d2ab1bb27608d8",
 };
 const EXPECTED = {

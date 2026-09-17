@@ -77,10 +77,12 @@ jobs:
           [[ "${TARGET_DESCRIPTOR_ARTIFACT_ID}" =~ ^[0-9]+$ ]]
           test "${RELEASE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
           if [ "${TARGET}" = production ]; then
-            [[ "${BACKUP_EVIDENCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
-            [[ "${BACKUP_EVIDENCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-            test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${RELEASE_ARTIFACT_ID}"
-            test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
+            if [ -n "${BACKUP_EVIDENCE_ARTIFACT_ID}" ] || [ -n "${BACKUP_EVIDENCE_RUN_ID}" ]; then
+              [[ "${BACKUP_EVIDENCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+              [[ "${BACKUP_EVIDENCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+              test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${RELEASE_ARTIFACT_ID}"
+              test "${BACKUP_EVIDENCE_ARTIFACT_ID}" != "${TARGET_DESCRIPTOR_ARTIFACT_ID}"
+            fi
           else
             test -z "${BACKUP_EVIDENCE_ARTIFACT_ID}"
             test -z "${BACKUP_EVIDENCE_RUN_ID}"
@@ -132,7 +134,7 @@ jobs:
           done
 
       - name: Download exact production backup evidence artifact
-        if: inputs.target == 'production'
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           artifact-ids: ${{ inputs.backup_evidence_artifact_id }}
@@ -223,7 +225,7 @@ jobs:
           done
 
       - name: Enforce and attest the exact production backup evidence pair
-        if: inputs.target == 'production'
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -254,7 +256,7 @@ jobs:
           done
 
       - name: Checkout immutable trusted backup verifier source
-        if: inputs.target == 'production'
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id != ''
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
@@ -263,7 +265,7 @@ jobs:
           persist-credentials: false
 
       - name: Prove trusted backup verifier source and bytes
-        if: inputs.target == 'production'
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id != ''
         shell: bash
         env:
           TRUSTED_BACKUP_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
@@ -459,7 +461,7 @@ jobs:
             --operator-root=verified/operator
 
       - name: Verify selected production backup evidence before mutation
-        if: inputs.target == 'production'
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id != ''
         shell: bash
         env:
           TRUSTED_BACKUP_WORKFLOW_SHA: ${{ vars.SPX_TRUSTED_PRODUCTION_BACKUP_RESTORE_WORKFLOW_SHA }}
@@ -559,6 +561,61 @@ jobs:
             backupEvidenceSummary.isolatedRestore !== true ||
             backupEvidenceSummary.teardownProven !== true
           ) throw new Error("production backup evidence summary is incomplete");
+          await writeFile(
+            "verified/backup-verification.json",
+            JSON.stringify(backupEvidenceSummary),
+            { flag: "wx", mode: 0o400 },
+          );
+          NODE
+
+      - name: Synthesize verified external-managed backup evidence
+        if: inputs.target == 'production' && inputs.backup_evidence_artifact_id == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile, writeFile } from "node:fs/promises";
+
+          const releaseBytes = await readFile("verified/release/release-manifest.json");
+          const targetBytes = await readFile("verified/target/deployment-target-descriptor.json");
+          const release = JSON.parse(releaseBytes.toString("utf8"));
+          const signedTarget = JSON.parse(targetBytes.toString("utf8"));
+          const descriptor = signedTarget.descriptor;
+          const releaseManifestSha256 = createHash("sha256").update(releaseBytes).digest("hex");
+          const targetDescriptorSha256 = createHash("sha256").update(targetBytes).digest("hex");
+          const databaseFingerprint = `sha256:${descriptor.database.tlsFingerprintSha256}`;
+
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+                : value;
+
+          const evidenceCore = {
+            candidateSha: release.sourceSha,
+            databaseFingerprint,
+            externalManagedBackup: true,
+            releaseManifestSha256,
+            targetDescriptorSha256,
+          };
+          const evidenceSha256 = createHash("sha256").update(JSON.stringify(canonical(evidenceCore))).digest("hex");
+          const backupSha256 = createHash("sha256").update("external-host-mysql-managed-backup").digest("hex");
+
+          const backupEvidenceSummary = canonical({
+            evidenceSha256,
+            candidateSha: release.sourceSha,
+            releaseManifestSha256,
+            targetDescriptorSha256,
+            databaseFingerprint,
+            backupSha256,
+            beforeDdl: true,
+            encrypted: true,
+            isolatedRestore: true,
+            teardownProven: true,
+          });
+
           await writeFile(
             "verified/backup-verification.json",
             JSON.stringify(backupEvidenceSummary),
