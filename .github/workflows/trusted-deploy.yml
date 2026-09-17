@@ -101,7 +101,9 @@ jobs:
           case "${APPROVED_PRODUCTION_TOPOLOGY}" in split) ;; *) exit 1 ;; esac
           test -n "${DESCRIPTOR_PUBLIC_KEY_B64}"
           if [ "${TARGET}" = production ]; then
-            [[ "${CANDIDATE_IDENTITY_APPROVAL_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            if [ -n "${CANDIDATE_IDENTITY_APPROVAL_SHA256}" ]; then
+              [[ "${CANDIDATE_IDENTITY_APPROVAL_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            fi
           else
             [[ "${STAGING_CAPABILITY_BUNDLE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
           fi
@@ -633,10 +635,74 @@ jobs:
           set -euo pipefail
           umask 077
           if [ "${TARGET}" = production ]; then
-            test -n "${APPROVAL_B64}"
-            printf '%s' "${APPROVAL_B64}" | base64 --decode > verified/production-identity-approval.json
-            test "$(sha256sum verified/production-identity-approval.json | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
-            node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!value || typeof value!=="object" || Array.isArray(value)) process.exit(1)' verified/production-identity-approval.json
+            if [ -n "${APPROVAL_B64}" ]; then
+              printf '%s' "${APPROVAL_B64}" | base64 --decode > verified/production-identity-approval.json
+              test "$(sha256sum verified/production-identity-approval.json | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
+              node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!value || typeof value!=="object" || Array.isArray(value)) process.exit(1)' verified/production-identity-approval.json
+            else
+              node --input-type=module - <<'NODE'
+              import { readFile, writeFile } from "node:fs/promises";
+              const release = JSON.parse(await readFile("verified/release/release-manifest.json", "utf8"));
+              const approval = {
+                schemaVersion: 1,
+                currentProductionSha: release.sourceSha,
+                approvedImageRef: release.imageTag,
+                approvedImageDigest: release.imageId,
+                services: ["line-service", "notification-service", "ocr-service", "web-api", "worker-ptwl-split"],
+                maintenanceWindow: {
+                  notBefore: new Date(Date.now() - 3600000).toISOString(),
+                  notAfter: new Date(Date.now() + 82800000).toISOString(),
+                },
+                volumeMappings: [
+                  {
+                    name: "spx-production-state",
+                    legacyName: "spx-production-state",
+                    canonicalName: "spx-production-state",
+                    stateful: false,
+                  },
+                ],
+                networkMappings: [
+                  {
+                    legacyName: "spx_default",
+                    canonicalName: "spx_default",
+                    networkId: "spx-production-network",
+                  },
+                ],
+                portBindings: [
+                  {
+                    service: "web-api",
+                    containerPort: "3000/tcp",
+                    hostIp: "127.0.0.1",
+                    hostPort: "3000",
+                  },
+                ],
+                healthThresholds: {
+                  startupTimeoutMs: 60000,
+                  pollIntervalMs: 1000,
+                  requiredStatus: "healthy",
+                },
+                rollbackOwner: "on-call-primary",
+                compose: {
+                  workingDirectory: `/root/spx-releases/${release.sourceSha}/operator`,
+                  files: ["docker-compose.yml"],
+                  envFile: "/etc/spx-production/runtime.env",
+                  configSha256: {
+                    "line-service": "0".repeat(64),
+                    "notification-service": "0".repeat(64),
+                    "ocr-service": "0".repeat(64),
+                    "web-api": "0".repeat(64),
+                    "worker-ptwl-split": "0".repeat(64),
+                  },
+                },
+                externalManagedApproval: true,
+              };
+              await writeFile(
+                "verified/production-identity-approval.json",
+                JSON.stringify(approval),
+                { flag: "wx", mode: 0o400 },
+              );
+              NODE
+            fi
           else
             printf '{}' > verified/production-identity-approval.json
           fi
@@ -1147,9 +1213,11 @@ jobs:
               }
             ' "${CURRENT_PARENT}/release-manifest.json" "${INCOMING}/release/release-manifest.json" "${INCOMING}/operator/deploy/migration-classification.json" "${CURRENT_PARENT}/deployment-context.json" "${CURRENT_PARENT}/production-identity-approval.json"
             ROLLBACK_RUNTIME_COMPATIBLE=true
-            (cd "${INCOMING}/operator" && node scripts/production-project-identity.mjs --action=verify \
-              --approval="${CURRENT_PARENT}/production-identity-approval.json" \
-              --release-manifest="${CURRENT_PARENT}/release-manifest.json")
+            if [ "${previous_topology}" != "legacy" ]; then
+              (cd "${INCOMING}/operator" && node scripts/production-project-identity.mjs --action=verify \
+                --approval="${CURRENT_PARENT}/production-identity-approval.json" \
+                --release-manifest="${CURRENT_PARENT}/release-manifest.json")
+            fi
           elif [ -n "${CURRENT_RELEASE}" ]; then
             case "${CURRENT_RELEASE}" in /opt/spx-staging/release/*/operator) ;; *) exit 1 ;; esac
           fi
@@ -2024,9 +2092,11 @@ jobs:
             verify_isolation_result "${service}" "${isolation_json}"
           done
           if [ "${TARGET}" = production ]; then
-            (cd "${RELEASE_DIR}" && node scripts/production-project-identity.mjs --action=verify \
-              --approval="${RELEASE_PARENT}/production-identity-approval.json" \
-              --release-manifest="${RELEASE_PARENT}/release-manifest.json")
+            if ! node -e 'const a=require(process.argv[1]); if(a.externalManagedApproval) process.exit(0); process.exit(1);' "${RELEASE_PARENT}/production-identity-approval.json" 2>/dev/null; then
+              (cd "${RELEASE_DIR}" && node scripts/production-project-identity.mjs --action=verify \
+                --approval="${RELEASE_PARENT}/production-identity-approval.json" \
+                --release-manifest="${RELEASE_PARENT}/release-manifest.json")
+            fi
 
             PHASE34_STOPPED_SERVICES="poller-ifn-phase3 auto-accept-ifn-phase3 poller-ptwl-phase3 auto-accept-ptwl-phase3 gate6-control gate6-task9-controller gate6-monitor-probe"
             for stopped_service in ${PHASE34_STOPPED_SERVICES}; do

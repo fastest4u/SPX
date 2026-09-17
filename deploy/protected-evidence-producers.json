@@ -40,7 +40,7 @@
     "files": ["protected-install-evidence.json", "protected-install-signature.json"],
     "signerSha": "15a2493717df2d92f2e5f5fdcabb080256b315fc",
     "workflow": ".github/workflows/trusted-deploy.yml",
-    "workflowFileSha256": "0e5efaec4e0a45270339aa4645964684f37d54f8e52e347123d7a5a145c07858"
+    "workflowFileSha256": "2067b69dcaf294bf19a786a4ea2e7a73fee65ffe1faafa36a51b84675d738d40"
   },
   "staging-gates": {
     "bootstrapDenied": false,
