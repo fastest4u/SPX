@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 const repository = "fastest4u/SPX";
 const bootstrapDenySha = "0".repeat(40);
 const producerSnapshotSha = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
-const cutoverProducerSnapshotSha = "1f5d7a419ea23e85e2b09888572063be0798169a";
+const cutoverProducerSnapshotSha = "15a2493717df2d92f2e5f5fdcabb080256b315fc";
 const releaseProducerSnapshotSha = "d770ebd35a0bc1ea8627f938c9b1a43bc446a4a4";
 const descriptorProducerSnapshotSha = "b6c7e9b9e43302a7d1671af4dd8cd1c7cfba0cc4";
 const backupProducerSnapshotSha = "b0210e1825197ebd5a746bf0de2b2d382e449fd0";

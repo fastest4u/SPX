@@ -41,7 +41,7 @@ jobs:
       contents: read
       id-token: write
     # STAGE-C-PIN: immutable reviewed cutover producer snapshot.
-    uses: fastest4u/SPX/.github/workflows/trusted-deploy.yml@1f5d7a419ea23e85e2b09888572063be0798169a
+    uses: fastest4u/SPX/.github/workflows/trusted-deploy.yml@15a2493717df2d92f2e5f5fdcabb080256b315fc
     with:
       target: ${{ inputs.target }}
       release_artifact_id: ${{ inputs.release_artifact_id }}
@@ -58,7 +58,7 @@ jobs:
       contents: read
       id-token: write
     # STAGE-C-PIN: immutable reviewed cutover producer snapshot.
-    uses: fastest4u/SPX/.github/workflows/trusted-team2-deploy.yml@1f5d7a419ea23e85e2b09888572063be0798169a
+    uses: fastest4u/SPX/.github/workflows/trusted-team2-deploy.yml@15a2493717df2d92f2e5f5fdcabb080256b315fc
     with:
       release_artifact_id: ${{ inputs.release_artifact_id }}
       target_descriptor_artifact_id: ${{ inputs.team2_target_descriptor_artifact_id }}

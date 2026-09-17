@@ -14,7 +14,7 @@ import {
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
 const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
-const CUTOVER_PRODUCER_SHA = "1f5d7a419ea23e85e2b09888572063be0798169a";
+const CUTOVER_PRODUCER_SHA = "15a2493717df2d92f2e5f5fdcabb080256b315fc";
 const BACKUP_PRODUCER_SHA = "b0210e1825197ebd5a746bf0de2b2d382e449fd0";
 const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
