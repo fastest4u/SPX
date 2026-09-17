@@ -1021,6 +1021,7 @@ jobs:
             PROTECTED_INSTALL_PRODUCER_FILES="context/verified-producer-context.json deploy/protected-install-evidence.schema.json scripts/protected-install-evidence.mjs scripts/protected-install-watchdog.mjs scripts/production-mutation-host-lock.mjs scripts/lib/evidence-artifact.mjs scripts/lib/mysql-connection-config.mjs scripts/lib/safe-file.mjs"
             verify_installed_producer() {
               local path
+              chmod 0700 "${PROTECTED_INSTALL_PRODUCER_ROOT}" 2>/dev/null || true
               test -d "${PROTECTED_INSTALL_PRODUCER_ROOT}"
               test ! -L "${PROTECTED_INSTALL_PRODUCER_ROOT}"
               test "$(stat -c %u "${PROTECTED_INSTALL_PRODUCER_ROOT}")" -eq 0
@@ -1041,9 +1042,12 @@ jobs:
             else
               test ! -e "${PROTECTED_INSTALL_PRODUCER_STAGE}"
               install -d -m 0700 \
+                "${PROTECTED_INSTALL_PRODUCER_STAGE}" \
                 "${PROTECTED_INSTALL_PRODUCER_STAGE}/context" \
                 "${PROTECTED_INSTALL_PRODUCER_STAGE}/deploy" \
+                "${PROTECTED_INSTALL_PRODUCER_STAGE}/scripts" \
                 "${PROTECTED_INSTALL_PRODUCER_STAGE}/scripts/lib"
+              chmod 0700 "${PROTECTED_INSTALL_PRODUCER_STAGE}"
               for path in ${PROTECTED_INSTALL_PRODUCER_FILES}; do
                 install -m 0400 \
                   "${PRODUCER_STAGE}/${path}" "${PROTECTED_INSTALL_PRODUCER_STAGE}/${path}"
