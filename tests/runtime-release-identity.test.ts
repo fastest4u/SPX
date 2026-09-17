@@ -129,6 +129,9 @@ try {
     }),
     /compose project|target descriptor/i,
   );
+
+  // In legacy deployment mode (or without secret mounts), loadRuntimeReleaseIdentity() returns undefined safely
+  assert.equal(loadRuntimeReleaseIdentity(), undefined);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
