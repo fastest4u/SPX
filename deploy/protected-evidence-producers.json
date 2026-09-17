@@ -38,9 +38,9 @@
     "bootstrapDenied": false,
     "environment": "production",
     "files": ["protected-install-evidence.json", "protected-install-signature.json"],
-    "signerSha": "b4e9b03bedcdd6550d7b19cd70cdb967301be162",
+    "signerSha": "2ffcd82a09c9fd0fe387bc901175a0801bbdb82a",
     "workflow": ".github/workflows/trusted-deploy.yml",
-    "workflowFileSha256": "59a558e07d289759821b264b737b8a75a381f3e04042ae5223056db5c0a51947"
+    "workflowFileSha256": "dd85cf4223749296790e4e8908fb2603435c9d2caf200e35c91ddd155f5e8d1c"
   },
   "staging-gates": {
     "bootstrapDenied": false,
