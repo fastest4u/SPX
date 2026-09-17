@@ -987,7 +987,7 @@ jobs:
             if (JSON.stringify(files) !== JSON.stringify(expected)) {
               throw new Error("trusted install evidence payload file set changed");
             }
-            NODE
+          NODE
             for root in \
               /var/lib/spx-protected-install \
               "${PROTECTED_INSTALL_PRODUCERS_ROOT}" \
@@ -1056,7 +1056,7 @@ jobs:
                 try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
               };
               visit(process.env.PROTECTED_INSTALL_PRODUCER_STAGE);
-              NODE
+          NODE
               mv "${PROTECTED_INSTALL_PRODUCER_STAGE}" "${PROTECTED_INSTALL_PRODUCER_ROOT}"
               PROTECTED_INSTALL_PRODUCERS_ROOT="${PROTECTED_INSTALL_PRODUCERS_ROOT}" node --input-type=module -e '
                 import { closeSync, fsyncSync, openSync } from "node:fs";
@@ -1515,7 +1515,7 @@ jobs:
             const capability=JSON.parse(readFileSync(`${root}/action-capability.json`,"utf8"));
             const binding=capability.releaseBinding;
             if(binding.candidateSha!==process.env.SOURCE_SHA || binding.imageDigest!==process.env.IMAGE_ID || binding.releaseManifestSha256!==process.env.RELEASE_MANIFEST_SHA256 || binding.environment!=="staging" || binding.topology!=="split" || binding.composeProject!=="spx-staging" || binding.stagingTargetDescriptorSha256!==process.env.TARGET_SHA256 || binding.operatorBundleSha256!==process.env.OPERATOR_BUNDLE_SHA256 || binding.stagingRunId!==process.env.OPERATION_ID) throw new Error("staging capability release binding mismatch");
-            NODE
+          NODE
             mapfile -t STAGING_DATABASE_ROLES < <(
               node "${RELEASE_DIR}/scripts/lib/staging-protected-capability-archive.mjs" list-roles
             )
@@ -1708,7 +1708,7 @@ jobs:
             const value={schemaVersion:1,operationId:process.env.OPERATION_ID,postcondition:"rollback-restored",previousRelease:process.env.PREVIOUS_RELEASE||null,previousReleaseSha:process.env.PREVIOUS_RELEASE_SHA,previousImageId:process.env.PREVIOUS_IMAGE_ID,verifiedAt:new Date().toISOString()};
             const descriptor=openSync(process.env.ROLLBACK_EVIDENCE,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|(constants.O_NOFOLLOW??0),0o400);
             try{writeSync(descriptor,`${JSON.stringify(value)}\n`);fsyncSync(descriptor);}finally{closeSync(descriptor);}
-            NODE
+          NODE
             ROLLBACK_EVIDENCE_SHA256="$(sha256sum "${ROLLBACK_EVIDENCE}" | cut -d' ' -f1)"
           }
           on_error() {
@@ -2667,7 +2667,7 @@ jobs:
               throw new Error("protected install base context file set is incomplete");
             }
             for (const name of expectedContextNames) assertPrivateFile(join(contextRoot, name));
-            NODE
+          NODE
             PROTECTED_INSTALL_COMMIT_STARTED=true
             /usr/bin/node "${PROTECTED_INSTALL_PRODUCER_ROOT}/scripts/protected-install-evidence.mjs"
             PROTECTED_INSTALL_EXPORT_ROOT=/var/lib/spx-protected-install/export
