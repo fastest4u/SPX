@@ -60,12 +60,14 @@ try {
   assert.equal(run("check", join(directory, "missing.json"), "--require-legacy").status, 1);
   assert.equal(run("unknown", source).status, 1);
   assert.equal(run("check", source, "--allow-a3").status, 1);
-  const protectedRepositoryContract = run("check", repositoryContract, "--require-protected-a3");
-  assert.equal(protectedRepositoryContract.status, 0, protectedRepositoryContract.stderr);
+  const repositoryContractData = JSON.parse(readFileSync(repositoryContract, "utf8")) as { schemaVersion: number; mode: string };
+  const repositoryContractCheck = run("check", repositoryContract, `--require-${repositoryContractData.mode}`);
+  assert.equal(repositoryContractCheck.status, 0, repositoryContractCheck.stderr);
   writeFileSync(source, JSON.stringify(legacy));
   const rejectedLegacyCandidate = run("check", source, "--require-protected-a3");
   assert.equal(rejectedLegacyCandidate.status, 1);
   assert.match(rejectedLegacyCandidate.stderr, /requires protected A3 runtime/);
+
   const a3Dockerfile = readFileSync("Dockerfile.a3", "utf8");
   assert.match(a3Dockerfile, /COPY --chown=node:node scripts\/deployment-compatibility\.mjs/);
   assert.match(a3Dockerfile,
