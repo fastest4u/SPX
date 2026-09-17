@@ -64,6 +64,31 @@ if (process.env.NODE_ENV === "test" || isStandaloneTestEntrypoint()) {
   process.env.DB_MODE = "memory";
 }
 
+export function isLegacyDeployMode(): boolean {
+  if (process.env.DEPLOYMENT_MODE === "legacy") return true;
+  if (process.env.DEPLOYMENT_MODE === "protected-a3") return false;
+  try {
+    const candidates = [
+      resolve(process.cwd(), "dist/deployment-contract.json"),
+      "/app/dist/deployment-contract.json",
+    ];
+    for (const candidate of candidates) {
+      try {
+        if (existsSync(candidate)) {
+          const content = JSON.parse(readFileSync(candidate, "utf8")) as { mode?: unknown };
+          if (content?.mode === "legacy") return true;
+          if (content?.mode === "protected-a3") return false;
+        }
+      } catch {
+        // continue
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 function readIntegerEnv(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
   if (rawValue === undefined || rawValue.trim() === "") {
@@ -473,6 +498,9 @@ export const env = {
   JWT_SECRET: process.env.JWT_SECRET || "",
   COOKIE_SECRET: process.env.COOKIE_SECRET || "",
   NODE_ENV: process.env.NODE_ENV || "development",
+  DEPLOYMENT_MODE: (process.env.DEPLOYMENT_MODE || (isLegacyDeployMode() ? "legacy" : "protected-a3")) as
+    | "legacy"
+    | "protected-a3",
   ADMIN_USERNAME: process.env.ADMIN_USERNAME || "admin",
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "",
   ADMIN_ROLE: (process.env.ADMIN_ROLE || "admin") as "admin" | "user",
@@ -485,31 +513,6 @@ export const env = {
   CODEX_IMAGE_MAX_BYTES: readIntegerEnv("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
 } as const;
-
-function isLegacyDeployMode(): boolean {
-  if (process.env.DEPLOYMENT_MODE === "legacy") return true;
-  if (process.env.DEPLOYMENT_MODE === "protected-a3") return false;
-  try {
-    const candidates = [
-      resolve(process.cwd(), "dist/deployment-contract.json"),
-      "/app/dist/deployment-contract.json",
-    ];
-    for (const candidate of candidates) {
-      try {
-        if (existsSync(candidate)) {
-          const content = JSON.parse(readFileSync(candidate, "utf8")) as { mode?: unknown };
-          if (content?.mode === "legacy") return true;
-          if (content?.mode === "protected-a3") return false;
-        }
-      } catch {
-        // continue
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
 
 export function validateRuntimeConfig(): void {
   const missing: string[] = [];
