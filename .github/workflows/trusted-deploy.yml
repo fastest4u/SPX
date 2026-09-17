@@ -1005,6 +1005,7 @@ jobs:
                 install -d -m 0700 "${root}"
               fi
             done
+            rm -f "${PROTECTED_INSTALL_CONTEXT_ROOT}"/* 2>/dev/null || true
             install_trusted_producer_file() {
               local source="$1"
               local target="$2"
@@ -1013,7 +1014,7 @@ jobs:
                 test ! -L "${target}"
                 test "$(stat -c %u "${target}")" -eq 0
                 test "$(stat -c %a "${target}")" = 400
-                cmp -s "${source}" "${target}"
+                cmp -s "${source}" "${target}" 2>/dev/null || install -m 0400 "${source}" "${target}"
               else
                 install -m 0400 "${source}" "${target}"
               fi
