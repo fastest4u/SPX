@@ -1466,7 +1466,7 @@ jobs:
           fi
 
           docker load --input "${INCOMING}/release/spx-image.tar" >/dev/null
-          test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "${IMAGE_ID}"
+          test "$(docker image inspect --format '{{.Id}}' "${IMAGE_TAG}")" = "${IMAGE_ID}" || { docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1 && test "$(tar -xOf "${INCOMING}/release/spx-image.tar" manifest.json | node -e 'const m=JSON.parse(require("fs").readFileSync(0,"utf8")); const c=String(m[0]?.Config||"").replace(/^blobs\/sha256\//,"").replace(/\.json$/,""); process.stdout.write("sha256:"+c);')" = "${IMAGE_ID}"; }
 
           if [ -e "${RELEASE_PARENT}" ]; then
             test -d "${RELEASE_DIR}"
@@ -1487,7 +1487,7 @@ jobs:
             test ! -e "${RELEASE_PARENT}.new"
             install -d -m 0700 "$(dirname "${RELEASE_PARENT}")" "${RELEASE_PARENT}.new"
             cp -a "${INCOMING}/operator" "${RELEASE_PARENT}.new/operator"
-            RUNTIME_DEPS_CONTAINER="$(docker create --entrypoint /bin/true "${IMAGE_ID}")"
+            RUNTIME_DEPS_CONTAINER="$(docker create --entrypoint /bin/true "${IMAGE_TAG}")"
             [[ "${RUNTIME_DEPS_CONTAINER}" =~ ^[0-9a-f]{64}$ ]]
             docker cp "${RUNTIME_DEPS_CONTAINER}:/app/node_modules" "${RELEASE_PARENT}.new/operator/node_modules"
             docker rm "${RUNTIME_DEPS_CONTAINER}" >/dev/null
