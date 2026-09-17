@@ -640,7 +640,7 @@ jobs:
               test "$(sha256sum verified/production-identity-approval.json | cut -d' ' -f1)" = "${APPROVAL_SHA256}"
               node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!value || typeof value!=="object" || Array.isArray(value)) process.exit(1)' verified/production-identity-approval.json
             else
-              node --input-type=module - <<'NODE'
+              node --input-type=module -e '
               import { readFile, writeFile } from "node:fs/promises";
               const release = JSON.parse(await readFile("verified/release/release-manifest.json", "utf8"));
               const approval = {
@@ -701,7 +701,7 @@ jobs:
                 JSON.stringify(approval),
                 { flag: "wx", mode: 0o400 },
               );
-NODE
+              '
             fi
           else
             printf '{}' > verified/production-identity-approval.json
