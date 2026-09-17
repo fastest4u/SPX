@@ -14,13 +14,13 @@ import {
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 
 const STAGE_A_SHA = "4c0b0cf57481eda1c88ac754fa70500cf0fb59ad";
-const CUTOVER_PRODUCER_SHA = "4d5a3e5ce1e17f33e076cbf3b2a32a25c979d121";
+const CUTOVER_PRODUCER_SHA = "b4e9b03bedcdd6550d7b19cd70cdb967301be162";
 const BACKUP_PRODUCER_SHA = "b0210e1825197ebd5a746bf0de2b2d382e449fd0";
 const WORKFLOW_DIGESTS: Record<string, string> = {
   ".github/workflows/gate6-accepted-evidence-exporter.yml": "72a83691e66f031ae979963911ee86e0f164dde490da964c8a6c2d869557940e",
   ".github/workflows/gate6-final-verifier-exporter.yml": "1599cf186f93a56ed3fc4de7dbd2a7b843aa64f3446a03543705969e960a4291",
   ".github/workflows/trusted-production-backup-restore.yml": "0e7508586366d816fc5bb1268c9e5ae47b6aac528c28344cbf0f8f3bf94d179a",
-  ".github/workflows/trusted-deploy.yml": "2266eedb3dfe87395894a6cadc85d1216b7ffc679b2e1e6cd8dd64090c45d9e6",
+  ".github/workflows/trusted-deploy.yml": "59a558e07d289759821b264b737b8a75a381f3e04042ae5223056db5c0a51947",
   ".github/workflows/trusted-staging-protected-evidence.yml": "be09053d94990f762e7f60a7f4957dcee7f9fe19440959eb21d2ab1bb27608d8",
 };
 const EXPECTED = {
