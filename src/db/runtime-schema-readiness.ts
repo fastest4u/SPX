@@ -1,4 +1,5 @@
 import { lstatSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const RELEASE_MANIFEST_PATH = "/run/secrets/spx-release-manifest";
 const MAX_RELEASE_MANIFEST_BYTES = 1024 * 1024;
@@ -26,36 +27,68 @@ function schemaNotReady(): never {
 
 function releasedMigrationsFromManifest(path = RELEASE_MANIFEST_PATH): RuntimeReleasedMigration[] {
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > MAX_RELEASE_MANIFEST_BYTES) {
-      return schemaNotReady();
+    let stat;
+    try {
+      stat = lstatSync(path);
+    } catch {
+      stat = null;
     }
-    const manifest = JSON.parse(readFileSync(path, "utf8")) as { migrations?: unknown };
-    if (!Array.isArray(manifest.migrations) || manifest.migrations.length === 0) {
-      return schemaNotReady();
-    }
-    const migrations = manifest.migrations.map((value) => {
-      if (value === null || typeof value !== "object" || Array.isArray(value)) return schemaNotReady();
-      const record = value as Record<string, unknown>;
-      if (
-        Object.keys(record).sort().join(",") !== "name,sha256" ||
-        typeof record.name !== "string" ||
-        !MIGRATION_NAME.test(record.name) ||
-        typeof record.sha256 !== "string" ||
-        !SHA256.test(record.sha256)
-      ) {
-        return schemaNotReady();
+
+    if (stat && stat.isFile() && !stat.isSymbolicLink() && stat.size >= 1 && stat.size <= MAX_RELEASE_MANIFEST_BYTES) {
+      const manifest = JSON.parse(readFileSync(path, "utf8")) as { migrations?: unknown };
+      if (Array.isArray(manifest.migrations) && manifest.migrations.length > 0) {
+        const migrations = manifest.migrations.map((value) => {
+          if (value === null || typeof value !== "object" || Array.isArray(value)) return schemaNotReady();
+          const record = value as Record<string, unknown>;
+          if (
+            Object.keys(record).sort().join(",") !== "name,sha256" ||
+            typeof record.name !== "string" ||
+            !MIGRATION_NAME.test(record.name) ||
+            typeof record.sha256 !== "string" ||
+            !SHA256.test(record.sha256)
+          ) {
+            return schemaNotReady();
+          }
+          return { name: record.name, sha256: record.sha256 };
+        });
+        const names = migrations.map((migration) => migration.name);
+        if (
+          new Set(names).size !== names.length ||
+          names.some((name, index) => index > 0 && names[index - 1].localeCompare(name) >= 0)
+        ) {
+          return schemaNotReady();
+        }
+        return migrations;
       }
-      return { name: record.name, sha256: record.sha256 };
-    });
-    const names = migrations.map((migration) => migration.name);
-    if (
-      new Set(names).size !== names.length ||
-      names.some((name, index) => index > 0 && names[index - 1].localeCompare(name) >= 0)
-    ) {
-      return schemaNotReady();
     }
-    return migrations;
+
+    // Fallback for legacy deployment mode: read approved migrations from migrations/released-checksums.json
+    const fallbackPath = resolve(process.cwd(), "migrations/released-checksums.json");
+    let fallbackStat;
+    try {
+      fallbackStat = lstatSync(fallbackPath);
+    } catch {
+      fallbackStat = null;
+    }
+    if (
+      fallbackStat &&
+      fallbackStat.isFile() &&
+      !fallbackStat.isSymbolicLink() &&
+      fallbackStat.size >= 1 &&
+      fallbackStat.size <= MAX_RELEASE_MANIFEST_BYTES
+    ) {
+      const raw = JSON.parse(readFileSync(fallbackPath, "utf8")) as Record<string, unknown>;
+      const entries = Object.entries(raw).sort(([a], [b]) => a.localeCompare(b));
+      if (entries.length === 0) return schemaNotReady();
+      return entries.map(([name, sha256]) => {
+        if (typeof sha256 !== "string" || !MIGRATION_NAME.test(name) || !SHA256.test(sha256)) {
+          return schemaNotReady();
+        }
+        return { name, sha256 };
+      });
+    }
+
+    return schemaNotReady();
   } catch {
     return schemaNotReady();
   }
