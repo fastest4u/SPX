@@ -308,7 +308,9 @@ export interface TeamSpxAccount {
 }
 
 export interface TeamSpxAccountInput {
-  name: string;
+  name?: string;
+  email?: string;
+  password?: string;
   spxCookie?: string;
   spxDeviceId?: string;
   spxAppName?: string;

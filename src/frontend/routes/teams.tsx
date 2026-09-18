@@ -9,7 +9,10 @@ import {
   Building2,
   CheckCircle2,
   Cookie,
+  Eye,
+  EyeOff,
   Loader2,
+  Lock,
   MessageCircle,
   Pause,
   Pencil,
@@ -1158,12 +1161,11 @@ function TeamSpxAccountsDialog({
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<TeamSpxAccount | null>(null)
 
-  // Form states
+  // Form states (Email + Password only)
+  const [formEmail, setFormEmail] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [formName, setFormName] = useState('')
-  const [formCookie, setFormCookie] = useState('')
-  const [formDeviceId, setFormDeviceId] = useState('')
-  const [formAppName, setFormAppName] = useState('SPX Express')
-  const [formReferer, setFormReferer] = useState('')
   const [formEnabled, setFormEnabled] = useState(true)
 
   const accountsQuery = useQuery({
@@ -1176,11 +1178,10 @@ function TeamSpxAccountsDialog({
   const accounts = accountsQuery.data ?? []
 
   const resetForm = useCallback(() => {
+    setFormEmail('')
+    setFormPassword('')
+    setShowPassword(false)
     setFormName('')
-    setFormCookie('')
-    setFormDeviceId('')
-    setFormAppName('SPX Express')
-    setFormReferer('')
     setFormEnabled(true)
     setShowAddForm(false)
     setEditingAccount(null)
@@ -1194,10 +1195,9 @@ function TeamSpxAccountsDialog({
     setShowAddForm(false)
     setEditingAccount(acc)
     setFormName(acc.name)
-    setFormCookie(acc.spxCookiePreview)
-    setFormDeviceId(acc.spxDeviceIdPreview)
-    setFormAppName(acc.spxAppName || 'SPX Express')
-    setFormReferer(acc.spxReferer || '')
+    setFormEmail(acc.name.includes('@') ? acc.name : '')
+    setFormPassword('')
+    setShowPassword(false)
     setFormEnabled(acc.enabled)
   }
 
@@ -1211,30 +1211,26 @@ function TeamSpxAccountsDialog({
       if (!team?.id) return
       if (editingAccount) {
         return teamsApi.updateAccount(team.id, editingAccount.id, {
-          name: formName.trim(),
-          spxCookie: formCookie.trim() || undefined,
-          spxDeviceId: formDeviceId.trim() || undefined,
-          spxAppName: formAppName.trim() || undefined,
-          spxReferer: formReferer.trim() || undefined,
+          name: formName.trim() || formEmail.trim() || undefined,
+          email: formEmail.trim() || undefined,
+          password: formPassword || undefined,
           enabled: formEnabled,
         })
       }
       return teamsApi.createAccount(team.id, {
-        name: formName.trim(),
-        spxCookie: formCookie.trim() || undefined,
-        spxDeviceId: formDeviceId.trim() || undefined,
-        spxAppName: formAppName.trim() || undefined,
-        spxReferer: formReferer.trim() || undefined,
+        name: formName.trim() || formEmail.trim() || undefined,
+        email: formEmail.trim(),
+        password: formPassword,
         enabled: formEnabled,
       })
     },
     onSuccess: () => {
-      toast.success(editingAccount ? 'บันทึกการแก้ไขบัญชีแล้ว' : 'เพิ่มบัญชี SPX แล้ว')
+      toast.success(editingAccount ? 'บันทึกการแก้ไขบัญชีแล้ว' : 'เข้าสู่ระบบและเพิ่มบัญชี SPX สำเร็จ')
       resetForm()
       queryClient.invalidateQueries({ queryKey: ['team-spx-accounts', team?.id] })
       queryClient.invalidateQueries({ queryKey: ['teams'] })
     },
-    onError: (err: Error) => toast.error('บันทึกบัญชีไม่สำเร็จ', { description: err.message }),
+    onError: (err: Error) => toast.error(editingAccount ? 'บันทึกบัญชีไม่สำเร็จ' : 'เข้าสู่ระบบ SPX ไม่สำเร็จ', { description: err.message }),
   })
 
   const toggleMutation = useMutation({
@@ -1276,13 +1272,20 @@ function TeamSpxAccountsDialog({
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault()
-    if (!formName.trim()) {
-      toast.error('กรุณากรอกชื่อบัญชี')
-      return
-    }
-    if (!editingAccount && !formCookie.trim()) {
-      toast.error('กรุณากรอก SPX Cookie')
-      return
+    if (!editingAccount) {
+      if (!formEmail.trim()) {
+        toast.error('กรุณากรอกอีเมล SPX')
+        return
+      }
+      if (!formPassword) {
+        toast.error('กรุณากรอกรหัสผ่าน SPX')
+        return
+      }
+    } else {
+      if (!formName.trim() && !formEmail.trim()) {
+        toast.error('กรุณากรอกชื่อหรืออีเมลบัญชี')
+        return
+      }
     }
     saveMutation.mutate()
   }
@@ -1303,20 +1306,18 @@ function TeamSpxAccountsDialog({
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
-          {/* Status info bar */}
-          <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-3 text-xs leading-relaxed text-muted-foreground">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Status header banner */}
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.02] p-3 text-xs space-y-1">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">สถานะหมุนเวียน:</span>
-                {accounts.length === 0 ? (
-                  <span className="status-pill border-white/10 bg-white/[0.04] text-muted-foreground">
-                    ใช้ Cookie หลักของทีม
-                  </span>
-                ) : (
-                  <span className="status-pill border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success">
-                    เปิดหมุนเวียน {enabledCount} / {accounts.length} บัญชี
-                  </span>
-                )}
+                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                  สถานะหมุนเวียน:
+                </span>
+                <span className="status-pill border-white/10 bg-white/[0.04] text-muted-foreground">
+                  {accounts.length === 0
+                    ? 'ใช้ Cookie หลักของทีม'
+                    : `หมุนเวียน ${enabledCount}/${accounts.length} บัญชี`}
+                </span>
               </div>
               {!showAddForm && !editingAccount ? (
                 <Button
@@ -1330,7 +1331,7 @@ function TeamSpxAccountsDialog({
                 </Button>
               ) : null}
             </div>
-            <p className="mt-2 text-muted-foreground/80">
+            <p className="text-muted-foreground text-[11px]">
               ทุกการยิงงาน (Polling หาเที่ยววิ่ง, ดึงรายละเอียด, และกดยืนยันรับงาน) จะหมุนเวียน Round-Robin อัตโนมัติในบัญชีของทีมนี้ หากบัญชีใดติด Rate Limit ระบบจะข้ามไปใช้บัญชีถัดไปทันที
             </p>
           </div>
@@ -1339,77 +1340,74 @@ function TeamSpxAccountsDialog({
           {(showAddForm || editingAccount) ? (
             <form onSubmit={handleFormSubmit} className="rounded-[8px] border border-primary/30 bg-white/[0.02] p-4 grid gap-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <h4 className="text-sm font-semibold text-foreground">
-                  {editingAccount ? `แก้ไขบัญชี: ${editingAccount.name}` : 'เพิ่มบัญชี SPX ใหม่'}
+                <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Lock className="h-4 w-4 text-primary" />
+                  {editingAccount ? `แก้ไขบัญชี: ${editingAccount.name}` : 'เพิ่มบัญชี SPX ใหม่ (ล็อกอินอัตโนมัติ)'}
                 </h4>
-                <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="h-6 w-6 p-0">
+                <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="h-6 w-6 p-0" disabled={saveMutation.isPending}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-1">
-                  <Label htmlFor="acc-name" className="text-xs">ชื่อบัญชี *</Label>
+                  <Label htmlFor="acc-email" className="text-xs">อีเมล SPX (Email) *</Label>
                   <Input
-                    id="acc-name"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="เช่น คนขับ 1 หรือ SPX-B"
+                    id="acc-email"
+                    type="email"
+                    value={formEmail}
+                    onChange={(e) => setFormEmail(e.target.value)}
+                    placeholder="driver@gmail.com"
                     className="h-8 text-xs"
                     autoFocus
+                    disabled={saveMutation.isPending}
+                    required={!editingAccount}
                   />
                 </div>
                 <div className="grid gap-1">
-                  <Label htmlFor="acc-app" className="text-xs">App Name</Label>
-                  <Input
-                    id="acc-app"
-                    value={formAppName}
-                    onChange={(e) => setFormAppName(e.target.value)}
-                    placeholder="SPX Express"
-                    className="h-8 text-xs"
-                  />
+                  <Label htmlFor="acc-password" className="text-xs">
+                    {editingAccount ? 'รหัสผ่านใหม่ (เว้นว่างหากไม่เปลี่ยน)' : 'รหัสผ่าน SPX (Password) *'}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="acc-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={formPassword}
+                      onChange={(e) => setFormPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="h-8 text-xs pr-8"
+                      disabled={saveMutation.isPending}
+                      required={!editingAccount}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="grid gap-1">
-                <Label htmlFor="acc-cookie" className="text-xs">
-                  SPX Cookie {editingAccount ? '(เว้นว่างหากไม่ต้องการเปลี่ยน)' : '*'}
+                <Label htmlFor="acc-name" className="text-xs">
+                  ชื่อเรียกบัญชี (ไม่บังคับ - เว้นว่างเพื่อใช้อีเมลเป็นชื่อ)
                 </Label>
-                <textarea
-                  id="acc-cookie"
-                  value={formCookie}
-                  onChange={(e) => setFormCookie(e.target.value)}
-                  placeholder={editingAccount ? editingAccount.spxCookiePreview : 'fms_user_id=...; session=...'}
-                  className="flex min-h-[4rem] w-full resize-none rounded-[6px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                <Input
+                  id="acc-name"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder={formEmail ? formEmail : 'เช่น คนขับ 1 หรือ SPX-B'}
+                  className="h-8 text-xs"
+                  disabled={saveMutation.isPending}
                 />
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="grid gap-1">
-                  <Label htmlFor="acc-device" className="text-xs">Device ID</Label>
-                  <Input
-                    id="acc-device"
-                    value={formDeviceId}
-                    onChange={(e) => setFormDeviceId(e.target.value)}
-                    placeholder={editingAccount ? editingAccount.spxDeviceIdPreview : 'UUID หรือ device id'}
-                    className="h-8 text-xs"
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label htmlFor="acc-referer" className="text-xs">Referer</Label>
-                  <Input
-                    id="acc-referer"
-                    value={formReferer}
-                    onChange={(e) => setFormReferer(e.target.value)}
-                    placeholder="https://spx.co.th/..."
-                    className="h-8 text-xs"
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-between rounded-[6px] border border-white/10 bg-white/[0.02] px-3 py-2">
                 <span className="text-xs font-medium text-foreground">เปิดใช้งานบัญชีนี้ในรอบหมุนเวียน</span>
-                <Switch checked={formEnabled} onCheckedChange={setFormEnabled} />
+                <Switch checked={formEnabled} onCheckedChange={setFormEnabled} disabled={saveMutation.isPending} />
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -1417,8 +1415,14 @@ function TeamSpxAccountsDialog({
                   ยกเลิก
                 </Button>
                 <Button type="submit" size="sm" disabled={saveMutation.isPending}>
-                  {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
-                  {editingAccount ? 'บันทึกการแก้ไข' : 'เพิ่มบัญชี'}
+                  {saveMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      กำลังเข้าสู่ระบบ SPX...
+                    </>
+                  ) : (
+                    editingAccount ? 'บันทึกการแก้ไข' : 'เข้าสู่ระบบและเพิ่มบัญชี'
+                  )}
                 </Button>
               </div>
             </form>
@@ -1433,7 +1437,7 @@ function TeamSpxAccountsDialog({
             <div className="rounded-[8px] border border-dashed border-white/10 p-6 text-center text-xs text-muted-foreground">
               <Cookie className="mx-auto h-8 w-8 opacity-40 mb-2" />
               <p className="font-medium text-foreground">ยังไม่มีบัญชี SPX ในระบบหมุนเวียน</p>
-              <p className="mt-1">กด &quot;เพิ่มบัญชี&quot; เพื่อใส่ Cookie และ Device ID ของคนขับแต่ละคนในทีม</p>
+              <p className="mt-1">กด &quot;เพิ่มบัญชี&quot; เพื่อใส่อีเมลและรหัสผ่าน SPX ของคนขับแต่ละคนในทีม</p>
             </div>
           ) : (
             <div className="grid gap-2">
