@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ServicesRouteImport } from './routes/services'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LoginRouteImport } from './routes/login'
@@ -38,6 +39,11 @@ const TeamsRoute = TeamsRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ServicesRoute = ServicesRouteImport.update({
+  id: '/services',
+  path: '/services',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReportsRoute = ReportsRouteImport.update({
@@ -111,6 +117,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
+  '/services': typeof ServicesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
@@ -128,6 +135,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
+  '/services': typeof ServicesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
@@ -146,6 +154,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/notifications': typeof NotificationsRoute
   '/reports': typeof ReportsRoute
+  '/services': typeof ServicesRoute
   '/settings': typeof SettingsRouteWithChildren
   '/teams': typeof TeamsRoute
   '/users': typeof UsersRoute
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/notifications'
     | '/reports'
+    | '/services'
     | '/settings'
     | '/teams'
     | '/users'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/notifications'
     | '/reports'
+    | '/services'
     | '/settings'
     | '/teams'
     | '/users'
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/notifications'
     | '/reports'
+    | '/services'
     | '/settings'
     | '/teams'
     | '/users'
@@ -217,6 +229,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   NotificationsRoute: typeof NotificationsRoute
   ReportsRoute: typeof ReportsRoute
+  ServicesRoute: typeof ServicesRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   TeamsRoute: typeof TeamsRoute
   UsersRoute: typeof UsersRoute
@@ -243,6 +256,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/services': {
+      id: '/services'
+      path: '/services'
+      fullPath: '/services'
+      preLoaderRoute: typeof ServicesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reports': {
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   NotificationsRoute: NotificationsRoute,
   ReportsRoute: ReportsRoute,
+  ServicesRoute: ServicesRoute,
   SettingsRoute: SettingsRouteWithChildren,
   TeamsRoute: TeamsRoute,
   UsersRoute: UsersRoute,

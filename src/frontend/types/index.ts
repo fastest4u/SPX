@@ -706,3 +706,62 @@ export interface LineBotSendInput {
 export interface LineBotSendResult {
   sent: boolean;
 }
+
+// Service Health & Management Types
+export interface ServiceItem {
+  id: string;
+  name: string;
+  category: 'core' | 'database' | 'notification' | 'poller';
+  host: string;
+  role: string;
+  port: number | null;
+  state: 'ok' | 'degraded' | 'down';
+  latencyMs: number | null;
+  uptimeSeconds: number | null;
+  nodeId: string;
+  canRestart: boolean;
+  canPing: boolean;
+  summary: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ServicesOverview {
+  overallState: 'ok' | 'degraded' | 'down';
+  activeCount: number;
+  totalCount: number;
+  dbLatencyMs: number;
+  serverUptimeSeconds: number;
+  serverTimestamp: string;
+}
+
+export interface ServicesStatusResponse {
+  overview: ServicesOverview;
+  services: ServiceItem[];
+}
+
+export interface DiagnosticCheckItem {
+  id: string;
+  name: string;
+  target: string;
+  state: 'ok' | 'degraded' | 'down';
+  latencyMs: number;
+  message: string;
+  recommendation?: string;
+}
+
+export interface DiagnosticsResponse {
+  timestamp: string;
+  overallOk: boolean;
+  checks: DiagnosticCheckItem[];
+}
+
+export interface ServiceActionResult {
+  serviceId: string;
+  state?: string;
+  latencyMs?: number;
+  message?: string;
+  status?: number;
+  lease?: { nodeId: string; expiresAt?: string } | null;
+  [key: string]: unknown;
+}
+

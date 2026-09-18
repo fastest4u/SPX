@@ -4,7 +4,7 @@ import { AppLayout } from '../components/layout/AppLayout'
 import { SseProvider } from '../hooks/useSseContext'
 import { Coachmark } from '../components/ui/coachmark'
 
-const ADMIN_ONLY_PATHS = new Set(['/users', '/teams', '/settings', '/audit', '/line-image-extractions'])
+const ADMIN_ONLY_PATHS = new Set(['/users', '/teams', '/settings', '/audit', '/line-image-extractions', '/services'])
 
 export const rootRoute = createRootRoute({
   component: RootComponent,
