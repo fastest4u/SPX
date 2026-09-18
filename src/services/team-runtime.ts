@@ -119,7 +119,15 @@ export class TeamRuntime implements TeamRuntimeHandle {
           }
           return this.providerSession ? this.providerSession.beforePoll() : true;
         },
-        onSessionRejected: this.providerSession ? this.providerSession.recover : async () => false,
+        onSessionRejected: async () => {
+          if (this.providerSession) {
+            return await this.providerSession.recover();
+          }
+          if (this.credentialPool && this.credentialPool.getAccountCount() > 0) {
+            return this.credentialPool.getActiveAccountCount() > 0;
+          }
+          return false;
+        },
         realtimePublisher: this.realtimePublisher,
         realtimeSource: this.realtimeSource,
       };

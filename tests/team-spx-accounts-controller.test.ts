@@ -67,6 +67,9 @@ async function main(): Promise<void> {
   assert.equal(create1.statusCode, 201);
   const created1Body = create1.json().data;
   assert.equal(created1Body.name, "Driver 1");
+  assert.equal(created1Body.email, "Driver 1");
+  assert.equal(created1Body.hasPassword, false);
+  assert.equal(created1Body.spxPassword, undefined);
   assert.equal(created1Body.hasSpxCookie, true);
   assert.equal(created1Body.hasSpxDeviceId, true);
   assert.equal(created1Body.teamId, team1.id);

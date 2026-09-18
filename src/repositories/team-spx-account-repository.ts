@@ -9,10 +9,16 @@ export interface TeamSpxAccountRuntime {
   id: number;
   teamId: number;
   name: string;
+  spxEmail: string;
+  spxPassword?: string;
   spxCookie: string;
   spxDeviceId: string;
   spxAppName: string;
   spxReferer: string;
+  spxAuthStatus: string;
+  spxAuthError: string | null;
+  spxSessionExpiresAt: string | null;
+  spxLastLoginAt: string | null;
   enabled: boolean;
 }
 
@@ -20,6 +26,12 @@ export interface RedactedTeamSpxAccount {
   id: number;
   teamId: number;
   name: string;
+  email: string;
+  hasPassword: boolean;
+  spxAuthStatus: string;
+  spxAuthError: string | null;
+  spxSessionExpiresAt: string | null;
+  spxLastLoginAt: string | null;
   hasSpxCookie: boolean;
   hasSpxDeviceId: boolean;
   spxCookiePreview: string;
@@ -34,19 +46,31 @@ export interface RedactedTeamSpxAccount {
 export interface CreateTeamSpxAccountInput {
   teamId: number;
   name: string;
+  spxEmail?: string;
+  spxPassword?: string;
   spxCookie?: string;
   spxDeviceId?: string;
   spxAppName?: string;
   spxReferer?: string;
+  spxAuthStatus?: string;
+  spxAuthError?: string | null;
+  spxSessionExpiresAt?: Date | null;
+  spxLastLoginAt?: Date | null;
   enabled?: boolean;
 }
 
 export interface UpdateTeamSpxAccountInput {
   name?: string;
+  spxEmail?: string;
+  spxPassword?: string;
   spxCookie?: string;
   spxDeviceId?: string;
   spxAppName?: string;
   spxReferer?: string;
+  spxAuthStatus?: string;
+  spxAuthError?: string | null;
+  spxSessionExpiresAt?: Date | null;
+  spxLastLoginAt?: Date | null;
   enabled?: boolean;
 }
 
@@ -78,10 +102,17 @@ function asDateString(value: unknown): string {
 function toRedactedAccount(row: AccountRow): RedactedTeamSpxAccount {
   const spxCookie = decodeSecret(row.spxCookie);
   const spxDeviceId = decodeSecret(row.spxDeviceId);
+  const spxPassword = decodeSecret(row.spxPassword);
   return {
     id: row.id,
     teamId: row.teamId,
     name: row.name,
+    email: row.spxEmail || row.name,
+    hasPassword: spxPassword.length > 0,
+    spxAuthStatus: row.spxAuthStatus ?? "connected",
+    spxAuthError: row.spxAuthError ?? null,
+    spxSessionExpiresAt: row.spxSessionExpiresAt ? asDateString(row.spxSessionExpiresAt) : null,
+    spxLastLoginAt: row.spxLastLoginAt ? asDateString(row.spxLastLoginAt) : null,
     hasSpxCookie: spxCookie.length > 0,
     hasSpxDeviceId: spxDeviceId.length > 0,
     spxCookiePreview: previewSecret(spxCookie),
@@ -99,10 +130,16 @@ function toRuntimeAccount(row: AccountRow): TeamSpxAccountRuntime {
     id: row.id,
     teamId: row.teamId,
     name: row.name,
+    spxEmail: row.spxEmail || row.name,
+    spxPassword: decodeSecret(row.spxPassword) || undefined,
     spxCookie: decodeSecret(row.spxCookie),
     spxDeviceId: decodeSecret(row.spxDeviceId),
     spxAppName: row.spxAppName ?? "",
     spxReferer: row.spxReferer ?? "",
+    spxAuthStatus: row.spxAuthStatus ?? "connected",
+    spxAuthError: row.spxAuthError ?? null,
+    spxSessionExpiresAt: row.spxSessionExpiresAt ? asDateString(row.spxSessionExpiresAt) : null,
+    spxLastLoginAt: row.spxLastLoginAt ? asDateString(row.spxLastLoginAt) : null,
     enabled: row.enabled === 1,
   };
 }
@@ -161,10 +198,16 @@ export async function createAccount(
   const rowToInsert: typeof teamSpxAccounts.$inferInsert = {
     teamId: input.teamId,
     name: input.name.trim(),
+    spxEmail: (input.spxEmail ?? input.name).trim(),
+    spxPassword: input.spxPassword ? encodeSecret(input.spxPassword) : null,
     spxCookie: encodeSecret(input.spxCookie),
     spxDeviceId: encodeSecret(input.spxDeviceId),
     spxAppName: input.spxAppName?.trim() || "",
     spxReferer: input.spxReferer?.trim() || "",
+    spxAuthStatus: input.spxAuthStatus ?? "connected",
+    spxAuthError: input.spxAuthError ?? null,
+    spxSessionExpiresAt: input.spxSessionExpiresAt ?? null,
+    spxLastLoginAt: input.spxLastLoginAt ?? new Date(),
     enabled: input.enabled === false ? 0 : 1,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -189,6 +232,10 @@ export async function updateAccount(
 
   const next: Partial<typeof teamSpxAccounts.$inferInsert> = { updatedAt: new Date() };
   if (typeof patch.name === "string") next.name = patch.name.trim();
+  if (typeof patch.spxEmail === "string") next.spxEmail = patch.spxEmail.trim();
+  if (patch.spxPassword !== undefined && !isRedactedPlaceholder(patch.spxPassword)) {
+    next.spxPassword = patch.spxPassword ? encodeSecret(patch.spxPassword) : null;
+  }
   if (typeof patch.enabled === "boolean") next.enabled = patch.enabled ? 1 : 0;
   if (typeof patch.spxAppName === "string") next.spxAppName = patch.spxAppName.trim();
   if (typeof patch.spxReferer === "string") next.spxReferer = patch.spxReferer.trim();
@@ -198,10 +245,50 @@ export async function updateAccount(
   if (patch.spxDeviceId !== undefined && !isRedactedPlaceholder(patch.spxDeviceId)) {
     next.spxDeviceId = encodeSecret(patch.spxDeviceId);
   }
+  if (patch.spxAuthStatus !== undefined) next.spxAuthStatus = patch.spxAuthStatus;
+  if (patch.spxAuthError !== undefined) next.spxAuthError = patch.spxAuthError;
+  if (patch.spxSessionExpiresAt !== undefined) next.spxSessionExpiresAt = patch.spxSessionExpiresAt;
+  if (patch.spxLastLoginAt !== undefined) next.spxLastLoginAt = patch.spxLastLoginAt;
 
   const db = getDb();
   await db.update(teamSpxAccounts).set(next).where(eq(teamSpxAccounts.id, id));
   return getAccountById(id);
+}
+
+export interface UpdateAccountSessionInput {
+  spxCookie: string;
+  spxDeviceId?: string;
+  spxSessionExpiresAt?: Date | null;
+  spxLastLoginAt?: Date | null;
+  spxAuthStatus?: string;
+  spxAuthError?: string | null;
+}
+
+export async function updateAccountSession(
+  id: number,
+  session: UpdateAccountSessionInput,
+): Promise<boolean> {
+  await ensureDashboardTables();
+  const db = getDb();
+  const next: Partial<typeof teamSpxAccounts.$inferInsert> = {
+    updatedAt: new Date(),
+    spxCookie: encodeSecret(session.spxCookie),
+    spxLastLoginAt: session.spxLastLoginAt ?? new Date(),
+  };
+  if (session.spxDeviceId) {
+    next.spxDeviceId = encodeSecret(session.spxDeviceId);
+  }
+  if (session.spxSessionExpiresAt !== undefined) {
+    next.spxSessionExpiresAt = session.spxSessionExpiresAt;
+  }
+  if (session.spxAuthStatus !== undefined) {
+    next.spxAuthStatus = session.spxAuthStatus;
+  }
+  if (session.spxAuthError !== undefined) {
+    next.spxAuthError = session.spxAuthError;
+  }
+  await db.update(teamSpxAccounts).set(next).where(eq(teamSpxAccounts.id, id));
+  return true;
 }
 
 export async function deleteAccount(id: number): Promise<boolean> {

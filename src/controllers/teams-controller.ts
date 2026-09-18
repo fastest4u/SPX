@@ -283,11 +283,14 @@ const enabledBodySchema = {
 
 interface ResolvedAccountCredentials {
   name?: string;
+  email?: string;
+  password?: string;
   spxCookie?: string;
   spxDeviceId?: string;
   spxAppName?: string;
   spxReferer?: string;
   enabled?: boolean;
+  expiresAt?: string | null;
 }
 
 async function resolveAccountCredentials(
@@ -306,6 +309,7 @@ async function resolveAccountCredentials(
   let spxDeviceId = typeof body?.spxDeviceId === "string" ? body.spxDeviceId.trim() : undefined;
   const spxAppName = typeof body?.spxAppName === "string" ? body.spxAppName.trim() : (isCreate ? "SPX Express" : undefined);
   const spxReferer = typeof body?.spxReferer === "string" ? body.spxReferer.trim() : (isCreate ? "https://spx.co.th/" : undefined);
+  let expiresAt: string | null = null;
 
   if (rawPassword) {
     const loginEmail = rawEmail || (rawName.includes("@") ? rawName : "");
@@ -321,6 +325,7 @@ async function resolveAccountCredentials(
       const session = await loginProvider({ email: loginEmail, password: rawPassword });
       spxCookie = session.cookie;
       spxDeviceId = session.deviceId;
+      expiresAt = session.expiresAt;
     } catch (err) {
       if (err instanceof ProviderAuthError) {
         if (err.code === "invalid_credentials") {
@@ -364,6 +369,7 @@ async function resolveAccountCredentials(
   }
 
   const name = rawName || rawEmail;
+  const email = rawEmail || (name.includes("@") ? name : "");
 
   if (isCreate) {
     if (!name) {
@@ -388,11 +394,14 @@ async function resolveAccountCredentials(
     success: true,
     data: {
       name: name || undefined,
+      email: email || undefined,
+      password: rawPassword || undefined,
       spxCookie,
       spxDeviceId,
       spxAppName,
       spxReferer,
       enabled: enabled ?? (isCreate ? true : undefined),
+      expiresAt,
     },
   };
 }
@@ -442,10 +451,15 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
     const created = await createAccount({
       teamId,
       name: resolved.data.name ?? "SPX Account",
+      spxEmail: resolved.data.email ?? "",
+      spxPassword: resolved.data.password,
       spxCookie: resolved.data.spxCookie ?? "",
       spxDeviceId: resolved.data.spxDeviceId,
       spxAppName: resolved.data.spxAppName,
       spxReferer: resolved.data.spxReferer,
+      spxAuthStatus: "connected",
+      spxSessionExpiresAt: resolved.data.expiresAt ? new Date(resolved.data.expiresAt) : null,
+      spxLastLoginAt: new Date(),
       enabled: resolved.data.enabled ?? true,
     });
 
@@ -479,10 +493,20 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
 
     const patch: UpdateTeamSpxAccountInput = {};
     if (resolved.data.name !== undefined) patch.name = resolved.data.name;
+    if (resolved.data.email !== undefined) patch.spxEmail = resolved.data.email;
+    if (resolved.data.password !== undefined) patch.spxPassword = resolved.data.password;
     if (resolved.data.spxCookie !== undefined) patch.spxCookie = resolved.data.spxCookie;
     if (resolved.data.spxDeviceId !== undefined) patch.spxDeviceId = resolved.data.spxDeviceId;
     if (resolved.data.spxAppName !== undefined) patch.spxAppName = resolved.data.spxAppName;
     if (resolved.data.spxReferer !== undefined) patch.spxReferer = resolved.data.spxReferer;
+    if (resolved.data.expiresAt !== undefined) {
+      patch.spxSessionExpiresAt = resolved.data.expiresAt ? new Date(resolved.data.expiresAt) : null;
+    }
+    if (resolved.data.password) {
+      patch.spxAuthStatus = "connected";
+      patch.spxAuthError = null;
+      patch.spxLastLoginAt = new Date();
+    }
     if (typeof resolved.data.enabled === "boolean") patch.enabled = resolved.data.enabled;
 
     const updated = await updateAccount(accountId, patch);
@@ -658,10 +682,15 @@ export const teamsController: FastifyPluginAsync = async (app) => {
     const created = await createAccount({
       teamId,
       name: resolved.data.name ?? "SPX Account",
+      spxEmail: resolved.data.email ?? "",
+      spxPassword: resolved.data.password,
       spxCookie: resolved.data.spxCookie ?? "",
       spxDeviceId: resolved.data.spxDeviceId,
       spxAppName: resolved.data.spxAppName,
       spxReferer: resolved.data.spxReferer,
+      spxAuthStatus: "connected",
+      spxSessionExpiresAt: resolved.data.expiresAt ? new Date(resolved.data.expiresAt) : null,
+      spxLastLoginAt: new Date(),
       enabled: resolved.data.enabled ?? true,
     });
 
@@ -698,10 +727,20 @@ export const teamsController: FastifyPluginAsync = async (app) => {
 
     const patch: UpdateTeamSpxAccountInput = {};
     if (resolved.data.name !== undefined) patch.name = resolved.data.name;
+    if (resolved.data.email !== undefined) patch.spxEmail = resolved.data.email;
+    if (resolved.data.password !== undefined) patch.spxPassword = resolved.data.password;
     if (resolved.data.spxCookie !== undefined) patch.spxCookie = resolved.data.spxCookie;
     if (resolved.data.spxDeviceId !== undefined) patch.spxDeviceId = resolved.data.spxDeviceId;
     if (resolved.data.spxAppName !== undefined) patch.spxAppName = resolved.data.spxAppName;
     if (resolved.data.spxReferer !== undefined) patch.spxReferer = resolved.data.spxReferer;
+    if (resolved.data.expiresAt !== undefined) {
+      patch.spxSessionExpiresAt = resolved.data.expiresAt ? new Date(resolved.data.expiresAt) : null;
+    }
+    if (resolved.data.password) {
+      patch.spxAuthStatus = "connected";
+      patch.spxAuthError = null;
+      patch.spxLastLoginAt = new Date();
+    }
     if (typeof resolved.data.enabled === "boolean") patch.enabled = resolved.data.enabled;
 
     const updated = await updateAccount(accountId, patch);

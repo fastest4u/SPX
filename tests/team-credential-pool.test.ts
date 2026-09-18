@@ -22,32 +22,59 @@ async function main(): Promise<void> {
   assert.equal(creds0.spxCookie, "fallback-cookie");
 
   // 2. Pool with 2 active accounts rotates round-robin
+  const sessionUpdates: Array<{ id: number; spxCookie: string }> = [];
   const mockAccounts: TeamSpxAccountRuntime[] = [
     {
       id: 101,
       teamId: 1,
       name: "Account 1",
+      spxEmail: "acc1@example.com",
       spxCookie: "cookie-1",
       spxDeviceId: "device-1",
       spxAppName: "app-1",
       spxReferer: "ref-1",
+      spxAuthStatus: "connected",
+      spxAuthError: null,
+      spxSessionExpiresAt: null,
+      spxLastLoginAt: null,
       enabled: true,
     },
     {
       id: 102,
       teamId: 1,
       name: "Account 2",
+      spxEmail: "acc2@example.com",
+      spxPassword: "password-102",
       spxCookie: "cookie-2",
       spxDeviceId: "device-2",
       spxAppName: "app-2",
       spxReferer: "ref-2",
+      spxAuthStatus: "connected",
+      spxAuthError: null,
+      spxSessionExpiresAt: null,
+      spxLastLoginAt: null,
       enabled: true,
     },
   ];
 
+  let loginCallCount = 0;
+  const mockLogin = async (creds: { email: string; password: string }) => {
+    loginCallCount++;
+    return {
+      cookie: `refreshed-cookie-for-${creds.email}`,
+      deviceId: "refreshed-device",
+      expiresAt: new Date(currentTime + 86400_000).toISOString(),
+    };
+  };
+
   const pool = new TeamCredentialPool({
     teamId: 1,
     loadAccounts: async () => mockAccounts,
+    loginProvider: mockLogin,
+    updateAccountSession: async (id, session) => {
+      sessionUpdates.push({ id, spxCookie: session.spxCookie });
+      return true;
+    },
     clock: mockClock,
   });
   await pool.init();
@@ -98,16 +125,37 @@ async function main(): Promise<void> {
   // Account 101 has earlier expiry
   assert.equal(fallbackCred.accountId, 101);
 
-  // 6. Session expired handling
+  // 6. Session expired handling without password (Account 101)
   pool.clearRateLimits();
-  pool.recordSessionExpired(102);
+  pool.recordSessionExpired(101); // 101 has no password, recovery will be skipped
   assert.equal(pool.getActiveAccountCount(), 1);
 
-  // 102 should be completely skipped
+  // 101 should be completely skipped
   for (let i = 0; i < 5; i++) {
     const cred = pool.nextCredentials();
-    assert.equal(cred.accountId, 101);
+    assert.equal(cred.accountId, 102);
   }
+
+  // 7. Automated session recovery with password (Account 102)
+  const initialLogins = loginCallCount;
+  const recovered = await pool.recoverAccount(102);
+  assert.equal(recovered, true);
+  assert.equal(loginCallCount, initialLogins + 1);
+  assert.equal(sessionUpdates.length, 1);
+  assert.equal(sessionUpdates[0].id, 102);
+  assert.equal(sessionUpdates[0].spxCookie, "refreshed-cookie-for-acc2@example.com");
+
+  // Account 102 should have updated credentials in memory
+  const statuses = pool.getAccountsStatus();
+  const acc102Status = statuses.find((s) => s.id === 102);
+  assert.equal(acc102Status?.isSessionExpired, false);
+
+  // 8. Proactive refresh when session expires within 5 minutes
+  mockAccounts[1].spxSessionExpiresAt = new Date(currentTime + 60_000).toISOString(); // expires in 1 min
+  pool.checkProactiveRefresh();
+  // wait a tick for background async recovery
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(loginCallCount, initialLogins + 2);
 
   console.log("team-credential-pool: all assertions passed");
 }
