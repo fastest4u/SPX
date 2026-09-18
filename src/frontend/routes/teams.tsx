@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import {
   AlertTriangle,
   Bell,
-  BellOff,
   Building2,
   CheckCircle2,
   Cookie,
@@ -24,8 +23,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  SlidersHorizontal,
-  Smartphone,
   Table as TableIcon,
   Trash2,
   Truck,
@@ -58,15 +55,6 @@ import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 export const Route = createFileRoute('/teams')({
   component: TeamsComponent,
 })
-
-const statusClassName: Record<string, string> = {
-  running: 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success',
-  paused: 'border-[color:var(--color-warning-border)] bg-[color:var(--color-warning-soft)] text-warning',
-  stopped: 'border-white/10 bg-white/[0.04] text-muted-foreground',
-  misconfigured: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
-  session_expired: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
-  error: 'border-[color:var(--color-danger-border)] bg-[color:var(--color-danger-soft)] text-danger',
-}
 
 type TeamFilter = 'all' | 'enabled' | 'running' | 'issues' | 'disabled'
 
@@ -619,42 +607,6 @@ function RuntimeBadge({ team }: { team: Team }) {
       <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
       <span>ปิดพัก</span>
     </span>
-  )
-}
-
-function SecretState({
-  icon: Icon,
-  label,
-  ok,
-  preview,
-}: {
-  icon: typeof Cookie
-  label: string
-  ok: boolean
-  preview: string
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-      <Icon className={ok ? 'h-3.5 w-3.5 shrink-0 text-success' : 'h-3.5 w-3.5 shrink-0 text-danger'} />
-      <span className="shrink-0 font-medium text-foreground">{label}</span>
-      <span className="min-w-0 flex-1 truncate">{ok ? preview : 'ไม่มี'}</span>
-    </div>
-  )
-}
-
-function RateLimitState({ enabled }: { enabled?: boolean }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-      {enabled ? (
-        <Bell className="h-3.5 w-3.5 shrink-0 text-success" />
-      ) : (
-        <BellOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-      )}
-      <span className="shrink-0 font-medium text-foreground">Rate Limit</span>
-      <span className={`min-w-0 flex-1 truncate ${enabled ? 'text-success font-medium' : 'text-muted-foreground/70'}`}>
-        {enabled ? 'เปิดแจ้งเตือน' : 'ปิด'}
-      </span>
-    </div>
   )
 }
 
