@@ -95,6 +95,7 @@ const APP_SETTING_METADATA = [
   { key: "BOOKING_REPROCESS_COOLDOWN_MS", defaultValue: "10000", secret: false, reload: "live" },
   { key: "BIDDING_PAGE_NO", defaultValue: "1", secret: false, reload: "live" },
   { key: "BIDDING_PAGE_COUNT", defaultValue: "100", secret: false, reload: "live" },
+  { key: "BIDDING_LIST_FETCH_EXTRA_PAGES", defaultValue: "false", secret: false, reload: "live" },
   { key: "REQUEST_TAB_PENDING_CONFIRMATION", defaultValue: "true", secret: false, reload: "live" },
   { key: "REQUEST_CTIME_START", defaultValue: "1788195600", secret: false, reload: "live" },
   { key: "BIDDING_VEHICLE_TYPE", defaultValue: "13", secret: false, reload: "live" },

@@ -115,6 +115,8 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.DEVICE_ID = process.env.DEVICE_ID || "";
   mutableEnv.BIDDING_PAGE_NO = readIntegerSetting("BIDDING_PAGE_NO", 1);
   mutableEnv.BIDDING_PAGE_COUNT = readIntegerSetting("BIDDING_PAGE_COUNT", 100);
+  mutableEnv.BIDDING_LIST_FETCH_EXTRA_PAGES =
+    process.env.BIDDING_LIST_FETCH_EXTRA_PAGES === "true";
   mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION =
     process.env.REQUEST_TAB_PENDING_CONFIRMATION !== "false";
   mutableEnv.REQUEST_CTIME_START = readIntegerSetting("REQUEST_CTIME_START", 1788195600);

@@ -20,6 +20,7 @@ const settingsSchema = {
     SAVE_TO_DB: { type: "string" },
     BIDDING_PAGE_NO: { type: "string" },
     BIDDING_PAGE_COUNT: { type: "string" },
+    BIDDING_LIST_FETCH_EXTRA_PAGES: { type: "string" },
     REQUEST_TAB_PENDING_CONFIRMATION: { type: "string" },
     REQUEST_CTIME_START: { type: "string" },
     NOTIFY_ENABLED: { type: "string" },
