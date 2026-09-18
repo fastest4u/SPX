@@ -826,6 +826,7 @@ function TeamGridCard({
             variant="outline"
             size="sm"
             onClick={onEdit}
+            aria-label={`แก้ไขทีม ${team.name}`}
             className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground border-white/10 hover:border-white/20"
             title={`แก้ไขทีม ${team.name}`}
           >
@@ -1440,7 +1441,7 @@ function TeamFormDialog({
 
               <details className="rounded-lg border border-white/[0.06] bg-black/20 p-3">
                 <summary className="cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground">
-                  การเชื่อมต่อแบบเดิมด้วย Cookie / Device ID (ขั้นสูง)
+                  การเชื่อมต่อแบบเดิม (ขั้นสูง)
                 </summary>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   ใช้กรอก Cookie และ Device ID ด้วยตนเองเมื่อจำเป็นเท่านั้น
