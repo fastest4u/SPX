@@ -2,13 +2,29 @@ import { logger } from "../utils/logger.js";
 import type { ApiClientCredentials } from "./api-client.js";
 import {
   getRuntimeAccountsByTeam,
+  updateAccountSession,
   type TeamSpxAccountRuntime,
+  type UpdateAccountSessionInput,
 } from "../repositories/team-spx-account-repository.js";
+import { loginProvider, ProviderAuthError } from "./provider-auth/client.js";
+import type { ProviderCredentials, ProviderSession } from "../models/provider-auth.js";
+
+export type LoginProviderFn = (
+  credentials: ProviderCredentials,
+  options?: { deviceId?: string },
+) => Promise<ProviderSession>;
+
+export type UpdateAccountSessionFn = (
+  id: number,
+  session: UpdateAccountSessionInput,
+) => Promise<boolean>;
 
 export interface TeamCredentialPoolOptions {
   teamId: number;
   fallbackCredentials?: ApiClientCredentials | null;
   loadAccounts?: (teamId: number) => Promise<TeamSpxAccountRuntime[]>;
+  updateAccountSession?: UpdateAccountSessionFn;
+  loginProvider?: LoginProviderFn;
   clock?: () => number;
 }
 
@@ -18,17 +34,21 @@ export interface AccountStatusItem {
   isRateLimited: boolean;
   rateLimitedUntil: number | null;
   isSessionExpired: boolean;
+  isRecovering?: boolean;
 }
 
 export class TeamCredentialPool {
   public readonly teamId: number;
   private readonly fallbackCredentials: ApiClientCredentials | null;
   private readonly loadAccountsFn: (teamId: number) => Promise<TeamSpxAccountRuntime[]>;
+  private readonly updateAccountSessionFn: UpdateAccountSessionFn;
+  private readonly loginProviderFn: LoginProviderFn;
   private readonly clock: () => number;
 
   private accounts: TeamSpxAccountRuntime[] = [];
   private readonly rateLimitedUntil = new Map<number, number>();
   private readonly sessionExpired = new Set<number>();
+  private readonly recoveringAccountIds = new Set<number>();
   private currentIndex = 0;
   private initialized = false;
 
@@ -36,6 +56,8 @@ export class TeamCredentialPool {
     this.teamId = options.teamId;
     this.fallbackCredentials = options.fallbackCredentials ?? null;
     this.loadAccountsFn = options.loadAccounts ?? getRuntimeAccountsByTeam;
+    this.updateAccountSessionFn = options.updateAccountSession ?? updateAccountSession;
+    this.loginProviderFn = options.loginProvider ?? loginProvider;
     this.clock = options.clock ?? Date.now;
   }
 
@@ -57,6 +79,7 @@ export class TeamCredentialPool {
       for (const id of this.sessionExpired) {
         if (!activeIds.has(id)) this.sessionExpired.delete(id);
       }
+      this.checkProactiveRefresh();
     } catch (err) {
       logger.error("team-credential-pool-reload-failed", {
         teamId: this.teamId,
@@ -145,6 +168,116 @@ export class TeamCredentialPool {
       teamId: this.teamId,
       accountId,
     });
+    void this.recoverAccount(accountId);
+  }
+
+  async recoverAccount(accountId: number): Promise<boolean> {
+    if (this.recoveringAccountIds.has(accountId)) {
+      return false;
+    }
+
+    const account = this.accounts.find((a) => a.id === accountId);
+    if (!account) {
+      logger.warn("team-credential-pool-recover-skipped", {
+        teamId: this.teamId,
+        accountId,
+        reason: "account_not_found",
+      });
+      return false;
+    }
+
+    if (!account.spxPassword || !account.spxEmail) {
+      logger.warn("team-credential-pool-recover-skipped", {
+        teamId: this.teamId,
+        accountId,
+        reason: "missing_credentials",
+      });
+      return false;
+    }
+
+    this.recoveringAccountIds.add(accountId);
+    try {
+      logger.info("team-credential-pool-recovering-account", {
+        teamId: this.teamId,
+        accountId,
+        email: account.spxEmail,
+      });
+
+      const session = await this.loginProviderFn(
+        { email: account.spxEmail, password: account.spxPassword },
+        { deviceId: account.spxDeviceId || undefined },
+      );
+
+      const expiresAtDate = session.expiresAt ? new Date(session.expiresAt) : null;
+      await this.updateAccountSessionFn(accountId, {
+        spxCookie: session.cookie,
+        spxDeviceId: session.deviceId,
+        spxSessionExpiresAt: expiresAtDate,
+        spxLastLoginAt: new Date(this.clock()),
+        spxAuthStatus: "connected",
+        spxAuthError: null,
+      });
+
+      account.spxCookie = session.cookie;
+      account.spxDeviceId = session.deviceId;
+      account.spxSessionExpiresAt = session.expiresAt;
+      account.spxAuthStatus = "connected";
+      account.spxAuthError = null;
+
+      this.sessionExpired.delete(accountId);
+      this.rateLimitedUntil.delete(accountId);
+
+      logger.info("team-credential-pool-account-recovered", {
+        teamId: this.teamId,
+        accountId,
+        email: account.spxEmail,
+      });
+      return true;
+    } catch (err) {
+      const errorCode = err instanceof ProviderAuthError ? err.code : "unknown";
+      logger.error("team-credential-pool-account-recovery-failed", {
+        teamId: this.teamId,
+        accountId,
+        error: err instanceof Error ? err.message : String(err),
+        errorCode,
+      });
+      try {
+        await this.updateAccountSessionFn(accountId, {
+          spxCookie: account.spxCookie,
+          spxAuthStatus: "attention",
+          spxAuthError: errorCode,
+        });
+      } catch {
+        // ignore secondary DB error
+      }
+      return false;
+    } finally {
+      this.recoveringAccountIds.delete(accountId);
+    }
+  }
+
+  checkProactiveRefresh(): void {
+    const now = this.clock();
+    for (const account of this.accounts) {
+      if (!account.spxPassword || !account.spxEmail || this.recoveringAccountIds.has(account.id)) {
+        continue;
+      }
+      if (account.spxSessionExpiresAt) {
+        const expiresAtMs = Date.parse(account.spxSessionExpiresAt);
+        if (Number.isFinite(expiresAtMs) && expiresAtMs - now <= 5 * 60_000) {
+          logger.info("team-credential-pool-proactive-refresh-triggered", {
+            teamId: this.teamId,
+            accountId: account.id,
+            expiresAt: account.spxSessionExpiresAt,
+          });
+          void this.recoverAccount(account.id);
+        }
+      }
+    }
+  }
+
+  isRecovering(accountId: number): boolean {
+    return this.recoveringAccountIds.has(accountId);
   }
 
   clearRateLimits(): void {
@@ -169,6 +302,7 @@ export class TeamCredentialPool {
         isRateLimited: until !== null && until > now,
         rateLimitedUntil: until,
         isSessionExpired: this.sessionExpired.has(a.id),
+        isRecovering: this.recoveringAccountIds.has(a.id),
       };
     });
   }

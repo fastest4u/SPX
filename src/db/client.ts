@@ -307,10 +307,16 @@ async function createDashboardTables(): Promise<void> {
       id INT AUTO_INCREMENT PRIMARY KEY,
       team_id INT NOT NULL,
       name VARCHAR(100) NOT NULL,
+      spx_email VARCHAR(254) NOT NULL DEFAULT '',
+      spx_password TEXT NULL,
       spx_cookie VARCHAR(4000) NOT NULL DEFAULT '',
       spx_device_id VARCHAR(1000) NOT NULL DEFAULT '',
       spx_app_name VARCHAR(1000) NOT NULL DEFAULT '',
       spx_referer VARCHAR(1000) NOT NULL DEFAULT '',
+      spx_auth_status VARCHAR(24) NOT NULL DEFAULT 'connected',
+      spx_auth_error VARCHAR(48) NULL,
+      spx_session_expires_at DATETIME NULL,
+      spx_last_login_at DATETIME NULL,
       enabled INT NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -318,6 +324,12 @@ async function createDashboardTables(): Promise<void> {
       KEY team_spx_accounts_team_enabled_idx (team_id, enabled)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_email", "ALTER TABLE team_spx_accounts ADD COLUMN spx_email VARCHAR(254) NOT NULL DEFAULT '' AFTER name");
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_password", "ALTER TABLE team_spx_accounts ADD COLUMN spx_password TEXT NULL AFTER spx_email");
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_auth_status", "ALTER TABLE team_spx_accounts ADD COLUMN spx_auth_status VARCHAR(24) NOT NULL DEFAULT 'connected' AFTER spx_referer");
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_auth_error", "ALTER TABLE team_spx_accounts ADD COLUMN spx_auth_error VARCHAR(48) NULL AFTER spx_auth_status");
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_session_expires_at", "ALTER TABLE team_spx_accounts ADD COLUMN spx_session_expires_at DATETIME NULL AFTER spx_auth_error");
+  await ensureMysqlColumn(pool, "team_spx_accounts", "spx_last_login_at", "ALTER TABLE team_spx_accounts ADD COLUMN spx_last_login_at DATETIME NULL AFTER spx_session_expires_at");
   await ensureMysqlIndex(pool, "team_spx_accounts", "team_spx_accounts_team_id_idx", "ALTER TABLE team_spx_accounts ADD INDEX team_spx_accounts_team_id_idx (team_id)");
   await ensureMysqlIndex(pool, "team_spx_accounts", "team_spx_accounts_team_enabled_idx", "ALTER TABLE team_spx_accounts ADD INDEX team_spx_accounts_team_enabled_idx (team_id, enabled)");
 
