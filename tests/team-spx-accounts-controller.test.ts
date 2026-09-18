@@ -152,6 +152,10 @@ async function main(): Promise<void> {
   const ownListAfter = await app.inject({ method: "GET", url: "/team/spx-accounts" });
   assert.equal(ownListAfter.json().data.length, 2);
 
+  // Verify Team 2 accounts are strictly isolated:
+  const team2List = await app.inject({ method: "GET", url: `/teams/${team2.id}/spx-accounts` });
+  assert.equal(team2List.json().data.length, 0);
+
   // Verify validation error when creating without password and without cookie:
   const invalidCreate = await app.inject({
     method: "POST",
