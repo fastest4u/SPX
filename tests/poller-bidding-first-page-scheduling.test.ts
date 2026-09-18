@@ -22,7 +22,7 @@ type Internals = {
 };
 async function fixture(run: (p: Poller, inner: Internals, events: string[], gate: ReturnType<typeof deferred>, requested: ReturnType<typeof deferred>) => Promise<void>) {
   const saved = { ...env }; const savedFetch = globalThis.fetch;
-  Object.assign(env, { API_URL: "https://spx.example.test/booking/bidding/list", SPX_ROLE: "monolith", FETCH_DETAILS: true, SAVE_TO_DB: false, AUTO_ACCEPT_ENABLED: false, HTTP_ENABLED: true, BOOKING_DETAIL_CONCURRENCY: 8, BOOKING_REPROCESS_COOLDOWN_MS: 0 });
+  Object.assign(env, { API_URL: "https://spx.example.test/booking/bidding/list", SPX_ROLE: "monolith", FETCH_DETAILS: true, SAVE_TO_DB: false, AUTO_ACCEPT_ENABLED: false, HTTP_ENABLED: true, BOOKING_DETAIL_CONCURRENCY: 8, BOOKING_REPROCESS_COOLDOWN_MS: 0, BIDDING_LIST_FETCH_EXTRA_PAGES: true });
   const events: string[] = []; const gate = deferred(); const requested = deferred();
   globalThis.fetch = async (_url, init) => {
     const pageno = JSON.parse(String(init?.body)).pageno;

@@ -12,6 +12,7 @@ import { env } from "../src/config/env.js";
 const mutableEnv = env as unknown as {
   BIDDING_PAGE_NO: number;
   BIDDING_PAGE_COUNT: number;
+  BIDDING_LIST_FETCH_EXTRA_PAGES: boolean;
   REQUEST_TAB_PENDING_CONFIRMATION: boolean;
   REQUEST_CTIME_START: number;
   BIDDING_VEHICLE_TYPE?: number;
@@ -25,6 +26,7 @@ const mutableEnv = env as unknown as {
 const original = {
   BIDDING_PAGE_NO: mutableEnv.BIDDING_PAGE_NO,
   BIDDING_PAGE_COUNT: mutableEnv.BIDDING_PAGE_COUNT,
+  BIDDING_LIST_FETCH_EXTRA_PAGES: mutableEnv.BIDDING_LIST_FETCH_EXTRA_PAGES,
   REQUEST_TAB_PENDING_CONFIRMATION: mutableEnv.REQUEST_TAB_PENDING_CONFIRMATION,
   REQUEST_CTIME_START: mutableEnv.REQUEST_CTIME_START,
   BIDDING_VEHICLE_TYPE: mutableEnv.BIDDING_VEHICLE_TYPE,
@@ -254,11 +256,16 @@ async function main(): Promise<void> {
       }), { status: 200, headers: { "content-type": "application/json" } });
     };
 
-    const client = new ApiClient();
-    const pollResult = await client.fetch(2);
-    assert.equal(pollResult.success, false);
-    if (!pollResult.success) {
-      assert.match(pollResult.error ?? "", /Incomplete bidding list/);
+    mutableEnv.BIDDING_LIST_FETCH_EXTRA_PAGES = true;
+    try {
+      const client = new ApiClient();
+      const pollResult = await client.fetch(2);
+      assert.equal(pollResult.success, false);
+      if (!pollResult.success) {
+        assert.match(pollResult.error ?? "", /Incomplete bidding list/);
+      }
+    } finally {
+      mutableEnv.BIDDING_LIST_FETCH_EXTRA_PAGES = original.BIDDING_LIST_FETCH_EXTRA_PAGES;
     }
   } finally {
     globalThis.fetch = fetchBeforeFailedBiddingExtraPage;
