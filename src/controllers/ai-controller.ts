@@ -81,6 +81,7 @@ async function postOcrAdminCommand<TData>(command: OcrAdminCommand): Promise<TDa
     nodeSecret: env.OCR_NODE_SECRET,
     legacySharedSecret: env.OCR_SERVICE_ADMIN_SECRET,
     nodeEnv: env.NODE_ENV,
+    deploymentMode: env.DEPLOYMENT_MODE,
   });
   const signature = createInternalSignature({
     body,

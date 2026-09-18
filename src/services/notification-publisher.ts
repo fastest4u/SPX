@@ -36,10 +36,11 @@ export function resolveOutboundNodeSecret(input: {
   nodeSecret: string;
   legacySharedSecret: string;
   nodeEnv: string;
+  deploymentMode?: string;
 }): { secret: string; source: "node" | "legacy" } {
   const nodeSecret = input.nodeSecret.trim();
   const legacySharedSecret = input.legacySharedSecret.trim();
-  if (input.nodeEnv === "production") {
+  if (input.nodeEnv === "production" && input.deploymentMode !== "legacy") {
     if (nodeSecret === "") throw new Error("process-local node secret is required in production");
     return { secret: nodeSecret, source: "node" };
   }
@@ -105,8 +106,9 @@ function startWorkerSpoolDrainLoop(spool: NotificationSpool): void {
         entry,
         sharedSecret: resolveOutboundNodeSecret({
           nodeSecret: env.NOTIFICATION_NODE_SECRET,
-          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+          legacySharedSecret: env.NOTIFIER_SHARED_SECRET || env.SECRETS_KEY,
           nodeEnv: env.NODE_ENV,
+          deploymentMode: env.DEPLOYMENT_MODE,
         }).secret,
         nodeId: env.SPX_NODE_ID,
         requestTimeoutMs: env.NOTIFIER_REQUEST_TIMEOUT_MS,
@@ -135,8 +137,9 @@ export function createWorkerNotificationPublisher(): NotificationPublisher {
         url: env.NOTIFIER_API_URL,
         sharedSecret: resolveOutboundNodeSecret({
           nodeSecret: env.NOTIFICATION_NODE_SECRET,
-          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+          legacySharedSecret: env.NOTIFIER_SHARED_SECRET || env.SECRETS_KEY,
           nodeEnv: env.NODE_ENV,
+          deploymentMode: env.DEPLOYMENT_MODE,
         }).secret,
         nodeId: env.SPX_NODE_ID,
         eventKey: envelope.eventKey,

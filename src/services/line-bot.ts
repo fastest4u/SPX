@@ -979,6 +979,7 @@ function attachImageListener(c: LineJsClient): void {
           nodeSecret: env.OCR_NODE_SECRET,
           legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
           nodeEnv: env.NODE_ENV,
+          deploymentMode: env.DEPLOYMENT_MODE,
         }).secret,
         nodeId: env.SPX_NODE_ID || "combined-line-service",
         ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,

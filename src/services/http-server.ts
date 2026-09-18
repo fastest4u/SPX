@@ -475,7 +475,9 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
   if (options.surface === "notification-service" || legacyNotificationSurface) {
     await app.register(internalNotificationController, {
       prefix: "/internal",
-      sharedSecret: env.NODE_ENV === "production" ? undefined : env.NOTIFIER_SHARED_SECRET,
+      sharedSecret: env.NODE_ENV === "production" && env.DEPLOYMENT_MODE !== "legacy"
+        ? undefined
+        : (env.NOTIFIER_SHARED_SECRET || env.SECRETS_KEY),
       nodeSecrets: env.NOTIFICATION_NODE_SECRETS,
       allowedNodes: env.NOTIFICATION_ALLOWED_NODE_TEAMS,
       replayGuard: databaseReplayGuard,
