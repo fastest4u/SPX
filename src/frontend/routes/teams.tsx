@@ -45,7 +45,7 @@ import {
 } from '../components/ui/dialog'
 import { formatLineChatOptionLabel, getSelectableLineGroupChats, isRedactedSecretPreview, isSelectableLineGroupId } from '../lib/line-groups'
 import { formatDateTime } from '../lib/utils'
-import type { LineBotChat, Team, TeamInput, TeamSpxAccount, TeamSpxAccountInput } from '../types'
+import type { LineBotChat, Team, TeamInput, TeamSpxAccount } from '../types'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 
 export const Route = createFileRoute('/teams')({

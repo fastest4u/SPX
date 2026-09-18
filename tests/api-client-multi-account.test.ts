@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 
   // Test onSessionExpired hook trigger in accept
   // First, set headers to Acc2
-  (client as unknown as { headers: Record<string, string> }).headers;
+  assert.ok((client as unknown as { headers: Record<string, string> }).headers);
   assert.equal(client.currentCredentials?.accountId, 102);
 
   // Inspect read response with session expired retcode (e.g. 401)

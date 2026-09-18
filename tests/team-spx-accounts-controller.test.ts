@@ -10,7 +10,6 @@ async function main(): Promise<void> {
   const {
     teamsController,
     currentTeamController,
-    setTeamRuntimeActions,
   } = await import("../src/controllers/teams-controller.js");
 
   resetMemoryDb();
