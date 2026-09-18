@@ -360,7 +360,6 @@ export const runtimeStatusController: FastifyPluginAsync<RuntimeStatusController
           signal: AbortSignal.timeout(3000),
         });
         const latencyMs = Math.round(performance.now() - tReady);
-        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         checks.push({
           id: "line-ready",
           name: "LINE Bot Authentication & Webhook",
