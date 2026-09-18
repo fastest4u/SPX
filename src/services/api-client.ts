@@ -88,12 +88,18 @@ type ParsedReadResponse =
 export interface ApiClientCredentials {
   spxCookie: string;
   spxDeviceId: string;
+  spxAppName?: string;
+  spxReferer?: string;
+  accountId?: number;
+  accountName?: string;
 }
 
 export interface ApiClientOptions {
   metricsCollector?: MetricsCollector;
   credentials?: ApiClientCredentials;
   credentialsProvider?: () => ApiClientCredentials;
+  onRateLimit?: (accountId: number | undefined, retryAfterMs: number) => void;
+  onSessionExpired?: (accountId: number | undefined) => void;
   pollIntervalMsProvider?: () => number;
   /** Per-team vehicle type filter. Overrides env.BIDDING_VEHICLE_TYPE. null = no filter. */
   biddingVehicleType?: number | null;
@@ -344,9 +350,10 @@ function envCredentials(): ApiClientCredentials {
 }
 
 export function buildHeadersForRequest(credentials: ApiClientCredentials): Record<string, string> {
+  const referer = credentials.spxReferer || env.REFERER || "https://logistics.myagencyservice.in.th/";
   const origin = (() => {
     try {
-      return new URL(env.REFERER).origin;
+      return new URL(referer).origin;
     } catch {
       return "https://logistics.myagencyservice.in.th";
     }
@@ -366,7 +373,7 @@ export function buildHeadersForRequest(credentials: ApiClientCredentials): Recor
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "th,en;q=0.9",
-    app: env.APP_NAME || "Agency Portal",
+    app: credentials.spxAppName || env.APP_NAME || "Agency Portal",
     "content-type": "application/json;charset=UTF-8",
     "device-id": credentials.spxDeviceId,
     priority: "u=1, i",
@@ -379,7 +386,7 @@ export function buildHeadersForRequest(credentials: ApiClientCredentials): Recor
     origin,
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
     cookie: credentials.spxCookie,
-    referer: env.REFERER || "https://logistics.myagencyservice.in.th/",
+    referer,
   };
 }
 
@@ -406,6 +413,9 @@ export class ApiClient {
    */
   private readonly pollIntervalMsProvider: () => number;
   private readonly credentialsProvider: () => ApiClientCredentials;
+  private readonly onRateLimit: ((accountId: number | undefined, retryAfterMs: number) => void) | undefined;
+  private readonly onSessionExpired: ((accountId: number | undefined) => void) | undefined;
+  private lastUsedCredentials: ApiClientCredentials | null = null;
   /**
    * Per-team vehicle type filter.
    * number = filter by vehicle type. null/undefined = no filter (all types).
@@ -425,6 +435,8 @@ export class ApiClient {
       // Legacy constructor shape used by Poller tests.
       this.pollIntervalMsProvider = optionsOrPollIntervalMsProvider;
       this.credentialsProvider = envCredentials;
+      this.onRateLimit = undefined;
+      this.onSessionExpired = undefined;
       this.teamBiddingVehicleType = undefined;
       return;
     }
@@ -435,13 +447,21 @@ export class ApiClient {
         ?? (optionsOrPollIntervalMsProvider.credentials
           ? () => optionsOrPollIntervalMsProvider.credentials as ApiClientCredentials
           : envCredentials);
+    this.onRateLimit = optionsOrPollIntervalMsProvider.onRateLimit;
+    this.onSessionExpired = optionsOrPollIntervalMsProvider.onSessionExpired;
     this.teamBiddingVehicleType = "biddingVehicleType" in optionsOrPollIntervalMsProvider
       ? optionsOrPollIntervalMsProvider.biddingVehicleType
       : undefined;
   }
 
+  get currentCredentials(): ApiClientCredentials | null {
+    return this.lastUsedCredentials;
+  }
+
   private get headers(): Record<string, string> {
-    return buildHeadersForRequest(this.credentialsProvider());
+    const creds = this.credentialsProvider();
+    this.lastUsedCredentials = creds;
+    return buildHeadersForRequest(creds);
   }
 
   private buildBody(): BiddingRequest {
@@ -484,6 +504,7 @@ export class ApiClient {
     const retryAfterMs = parseRetryAfterMs(response, null);
     const delayMs = retryAfterMs ?? BASE_DELAY_MS + Math.random() * 500;
     this.readScheduler.deferFor(delayMs);
+    this.onRateLimit?.(this.lastUsedCredentials?.accountId, delayMs);
   }
 
   private recordBusinessRateLimit(response: Response, data: unknown): void {
@@ -500,6 +521,10 @@ export class ApiClient {
       const data: unknown = await response.json();
       this.parsedReadResponses.set(response, { ok: true, value: data });
       this.recordBusinessRateLimit(response, data);
+      const retcode = getRetcode(data);
+      if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
+        this.onSessionExpired?.(this.lastUsedCredentials?.accountId);
+      }
     } catch (error) {
       this.parsedReadResponses.set(response, { ok: false, error });
     }
@@ -975,6 +1000,7 @@ export class ApiClient {
       }
 
       if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
+        this.onSessionExpired?.(this.lastUsedCredentials?.accountId);
         return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}` };
       }
 

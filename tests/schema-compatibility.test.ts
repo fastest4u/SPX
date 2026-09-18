@@ -6,7 +6,7 @@ const released = JSON.parse(
   readFileSync("migrations/released-checksums.json", "utf8"),
 ) as Record<string, string>;
 const highest = Math.max(...Object.keys(released).map((name) => Number(name.slice(0, 3))));
-assert.equal(highest, 44, "compatibility fixtures must follow the exact candidate migration maximum");
+assert.equal(highest, 45, "compatibility fixtures must follow the exact candidate migration maximum");
 assert.deepEqual(
   assertSchemaCompatible({ current: highest, min: 35, max: highest, failed: [] }),
   { current: highest },

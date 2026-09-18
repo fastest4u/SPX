@@ -7,6 +7,7 @@ import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
 import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
 import { createTeamRuntimeSession, type TeamRuntimeSession } from "./provider-auth/runtime-session.js";
+import { TeamCredentialPool, getOrCreateTeamCredentialPool } from "./team-credential-pool.js";
 
 export type TeamRuntimeStatusValue = "stopped" | "running" | "paused" | "misconfigured" | "session_expired" | "error";
 
@@ -42,6 +43,8 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private readonly realtimeSource: RealtimeSource | undefined;
   private poller: Poller | null = null;
   private providerSession: TeamRuntimeSession | null = null;
+  private credentialPool: TeamCredentialPool | null = null;
+  private lastAccountReloadAt = 0;
   private statusValue: TeamRuntimeStatusValue = "stopped";
   private lastPollAt: string | null = null;
   private lastError: string | null = null;
@@ -55,23 +58,44 @@ export class TeamRuntime implements TeamRuntimeHandle {
     this.realtimeSource = options.realtimeSource;
   }
 
+  getCredentialPool(): TeamCredentialPool | null {
+    return this.credentialPool;
+  }
+
   async start(): Promise<void> {
     if (this.statusValue === "running" || this.statusValue === "paused") return;
-    if (!this.config.spxCookie || !this.config.spxDeviceId) {
+
+    const fallbackCredentials = (this.config.spxCookie && this.config.spxDeviceId)
+      ? { spxCookie: this.config.spxCookie, spxDeviceId: this.config.spxDeviceId }
+      : null;
+
+    this.credentialPool = await getOrCreateTeamCredentialPool(this.teamId, fallbackCredentials);
+
+    if (!this.credentialPool.hasCredentials()) {
       this.statusValue = "misconfigured";
       this.lastError = "Team SPX credentials are incomplete";
       return;
     }
 
     try {
-      this.providerSession = createTeamRuntimeSession(this.config.id, {
-        spxCookie: this.config.spxCookie,
-        spxDeviceId: this.config.spxDeviceId,
-      });
+      if (fallbackCredentials) {
+        this.providerSession = createTeamRuntimeSession(this.config.id, fallbackCredentials);
+      }
       const metricsCollector = teamMetricsCollector(this.teamId, this.teamName);
       const apiClient = new ApiClient({
         metricsCollector,
-        credentialsProvider: this.providerSession.credentials,
+        credentialsProvider: () => {
+          if (this.credentialPool && this.credentialPool.getAccountCount() > 0) {
+            return this.credentialPool.nextCredentials();
+          }
+          return this.providerSession ? this.providerSession.credentials() : this.credentialPool!.nextCredentials();
+        },
+        onRateLimit: (accountId, retryAfterMs) => {
+          this.credentialPool?.recordRateLimit(accountId, retryAfterMs);
+        },
+        onSessionExpired: (accountId) => {
+          this.credentialPool?.recordSessionExpired(accountId);
+        },
         pollIntervalMsProvider: () => this.intervalSec !== undefined ? this.intervalSec * 1000 : env.POLL_INTERVAL_MS,
         biddingVehicleType: this.config.biddingVehicleType,
       });
@@ -87,8 +111,15 @@ export class TeamRuntime implements TeamRuntimeHandle {
         closeSharedResourcesOnStop: false,
         exitOnStop: false,
         biddingVehicleType: this.config.biddingVehicleType,
-        beforePoll: this.providerSession.beforePoll,
-        onSessionRejected: this.providerSession.recover,
+        beforePoll: async () => {
+          const now = Date.now();
+          if (now - this.lastAccountReloadAt > 30_000) {
+            this.lastAccountReloadAt = now;
+            await this.credentialPool?.reloadAccounts();
+          }
+          return this.providerSession ? this.providerSession.beforePoll() : true;
+        },
+        onSessionRejected: this.providerSession ? this.providerSession.recover : async () => false,
         realtimePublisher: this.realtimePublisher,
         realtimeSource: this.realtimeSource,
       };
@@ -100,6 +131,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
     } catch (error) {
       this.providerSession?.dispose();
       this.providerSession = null;
+      this.credentialPool = null;
       this.statusValue = "error";
       this.lastError = error instanceof Error ? error.message : String(error);
       throw error;
@@ -109,6 +141,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
   async stop(): Promise<void> {
     this.providerSession?.dispose();
     this.providerSession = null;
+    this.credentialPool = null;
     if (this.poller) {
       await this.poller.stop(0);
       this.poller = null;

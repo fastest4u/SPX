@@ -30,6 +30,22 @@ export const teams = mysqlTable("teams", {
   nameIdx: index("teams_name_idx").on(table.name),
 }));
 
+export const teamSpxAccounts = mysqlTable("team_spx_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  teamId: int("team_id").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  spxCookie: varchar("spx_cookie", { length: 4000 }).notNull().default(""),
+  spxDeviceId: varchar("spx_device_id", { length: 1000 }).notNull().default(""),
+  spxAppName: varchar("spx_app_name", { length: 1000 }).notNull().default(""),
+  spxReferer: varchar("spx_referer", { length: 1000 }).notNull().default(""),
+  enabled: int("enabled").notNull().default(1),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  teamIdIdx: index("team_spx_accounts_team_id_idx").on(table.teamId),
+  teamEnabledIdx: index("team_spx_accounts_team_enabled_idx").on(table.teamId, table.enabled),
+}));
+
 
 export const spxBookingHistory = mysqlTable("spx_booking_history", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),

@@ -8,6 +8,7 @@ import { listTeamRuntimeDesiredStates } from "../repositories/runtime-repository
 import { getTeamRuntimeConfig } from "../repositories/team-repository.js";
 import { logger } from "../utils/logger.js";
 import { ApiClient } from "./api-client.js";
+import { getOrCreateTeamCredentialPool } from "./team-credential-pool.js";
 import type {
   AutoAcceptDryRunPayloadV1,
   AutoAcceptDryRunRuleState,
@@ -148,16 +149,23 @@ export async function loadAutoAcceptJobRealApiClientForTeam(
     logger.debug("auto-accept-job-real-worker-team-skipped", { teamId, reason: "team_not_found" });
     return null;
   }
-  if (!team.spxCookie || !team.spxDeviceId) {
+  const fallbackCredentials = (team.spxCookie && team.spxDeviceId)
+    ? { spxCookie: team.spxCookie, spxDeviceId: team.spxDeviceId }
+    : null;
+  const pool = await getOrCreateTeamCredentialPool(teamId, fallbackCredentials);
+  if (!pool.hasCredentials()) {
     logger.debug("auto-accept-job-real-worker-team-skipped", { teamId, reason: "missing_credentials" });
     return null;
   }
 
   return new ApiClient({
     metricsCollector: teamMetricsCollector(teamId, team.name),
-    credentials: {
-      spxCookie: team.spxCookie,
-      spxDeviceId: team.spxDeviceId,
+    credentialsProvider: () => pool.nextCredentials(),
+    onRateLimit: (accountId, retryAfterMs) => {
+      pool.recordRateLimit(accountId, retryAfterMs);
+    },
+    onSessionExpired: (accountId) => {
+      pool.recordSessionExpired(accountId);
     },
     pollIntervalMsProvider: () => env.POLL_INTERVAL_MS,
   });

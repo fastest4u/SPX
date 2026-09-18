@@ -289,6 +289,33 @@ export interface TeamInput {
   biddingVehicleType?: number | null;
 }
 
+export interface TeamSpxAccount {
+  id: number;
+  teamId: number;
+  name: string;
+  hasSpxCookie: boolean;
+  hasSpxDeviceId: boolean;
+  spxCookiePreview: string;
+  spxDeviceIdPreview: string;
+  spxAppName?: string;
+  spxReferer?: string;
+  enabled: boolean;
+  isRateLimited?: boolean;
+  rateLimitedUntil?: number | null;
+  isSessionExpired?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamSpxAccountInput {
+  name: string;
+  spxCookie?: string;
+  spxDeviceId?: string;
+  spxAppName?: string;
+  spxReferer?: string;
+  enabled?: boolean;
+}
+
 export type ProviderAuthState = 'manual' | 'connected' | 'connecting' | 'attention' | 'retry_wait';
 
 export type ProviderAuthErrorCode =

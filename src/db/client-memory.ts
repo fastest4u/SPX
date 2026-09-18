@@ -83,6 +83,22 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS teams_enabled_idx ON teams(enabled);
     CREATE INDEX IF NOT EXISTS teams_name_idx ON teams(name);
 
+    CREATE TABLE IF NOT EXISTS team_spx_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      team_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      spx_cookie TEXT NOT NULL DEFAULT '',
+      spx_device_id TEXT NOT NULL DEFAULT '',
+      spx_app_name TEXT NOT NULL DEFAULT '',
+      spx_referer TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS team_spx_accounts_team_id_idx ON team_spx_accounts(team_id);
+    CREATE INDEX IF NOT EXISTS team_spx_accounts_team_enabled_idx ON team_spx_accounts(team_id, enabled);
+
     CREATE TABLE IF NOT EXISTS spx_booking_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       team_id INTEGER NOT NULL DEFAULT 1,

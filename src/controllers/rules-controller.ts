@@ -12,7 +12,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-const MAX_FILTER_ENTRIES = 50;
+const MAX_FILTER_ENTRIES = 200;
 
 function clampStringArray(value: unknown): string[] {
   if (!isStringArray(value)) return [];
