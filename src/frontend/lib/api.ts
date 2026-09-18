@@ -16,6 +16,7 @@ import type {
   CodexDeviceAuthStart,
   CodexDeviceAuthStatus,
   CreateUserInput,
+  DiagnosticsResponse,
   HealthResponse,
   HistoryFilterQuery,
   HistoryFilterOptions,
@@ -40,6 +41,8 @@ import type {
   RuleInput,
   RulePatch,
   RulePreviewResult,
+  ServiceActionResult,
+  ServicesStatusResponse,
   SettingsResponse,
   Team,
   TeamInput,
@@ -908,3 +911,25 @@ export const aiApi = {
       body: JSON.stringify({}),
     }),
 }
+
+export const servicesHealthApi = {
+  getStatus: (): Promise<ServicesStatusResponse> =>
+    fetchJson<ServicesStatusResponse>(`${API_BASE}/runtime/services`),
+
+  runDiagnostics: (): Promise<DiagnosticsResponse> =>
+    fetchJson<DiagnosticsResponse>(`${API_BASE}/runtime/services/diagnose`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  executeAction: (
+    serviceId: string,
+    action: 'ping' | 'restart',
+    reason?: string,
+  ): Promise<ServiceActionResult> =>
+    fetchJson<ServiceActionResult>(`${API_BASE}/runtime/services/${serviceId}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    }),
+}
+
