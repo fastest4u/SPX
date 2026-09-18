@@ -697,6 +697,10 @@ export class ApiClient {
     priority: ProviderReadPriority,
     admissionGuard?: ProviderReadAdmissionGuard,
   ): Promise<ApiResponse | null> {
+    if (!env.BIDDING_LIST_FETCH_EXTRA_PAGES) {
+      return firstPage;
+    }
+
     const firstList = firstPage.data.list;
     const total = safeTotal(firstPage.data.total);
     if (firstList.length >= total) {

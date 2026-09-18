@@ -42,6 +42,7 @@ async function main() {
     API_URL: "https://provider.example.test/booking/bidding/list",
     BOOKING_DETAIL_CONCURRENCY: 4,
     BOOKING_REPROCESS_COOLDOWN_MS: 0,
+    BIDDING_LIST_FETCH_EXTRA_PAGES: true,
   });
   Poller.prototype.start = async function () {
     const inner = this as unknown as Inner;

@@ -8,11 +8,17 @@ const page = (pageno = 1, total = 2) => ({ retcode: 0, message: "", data: { page
 function fetchList(client: ApiClient, callback: (page: ApiResponse, observed: number) => void) {
   return (client.fetch as (n: number, options: { onFirstPage: typeof callback }) => ReturnType<ApiClient["fetch"]>).call(client, 1, { onFirstPage: callback });
 }
-async function fixture(run: () => Promise<void>) {
+async function fixture(run: () => Promise<void>, extraEnv?: Record<string, unknown>) {
   const originalFetch = globalThis.fetch;
   const originalUrl = env.API_URL;
-  Object.assign(env, { API_URL: "https://spx.example.test/booking/bidding/list" });
-  try { await run(); } finally { globalThis.fetch = originalFetch; Object.assign(env, { API_URL: originalUrl }); }
+  const originalExtraPages = env.BIDDING_LIST_FETCH_EXTRA_PAGES;
+  Object.assign(env, { API_URL: "https://spx.example.test/booking/bidding/list", ...extraEnv });
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.assign(env, { API_URL: originalUrl, BIDDING_LIST_FETCH_EXTRA_PAGES: originalExtraPages });
+  }
 }
 
 test("validated first page is observed before gated aggregate; failed extra page stays unsuccessful", async () => fixture(async () => {
@@ -41,7 +47,23 @@ test("validated first page is observed before gated aggregate; failed extra page
     assert.deepEqual(observed, [1]);
     if (result.success) assert.equal(result.data.data.list.length, 2);
   }
-}));
+}, { BIDDING_LIST_FETCH_EXTRA_PAGES: true }));
+
+test("bidding list only fetches first page when BIDDING_LIST_FETCH_EXTRA_PAGES is false", async () => fixture(async () => {
+  let fetchCalls = 0;
+  globalThis.fetch = async (_url, init) => {
+    fetchCalls++;
+    const pageno = JSON.parse(String(init?.body)).pageno;
+    assert.equal(pageno, 1, "poller should not request page > 1 when extra pages are disabled");
+    return new Response(JSON.stringify(page(1, 100)));
+  };
+  const result = await new ApiClient({ pollIntervalMsProvider: () => 150 }).fetch(1);
+  assert.equal(result.success, true);
+  assert.equal(fetchCalls, 1);
+  if (result.success) {
+    assert.equal(result.data.data.list.length, 1);
+  }
+}, { BIDDING_LIST_FETCH_EXTRA_PAGES: false }));
 
 test("invalid and rejected first pages never invoke callback", async () => fixture(async () => {
   for (const payload of [{ ...page(1, 1), retcode: 10001 }, { ...page(1, 1), retcode: 130008001 }, { ...page(1, 1), retcode: 42 }, { retcode: 0, message: "", data: {} }]) {
