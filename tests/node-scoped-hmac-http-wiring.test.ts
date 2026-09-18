@@ -13,7 +13,7 @@ assert.match(notificationRegistration, /nodeSecrets:\s*env\.NOTIFICATION_NODE_SE
 assert.match(notificationRegistration, /allowedNodes:\s*env\.NOTIFICATION_ALLOWED_NODE_TEAMS/);
 assert.match(
   notificationRegistration,
-  /sharedSecret:\s*env\.NODE_ENV\s*===\s*"production"\s*\?\s*undefined\s*:\s*env\.NOTIFIER_SHARED_SECRET/,
+  /sharedSecret:\s*env\.NODE_ENV\s*===\s*"production"\s*&&\s*env\.DEPLOYMENT_MODE\s*!==\s*"legacy"\s*\?\s*undefined\s*:\s*\(?env\.NOTIFIER_SHARED_SECRET/,
 );
 assert.doesNotMatch(notificationRegistration, /sharedSecret:\s*env\.NOTIFIER_SHARED_SECRET\s*[,\n]/);
 

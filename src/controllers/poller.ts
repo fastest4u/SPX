@@ -461,8 +461,9 @@ export class Poller {
       url,
       sharedSecret: resolveOutboundNodeSecret({
         nodeSecret: env.NOTIFICATION_NODE_SECRET,
-        legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+        legacySharedSecret: env.NOTIFIER_SHARED_SECRET || env.SECRETS_KEY,
         nodeEnv: env.NODE_ENV,
+        deploymentMode: env.DEPLOYMENT_MODE,
       }).secret,
       nodeId: env.SPX_NODE_ID,
       snapshot,
@@ -684,11 +685,13 @@ export class Poller {
     const adhocBookings = bookings.filter((b) => isAdhocBookingName(b.booking_name));
     const now = Date.now();
     if (now < this.rateLimitPausedUntil) {
+      const remainingMs = this.rateLimitPausedUntil - now;
       logger.info("booking-details-paused-for-rate-limit", {
         teamId: this.teamId,
-        remainingMs: this.rateLimitPausedUntil - now,
+        remainingMs,
       });
-      return;
+      await new Promise((resolve) => setTimeout(resolve, remainingMs));
+      if (this.stopped || isTeamPaused(this.teamId)) return;
     }
 
     // Priority sort: origin-matching bookings first
