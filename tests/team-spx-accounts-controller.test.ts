@@ -156,6 +156,17 @@ async function main(): Promise<void> {
   const team2List = await app.inject({ method: "GET", url: `/teams/${team2.id}/spx-accounts` });
   assert.equal(team2List.json().data.length, 0);
 
+  // Verify validation error when creating without password and without cookie:
+  const invalidCreate = await app.inject({
+    method: "POST",
+    url: "/team/spx-accounts",
+    payload: {
+      email: "driver4@gmail.com",
+    },
+  });
+  assert.equal(invalidCreate.statusCode, 400);
+  assert.equal(invalidCreate.json().error_code, "VALIDATION_ERROR");
+
   console.log("team-spx-accounts-controller: all assertions passed");
 }
 

@@ -14,6 +14,7 @@ import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser } from "../services/authz.js";
 import type { TeamRuntimeStatusValue } from "../services/team-runtime.js";
 import { requireTeamUser } from "../services/team-scope.js";
+import { loginProvider, ProviderAuthError } from "../services/provider-auth/client.js";
 import { sendError, sendSuccess } from "../utils/response.js";
 
 type RuntimeTeamAction = (teamId: number) => Promise<unknown>;
@@ -280,6 +281,122 @@ const enabledBodySchema = {
   },
 } as const;
 
+interface ResolvedAccountCredentials {
+  name?: string;
+  spxCookie?: string;
+  spxDeviceId?: string;
+  spxAppName?: string;
+  spxReferer?: string;
+  enabled?: boolean;
+}
+
+async function resolveAccountCredentials(
+  body: Record<string, unknown>,
+  isCreate: boolean,
+): Promise<
+  | { success: true; data: ResolvedAccountCredentials }
+  | { success: false; statusCode: number; errorCode: string; message: string }
+> {
+  const rawEmail = typeof body?.email === "string" ? body.email.trim() : "";
+  const rawPassword = typeof body?.password === "string" ? body.password : "";
+  const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+  const enabled = typeof body?.enabled === "boolean" ? body.enabled : undefined;
+
+  let spxCookie = typeof body?.spxCookie === "string" ? body.spxCookie.trim() : undefined;
+  let spxDeviceId = typeof body?.spxDeviceId === "string" ? body.spxDeviceId.trim() : undefined;
+  const spxAppName = typeof body?.spxAppName === "string" ? body.spxAppName.trim() : (isCreate ? "SPX Express" : undefined);
+  const spxReferer = typeof body?.spxReferer === "string" ? body.spxReferer.trim() : (isCreate ? "https://spx.co.th/" : undefined);
+
+  if (rawPassword) {
+    const loginEmail = rawEmail || (rawName.includes("@") ? rawName : "");
+    if (!loginEmail) {
+      return {
+        success: false,
+        statusCode: 400,
+        errorCode: "VALIDATION_ERROR",
+        message: "กรุณาระบุอีเมลสำหรับเข้าสู่ระบบ SPX",
+      };
+    }
+    try {
+      const session = await loginProvider({ email: loginEmail, password: rawPassword });
+      spxCookie = session.cookie;
+      spxDeviceId = session.deviceId;
+    } catch (err) {
+      if (err instanceof ProviderAuthError) {
+        if (err.code === "invalid_credentials") {
+          return {
+            success: false,
+            statusCode: 401,
+            errorCode: "INVALID_CREDENTIALS",
+            message: "อีเมลหรือรหัสผ่าน SPX ไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่อีกครั้ง",
+          };
+        }
+        if (err.code === "challenge_required") {
+          return {
+            success: false,
+            statusCode: 400,
+            errorCode: "CHALLENGE_REQUIRED",
+            message: "ผู้ให้บริการต้องการยืนยันตัวตน (Captcha/Challenge) กรุณาเข้าสู่ MyAgencyService เพื่อยืนยันตัวตนให้เสร็จสิ้นก่อน",
+          };
+        }
+        if (err.code === "rate_limited") {
+          return {
+            success: false,
+            statusCode: 429,
+            errorCode: "RATE_LIMITED",
+            message: "บัญชีนี้ถูกจำกัดการลองใหม่ชั่วคราว กรุณารอสักครู่",
+          };
+        }
+        return {
+          success: false,
+          statusCode: 400,
+          errorCode: "AUTH_FAILED",
+          message: `เข้าสู่ระบบ SPX ไม่สำเร็จ (${err.code})`,
+        };
+      }
+      return {
+        success: false,
+        statusCode: 500,
+        errorCode: "LOGIN_ERROR",
+        message: err instanceof Error ? err.message : "เข้าสู่ระบบ SPX ไม่สำเร็จ",
+      };
+    }
+  }
+
+  const name = rawName || rawEmail;
+
+  if (isCreate) {
+    if (!name) {
+      return {
+        success: false,
+        statusCode: 400,
+        errorCode: "VALIDATION_ERROR",
+        message: "กรุณาระบุอีเมลหรือชื่อบัญชี SPX",
+      };
+    }
+    if (!spxCookie) {
+      return {
+        success: false,
+        statusCode: 400,
+        errorCode: "VALIDATION_ERROR",
+        message: "กรุณาระบุรหัสผ่านเพื่อเข้าสู่ระบบ SPX",
+      };
+    }
+  }
+
+  return {
+    success: true,
+    data: {
+      name: name || undefined,
+      spxCookie,
+      spxDeviceId,
+      spxAppName,
+      spxReferer,
+      enabled: enabled ?? (isCreate ? true : undefined),
+    },
+  };
+}
+
 export const currentTeamController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
     const teamId = requireTeamUser(req);
@@ -317,17 +434,19 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
   app.post("/spx-accounts", async (req, reply) => {
     const teamId = requireTeamUser(req);
     const body = req.body as Record<string, unknown>;
-    const name = typeof body?.name === "string" ? body.name.trim() : "";
-    if (!name) return sendError(reply, 400, "VALIDATION_ERROR", "Account name is required");
+    const resolved = await resolveAccountCredentials(body, true);
+    if (!resolved.success) {
+      return sendError(reply, resolved.statusCode, resolved.errorCode, resolved.message);
+    }
 
     const created = await createAccount({
       teamId,
-      name,
-      spxCookie: typeof body.spxCookie === "string" ? body.spxCookie : undefined,
-      spxDeviceId: typeof body.spxDeviceId === "string" ? body.spxDeviceId : undefined,
-      spxAppName: typeof body.spxAppName === "string" ? body.spxAppName : undefined,
-      spxReferer: typeof body.spxReferer === "string" ? body.spxReferer : undefined,
-      enabled: typeof body.enabled === "boolean" ? body.enabled : true,
+      name: resolved.data.name ?? "SPX Account",
+      spxCookie: resolved.data.spxCookie ?? "",
+      spxDeviceId: resolved.data.spxDeviceId,
+      spxAppName: resolved.data.spxAppName,
+      spxReferer: resolved.data.spxReferer,
+      enabled: resolved.data.enabled ?? true,
     });
 
     const pool = await getOrCreateTeamCredentialPool(teamId);
@@ -353,13 +472,18 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
     if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
 
     const body = req.body as Record<string, unknown>;
+    const resolved = await resolveAccountCredentials(body, false);
+    if (!resolved.success) {
+      return sendError(reply, resolved.statusCode, resolved.errorCode, resolved.message);
+    }
+
     const patch: UpdateTeamSpxAccountInput = {};
-    if (typeof body.name === "string") patch.name = body.name.trim();
-    if (typeof body.spxCookie === "string") patch.spxCookie = body.spxCookie;
-    if (typeof body.spxDeviceId === "string") patch.spxDeviceId = body.spxDeviceId;
-    if (typeof body.spxAppName === "string") patch.spxAppName = body.spxAppName;
-    if (typeof body.spxReferer === "string") patch.spxReferer = body.spxReferer;
-    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    if (resolved.data.name !== undefined) patch.name = resolved.data.name;
+    if (resolved.data.spxCookie !== undefined) patch.spxCookie = resolved.data.spxCookie;
+    if (resolved.data.spxDeviceId !== undefined) patch.spxDeviceId = resolved.data.spxDeviceId;
+    if (resolved.data.spxAppName !== undefined) patch.spxAppName = resolved.data.spxAppName;
+    if (resolved.data.spxReferer !== undefined) patch.spxReferer = resolved.data.spxReferer;
+    if (typeof resolved.data.enabled === "boolean") patch.enabled = resolved.data.enabled;
 
     const updated = await updateAccount(accountId, patch);
     const pool = await getOrCreateTeamCredentialPool(teamId);
@@ -526,17 +650,19 @@ export const teamsController: FastifyPluginAsync = async (app) => {
     if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
 
     const body = req.body as Record<string, unknown>;
-    const name = typeof body?.name === "string" ? body.name.trim() : "";
-    if (!name) return sendError(reply, 400, "VALIDATION_ERROR", "Account name is required");
+    const resolved = await resolveAccountCredentials(body, true);
+    if (!resolved.success) {
+      return sendError(reply, resolved.statusCode, resolved.errorCode, resolved.message);
+    }
 
     const created = await createAccount({
       teamId,
-      name,
-      spxCookie: typeof body.spxCookie === "string" ? body.spxCookie : undefined,
-      spxDeviceId: typeof body.spxDeviceId === "string" ? body.spxDeviceId : undefined,
-      spxAppName: typeof body.spxAppName === "string" ? body.spxAppName : undefined,
-      spxReferer: typeof body.spxReferer === "string" ? body.spxReferer : undefined,
-      enabled: typeof body.enabled === "boolean" ? body.enabled : true,
+      name: resolved.data.name ?? "SPX Account",
+      spxCookie: resolved.data.spxCookie ?? "",
+      spxDeviceId: resolved.data.spxDeviceId,
+      spxAppName: resolved.data.spxAppName,
+      spxReferer: resolved.data.spxReferer,
+      enabled: resolved.data.enabled ?? true,
     });
 
     const pool = await getOrCreateTeamCredentialPool(teamId);
@@ -565,13 +691,18 @@ export const teamsController: FastifyPluginAsync = async (app) => {
     if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
 
     const body = req.body as Record<string, unknown>;
+    const resolved = await resolveAccountCredentials(body, false);
+    if (!resolved.success) {
+      return sendError(reply, resolved.statusCode, resolved.errorCode, resolved.message);
+    }
+
     const patch: UpdateTeamSpxAccountInput = {};
-    if (typeof body.name === "string") patch.name = body.name.trim();
-    if (typeof body.spxCookie === "string") patch.spxCookie = body.spxCookie;
-    if (typeof body.spxDeviceId === "string") patch.spxDeviceId = body.spxDeviceId;
-    if (typeof body.spxAppName === "string") patch.spxAppName = body.spxAppName;
-    if (typeof body.spxReferer === "string") patch.spxReferer = body.spxReferer;
-    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    if (resolved.data.name !== undefined) patch.name = resolved.data.name;
+    if (resolved.data.spxCookie !== undefined) patch.spxCookie = resolved.data.spxCookie;
+    if (resolved.data.spxDeviceId !== undefined) patch.spxDeviceId = resolved.data.spxDeviceId;
+    if (resolved.data.spxAppName !== undefined) patch.spxAppName = resolved.data.spxAppName;
+    if (resolved.data.spxReferer !== undefined) patch.spxReferer = resolved.data.spxReferer;
+    if (typeof resolved.data.enabled === "boolean") patch.enabled = resolved.data.enabled;
 
     const updated = await updateAccount(accountId, patch);
     const pool = await getOrCreateTeamCredentialPool(teamId);
