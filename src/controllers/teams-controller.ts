@@ -1,6 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
 import { listTeamRuntimeDesiredStates, listTeamRuntimeLeases, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
 import { createTeam, disableTeam, getTeamById, listTeams, updateTeam, type TeamInput, type TeamPatch } from "../repositories/team-repository.js";
+import {
+  createAccount,
+  deleteAccount,
+  getAccountById,
+  listAccountsByTeam,
+  updateAccount,
+  type UpdateTeamSpxAccountInput,
+} from "../repositories/team-spx-account-repository.js";
+import { getOrCreateTeamCredentialPool } from "../services/team-credential-pool.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser } from "../services/authz.js";
 import type { TeamRuntimeStatusValue } from "../services/team-runtime.js";
@@ -55,8 +64,32 @@ interface IdParams {
   id: string;
 }
 
+interface TeamAccountParams {
+  id: string;
+  accountId: string;
+}
+
+interface OwnTeamAccountParams {
+  accountId: string;
+}
+
 interface EnabledBody {
   enabled: boolean;
+}
+
+async function listTeamAccountsWithStatus(teamId: number) {
+  const accounts = await listAccountsByTeam(teamId);
+  const pool = await getOrCreateTeamCredentialPool(teamId);
+  const statuses = new Map(pool.getAccountsStatus().map((s) => [s.id, s]));
+  return accounts.map((account) => {
+    const status = statuses.get(account.id);
+    return {
+      ...account,
+      isRateLimited: status?.isRateLimited ?? false,
+      rateLimitedUntil: status?.rateLimitedUntil ?? null,
+      isSessionExpired: status?.isSessionExpired ?? false,
+    };
+  });
 }
 
 function currentUser(req: { user?: unknown }): AuthUser {
@@ -275,6 +308,116 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
     );
     return sendSuccess(reply, await withRuntimeStatus(team), "Team enabled state updated");
   });
+
+  app.get("/spx-accounts", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    return sendSuccess(reply, await listTeamAccountsWithStatus(teamId));
+  });
+
+  app.post("/spx-accounts", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const body = req.body as Record<string, unknown>;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return sendError(reply, 400, "VALIDATION_ERROR", "Account name is required");
+
+    const created = await createAccount({
+      teamId,
+      name,
+      spxCookie: typeof body.spxCookie === "string" ? body.spxCookie : undefined,
+      spxDeviceId: typeof body.spxDeviceId === "string" ? body.spxDeviceId : undefined,
+      spxAppName: typeof body.spxAppName === "string" ? body.spxAppName : undefined,
+      spxReferer: typeof body.spxReferer === "string" ? body.spxReferer : undefined,
+      enabled: typeof body.enabled === "boolean" ? body.enabled : true,
+    });
+
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    const user = currentUser(req);
+    await insertAuditLog(
+      user.username,
+      "Create Team SPX Account",
+      `Created SPX account ${created.id} (${created.name}) for own team ${teamId}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, created, "SPX account created", 201);
+  });
+
+  app.put<{ Params: OwnTeamAccountParams }>("/spx-accounts/:accountId", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const accountId = parseId(req.params.accountId);
+    if (!accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid account id");
+
+    const existing = await getAccountById(accountId);
+    if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
+
+    const body = req.body as Record<string, unknown>;
+    const patch: UpdateTeamSpxAccountInput = {};
+    if (typeof body.name === "string") patch.name = body.name.trim();
+    if (typeof body.spxCookie === "string") patch.spxCookie = body.spxCookie;
+    if (typeof body.spxDeviceId === "string") patch.spxDeviceId = body.spxDeviceId;
+    if (typeof body.spxAppName === "string") patch.spxAppName = body.spxAppName;
+    if (typeof body.spxReferer === "string") patch.spxReferer = body.spxReferer;
+    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+
+    const updated = await updateAccount(accountId, patch);
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    const user = currentUser(req);
+    await insertAuditLog(
+      user.username,
+      "Update Team SPX Account",
+      `Updated SPX account ${accountId} for own team ${teamId}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, updated, "SPX account updated");
+  });
+
+  app.delete<{ Params: OwnTeamAccountParams }>("/spx-accounts/:accountId", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const accountId = parseId(req.params.accountId);
+    if (!accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid account id");
+
+    const existing = await getAccountById(accountId);
+    if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
+
+    await deleteAccount(accountId);
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    const user = currentUser(req);
+    await insertAuditLog(
+      user.username,
+      "Delete Team SPX Account",
+      `Deleted SPX account ${accountId} from own team ${teamId}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, null, "SPX account deleted");
+  });
+
+  app.post<{ Params: OwnTeamAccountParams }>("/spx-accounts/:accountId/reset-rate-limit", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const accountId = parseId(req.params.accountId);
+    if (!accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid account id");
+
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    pool.clearRateLimits();
+    pool.clearSessionExpired(accountId);
+
+    const user = currentUser(req);
+    await insertAuditLog(
+      user.username,
+      "Reset Account Rate Limit",
+      `Reset rate limit for SPX account ${accountId} in own team ${teamId}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, null, "Account rate limit reset");
+  });
 };
 
 export const teamsController: FastifyPluginAsync = async (app) => {
@@ -366,5 +509,122 @@ export const teamsController: FastifyPluginAsync = async (app) => {
     await insertAuditLog(currentUser(req).username, "Resume Team Poller", `Resumed team ${id}`);
     const team = await getTeamById(id);
     return sendSuccess(reply, team ? await withRuntimeStatus(team) : null, "Team poller resumed");
+  });
+
+  app.get<{ Params: IdParams }>("/:id/spx-accounts", async (req, reply) => {
+    const id = parseId(req.params.id);
+    if (!id) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+    const team = await getTeamById(id);
+    if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+    return sendSuccess(reply, await listTeamAccountsWithStatus(id));
+  });
+
+  app.post<{ Params: IdParams }>("/:id/spx-accounts", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    if (!teamId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+    const team = await getTeamById(teamId);
+    if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+
+    const body = req.body as Record<string, unknown>;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return sendError(reply, 400, "VALIDATION_ERROR", "Account name is required");
+
+    const created = await createAccount({
+      teamId,
+      name,
+      spxCookie: typeof body.spxCookie === "string" ? body.spxCookie : undefined,
+      spxDeviceId: typeof body.spxDeviceId === "string" ? body.spxDeviceId : undefined,
+      spxAppName: typeof body.spxAppName === "string" ? body.spxAppName : undefined,
+      spxReferer: typeof body.spxReferer === "string" ? body.spxReferer : undefined,
+      enabled: typeof body.enabled === "boolean" ? body.enabled : true,
+    });
+
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    if (team.enabled) {
+      await runtimeActions.restartTeam?.(teamId);
+    }
+
+    await insertAuditLog(
+      currentUser(req).username,
+      "Create Team SPX Account",
+      `Created SPX account ${created.id} (${created.name}) for team ${teamId}`,
+      { targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, created, "SPX account created", 201);
+  });
+
+  app.put<{ Params: TeamAccountParams }>("/:id/spx-accounts/:accountId", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    const accountId = parseId(req.params.accountId);
+    if (!teamId || !accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team or account id");
+
+    const existing = await getAccountById(accountId);
+    if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
+
+    const body = req.body as Record<string, unknown>;
+    const patch: UpdateTeamSpxAccountInput = {};
+    if (typeof body.name === "string") patch.name = body.name.trim();
+    if (typeof body.spxCookie === "string") patch.spxCookie = body.spxCookie;
+    if (typeof body.spxDeviceId === "string") patch.spxDeviceId = body.spxDeviceId;
+    if (typeof body.spxAppName === "string") patch.spxAppName = body.spxAppName;
+    if (typeof body.spxReferer === "string") patch.spxReferer = body.spxReferer;
+    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+
+    const updated = await updateAccount(accountId, patch);
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    await insertAuditLog(
+      currentUser(req).username,
+      "Update Team SPX Account",
+      `Updated SPX account ${accountId} for team ${teamId}`,
+      { targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, updated, "SPX account updated");
+  });
+
+  app.delete<{ Params: TeamAccountParams }>("/:id/spx-accounts/:accountId", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    const accountId = parseId(req.params.accountId);
+    if (!teamId || !accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team or account id");
+
+    const existing = await getAccountById(accountId);
+    if (!existing || existing.teamId !== teamId) return sendError(reply, 404, "NOT_FOUND", "SPX account not found");
+
+    await deleteAccount(accountId);
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    await pool.reloadAccounts();
+
+    await insertAuditLog(
+      currentUser(req).username,
+      "Delete Team SPX Account",
+      `Deleted SPX account ${accountId} from team ${teamId}`,
+      { targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, null, "SPX account deleted");
+  });
+
+  app.post<{ Params: TeamAccountParams }>("/:id/spx-accounts/:accountId/reset-rate-limit", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    const accountId = parseId(req.params.accountId);
+    if (!teamId || !accountId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team or account id");
+
+    const pool = await getOrCreateTeamCredentialPool(teamId);
+    pool.clearRateLimits();
+    pool.clearSessionExpired(accountId);
+
+    await insertAuditLog(
+      currentUser(req).username,
+      "Reset Account Rate Limit",
+      `Reset rate limit for SPX account ${accountId} in team ${teamId}`,
+      { targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, null, "Account rate limit reset");
   });
 };

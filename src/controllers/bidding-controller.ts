@@ -3,6 +3,7 @@ import { insertAuditLog } from "../repositories/audit-repository.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import { getTeamRuntimeConfig, type TeamRuntimeConfig } from "../repositories/team-repository.js";
 import { ApiClient } from "../services/api-client.js";
+import { getOrCreateTeamCredentialPool, type TeamCredentialPool } from "../services/team-credential-pool.js";
 import { sendAutoAcceptSuccessNotification } from "../services/notifier.js";
 import { requireRequestUser, resolveScopedTeamId } from "../services/team-scope.js";
 import { extractAllRequestListTrips, type ExtractedTripInfo } from "../utils/booking-extractor.js";
@@ -31,7 +32,7 @@ function uniquePositiveIntegers(values: unknown): number[] {
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
 }
 
-async function getEnabledTeamRuntimeConfig(teamId: number): Promise<TeamRuntimeConfig> {
+async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{ team: TeamRuntimeConfig; pool: TeamCredentialPool }> {
   const team = await getTeamRuntimeConfig(teamId);
   if (!team) {
     throw new AppError("Team not found", 404, "TEAM_NOT_FOUND");
@@ -39,23 +40,31 @@ async function getEnabledTeamRuntimeConfig(teamId: number): Promise<TeamRuntimeC
   if (!team.enabled) {
     throw new AppError("Team is disabled", 400, "TEAM_DISABLED");
   }
-  if (!team.spxCookie || !team.spxDeviceId) {
+  const fallback = (team.spxCookie && team.spxDeviceId)
+    ? { spxCookie: team.spxCookie, spxDeviceId: team.spxDeviceId }
+    : null;
+  const pool = await getOrCreateTeamCredentialPool(teamId, fallback);
+  if (!pool.hasCredentials()) {
     throw new AppError("Team SPX credentials are incomplete", 400, "TEAM_CREDENTIALS_REQUIRED");
   }
-  return team;
+  return { team, pool };
 }
 
-function apiClientForTeam(team: TeamRuntimeConfig): ApiClient {
+function apiClientForTeam(pool: TeamCredentialPool): ApiClient {
   return new ApiClient({
-    credentials: {
-      spxCookie: team.spxCookie,
-      spxDeviceId: team.spxDeviceId,
+    credentialsProvider: () => pool.nextCredentials(),
+    onRateLimit: (accountId, retryAfterMs) => {
+      pool.recordRateLimit(accountId, retryAfterMs);
+    },
+    onSessionExpired: (accountId) => {
+      pool.recordSessionExpired(accountId);
     },
   });
 }
 
 async function getApiClientForTeam(teamId: number): Promise<ApiClient> {
-  return apiClientForTeam(await getEnabledTeamRuntimeConfig(teamId));
+  const { pool } = await getEnabledTeamRuntimeConfig(teamId);
+  return apiClientForTeam(pool);
 }
 
 function acceptAllSuccessCount(response: { data?: unknown } | null): number {
@@ -214,8 +223,8 @@ export const biddingController: FastifyPluginAsync = async (app) => {
 
     const validBookingId: number = bookingId;
     const teamId = req.body.teamId;
-    const team = await getEnabledTeamRuntimeConfig(teamId);
-    const apiClient = apiClientForTeam(team);
+    const { team, pool } = await getEnabledTeamRuntimeConfig(teamId);
+    const apiClient = apiClientForTeam(pool);
     const bookingContext = { booking_id: validBookingId, booking_name: `booking_id=${validBookingId}`, agency_name: "" };
     let previouslyAcceptedRequestIds = new Set<number>();
     let beforeReconcileSucceeded = false;

@@ -164,6 +164,10 @@
     "044_create_realtime_execution_metrics.sql": {
       "sha256": "2c278431ae369c1ba8067a34dc42d3aafd074234801ffc10dc1051f51ae03b01",
       "class": "expand"
+    },
+    "045_create_team_spx_accounts.sql": {
+      "sha256": "e0cda7277926dbb302aa290825eb54b606e356c1b0901b2a5bda15ff246bbb2b",
+      "class": "expand"
     }
   }
 }

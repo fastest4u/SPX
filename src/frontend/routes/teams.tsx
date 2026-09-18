@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Search,
   Smartphone,
+  Trash2,
   Truck,
   Users,
   X,
@@ -44,7 +45,7 @@ import {
 } from '../components/ui/dialog'
 import { formatLineChatOptionLabel, getSelectableLineGroupChats, isRedactedSecretPreview, isSelectableLineGroupId } from '../lib/line-groups'
 import { formatDateTime } from '../lib/utils'
-import type { LineBotChat, Team, TeamInput } from '../types'
+import type { LineBotChat, Team, TeamInput, TeamSpxAccount, TeamSpxAccountInput } from '../types'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 
 export const Route = createFileRoute('/teams')({
@@ -213,6 +214,7 @@ function LineGroupField({
 
 function TeamsComponent() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
+  const [accountsTeam, setAccountsTeam] = useState<Team | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<TeamFilter>('all')
@@ -329,33 +331,26 @@ function TeamsComponent() {
         </div>
       </FilterPanel>
 
-      <ContentSection className="rounded-[8px] bg-card/80 shadow-none" contentClassName="p-4 sm:p-5">
-          {isError ? (
-            <ErrorState
-              title="โหลดข้อมูลทีมไม่สำเร็จ"
-              description="ลองกดปุ่มด้านล่างเพื่อลองโหลดอีกครั้ง"
-              error={error}
-              onRetry={() => refetch()}
-            />
-          ) : teams.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.03] py-14 text-center text-muted-foreground">
-              <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>ยังไม่มีทีม</p>
-            </div>
-          ) : filteredTeams.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-white/10 bg-white/[0.03] py-12 text-center text-muted-foreground">
-              <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
-              <p className="text-sm font-medium text-foreground">ไม่พบทีมที่ตรงกับตัวกรอง</p>
-              <p className="mt-1 text-xs">ลองล้างคำค้นหาหรือเลือกตัวกรองอื่น</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="hidden data-scroll lg:block">
-                <table className="data-table" data-density="compact" style={{ minWidth: '1040px' }}>
+      <ContentSection>
+        {isError ? (
+          <ErrorState
+            title="โหลดข้อมูลทีมไม่สำเร็จ"
+            description="ไม่สามารถดึงข้อมูลทีมจาก server ได้ กรุณาลองใหม่อีกครั้ง"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : filteredTeams.length === 0 ? (
+          <div className="rounded-[8px] border border-dashed border-white/10 p-8 text-center text-sm text-muted-foreground">
+            {search ? 'ไม่พบทีมที่ตรงกับคำค้นหา' : 'ยังไม่มีทีมในระบบ'}
+          </div>
+        ) : (
+            <div>
+              <div className="hidden lg:block">
+                <table className="table-unified">
                   <colgroup>
-                    <col style={{ width: '4.5rem' }} />
-                    <col style={{ width: '11.25rem' }} />
-                    <col style={{ width: '6.5rem' }} />
+                    <col style={{ width: '4rem' }} />
+                    <col style={{ width: '13.75rem' }} />
+                    <col style={{ width: '6.25rem' }} />
                     <col style={{ width: '7.5rem' }} />
                     <col style={{ width: '11.25rem' }} />
                     <col style={{ width: '7.5rem' }} />
@@ -394,6 +389,15 @@ function TeamsComponent() {
                             <SecretState icon={Cookie} label="Cookie" ok={team.hasSpxCookie} preview={team.spxCookiePreview} />
                             <SecretState icon={Smartphone} label="Device" ok={team.hasSpxDeviceId} preview={team.spxDeviceIdPreview} />
                             <VehicleTypeState vehicleType={team.biddingVehicleType} />
+                            <button
+                              type="button"
+                              onClick={() => setAccountsTeam(team)}
+                              className="mt-0.5 inline-flex items-center gap-1.5 rounded-[6px] border border-white/10 bg-white/[0.04] px-2 py-1 text-left text-xs font-medium text-primary hover:border-primary/40 hover:bg-primary/[0.08] transition-colors"
+                              title={`จัดการบัญชี SPX หมุนเวียน ${team.name}`}
+                            >
+                              <Users className="h-3 w-3 shrink-0" />
+                              <span>บัญชีหมุนเวียน (Multi-Account)</span>
+                            </button>
                           </div>
                         </td>
                         <td>
@@ -406,7 +410,11 @@ function TeamsComponent() {
                         </td>
                         <td className="text-muted-foreground">{formatDateTime(team.updatedAt)}</td>
                         <td>
-                          <TeamActions team={team} onEdit={() => setEditingTeam(team)} />
+                          <TeamActions
+                            team={team}
+                            onEdit={() => setEditingTeam(team)}
+                            onManageAccounts={() => setAccountsTeam(team)}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -416,7 +424,12 @@ function TeamsComponent() {
 
               <div className="grid gap-3 lg:hidden">
                 {filteredTeams.map((team) => (
-                  <TeamMobilePanel key={team.id} team={team} onEdit={() => setEditingTeam(team)} />
+                  <TeamMobilePanel
+                    key={team.id}
+                    team={team}
+                    onEdit={() => setEditingTeam(team)}
+                    onManageAccounts={() => setAccountsTeam(team)}
+                  />
                 ))}
               </div>
             </div>
@@ -428,7 +441,20 @@ function TeamsComponent() {
         onOpenChange={setCreateDialogOpen}
         onCreated={(team) => setEditingTeam(team)}
       />
-      <TeamFormDialog team={editingTeam} open={editingTeam !== null} onOpenChange={(open) => { if (!open) setEditingTeam(null) }} />
+      <TeamFormDialog
+        team={editingTeam}
+        open={editingTeam !== null}
+        onOpenChange={(open) => { if (!open) setEditingTeam(null) }}
+        onManageAccounts={(team) => {
+          setEditingTeam(null)
+          setAccountsTeam(team)
+        }}
+      />
+      <TeamSpxAccountsDialog
+        team={accountsTeam}
+        open={accountsTeam !== null}
+        onOpenChange={(open) => { if (!open) setAccountsTeam(null) }}
+      />
     </PageShell>
   )
 }
@@ -574,7 +600,15 @@ function VehicleTypeState({ vehicleType }: { vehicleType?: number | null }) {
 }
 
 
-function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
+function TeamMobilePanel({
+  team,
+  onEdit,
+  onManageAccounts,
+}: {
+  team: Team
+  onEdit: () => void
+  onManageAccounts: () => void
+}) {
   return (
     <article className="min-w-0 max-w-full overflow-hidden rounded-[8px] border border-white/[0.06] bg-white/[0.025] p-4">
       <div className="flex items-start justify-between gap-3">
@@ -592,6 +626,16 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
         <SecretState icon={Cookie} label="Cookie" ok={team.hasSpxCookie} preview={team.spxCookiePreview} />
         <SecretState icon={Smartphone} label="Device" ok={team.hasSpxDeviceId} preview={team.spxDeviceIdPreview} />
         <VehicleTypeState vehicleType={team.biddingVehicleType} />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1 w-full h-8 text-xs flex items-center justify-center gap-1.5 border-white/10 hover:border-primary/40 text-primary hover:bg-primary/[0.08]"
+          onClick={onManageAccounts}
+        >
+          <Users className="h-3.5 w-3.5 shrink-0" />
+          <span>จัดการบัญชีหมุนเวียน (Multi-Account)</span>
+        </Button>
         <SecretState icon={MessageCircle} label="LINE" ok={team.hasLineGroupId} preview={team.lineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto OK" ok={team.hasAutoAcceptSuccessLineGroupId} preview={team.autoAcceptSuccessLineGroupIdPreview} />
         <SecretState icon={MessageCircle} label="Auto Fail" ok={team.hasAutoAcceptFailureLineGroupId} preview={team.autoAcceptFailureLineGroupIdPreview} />
@@ -604,7 +648,7 @@ function TeamMobilePanel({ team, onEdit }: { team: Team; onEdit: () => void }) {
       </div>
 
       <div className="mt-4">
-        <TeamActions team={team} onEdit={onEdit} compact />
+        <TeamActions team={team} onEdit={onEdit} onManageAccounts={onManageAccounts} compact />
       </div>
     </article>
   )
@@ -638,7 +682,17 @@ export function getTeamRuntimeToggleAction(team: Pick<Team, 'enabled' | 'name' |
   } as const
 }
 
-function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: () => void; compact?: boolean }) {
+function TeamActions({
+  team,
+  onEdit,
+  onManageAccounts,
+  compact = false,
+}: {
+  team: Team
+  onEdit: () => void
+  onManageAccounts?: () => void
+  compact?: boolean
+}) {
   const queryClient = useQueryClient()
 
   const actionMutation = useMutation({
@@ -674,6 +728,19 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
       disabled: false,
       danger: false,
     },
+    ...(onManageAccounts
+      ? [
+          {
+            key: 'accounts',
+            label: 'บัญชี SPX',
+            title: `จัดการบัญชี SPX หมุนเวียน ${team.name}`,
+            icon: <Users className="h-3.5 w-3.5 text-primary" />,
+            onClick: onManageAccounts,
+            disabled: false,
+            danger: false,
+          },
+        ]
+      : []),
     {
       key: 'restart',
       label: 'Restart',
@@ -707,7 +774,7 @@ function TeamActions({ team, onEdit, compact = false }: { team: Team; onEdit: ()
   return (
     <div
       className={compact
-        ? 'grid grid-cols-4 overflow-hidden rounded-[8px] border border-white/[0.08] bg-white/[0.025]'
+        ? `grid ${onManageAccounts ? 'grid-cols-5' : 'grid-cols-4'} overflow-hidden rounded-[8px] border border-white/[0.08] bg-white/[0.025]`
         : 'inline-flex overflow-hidden rounded-[8px] border border-white/[0.08] bg-white/[0.025]'}
       aria-label={`จัดการทีม ${team.name}`}
     >
@@ -741,11 +808,13 @@ function TeamFormDialog({
   open,
   onOpenChange,
   onCreated,
+  onManageAccounts,
 }: {
   team?: Team | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: (team: Team) => void
+  onManageAccounts?: (team: Team) => void
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(team)
@@ -926,6 +995,29 @@ function TeamFormDialog({
               <p className="text-xs text-muted-foreground">กำหนดโดย Admin — ควบคุมว่า poller ของทีมนี้จะดึงเฉพาะ ADHOC ประเภทรถไหน</p>
             </div>
 
+            {team ? (
+              <div className="flex items-center justify-between gap-4 rounded-[8px] border border-primary/25 bg-primary/[0.05] p-3">
+                <div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    <Users className="h-4 w-4 text-primary" />
+                    <span>บัญชี SPX หมุนเวียน (Multi-Account)</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    สลับหมุนเวียนหลายบัญชีในทีมเดียวกัน ป้องกัน Rate Limit และแย่งงานได้เร็วกว่า
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => onManageAccounts?.(team)}
+                >
+                  จัดการบัญชี
+                </Button>
+              </div>
+            ) : null}
+
             <details className="rounded-[8px] border border-white/10 bg-white/[0.02] p-3">
               <summary className="cursor-pointer text-sm font-medium text-foreground">การเชื่อมต่อแบบเดิม (ขั้นสูง)</summary>
               <p className="mt-1 text-xs text-muted-foreground">ใช้ Cookie และ Device ID เดิมเมื่อจำเป็นเท่านั้น การเชื่อมต่อด้วยบัญชีอยู่ด้านล่างหลังบันทึกทีม</p>
@@ -1048,6 +1140,433 @@ function TeamFormDialog({
           </DialogFooter>
         </form>
         {team ? <ProviderAuthPanel teamId={team.id} /> : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function TeamSpxAccountsDialog({
+  team,
+  open,
+  onOpenChange,
+}: {
+  team?: Team | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<TeamSpxAccount | null>(null)
+
+  // Form states
+  const [formName, setFormName] = useState('')
+  const [formCookie, setFormCookie] = useState('')
+  const [formDeviceId, setFormDeviceId] = useState('')
+  const [formAppName, setFormAppName] = useState('SPX Express')
+  const [formReferer, setFormReferer] = useState('')
+  const [formEnabled, setFormEnabled] = useState(true)
+
+  const accountsQuery = useQuery({
+    queryKey: ['team-spx-accounts', team?.id],
+    queryFn: () => (team?.id ? teamsApi.listAccounts(team.id) : Promise.resolve([])),
+    enabled: open && Boolean(team?.id),
+    refetchInterval: open ? 5000 : false,
+  })
+
+  const accounts = accountsQuery.data ?? []
+
+  const resetForm = useCallback(() => {
+    setFormName('')
+    setFormCookie('')
+    setFormDeviceId('')
+    setFormAppName('SPX Express')
+    setFormReferer('')
+    setFormEnabled(true)
+    setShowAddForm(false)
+    setEditingAccount(null)
+  }, [])
+
+  useEffect(() => {
+    if (!open) resetForm()
+  }, [open, resetForm])
+
+  const startEdit = (acc: TeamSpxAccount) => {
+    setShowAddForm(false)
+    setEditingAccount(acc)
+    setFormName(acc.name)
+    setFormCookie(acc.spxCookiePreview)
+    setFormDeviceId(acc.spxDeviceIdPreview)
+    setFormAppName(acc.spxAppName || 'SPX Express')
+    setFormReferer(acc.spxReferer || '')
+    setFormEnabled(acc.enabled)
+  }
+
+  const startAdd = () => {
+    resetForm()
+    setShowAddForm(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!team?.id) return
+      if (editingAccount) {
+        return teamsApi.updateAccount(team.id, editingAccount.id, {
+          name: formName.trim(),
+          spxCookie: formCookie.trim() || undefined,
+          spxDeviceId: formDeviceId.trim() || undefined,
+          spxAppName: formAppName.trim() || undefined,
+          spxReferer: formReferer.trim() || undefined,
+          enabled: formEnabled,
+        })
+      }
+      return teamsApi.createAccount(team.id, {
+        name: formName.trim(),
+        spxCookie: formCookie.trim() || undefined,
+        spxDeviceId: formDeviceId.trim() || undefined,
+        spxAppName: formAppName.trim() || undefined,
+        spxReferer: formReferer.trim() || undefined,
+        enabled: formEnabled,
+      })
+    },
+    onSuccess: () => {
+      toast.success(editingAccount ? 'บันทึกการแก้ไขบัญชีแล้ว' : 'เพิ่มบัญชี SPX แล้ว')
+      resetForm()
+      queryClient.invalidateQueries({ queryKey: ['team-spx-accounts', team?.id] })
+      queryClient.invalidateQueries({ queryKey: ['teams'] })
+    },
+    onError: (err: Error) => toast.error('บันทึกบัญชีไม่สำเร็จ', { description: err.message }),
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ accountId, enabled }: { accountId: number; enabled: boolean }) => {
+      if (!team?.id) return
+      return teamsApi.updateAccount(team.id, accountId, { enabled })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-spx-accounts', team?.id] })
+      queryClient.invalidateQueries({ queryKey: ['teams'] })
+    },
+    onError: (err: Error) => toast.error('เปลี่ยนสถานะไม่สำเร็จ', { description: err.message }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (accountId: number) => {
+      if (!team?.id) return
+      return teamsApi.deleteAccount(team.id, accountId)
+    },
+    onSuccess: () => {
+      toast.success('ลบบัญชีแล้ว')
+      queryClient.invalidateQueries({ queryKey: ['team-spx-accounts', team?.id] })
+      queryClient.invalidateQueries({ queryKey: ['teams'] })
+    },
+    onError: (err: Error) => toast.error('ลบบัญชีไม่สำเร็จ', { description: err.message }),
+  })
+
+  const resetRateLimitMutation = useMutation({
+    mutationFn: async (accountId: number) => {
+      if (!team?.id) return
+      return teamsApi.resetAccountRateLimit(team.id, accountId)
+    },
+    onSuccess: () => {
+      toast.success('ปลด Rate Limit ของบัญชีแล้ว')
+      queryClient.invalidateQueries({ queryKey: ['team-spx-accounts', team?.id] })
+    },
+    onError: (err: Error) => toast.error('ปลด Rate Limit ไม่สำเร็จ', { description: err.message }),
+  })
+
+  const handleFormSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!formName.trim()) {
+      toast.error('กรุณากรอกชื่อบัญชี')
+      return
+    }
+    if (!editingAccount && !formCookie.trim()) {
+      toast.error('กรุณากรอก SPX Cookie')
+      return
+    }
+    saveMutation.mutate()
+  }
+
+  const enabledCount = accounts.filter((a) => a.enabled).length
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) resetForm(); onOpenChange(next) }}>
+      <DialogContent closeLabel="ปิดหน้าต่าง" className="max-h-[90dvh] overflow-y-auto rounded-[8px] sm:max-w-[700px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            <span>บัญชี SPX หมุนเวียน (Multi-Account) — {team?.name}</span>
+          </DialogTitle>
+          <DialogDescription>
+            หมุนเวียนหลายบัญชีในทีมเพื่อแย่งงานได้เร็วกว่า และกระจายโหลดป้องกัน Rate Limit
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-2">
+          {/* Status info bar */}
+          <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-3 text-xs leading-relaxed text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-foreground">สถานะหมุนเวียน:</span>
+                {accounts.length === 0 ? (
+                  <span className="status-pill border-white/10 bg-white/[0.04] text-muted-foreground">
+                    ใช้ Cookie หลักของทีม
+                  </span>
+                ) : (
+                  <span className="status-pill border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success">
+                    เปิดหมุนเวียน {enabledCount} / {accounts.length} บัญชี
+                  </span>
+                )}
+              </div>
+              {!showAddForm && !editingAccount ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={startAdd}
+                  className="h-7 text-xs flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>เพิ่มบัญชี</span>
+                </Button>
+              ) : null}
+            </div>
+            <p className="mt-2 text-muted-foreground/80">
+              ทุกการยิงงาน (Polling หาเที่ยววิ่ง, ดึงรายละเอียด, และกดยืนยันรับงาน) จะหมุนเวียน Round-Robin อัตโนมัติในบัญชีของทีมนี้ หากบัญชีใดติด Rate Limit ระบบจะข้ามไปใช้บัญชีถัดไปทันที
+            </p>
+          </div>
+
+          {/* Add / Edit Form */}
+          {(showAddForm || editingAccount) ? (
+            <form onSubmit={handleFormSubmit} className="rounded-[8px] border border-primary/30 bg-white/[0.02] p-4 grid gap-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <h4 className="text-sm font-semibold text-foreground">
+                  {editingAccount ? `แก้ไขบัญชี: ${editingAccount.name}` : 'เพิ่มบัญชี SPX ใหม่'}
+                </h4>
+                <Button type="button" variant="ghost" size="sm" onClick={resetForm} className="h-6 w-6 p-0">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-1">
+                  <Label htmlFor="acc-name" className="text-xs">ชื่อบัญชี *</Label>
+                  <Input
+                    id="acc-name"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="เช่น คนขับ 1 หรือ SPX-B"
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="acc-app" className="text-xs">App Name</Label>
+                  <Input
+                    id="acc-app"
+                    value={formAppName}
+                    onChange={(e) => setFormAppName(e.target.value)}
+                    placeholder="SPX Express"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-1">
+                <Label htmlFor="acc-cookie" className="text-xs">
+                  SPX Cookie {editingAccount ? '(เว้นว่างหากไม่ต้องการเปลี่ยน)' : '*'}
+                </Label>
+                <textarea
+                  id="acc-cookie"
+                  value={formCookie}
+                  onChange={(e) => setFormCookie(e.target.value)}
+                  placeholder={editingAccount ? editingAccount.spxCookiePreview : 'fms_user_id=...; session=...'}
+                  className="flex min-h-[4rem] w-full resize-none rounded-[6px] border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-1">
+                  <Label htmlFor="acc-device" className="text-xs">Device ID</Label>
+                  <Input
+                    id="acc-device"
+                    value={formDeviceId}
+                    onChange={(e) => setFormDeviceId(e.target.value)}
+                    placeholder={editingAccount ? editingAccount.spxDeviceIdPreview : 'UUID หรือ device id'}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label htmlFor="acc-referer" className="text-xs">Referer</Label>
+                  <Input
+                    id="acc-referer"
+                    value={formReferer}
+                    onChange={(e) => setFormReferer(e.target.value)}
+                    placeholder="https://spx.co.th/..."
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-[6px] border border-white/10 bg-white/[0.02] px-3 py-2">
+                <span className="text-xs font-medium text-foreground">เปิดใช้งานบัญชีนี้ในรอบหมุนเวียน</span>
+                <Switch checked={formEnabled} onCheckedChange={setFormEnabled} />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={resetForm} disabled={saveMutation.isPending}>
+                  ยกเลิก
+                </Button>
+                <Button type="submit" size="sm" disabled={saveMutation.isPending}>
+                  {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                  {editingAccount ? 'บันทึกการแก้ไข' : 'เพิ่มบัญชี'}
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          {/* Accounts list */}
+          {accountsQuery.isLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : accounts.length === 0 ? (
+            <div className="rounded-[8px] border border-dashed border-white/10 p-6 text-center text-xs text-muted-foreground">
+              <Cookie className="mx-auto h-8 w-8 opacity-40 mb-2" />
+              <p className="font-medium text-foreground">ยังไม่มีบัญชี SPX ในระบบหมุนเวียน</p>
+              <p className="mt-1">กด &quot;เพิ่มบัญชี&quot; เพื่อใส่ Cookie และ Device ID ของคนขับแต่ละคนในทีม</p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {accounts.map((acc) => {
+                const isRateLimited = Boolean(acc.isRateLimited)
+                const isExpired = Boolean(acc.isSessionExpired)
+                const remainingCooldown = acc.rateLimitedUntil
+                  ? Math.max(0, Math.ceil((acc.rateLimitedUntil - Date.now()) / 1000))
+                  : 0
+
+                return (
+                  <div
+                    key={acc.id}
+                    className={`rounded-[8px] border p-3 transition-colors ${
+                      !acc.enabled
+                        ? 'border-white/[0.06] bg-white/[0.01] opacity-70'
+                        : isRateLimited
+                          ? 'border-amber-500/30 bg-amber-500/[0.03]'
+                          : isExpired
+                            ? 'border-rose-500/30 bg-rose-500/[0.03]'
+                            : 'border-white/10 bg-white/[0.025]'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-sm text-foreground">{acc.name}</span>
+                          <span
+                            className={`status-pill ${
+                              acc.enabled
+                                ? 'border-[color:var(--color-success-border)] bg-[color:var(--color-success-soft)] text-success'
+                                : 'border-white/10 bg-white/[0.04] text-muted-foreground'
+                            }`}
+                          >
+                            {acc.enabled ? 'เปิดใช้งาน' : 'ปิดอยู่'}
+                          </span>
+                          {isRateLimited ? (
+                            <span className="status-pill border-amber-500/30 bg-amber-500/10 text-amber-400 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              ติด Rate Limit {remainingCooldown > 0 ? `(${remainingCooldown}s)` : ''}
+                            </span>
+                          ) : null}
+                          {isExpired ? (
+                            <span className="status-pill border-rose-500/30 bg-rose-500/10 text-rose-400">
+                              Cookie หมดอายุ
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <div className="truncate">
+                            <span className="text-muted-foreground/70">Cookie: </span>
+                            <span className="font-mono text-foreground">{acc.spxCookiePreview}</span>
+                          </div>
+                          <div className="truncate">
+                            <span className="text-muted-foreground/70">Device: </span>
+                            <span className="font-mono text-foreground">{acc.spxDeviceIdPreview}</span>
+                          </div>
+                          {acc.spxAppName ? (
+                            <div className="truncate">
+                              <span className="text-muted-foreground/70">App: </span>
+                              <span>{acc.spxAppName}</span>
+                            </div>
+                          ) : null}
+                          <div className="truncate">
+                            <span className="text-muted-foreground/70">อัปเดต: </span>
+                            <span>{formatDateTime(acc.updatedAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-start">
+                        {isRateLimited ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                            onClick={() => resetRateLimitMutation.mutate(acc.id)}
+                            disabled={resetRateLimitMutation.isPending}
+                            title="ปลดสถานะ Rate Limit เพื่อให้กลับมาหมุนเวียนทันที"
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1" />
+                            ปลด Limit
+                          </Button>
+                        ) : null}
+
+                        <Switch
+                          checked={acc.enabled}
+                          onCheckedChange={() => toggleMutation.mutate({ accountId: acc.id, enabled: !acc.enabled })}
+                          disabled={toggleMutation.isPending}
+                        />
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          onClick={() => startEdit(acc)}
+                          title="แก้ไขบัญชี"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-danger hover:text-danger hover:bg-[color:var(--color-danger-soft)]"
+                          onClick={() => {
+                            if (window.confirm(`ต้องการลบบัญชี ${acc.name} ออกจากระบบหมุนเวียนหรือไม่?`)) {
+                              deleteMutation.mutate(acc.id)
+                            }
+                          }}
+                          disabled={deleteMutation.isPending}
+                          title="ลบบัญชี"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            ปิด
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

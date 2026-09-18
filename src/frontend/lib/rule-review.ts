@@ -69,12 +69,12 @@ export function buildRuleInput(
     errors.teamId = 'เลือกทีมเจ้าของรายการ'
   const origins = splitCsv(values.originsText)
   const destinations = splitCsv(values.destinationsText)
-  if (origins.length > 50 || origins.some((value) => value.length > 255))
-    errors.originsText = 'ระบุไม่เกิน 50 ต้นทาง และแต่ละค่าไม่เกิน 255 ตัวอักษร'
-  if (destinations.length > 50 || destinations.some((value) => value.length > 255))
-    errors.destinationsText = 'ระบุไม่เกิน 50 ปลายทาง และแต่ละค่าไม่เกิน 255 ตัวอักษร'
-  if (values.vehicleTypes.length > 50 || values.vehicleTypes.some((value) => value.length > 100))
-    errors.vehicleTypes = 'ระบุไม่เกิน 50 ประเภทรถ และแต่ละค่าไม่เกิน 100 ตัวอักษร'
+  if (origins.length > 200 || origins.some((value) => value.length > 255))
+    errors.originsText = 'ระบุไม่เกิน 200 ต้นทาง และแต่ละค่าไม่เกิน 255 ตัวอักษร'
+  if (destinations.length > 200 || destinations.some((value) => value.length > 255))
+    errors.destinationsText = 'ระบุไม่เกิน 200 ปลายทาง และแต่ละค่าไม่เกิน 255 ตัวอักษร'
+  if (values.vehicleTypes.length > 200 || values.vehicleTypes.some((value) => value.length > 100))
+    errors.vehicleTypes = 'ระบุไม่เกิน 200 ประเภทรถ และแต่ละค่าไม่เกิน 100 ตัวอักษร'
   if (Object.keys(errors).length) return { errors }
   return {
     errors,

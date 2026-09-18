@@ -43,6 +43,8 @@ import type {
   SettingsResponse,
   Team,
   TeamInput,
+  TeamSpxAccount,
+  TeamSpxAccountInput,
   User,
 } from '../types'
 import {
@@ -553,6 +555,32 @@ export const teamsApi = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+
+  listAccounts: (teamId: number): Promise<TeamSpxAccount[]> =>
+    fetchJson<TeamSpxAccount[]>(`${API_BASE}/teams/${teamId}/spx-accounts`),
+
+  createAccount: (teamId: number, account: TeamSpxAccountInput): Promise<TeamSpxAccount> =>
+    fetchJson<TeamSpxAccount>(`${API_BASE}/teams/${teamId}/spx-accounts`, {
+      method: 'POST',
+      body: JSON.stringify(account),
+    }),
+
+  updateAccount: (teamId: number, accountId: number, account: Partial<TeamSpxAccountInput>): Promise<TeamSpxAccount> =>
+    fetchJson<TeamSpxAccount>(`${API_BASE}/teams/${teamId}/spx-accounts/${accountId}`, {
+      method: 'PUT',
+      body: JSON.stringify(account),
+    }),
+
+  deleteAccount: (teamId: number, accountId: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/teams/${teamId}/spx-accounts/${accountId}`, {
+      method: 'DELETE',
+    }),
+
+  resetAccountRateLimit: (teamId: number, accountId: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/teams/${teamId}/spx-accounts/${accountId}/reset-rate-limit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 }
 
 export const currentTeamApi = {
@@ -563,6 +591,32 @@ export const currentTeamApi = {
     fetchJson<Team>(`${API_BASE}/team/enabled`, {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
+    }),
+
+  listAccounts: (): Promise<TeamSpxAccount[]> =>
+    fetchJson<TeamSpxAccount[]>(`${API_BASE}/team/spx-accounts`),
+
+  createAccount: (account: TeamSpxAccountInput): Promise<TeamSpxAccount> =>
+    fetchJson<TeamSpxAccount>(`${API_BASE}/team/spx-accounts`, {
+      method: 'POST',
+      body: JSON.stringify(account),
+    }),
+
+  updateAccount: (accountId: number, account: Partial<TeamSpxAccountInput>): Promise<TeamSpxAccount> =>
+    fetchJson<TeamSpxAccount>(`${API_BASE}/team/spx-accounts/${accountId}`, {
+      method: 'PUT',
+      body: JSON.stringify(account),
+    }),
+
+  deleteAccount: (accountId: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/team/spx-accounts/${accountId}`, {
+      method: 'DELETE',
+    }),
+
+  resetAccountRateLimit: (accountId: number): Promise<null> =>
+    fetchJson<null>(`${API_BASE}/team/spx-accounts/${accountId}/reset-rate-limit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 }
 

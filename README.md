@@ -1,42 +1,29 @@
-# SPX Bidding Poller
+# SPX Bidding Poller & Management Dashboard
 
-ระบบ polling อัตโนมัติสำหรับดึง `Agency Booking Bidding List` จาก SPX พร้อม Web Dashboard สำหรับจัดการ teams, rules, auto-accept, users, settings, history และ notifications
+ระบบ Polling และแย่งงานอัตโนมัติสำหรับ `Agency Booking Bidding List` จาก SPX แบบ High-Performance พร้อม Web Dashboard สำหรับจัดการหลายทีม (Multi-Team), บัญชีหมุนเวียน (Multi-Account Rotation), เงื่อนไขการรับงาน (Notify & Auto-Accept Rules), ประวัติงาน, และการแจ้งเตือนผ่าน LINE
 
-## ภาพรวม
+## ภาพรวมสถาปัตยกรรม (Architecture Overview)
 
-- **Polling**: ดึง bidding list ตามรอบเวลา, ตรวจสอบ変化, ดึง request details, บันทึก DB, auto-accept, แจ้งเตือน
-- **Split runtime**: production legacy แยกเป็น `notifier`, `worker-ifn`, และ `worker-ptwl`; target topology แยกต่อเป็น `web-api`, `notification-service`, `line-service`, `ocr-service`, และ workers
-- **DB-first config**: `.env` เหลือ bootstrap/process identity; runtime settings และ team credentials อยู่ใน MySQL (`app_settings` + `teams`) และแก้ผ่าน Dashboard
-- **Dashboard**: React SPA + Fastify API, JWT auth, SSE real-time, admin/user RBAC
+- **High-Speed Poller (Page 1 Only Optimization)**: ดึงเฉพาะรายการงานล่าสุดในหน้าแรก (Page 1) ลด Request ลง 50% เพื่อความเร็วสูงสุดในการตรวจจับเที่ยววิ่งใหม่ ป้องกันปัญหา Bidding List Shape Error จากหน้าหลัง
+- **Multi-Account Rotation per Team**: ระบบหมุนเวียนบัญชี SPX หลายบัญชีในทีมเดียวกันแบบ Round-Robin ครอบคลุมทั้งการ Polling, ดึงรายละเอียดงาน (Detail Fetch), และกดยืนยันรับงาน (Job Acceptance) โดยมีการแยก Rate Limit Cooldown อิสระรายบัญชี ไม่บล็อกการทำงานของทีม
+- **Split Runtime & Dual-Host Architecture**: Production แยก Process ทำงานอิสระบน 2 เซิร์ฟเวอร์:
+  - **Primary Host (`45.83.207.139`)**: รัน `spx-worker-ptwl-1` (Team 1), `spx-notifier-1` (Web Dashboard, API, SSE Broadcast), และ `spx-line-service-1` (LINE Bot E2EE)
+  - **Worker Host (`147.50.240.44`)**: รัน `spx-worker-ifn-1` (Team 2)
+- **DB-First Configuration**: การตั้งค่าและการจัดการ Credential เป็นแบบ DB-first ใน MySQL (`teams`, `team_spx_accounts`, `app_settings`) โดย Cookie และ Device ID ทั้งหมดถูกเข้ารหัสความปลอดภัยด้วย **AES-256**
+- **Expanded Filtering Capacity**: ขยายขีดจำกัดการกรองปลายทาง (Destinations) และต้นทาง (Origins) เป็นสูงสุด **200 รายการต่อเงื่อนไข** รองรับกลุ่ม Hub ขนาดใหญ่ (เช่น SOCN-hub 64+ จุด) ได้อย่างสมบูรณ์
+- **Real-Time Dashboard**: React 19 SPA + Fastify API, SSE Push Data แบบเรียลไทม์, Quick Search (Cmd+K), RBAC สิทธิ์ Admin / Team User
 
-## Tech Stack
+## ฟีเจอร์หลัก (Key Features)
 
-| Layer    | Technology                                                 |
-| -------- | ---------------------------------------------------------- |
-| Runtime  | Node.js >=24.16.0                                          |
-| Backend  | Fastify + TypeScript                                       |
-| Database | MySQL (Drizzle ORM + mysql2), SQLite (memory mode)         |
-| Auth     | @fastify/jwt, @fastify/cookie                              |
-| Frontend | React 19 + TanStack Router + TanStack Query + Tailwind CSS |
-| Build    | esbuild + Vite                                             |
-| Deploy   | Docker Compose, auto-deploy via git push                   |
-
-## ฟีเจอร์
-
-- **Real-time polling** — configurable interval
-- **Notify rules** — dual storage (DB in production, JSON file in dev)
-- **Auto-accept** — รับงานอัตโนมัติตาม rule + แจ้งเตือน + บันทึกประวัติ
-- **Auto-accept history** — ตาราง `auto_accept_history` ดูย้อนหลังผ่าน Web UI
-- **SSE real-time** — push metrics + rules ไป browser แบบリアルタイム
-- **Runtime telemetry bridge** — worker metrics ถูกส่งเข้า notifier เพื่อให้ admin/all-team dashboard เห็นค่าจาก worker process จริง
-- **Web dashboard** — React SPA, JWT cookie auth, admin/user RBAC, team-scoped users, rate limiting
-- **DB-first settings** — Settings UI และ Teams UI เป็น source of truth หลัง production seed สำเร็จ
-- **Security** — security headers, CORS, rate limit, password strength
-- **Graceful shutdown** — Fastify `onClose` hook, clean DB pool close
-- **DB tools** — migration, generate, reset, smoke test
+- **Multi-Account Rotation per Team** — หมุนเวียนบัญชี SPX ในทีมเดียวกัน Round-Robin พร้อมคูลดาวน์แยกอิสระเมื่อติด Rate Limit
+- **High-Speed Poller** — ตรวจจับงานใหม่รวดเร็ว ไม่ยิงซ้ำขอหน้า 2+
+- **High-Capacity Rule Filter** — กำหนดเงื่อนไขรับงาน รองรับต้นทาง/ปลายทางสูงสุด 200 จุดต่อ Rule
+- **Auto-Accept & Verification** — กดยืนยันรับงานอัตโนมัติ พร้อมกลไกตรวจเช็คผลจริงจาก SPX
+- **LINE Bot E2EE & Notification** — แจ้งเตือนเข้ากลุ่ม LINE แยกทีม, ซิงก์คีย์ E2EE, รองรับ OCR ใบงาน
+- **Real-time Web Dashboard** — React 19 SPA, กราฟ Latency, SSE Push Data, ประวัติงานย้อนหลัง
+- **Security & RBAC** — เข้ารหัส AES-256 ข้อมูล Cookie, JWT Auth, สิทธิ์ Admin / Scoped Team User
 
 ## โครงสร้าง
-
 ```
 src/
 ├── app.ts                    # entrypoint
@@ -175,6 +162,12 @@ Admin users can view all teams. Non-admin users are scoped to their own `teamId`
 | GET        | `/api/audit-logs`          | admin | Audit trail                               |
 | GET        | `/api/auto-accept-history` | admin | Auto-accept history                       |
 | GET/POST   | `/api/teams`               | admin | Team runtime/config management            |
+| GET/POST   | `/api/teams/:id/spx-accounts` | admin | Team SPX accounts CRUD (Multi-Account)    |
+| PUT/DELETE | `/api/teams/:id/spx-accounts/:accountId` | admin | Update/Delete team SPX account            |
+| POST       | `/api/teams/:id/spx-accounts/:accountId/reset-rate-limit` | admin | Reset account rate limit cooldown         |
+| GET/POST   | `/api/team/spx-accounts`   | user  | Current team SPX accounts CRUD            |
+| PUT/DELETE | `/api/team/spx-accounts/:accountId` | user | Current team SPX account edit/delete      |
+| POST       | `/api/team/spx-accounts/:accountId/reset-rate-limit` | user | Current team reset rate limit cooldown    |
 | GET/POST   | `/api/users`               | admin | User management                           |
 | PUT        | `/api/users/:id/*`         | admin | Update user                               |
 | GET/PUT    | `/api/settings`            | admin | DB-first runtime settings                 |
