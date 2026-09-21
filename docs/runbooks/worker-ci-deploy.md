@@ -14,13 +14,12 @@ A successful push to `main` deploys the exact tested commit in this order:
 
 | Team | Host | Compose service | Node ID |
 | --- | --- | --- | --- |
-| TEAM 1 | `45.83.207.139` | `worker-ptwl` | `prod-worker-ptwl-1` |
+| TEAM 1 | `45.154.26.83` | `worker-ptwl` | `prod-worker-ptwl-node3` |
 | TEAM 2 | `147.50.240.44` | `worker-ifn` | `prod-worker-ifn-node2` |
 
-Both hosts use `/root/SPX`. The primary also runs `notifier`; the remote host is an
-existing, dedicated single-worker Compose project and does not require a Git checkout.
-Primary Compose operations explicitly name `notifier worker-ptwl`, so they cannot
-start a second TEAM 2 worker on the primary host.
+All hosts use `/root/SPX`. The primary (`45.83.207.139`) runs `notifier` (API/dashboard and LINE delivery).
+Remote worker hosts run dedicated single-worker Compose projects connecting directly to MySQL.
+Primary Compose operations explicitly name `notifier`, so they do not run worker pollers on the primary host.
 
 ## GitHub configuration
 
