@@ -20,6 +20,7 @@ assert.ok(remote, 'CI must deploy workers to their designated remote host')
 assert.deepEqual(preflight.strategy?.matrix, remote.strategy?.matrix, 'preflight and deployment use one target map')
 assert.equal(remote.strategy?.['fail-fast'], false, 'one failed team must not interrupt another team during rollout')
 assert.deepEqual(remote.strategy?.matrix.include.map(({ team_id, host, service }) => ({ team_id, host, service })), [
+  { team_id: 1, host: '45.154.26.83', service: 'worker-ptwl' },
   { team_id: 2, host: '147.50.240.44', service: 'worker-ifn' },
 ])
 assert.ok(workflow.jobs.deploy.needs?.includes('worker-preflight'))
@@ -27,26 +28,15 @@ assert.ok(remote.needs?.includes('deploy'))
 assert.match(remote.if ?? '', /refs\/heads\/main/)
 assert.doesNotMatch(source, /git reset --hard origin\/main/, 'deploy source must match the commit that produced the artifact')
 assert.match(source, /git reset --hard "\$\{\{ github\.sha \}\}"/)
-assert.match(source, /up -d --force-recreate notifier worker-ptwl/)
+assert.match(source, /up -d --force-recreate notifier/)
 assert.doesNotMatch(source, /ssh-keyscan/, 'deployment hosts must use pinned host keys')
 assert.ok(remote.steps.some((step) => step.run?.includes('ci-deploy-worker.py')))
 
 const primarySteps = workflow.jobs.deploy.steps
 const primaryScript = primarySteps.find((step) => step.name === 'Deploy over SSH')?.with?.script ?? ''
 const readiness = primaryScript.split('wait_current_readiness() {')[1]?.split('\n}\n')[0] ?? ''
-assert.match(readiness, /ci-worker-readiness|PRIMARY_READINESS_SCRIPT/,
-  'TEAM 1 lease readiness must run inside the primary rollback readiness gate')
-assert.match(readiness, /docker inspect --format '\{\{\.State\.StartedAt\}\}'/,
-  'the lease gate must compare heartbeat freshness against the new container start')
-assert.match(readiness, /node --input-type=module - 1 prod-worker-ptwl-1 "\$worker_started_at"/)
-assert.match(readiness, /worker_deadline=\$\(\(SECONDS \+ 90\)\)/,
-  'worker startup and heartbeat have a bounded readiness window')
-assert.match(readiness, /while \[ "\$SECONDS" -lt "\$worker_deadline" \]/)
-assert.match(readiness, /sleep 3/, 'a starting worker must get time to acquire its lease before rollback')
-assert.match(readiness, /docker inspect --format '\{\{\.State\.Running\}\}'/,
-  'each readiness attempt must require a running worker container')
-assert.match(readiness, /timeout "\$\{worker_probe_timeout\}s" docker exec/,
-  'a stalled lease query cannot consume the whole deployment indefinitely')
+assert.match(readiness, /http:\/\/127\.0\.0\.1:3000\/ready/,
+  'primary readiness must verify HTTP and DB readiness')
 assert.ok(primaryScript.indexOf('if ! wait_current_readiness; then') < primaryScript.lastIndexOf('rm -f "${ROLLBACK_DIST}"'),
   'the rollback snapshot must survive all primary readiness checks')
 assert.equal(primarySteps.some((step) => step.name === 'Verify TEAM 1 lease after primary rollout'), false,
@@ -57,8 +47,8 @@ assert.match(stagedHelpers, /scp[^\n]*scripts\/ci-worker-readiness\.mjs/,
 assert.match(primaryScript, /test -s "\$\{PRIMARY_READINESS_SCRIPT\}"/,
   'a missing readiness helper must fail before replacing primary source or dist')
 for (const build of primaryScript.matchAll(/docker compose build([^\n]*)/g)) {
-  assert.equal(build[1].replace(/; then$/, '').trim(), 'notifier worker-ptwl',
-    'primary build and rollback may only rebuild API and TEAM 1')
+  assert.equal(build[1].replace(/; then$/, '').trim(), 'notifier',
+    'primary build and rollback may only rebuild API/notifier')
 }
 assert.equal((primaryScript.match(/if ! rollback_runtime; then[\s\S]*?fi\n\s+if ! wait_current_readiness; then/g) ?? []).length, 2,
   'both startup failure and readiness failure must verify the restored primary services')

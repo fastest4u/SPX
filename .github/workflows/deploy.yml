@@ -90,6 +90,15 @@ jobs:
       fail-fast: false
       matrix: &remote_workers
         include:
+          - team_id: 1
+            host: 45.154.26.83
+            port: 22
+            user: root
+            service: worker-ptwl
+            node_id: prod-worker-ptwl-node3
+            key_secret: SPX_TEAM1_SSH_KEY
+            known_hosts_var: SPX_TEAM1_KNOWN_HOSTS
+            bootstrap_sha_var: SPX_TEAM1_OVERRIDE_SHA256
           - team_id: 2
             host: 147.50.240.44
             port: 22
@@ -177,7 +186,7 @@ jobs:
             --bootstrap-override-sha256 '$WORKER_BOOTSTRAP_SHA' --preflight-only" < scripts/ci-deploy-worker.py
 
   deploy:
-    name: Deploy API and TEAM 1 on primary host
+    name: Deploy API on primary host
     runs-on: ubuntu-latest
     needs: [build, worker-preflight]
     if: github.ref == 'refs/heads/main' && needs.build.outputs.legacy_deploy_allowed == 'true'
@@ -289,7 +298,7 @@ jobs:
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 docker compose --profile split build
               else
-                docker compose build notifier worker-ptwl
+                docker compose build notifier
               fi
             }
 
@@ -304,7 +313,7 @@ jobs:
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 compose_up_split
               else
-                docker compose up -d --force-recreate notifier worker-ptwl
+                docker compose up -d --force-recreate notifier
               fi
             }
 
@@ -323,7 +332,7 @@ jobs:
                   web-api notification-service line-service ocr-service \
                   worker-ifn-split worker-ptwl-split || true
               fi
-              docker compose up -d --force-recreate notifier worker-ptwl
+              docker compose up -d --force-recreate notifier
             }
 
             rollback_runtime() {
@@ -395,31 +404,6 @@ jobs:
 
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 wait_split_services_ready
-              else
-                worker_deadline=$((SECONDS + 90))
-                worker_probe() {
-                  local probe_remaining=$((worker_deadline - SECONDS))
-                  [ "$probe_remaining" -gt 0 ] || return 1
-                  timeout "${probe_remaining}s" "$@"
-                }
-                while [ "$SECONDS" -lt "$worker_deadline" ]; do
-                  worker_container=$(worker_probe docker compose ps -q worker-ptwl 2>/dev/null) || worker_container=''
-                  if [ -n "$worker_container" ] \
-                    && worker_running=$(worker_probe docker inspect --format '{{.State.Running}}' "$worker_container" 2>/dev/null) \
-                    && [ "$worker_running" = true ] \
-                    && worker_started_at=$(worker_probe docker inspect --format '{{.State.StartedAt}}' "$worker_container" 2>/dev/null); then
-                    worker_remaining=$((worker_deadline - SECONDS))
-                    worker_probe_timeout=$((worker_remaining < 10 ? worker_remaining : 10))
-                    if [ "$worker_probe_timeout" -gt 0 ] \
-                      && timeout "${worker_probe_timeout}s" docker exec -i "$worker_container" node --input-type=module - 1 prod-worker-ptwl-1 "$worker_started_at" < "$PRIMARY_READINESS_SCRIPT"; then
-                      return 0
-                    fi
-                  fi
-                  if [ "$((SECONDS + 3))" -ge "$worker_deadline" ]; then break; fi
-                  sleep 3
-                done
-                echo 'TEAM 1 lease readiness failed within 90 seconds'
-                return 1
               fi
             }
 
@@ -478,7 +462,7 @@ jobs:
               rm -rf dist
               if [ -f "${ROLLBACK_DIST}" ]; then
                 tar -xzf "${ROLLBACK_DIST}" -C .
-                if ! docker compose build notifier worker-ptwl; then
+                if ! docker compose build notifier; then
                   echo "Rollback rebuild failed; restoring tagged rollback image"
                   docker tag spx-app:rollback spx-app:latest
                 fi
@@ -511,7 +495,7 @@ jobs:
               rm -rf dist
               if [ -f "${ROLLBACK_DIST}" ]; then
                 tar -xzf "${ROLLBACK_DIST}" -C .
-                if ! docker compose build notifier worker-ptwl; then
+                if ! docker compose build notifier; then
                   echo "Rollback rebuild failed; restoring tagged rollback image"
                   docker tag spx-app:rollback spx-app:latest
                 fi
