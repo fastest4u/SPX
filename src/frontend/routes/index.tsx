@@ -24,6 +24,7 @@ import {
   Plus,
   Radio,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   WifiOff,
   ChevronRight,
@@ -98,6 +99,7 @@ export function DashboardComponent() {
   const [ruleStatusFilter, setRuleStatusFilter] = useState<RuleStatusFilter>('all')
   const [ruleTeamFilter, setRuleTeamFilter] = useState('all')
   const [ruleVehicleFilter, setRuleVehicleFilter] = useState('all')
+  const [showProviderAuth, setShowProviderAuth] = useState(false)
   const [, setStatusClockTick] = useState(0)
 
   // Stable per-row handlers so memoized RuleRow does not re-render on every SSE
@@ -425,6 +427,19 @@ export function DashboardComponent() {
         title="ภาพรวมระบบ"
         subtitle={isAdmin ? "Pipeline telemetry และ rule ที่กำลังทำงาน" : "รายการค้นหาและสถานะการทำงาน"}
         meta={statusGroup}
+        actions={
+          shouldLoadCurrentTeam ? (
+            <Button
+              variant={showProviderAuth ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => setShowProviderAuth((prev) => !prev)}
+              className="text-xs"
+            >
+              <ShieldCheck className="mr-1.5 h-3.5 w-3.5 text-primary" />
+              {showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}
+            </Button>
+          ) : undefined
+        }
       />
 
       {hasSessionExpired ? (
@@ -444,7 +459,13 @@ export function DashboardComponent() {
         </div>
       ) : null}
 
-      {shouldLoadCurrentTeam ? <ProviderAuthPanel /> : null}
+      {shouldLoadCurrentTeam ? (
+        <ProviderAuthPanel
+          hideWhenConnected
+          forceExpand={hasSessionExpired || showProviderAuth}
+          onDismiss={() => setShowProviderAuth(false)}
+        />
+      ) : null}
 
       {shouldLoadCurrentTeam && teamIsError ? (
         <ErrorState title="โหลดสถานะทีมไม่สำเร็จ" error={teamError} onRetry={() => { void refetchTeam() }} />

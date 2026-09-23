@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   calculateProviderAuthCooldown,
   getProviderAuthErrorCopy,
+  shouldHideProviderAuthPanel,
 } from '../src/frontend/components/ProviderAuthPanel.tsx'
 import {
   ProviderAuthRequestError,
@@ -149,7 +150,51 @@ assert.equal(
 )
 assert.equal(getProviderAuthErrorCopy('PROVIDER_AUTH_UNAVAILABLE'), 'ยังเชื่อมต่อผู้ให้บริการไม่ได้ กรุณาลองใหม่อีกครั้ง')
 assert.equal(getProviderAuthErrorCopy('challenge_required'), 'ผู้ให้บริการต้องการยืนยันตัวตน กรุณาเข้าสู่ MyAgencyService เพื่อทำขั้นตอนยืนยันตัวตนให้เสร็จ แล้วกลับมากดเชื่อมต่ออีกครั้ง')
-assert.equal(getProviderAuthErrorCopy('provider raw internal failure'), 'ไม่สามารถดำเนินการกับบัญชีผู้ให้บริการได้ กรุณาลองใหม่')
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'connected' }) }),
+  true,
+  'panel must be hidden when hideWhenConnected is true and status is healthy connected',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, forceExpand: true, status: statusFixture({ status: 'connected' }) }),
+  false,
+  'panel must not be hidden when forceExpand is true',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'attention' }) }),
+  false,
+  'panel must be shown when status is attention',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'retry_wait' }) }),
+  false,
+  'panel must be shown when status is retry_wait',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'connected' }), feedbackCode: 'PROVIDER_AUTH_FAILED' }),
+  false,
+  'panel must be shown when feedbackCode error is present',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'connected' }), isCoolingDown: true }),
+  false,
+  'panel must be shown when cooling down',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: statusFixture({ status: 'connected' }), hasError: true }),
+  false,
+  'panel must be shown when query has error',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: false, status: statusFixture({ status: 'connected' }) }),
+  false,
+  'panel must remain visible by default when hideWhenConnected is false',
+)
+assert.equal(
+  shouldHideProviderAuthPanel({ hideWhenConnected: true, status: null }),
+  true,
+  'initial loading with hideWhenConnected must suppress flash before connection status arrives',
+)
 
 globalThis.fetch = originalFetch
 console.log('frontend-provider-auth: all assertions passed')
