@@ -117,6 +117,7 @@ export function DashboardComponent() {
   const { data: history = [], isError: historyIsError, refetch: refetchHistory } = useQuery({
     queryKey: ['metrics-history', 60],
     queryFn: () => metricsApi.history(60),
+    enabled: isAdmin,
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
@@ -422,7 +423,7 @@ export function DashboardComponent() {
       <PageHeader
         icon={LayoutDashboard}
         title="ภาพรวมระบบ"
-        subtitle="Pipeline telemetry และ rule ที่กำลังทำงาน"
+        subtitle={isAdmin ? "Pipeline telemetry และ rule ที่กำลังทำงาน" : "รายการค้นหาและสถานะการทำงาน"}
         meta={statusGroup}
       />
 
@@ -449,19 +450,21 @@ export function DashboardComponent() {
         <ErrorState title="โหลดสถานะทีมไม่สำเร็จ" error={teamError} onRetry={() => { void refetchTeam() }} />
       ) : null}
 
-      {/* Pipeline timeline — 4 stages as connected flow, not 4 lonely tiles. */}
-      {metricsIsError && !hasFreshSse ? (
-        <ErrorState title="โหลดสถานะการทำงานไม่สำเร็จ" error={metricsError} onRetry={() => { void refetchMetrics() }} />
-      ) : !metrics ? (
-        <SkeletonCard lines={3} />
-      ) : (
-        <>
-          {historyIsError ? (
-            <ErrorState className="py-4" title="โหลดกราฟย้อนหลังไม่สำเร็จ" description="สถานะล่าสุดยังแสดงอยู่ ลองโหลดกราฟย้อนหลังอีกครั้ง" onRetry={() => { void refetchHistory() }} />
-          ) : null}
-          <PipelineTimeline metrics={metrics} history={historyIsError ? [] : history} />
-        </>
-      )}
+      {/* Pipeline timeline — only visible to admin */}
+      {isAdmin ? (
+        metricsIsError && !hasFreshSse ? (
+          <ErrorState title="โหลดสถานะการทำงานไม่สำเร็จ" error={metricsError} onRetry={() => { void refetchMetrics() }} />
+        ) : !metrics ? (
+          <SkeletonCard lines={3} />
+        ) : (
+          <>
+            {historyIsError ? (
+              <ErrorState className="py-4" title="โหลดกราฟย้อนหลังไม่สำเร็จ" description="สถานะล่าสุดยังแสดงอยู่ ลองโหลดกราฟย้อนหลังอีกครั้ง" onRetry={() => { void refetchHistory() }} />
+            ) : null}
+            <PipelineTimeline metrics={metrics} history={historyIsError ? [] : history} />
+          </>
+        )
+      ) : null}
 
       {/* Rules table */}
       <Card className="bg-card border-white/10">

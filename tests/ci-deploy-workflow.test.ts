@@ -26,6 +26,10 @@ assert.deepEqual(remote.strategy?.matrix.include.map(({ team_id, host, service }
 assert.ok(workflow.jobs.deploy.needs?.includes('worker-preflight'))
 assert.ok(remote.needs?.includes('deploy'))
 assert.match(remote.if ?? '', /refs\/heads\/main/)
+for (const [name, job] of Object.entries({ preflight, deploy: workflow.jobs.deploy, remote })) {
+  assert.match(job.if ?? '', /github\.event_name != 'pull_request'/,
+    `${name} must reject pull_request events to prevent unintended PR deployment`)
+}
 assert.doesNotMatch(source, /git reset --hard origin\/main/, 'deploy source must match the commit that produced the artifact')
 assert.match(source, /git reset --hard "\$\{\{ github\.sha \}\}"/)
 assert.match(source, /up -d --force-recreate notifier/)
