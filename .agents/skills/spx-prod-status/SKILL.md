@@ -1,11 +1,11 @@
 ---
 name: spx-prod-status
-description: Inspect live production status, health checks, container states, and polling logs across both SPX production hosts (Primary 45.83.207.139 and Worker 147.50.240.44). Use when the user invokes `$spx-prod-status`, asks to check production status, asks if pollers are running, or wants a health check of both servers.
+description: Inspect live production status, health checks, container states, and polling logs across all 3 SPX production hosts (Primary 45.83.207.139, Worker 1 147.50.240.44, and Worker 2 45.154.26.83). Use when the user invokes `$spx-prod-status`, asks to check production status, asks if pollers are running, or wants a health check of all servers.
 ---
 
 # SPX Production Status
 
-Unified diagnostic workflow to check the live health, container status, and polling performance across both SPX production servers.
+Unified diagnostic workflow to check the live health, container status, and polling performance across all 3 SPX production servers (3-Node Distributed Topology).
 
 ## Ground Rules
 
@@ -18,7 +18,7 @@ Unified diagnostic workflow to check the live health, container status, and poll
 
 ## Step 1: Inspect Primary Host (`45.83.207.139`)
 
-Runs Web API Dashboard, Central LINE Notification Dispatcher, Database Migrations, and Poller Team 1 (PTWL).
+Runs Web API Dashboard, Central LINE Notification Dispatcher, and Database Migrations. (Dedicated pollers have been isolated to remote worker nodes).
 
 ```bash
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.207.139 "
@@ -31,16 +31,16 @@ ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.20
 
 Expected healthy indicators:
 - `spx-notifier-1`: Up (healthy)
-- `spx-worker-ptwl-1`: Up (healthy)
+- `spx-line-service-1`: Up (healthy)
 - API `/ready`: `{"status":"success","data":{"ready":true,"service":"web-api","state":"ok",...}}`
 - Disk `/`: Free space > 20%
 - Memory: Available RAM > 200MB
 
 ---
 
-## Step 2: Inspect Worker Host (`147.50.240.44`)
+## Step 2: Inspect Worker 1 Host (`147.50.240.44`)
 
-Runs Poller Team 2 (IFN).
+Runs Dedicated Poller for **Team 2 (IFN)** (`spx-worker-ifn-1`) with direct MySQL connection to `210.246.215.212:3306`.
 
 ```bash
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@147.50.240.44 "
@@ -56,15 +56,33 @@ Expected healthy indicators:
 
 ---
 
-## Step 3: Inspect Real-Time Polling Activity
+## Step 3: Inspect Worker 2 Host (`45.154.26.83` AMD EPYC)
 
-Check the recent logs from both pollers to confirm active communication with SPX:
+Runs Dedicated Poller for **Team 1 (PTWL)** (`spx-worker-ptwl-1`) with direct MySQL connection to `210.246.215.212:3306`.
 
 ```bash
-# Team 1 Poller Logs (Primary Host)
-ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.207.139 "docker logs --tail 15 spx-worker-ptwl-1"
+ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.154.26.83 "
+  echo '=== CONTAINERS ===' && docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' &&
+  echo '=== SYSTEM RESOURCES ===' && df -h / && free -m
+"
+```
 
-# Team 2 Poller Logs (Worker Host)
+Expected healthy indicators:
+- `spx-worker-ptwl-1`: Up (healthy)
+- Disk `/`: Free space > 20%
+- Memory: Available RAM > 200MB
+
+---
+
+## Step 4: Inspect Real-Time Polling Activity
+
+Check recent logs from both remote workers to confirm active polling and direct DB access:
+
+```bash
+# Team 1 Poller Logs (Worker 2 Host: 45.154.26.83)
+ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.154.26.83 "docker logs --tail 15 spx-worker-ptwl-1"
+
+# Team 2 Poller Logs (Worker 1 Host: 147.50.240.44)
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@147.50.240.44 "docker logs --tail 15 spx-worker-ifn-1"
 ```
 
@@ -76,27 +94,32 @@ Analyze the logs for:
 
 ---
 
-## Step 4: Summary Report (ภาษาไทย)
+## Step 5: Summary Report (ภาษาไทย)
 
 สรุปสถานะให้ผู้ใช้ทราบในรูปแบบ:
 
 ```markdown
-### รายงานสถานะ SPX Production (2-Host Topology)
+### รายงานสถานะ SPX Production (3-Node Distributed Topology)
 
-1. **เครื่องหลัก (Primary Host: 45.83.207.139)**:
+1. **เครื่องหลัก Web API & Central Notifier (Primary: 45.83.207.139)**:
    - Commit: `<short-sha>`
    - Containers:
      - `spx-notifier-1`: Up (healthy) ✅
-     - `spx-worker-ptwl-1`: Up (healthy) ✅
+     - `spx-line-service-1`: Up (healthy) ✅
    - API / Dashboard: พร้อมใช้งาน (Ready: true) ✅
    - Disk / RAM: ปกติ (เหลือ X GB / X MB)
 
-2. **เครื่อง Worker (Team 2 Host: 147.50.240.44)**:
+2. **เครื่อง Worker 1 (Team 2 IFN: 147.50.240.44)**:
    - Container:
-     - `spx-worker-ifn-1`: Up (healthy) ✅
+     - `spx-worker-ifn-1`: Up (healthy) ✅ (Direct MySQL)
    - Disk / RAM: ปกติ (เหลือ X GB / X MB)
 
-3. **สถานะการ Polling**:
-   - Team 1 (PTWL): กำลังดึงงานปกติ (Request #N, Latency X ms)
-   - Team 2 (IFN): กำลังดึงงานปกติ (พบ N bookings / Request #N)
+3. **เครื่อง Worker 2 (Team 1 PTWL: 45.154.26.83 AMD EPYC)**:
+   - Container:
+     - `spx-worker-ptwl-1`: Up (healthy) ✅ (Direct MySQL)
+   - Disk / RAM: ปกติ (เหลือ X GB / X MB)
+
+4. **สถานะการ Polling**:
+   - Team 1 (PTWL @ 45.154.26.83): กำลังดึงงานปกติ (Request #N, Latency X ms)
+   - Team 2 (IFN @ 147.50.240.44): กำลังดึงงานปกติ (พบ N bookings / Request #N)
 ```
