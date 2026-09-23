@@ -74,7 +74,41 @@ function statusTone(status: ProviderAuthStatus['status']): string {
   return 'border-white/10 bg-white/[0.04] text-muted-foreground'
 }
 
-export function ProviderAuthPanel({ teamId, className = '' }: { teamId?: number; className?: string }) {
+export function shouldHideProviderAuthPanel({
+  hideWhenConnected = false,
+  forceExpand = false,
+  status,
+  hasError = false,
+  feedbackCode = null,
+  isCoolingDown = false,
+}: {
+  hideWhenConnected?: boolean
+  forceExpand?: boolean
+  status?: ProviderAuthStatus | null
+  hasError?: boolean
+  feedbackCode?: string | null
+  isCoolingDown?: boolean
+}): boolean {
+  if (!hideWhenConnected || forceExpand) return false
+  if (hasError) return false
+  if (feedbackCode || isCoolingDown) return false
+  if (!status) return true
+  return status.status === 'connected'
+}
+
+export function ProviderAuthPanel({
+  teamId,
+  className = '',
+  hideWhenConnected = false,
+  forceExpand = false,
+  onDismiss,
+}: {
+  teamId?: number
+  className?: string
+  hideWhenConnected?: boolean
+  forceExpand?: boolean
+  onDismiss?: () => void
+}) {
   const scopeKey = teamId === undefined ? 'own-team' : `admin-team-${teamId}`
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -223,6 +257,19 @@ export function ProviderAuthPanel({ teamId, className = '' }: { teamId?: number;
     }
   }
 
+  if (
+    shouldHideProviderAuthPanel({
+      hideWhenConnected,
+      forceExpand,
+      status,
+      hasError: statusQuery.error,
+      feedbackCode,
+      isCoolingDown,
+    })
+  ) {
+    return null
+  }
+
   return (
     <section
       id={teamId === undefined ? 'provider-auth-panel' : undefined}
@@ -238,7 +285,20 @@ export function ProviderAuthPanel({ teamId, className = '' }: { teamId?: number;
           </div>
           <p className="mt-1 text-xs text-muted-foreground">เชื่อมต่อบัญชีที่ใช้กับทีมนี้ รหัสผ่านจะแสดงเฉพาะขณะกรอก</p>
         </div>
-        {status ? <span className={`status-pill shrink-0 ${statusTone(status.status)}`}>{statusQuery.error ? 'ยังยืนยันสถานะไม่ได้' : statusLabel(status.status)}</span> : null}
+        <div className="flex items-center gap-2">
+          {status ? <span className={`status-pill shrink-0 ${statusTone(status.status)}`}>{statusQuery.error ? 'ยังยืนยันสถานะไม่ได้' : statusLabel(status.status)}</span> : null}
+          {onDismiss ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={onDismiss}
+            >
+              ซ่อน
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {statusQuery.loading ? (
