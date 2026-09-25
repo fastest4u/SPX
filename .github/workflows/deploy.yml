@@ -303,17 +303,17 @@ jobs:
             }
 
             compose_up_split() {
-              docker compose stop notifier worker-ifn worker-ptwl || true
+              docker compose stop notifier worker-ifn worker-ptwl worker-krtk || true
               docker compose --profile split up -d --force-recreate \
                 web-api notification-service line-service ocr-service \
-                worker-ifn-split worker-ptwl-split
+                worker-ifn-split worker-ptwl-split worker-krtk-split
             }
 
             compose_up_current() {
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 compose_up_split
               else
-                docker compose up -d --force-recreate notifier
+                docker compose up -d --force-recreate notifier worker-krtk
               fi
             }
 
@@ -330,14 +330,14 @@ jobs:
               if [ "${DEPLOY_TOPOLOGY}" = "split" ] || [ "${ROLLBACK_TOPOLOGY}" = "legacy" ]; then
                 docker compose --profile split stop \
                   web-api notification-service line-service ocr-service \
-                  worker-ifn-split worker-ptwl-split || true
+                  worker-ifn-split worker-ptwl-split worker-krtk-split || true
               fi
-              docker compose up -d --force-recreate notifier
+              docker compose up -d --force-recreate notifier worker-krtk
             }
 
             rollback_runtime() {
               if [ "${ROLLBACK_TOPOLOGY}" = "split" ]; then
-                docker compose stop notifier worker-ifn worker-ptwl || true
+                docker compose stop notifier worker-ifn worker-ptwl worker-krtk || true
                 compose_up_split
               else
                 rollback_legacy
@@ -368,7 +368,7 @@ jobs:
             }
 
             wait_split_services_ready() {
-              expected_services="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split"
+              expected_services="web-api notification-service line-service ocr-service worker-ifn-split worker-ptwl-split worker-krtk-split"
               deadline=$(( $(date +%s) + 150 ))
 
               while [ "$(date +%s)" -le "${deadline}" ]; do

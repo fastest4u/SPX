@@ -110,7 +110,7 @@ assert.match(
   /docker compose --profile split up --build \\\r?\n\s*#\s+web-api notification-service line-service ocr-service \\\r?\n\s*#\s+worker-ifn-split worker-ptwl-split/,
   "split-service compose comments must show explicit service names for the migration topology",
 );
-for (const serviceName of ["worker-ifn", "worker-ptwl"]) {
+for (const serviceName of ["worker-ifn", "worker-ptwl", "worker-krtk"]) {
   assert.match(
     dockerCompose,
     new RegExp(`\\n  ${serviceName}:[\\s\\S]*?\\n    healthcheck: \\*spx-worker-healthcheck`),
