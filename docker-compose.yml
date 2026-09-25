@@ -175,6 +175,23 @@ services:
     command: ["sh", "-c", "exec node dist/app.js"]
     healthcheck: *spx-worker-healthcheck
 
+  worker-krtk-split:
+    <<: *spx-common
+    profiles: ["split"]
+    depends_on:
+      notification-service:
+        condition: service_healthy
+    environment:
+      DEPLOYMENT_MODE: legacy
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-krtk-split-1
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "3"
+      NOTIFIER_API_URL: http://notification-service:3002/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-krtk-split.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
+
   worker-ifn:
     <<: *spx-common
     depends_on:
@@ -204,5 +221,21 @@ services:
       RUN_TEAM_IDS: "1"
       NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
       NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-ptwl.jsonl
+    command: ["sh", "-c", "exec node dist/app.js"]
+    healthcheck: *spx-worker-healthcheck
+
+  worker-krtk:
+    <<: *spx-common
+    depends_on:
+      notifier:
+        condition: service_healthy
+    environment:
+      DEPLOYMENT_MODE: legacy
+      SPX_ROLE: worker
+      SPX_NODE_ID: prod-worker-krtk-1
+      HTTP_ENABLED: "false"
+      RUN_TEAM_IDS: "3"
+      NOTIFIER_API_URL: http://notifier:3000/internal/notification-events
+      NOTIFIER_LOCAL_SPOOL_PATH: data/notification-spool-krtk.jsonl
     command: ["sh", "-c", "exec node dist/app.js"]
     healthcheck: *spx-worker-healthcheck

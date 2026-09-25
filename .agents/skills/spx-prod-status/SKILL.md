@@ -18,7 +18,7 @@ Unified diagnostic workflow to check the live health, container status, and poll
 
 ## Step 1: Inspect Primary Host (`45.83.207.139`)
 
-Runs Web API Dashboard, Central LINE Notification Dispatcher, and Database Migrations. (Dedicated pollers have been isolated to remote worker nodes).
+Runs Web API Dashboard, Central LINE Notification Dispatcher, Database Migrations, and Dedicated Poller for **Team 3 (KRTK)** (`spx-worker-krtk-1`).
 
 ```bash
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.207.139 "
@@ -31,6 +31,7 @@ ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.83.20
 
 Expected healthy indicators:
 - `spx-notifier-1`: Up (healthy)
+- `spx-worker-krtk-1`: Up (healthy)
 - `spx-line-service-1`: Up (healthy)
 - API `/ready`: `{"status":"success","data":{"ready":true,"service":"web-api","state":"ok",...}}`
 - Disk `/`: Free space > 20%
