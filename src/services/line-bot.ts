@@ -28,6 +28,7 @@ import {
   getLineBotSession,
   saveLineBotSession,
 } from "../repositories/line-bot-session-repository.js";
+import { isLineStatusCommand, handleLineStatusCommand } from "./line-status-command.js";
 
 // ── Types (duck-typed to keep @evex/linejs as a lazy dynamic import) ───
 
@@ -214,39 +215,43 @@ export function isRecoverableLineJsListenerRejection(reason: unknown): boolean {
 }
 
 function scheduleImageListenerReconnect(reason: string): void {
-  if (!imageListenerChatId || !isLineBotEnabled() || imageListenerReconnectTimer) return;
+  if (!isLineBotEnabled() || imageListenerReconnectTimer) return;
   clearAuthenticatedSession(reason);
 
   imageListenerReconnectTimer = setTimeout(() => {
     imageListenerReconnectTimer = null;
-    const targetChatId = imageListenerChatId;
-    if (!targetChatId || !isLineBotEnabled()) return;
+    if (!isLineBotEnabled()) return;
 
-    void startImageListener(targetChatId).catch((error) => {
-      logger.warn("line-image-listener-reconnect-failed", {
+    const reconnectAction = imageListenerChatId
+      ? startImageListener(imageListenerChatId)
+      : getClient();
+
+    void Promise.resolve(reconnectAction).catch((error) => {
+      logger.warn("line-listener-reconnect-failed", {
         error: errorMessage(error),
       });
       if (isLineAuthFailure(error)) {
-        clearAuthenticatedSession("line-image-listener-reconnect-auth-failure");
+        clearAuthenticatedSession("line-listener-reconnect-auth-failure");
         return;
       }
-      scheduleImageListenerReconnect("line-image-listener-reconnect-retry");
+      scheduleImageListenerReconnect("line-listener-reconnect-retry");
     });
   }, LINE_LISTENER_RECONNECT_DELAY_MS);
   imageListenerReconnectTimer.unref?.();
 }
 
 export function handleRecoverableLineJsListenerRejection(reason: unknown): boolean {
-  if (!imageListenerChatId || !isLineBotEnabled() || !isRecoverableLineJsListenerRejection(reason))
+  if (!isLineBotEnabled() || !isRecoverableLineJsListenerRejection(reason))
     return false;
 
-  logger.warn("line-image-listener-polling-failed", {
+  logger.warn("line-listener-polling-failed", {
     error: errorMessage(reason),
     action: "reconnect",
   });
-  scheduleImageListenerReconnect("line-image-listener-polling-failed");
+  scheduleImageListenerReconnect("line-listener-polling-failed");
   return true;
 }
+
 
 // ── Enable check ───────────────────────────────────────────────────────
 
@@ -891,26 +896,45 @@ export async function bufferLineImageBlob(
   return { buffer, mimeType: sniffedType };
 }
 
-async function replyToLineImageMessage(msg: LineImageMessage, text: string): Promise<boolean> {
+const STATUS_COMMAND_COOLDOWN_MS = 3_000;
+const lastStatusCommandReplyAt = new Map<string, number>();
+
+async function replyToLineMessage(
+  msg: { to?: { id: string }; from?: { id: string }; reply?: (text: string) => Promise<unknown> },
+  text: string,
+): Promise<boolean> {
   try {
-    await msg.reply(text);
-    return true;
+    if (typeof msg.reply === "function") {
+      await msg.reply(text);
+      return true;
+    }
   } catch (primaryError) {
-    logger.warn("line-image-listener-primary-reply-failed", {
+    logger.warn("line-listener-primary-reply-failed", {
       to: msg.to?.id,
       error: primaryError instanceof Error ? primaryError.message : String(primaryError),
     });
   }
 
-  const fallback = await sendMessage(msg.to.id, text);
-  if (!fallback.ok) {
-    logger.warn("line-image-listener-fallback-reply-failed", {
-      to: msg.to?.id,
-      error: fallback.error,
-    });
-    return false;
+  // Fallback target: for group chats (c...), use msg.to.id; for 1-on-1 chats where to.id is bot (u...), use msg.from.id
+  const fallbackTarget =
+    msg.to?.id && !msg.to.id.startsWith("u") ? msg.to.id : msg.from?.id || msg.to?.id;
+
+  if (fallbackTarget) {
+    const fallback = await sendMessage(fallbackTarget, text);
+    if (!fallback.ok) {
+      logger.warn("line-listener-fallback-reply-failed", {
+        to: fallbackTarget,
+        error: fallback.error,
+      });
+      return false;
+    }
+    return true;
   }
-  return true;
+  return false;
+}
+
+async function replyToLineImageMessage(msg: LineImageMessage, text: string): Promise<boolean> {
+  return replyToLineMessage(msg, text);
 }
 
 export async function startImageListener(targetChatMid: string): Promise<void> {
@@ -924,6 +948,22 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
   attachImageListener(c);
 }
 
+function isLineImageMessage(msg: {
+  raw?: { contentType?: string; text?: string };
+  to?: { id: string; type: string };
+  from?: { id: string };
+  getData?(): Promise<Blob>;
+  reply?(text: string): Promise<void>;
+}): msg is LineImageMessage {
+  return (
+    msg.raw?.contentType === "IMAGE" &&
+    typeof msg.getData === "function" &&
+    typeof msg.reply === "function" &&
+    Boolean(msg.to?.id) &&
+    Boolean(msg.from?.id)
+  );
+}
+
 /**
  * Attach the image-message handler to a specific client instance. Idempotent
  * per client and re-invoked after a logout/relogin rebuild so the OCR pipeline
@@ -931,14 +971,58 @@ export async function startImageListener(targetChatMid: string): Promise<void> {
  * logout() never reset, so the listener silently died after the first relogin.)
  */
 function attachImageListener(c: LineJsClient): void {
-  if (!imageListenerChatId) return;
   if (imageListenerClient === c) return;
   imageListenerClient = c;
 
   c.on("message", async (rawMessage: unknown) => {
-    const msg = rawMessage as LineImageMessage;
-    if (msg.raw?.contentType !== "IMAGE") return;
-    if (msg.to?.id !== imageListenerChatId) return;
+    const msg = rawMessage as {
+      text?: string;
+      raw?: { contentType?: string; text?: string };
+      to?: { id: string; type: string };
+      from?: { id: string };
+      getData?(): Promise<Blob>;
+      reply?(text: string): Promise<void>;
+    };
+
+    const toId = msg.to?.id;
+    if (!toId) return;
+
+    // Check for !status / !Status / !สถานะ commands from team groups
+    const text = msg.text ?? msg.raw?.text;
+    if (isLineStatusCommand(text)) {
+      const now = Date.now();
+      const lastReply = lastStatusCommandReplyAt.get(toId) ?? 0;
+      if (now - lastReply < STATUS_COMMAND_COOLDOWN_MS) {
+        return;
+      }
+      lastStatusCommandReplyAt.set(toId, now);
+      if (lastStatusCommandReplyAt.size > 500) {
+        lastStatusCommandReplyAt.clear();
+      }
+
+      logger.info("line-status-command-received", {
+        to: toId,
+        from: msg.from?.id,
+        text,
+      });
+      try {
+        const replyText = await handleLineStatusCommand({ chatId: toId });
+        await replyToLineMessage(msg, replyText);
+        logger.info("line-status-command-replied", { to: toId });
+      } catch (cmdError) {
+        logger.error("line-status-command-error", {
+          to: toId,
+          error: cmdError instanceof Error ? cmdError.message : String(cmdError),
+        });
+        await replyToLineMessage(msg, "⚠️ เกิดข้อผิดพลาดในการดึงสถานะบอท กรุณาลองใหม่อีกครั้ง");
+      }
+      return;
+    }
+
+    if (!imageListenerChatId || toId !== imageListenerChatId || !isLineImageMessage(msg)) return;
+
+
+
 
     let tempDir = "";
     const startedAt = Date.now();
