@@ -4,7 +4,6 @@ import {
   parseRouteCommands,
   normalizeVehicleType,
   handleLineRouteCommand,
-  type ParsedRouteCommand,
 } from "../src/services/line-route-command.js";
 import type { TeamStatusContext } from "../src/repositories/team-repository.js";
 import type { NotifyRule, NotifyRuleInput, NotifyRulePatch } from "../src/services/notify-rules.js";
