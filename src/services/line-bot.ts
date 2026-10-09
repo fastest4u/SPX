@@ -29,6 +29,7 @@ import {
   saveLineBotSession,
 } from "../repositories/line-bot-session-repository.js";
 import { isLineStatusCommand, handleLineStatusCommand } from "./line-status-command.js";
+import { isLineRouteCommand, handleLineRouteCommand } from "./line-route-command.js";
 
 // ── Types (duck-typed to keep @evex/linejs as a lazy dynamic import) ───
 
@@ -1015,6 +1016,37 @@ function attachImageListener(c: LineJsClient): void {
           error: cmdError instanceof Error ? cmdError.message : String(cmdError),
         });
         await replyToLineMessage(msg, "⚠️ เกิดข้อผิดพลาดในการดึงสถานะบอท กรุณาลองใหม่อีกครั้ง");
+      }
+      return;
+    }
+
+    // Check for + / - route management commands from team groups
+    if (isLineRouteCommand(text)) {
+      const now = Date.now();
+      const lastReply = lastStatusCommandReplyAt.get(toId) ?? 0;
+      if (now - lastReply < STATUS_COMMAND_COOLDOWN_MS) {
+        return;
+      }
+      lastStatusCommandReplyAt.set(toId, now);
+      if (lastStatusCommandReplyAt.size > 500) {
+        lastStatusCommandReplyAt.clear();
+      }
+
+      logger.info("line-route-command-received", {
+        to: toId,
+        from: msg.from?.id,
+        text,
+      });
+      try {
+        const replyText = await handleLineRouteCommand({ chatId: toId, text: text! });
+        await replyToLineMessage(msg, replyText);
+        logger.info("line-route-command-replied", { to: toId });
+      } catch (cmdError) {
+        logger.error("line-route-command-error", {
+          to: toId,
+          error: cmdError instanceof Error ? cmdError.message : String(cmdError),
+        });
+        await replyToLineMessage(msg, "⚠️ เกิดข้อผิดพลาดในการบันทึกเส้นทาง กรุณาลองใหม่อีกครั้ง");
       }
       return;
     }
