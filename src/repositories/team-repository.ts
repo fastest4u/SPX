@@ -180,6 +180,42 @@ export async function listEnabledTeamRuntimeConfigs(): Promise<TeamRuntimeConfig
   return rows.map(toRuntimeConfig);
 }
 
+export interface TeamStatusContext {
+  id: number;
+  name: string;
+  enabled: boolean;
+  biddingVehicleType: number | null;
+  lineGroupId: string;
+  autoAcceptSuccessLineGroupId: string;
+  autoAcceptFailureLineGroupId: string;
+}
+
+export async function listAllTeamStatusContexts(): Promise<TeamStatusContext[]> {
+  await ensureDashboardTables();
+  const db = getDb();
+  const rows = await db.select().from(teams);
+
+  return rows.map((row: TeamRow) => ({
+    id: row.id,
+    name: row.name,
+    enabled: row.enabled === 1,
+    biddingVehicleType: row.biddingVehicleType ?? null,
+    lineGroupId: decodeSecret(row.lineGroupId),
+    autoAcceptSuccessLineGroupId: decodeSecret(row.autoAcceptSuccessLineGroupId),
+    autoAcceptFailureLineGroupId: decodeSecret(row.autoAcceptFailureLineGroupId),
+  }));
+}
+
+
+export async function listAllTeamRuntimeConfigs(): Promise<TeamRuntimeConfig[]> {
+  await ensureDashboardTables();
+  const db = getDb();
+  const rows = await db.select().from(teams);
+  return rows.map(toRuntimeConfig);
+}
+
+
+
 export async function createTeam(input: TeamInput): Promise<RedactedTeam> {
   await ensureDashboardTables();
   const db = getDb();
