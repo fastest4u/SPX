@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   DASHBOARD_POLL_FRESHNESS_MS,
+  DASHBOARD_CLOCK_SKEW_TOLERANCE_MS,
   getDashboardSessionRecovery,
   getDashboardTeamControlState,
 } from "../src/frontend/routes/index.tsx";
@@ -176,11 +177,21 @@ assert.equal(stalePoll.healthLabel, "บัญชีผู้ให้บริ�
   "an old poll can preserve last-known provider health without claiming it is current");
 assert.equal(stalePoll.healthTone, "unknown");
 
+const clockSkewPoll = getDashboardTeamControlState({
+  user,
+  team,
+  metrics: metrics({ timestamp: new Date(nowMs + 5_000).toISOString() }),
+  nowMs,
+  isMutating: false,
+});
+assert.equal(clockSkewPoll.primaryLabel, "Live", "poll within clock skew tolerance must remain Live");
+assert.equal(clockSkewPoll.healthLabel, "บัญชีผู้ให้บริการ: ปกติ", "poll within clock skew tolerance must remain healthy");
+
 for (const [name, snapshot] of [
   ["missing poll", metrics({ timestamp: null })],
   ["mismatched team", metrics({ teamId: 8 })],
   ["invalid timestamp", metrics({ timestamp: "not-a-date" })],
-  ["future timestamp", metrics({ timestamp: new Date(nowMs + 1).toISOString() })],
+  ["far future timestamp", metrics({ timestamp: new Date(nowMs + DASHBOARD_CLOCK_SKEW_TOLERANCE_MS + 1).toISOString() })],
 ] as const) {
   const state = getDashboardTeamControlState({ user, team, metrics: snapshot, nowMs, isMutating: false });
   assert.equal(state.primaryLabel, "Unknown", `${name} must not be treated as a fresh running worker`);

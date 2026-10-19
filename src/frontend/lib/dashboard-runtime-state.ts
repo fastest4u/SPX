@@ -5,6 +5,8 @@ export const DASHBOARD_POLL_FRESHNESS_MS = 120_000
 /** Matches the default worker poll cadence without adding high-frequency API traffic. */
 export const DASHBOARD_TEAM_RUNTIME_REFRESH_MS = 30_000
 export const DASHBOARD_STATUS_CLOCK_INTERVAL_MS = 5_000
+/** Tolerates client-server clock skew so minor local clock drift does not flip runtime to Unknown. */
+export const DASHBOARD_CLOCK_SKEW_TOLERANCE_MS = 60_000
 
 export type DashboardTeamControlState = {
   canToggle: boolean
@@ -27,7 +29,7 @@ function observedPollTimestamp(
 ): number | null {
   if (!team || !metrics || metrics.teamId !== team.id || !metrics.lastPoll.timestamp) return null
   const timestampMs = Date.parse(metrics.lastPoll.timestamp)
-  if (!Number.isFinite(timestampMs) || timestampMs > nowMs) return null
+  if (!Number.isFinite(timestampMs) || timestampMs - nowMs > DASHBOARD_CLOCK_SKEW_TOLERANCE_MS) return null
   return timestampMs
 }
 
