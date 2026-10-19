@@ -107,8 +107,6 @@ services:
     depends_on:
       web-api:
         condition: service_healthy
-      ocr-service:
-        condition: service_started
     environment:
       DEPLOYMENT_MODE: legacy
       SPX_ROLE: line-service
@@ -120,7 +118,9 @@ services:
       LINE_SERVICE_ADMIN_SECRET: ${LINE_SERVICE_ADMIN_SECRET:-}
       LINE_SEND_ALLOWED_NODE_IDS: ${LINE_SEND_ALLOWED_NODE_IDS:-prod-notifier-1,prod-web-api-1,prod-notification-service-1,web-api,combined}
       LINE_ADMIN_ALLOWED_NODE_IDS: ${LINE_ADMIN_ALLOWED_NODE_IDS:-prod-notifier-1,prod-web-api-1,prod-notification-service-1,web-api,combined}
-      OCR_SERVICE_URL: http://ocr-service:3004
+      # Remote OCR is opt-in: set OCR_SERVICE_URL=http://ocr-service:3004 in .env once ocr-service runs.
+      # Empty (default) makes line-service read images with local Codex OCR (data/codex-device-auth.json).
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
     command: ["sh", "-c", "exec node dist/app.js"]
     healthcheck: *spx-http-healthcheck
 
