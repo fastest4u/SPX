@@ -6,6 +6,7 @@ import {
   getDashboardSessionRecovery,
   getDashboardTeamControlState,
 } from "../src/frontend/routes/index.tsx";
+import { formatPollAge, getDashboardSystemStatus } from "../src/frontend/lib/dashboard-runtime-state.ts";
 import type { AuthUser, MetricsSnapshot, Team } from "../src/frontend/types/index.ts";
 
 const nowMs = Date.parse("2026-09-12T12:00:00.000Z");
@@ -264,5 +265,65 @@ assert.equal(adminState.disabled, true);
 assert.equal(adminState.primaryLabel, "Unknown");
 assert.equal(adminState.healthLabel, "บัญชีผู้ให้บริการ: ยังไม่ยืนยัน");
 assert.equal(adminState.title, "Admin ดูสถานะจาก Dashboard ได้เท่านั้น ใช้หน้า Teams เพื่อเลือกทีมและจัดการระบบบิท");
+
+// ── Admin system-wide status (aggregate metrics, teamId === null) ──
+const systemMetrics = (overrides: Parameters<typeof metrics>[0] = {}) => metrics({ teamId: null, ...overrides });
+
+const noMetrics = getDashboardSystemStatus({ metrics: null, nowMs });
+assert.equal(noMetrics.tone, "unknown", "no metrics must stay neutral");
+assert.equal(noMetrics.label, "กำลังเชื่อมต่อ…");
+assert.equal(noMetrics.lastPollAt, null);
+
+assert.equal(getDashboardSystemStatus({ metrics: metrics({ teamId: 7 }), nowMs }).tone, "unknown",
+  "a team-scoped snapshot must not be presented as the system view");
+
+const sysPaused = getDashboardSystemStatus({ metrics: systemMetrics({ isPaused: true }), nowMs });
+assert.equal(sysPaused.tone, "paused");
+assert.equal(sysPaused.label, "พักการ poll");
+
+const sysNoPoll = getDashboardSystemStatus({ metrics: systemMetrics({ timestamp: null }), nowMs });
+assert.equal(sysNoPoll.tone, "unknown");
+assert.equal(sysNoPoll.label, "รอผล poll แรก");
+
+assert.equal(
+  getDashboardSystemStatus({
+    metrics: systemMetrics({ timestamp: new Date(nowMs + DASHBOARD_CLOCK_SKEW_TOLERANCE_MS + 1).toISOString() }),
+    nowMs,
+  }).tone,
+  "unknown",
+  "far-future poll timestamps must not claim Live",
+);
+
+const sysExpired = getDashboardSystemStatus({ metrics: systemMetrics({ status: "session_expired" }), nowMs });
+assert.equal(sysExpired.tone, "error");
+assert.equal(sysExpired.label, "Session หมดอายุ");
+
+const sysStale = getDashboardSystemStatus({
+  metrics: systemMetrics({ timestamp: new Date(nowMs - DASHBOARD_POLL_FRESHNESS_MS - 1).toISOString() }),
+  nowMs,
+});
+assert.equal(sysStale.tone, "paused");
+assert.equal(sysStale.label, "ไม่มีผล poll ใหม่");
+
+const sysFailed = getDashboardSystemStatus({ metrics: systemMetrics({ status: "network" }), nowMs });
+assert.equal(sysFailed.tone, "error");
+assert.equal(sysFailed.label, "poll ล่าสุดล้มเหลว");
+assert.equal(sysFailed.detail, "ผล poll ล่าสุดล้มเหลว (network)");
+
+const sysUnhealthy = getDashboardSystemStatus({ metrics: systemMetrics({ isHealthy: false }), nowMs });
+assert.equal(sysUnhealthy.tone, "error");
+assert.equal(sysUnhealthy.label, "ต้องตรวจสอบบัญชี");
+
+const sysLive = getDashboardSystemStatus({ metrics: systemMetrics(), nowMs });
+assert.equal(sysLive.tone, "live");
+assert.equal(sysLive.label, "ทำงานปกติ");
+assert.equal(sysLive.lastPollAt, nowMs - 30_000);
+
+assert.equal(formatPollAge(null, nowMs), null);
+assert.equal(formatPollAge(nowMs + 5_000, nowMs), "เมื่อสักครู่", "client clock behind must never render negative age");
+assert.equal(formatPollAge(nowMs - 1_000, nowMs), "เมื่อสักครู่");
+assert.equal(formatPollAge(nowMs - 30_000, nowMs), "30 วินาทีที่แล้ว");
+assert.equal(formatPollAge(nowMs - 180_000, nowMs), "3 นาทีที่แล้ว");
+assert.equal(formatPollAge(nowMs - 7_200_000, nowMs), "2 ชั่วโมงที่แล้ว");
 
 console.log("frontend-dashboard-team-control: truthful runtime, freshness, provider health and permissions passed");

@@ -5,15 +5,19 @@ interface SwitchProps {
   checked: boolean
   onCheckedChange: (checked: boolean) => void
   disabled?: boolean
+  'aria-label'?: string
+  title?: string
 }
 
-function Switch({ id, checked, onCheckedChange, disabled }: SwitchProps) {
+function Switch({ id, checked, onCheckedChange, disabled, 'aria-label': ariaLabel, title }: SwitchProps) {
   return (
     <button
       id={id}
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
+      title={title}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(

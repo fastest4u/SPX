@@ -14,24 +14,20 @@ import { EmptyState } from '../components/EmptyState'
 import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
+import { StatusIndicator } from '../components/ui/status-indicator'
+import { Switch } from '../components/ui/switch'
 import { Sparkline } from '../components/Sparkline'
 import { cn } from '../lib/utils'
 import {
-  Activity,
   AlertTriangle,
-  Car,
-  CheckCircle2,
   ChevronRight,
   Eye,
   LayoutDashboard,
-  PauseCircle,
-  PowerOff,
   Plus,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Users,
-  WifiOff,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -45,10 +41,25 @@ import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 import {
   DASHBOARD_STATUS_CLOCK_INTERVAL_MS,
   DASHBOARD_TEAM_RUNTIME_REFRESH_MS,
+  formatPollAge,
+  getDashboardSystemStatus,
   getDashboardTeamControlState,
+  type DashboardTeamControlState,
 } from '../lib/dashboard-runtime-state'
 
 export { DASHBOARD_POLL_FRESHNESS_MS, DASHBOARD_CLOCK_SKEW_TOLERANCE_MS, getDashboardTeamControlState } from '../lib/dashboard-runtime-state'
+
+const teamStatusLabels: Record<DashboardTeamControlState['primaryLabel'], string> = {
+  Live: 'ทำงานอยู่',
+  Paused: 'พักชั่วคราว',
+  Off: 'ปิดอยู่',
+  Stopped: 'หยุดทำงาน',
+  Setup: 'ตั้งค่าไม่ครบ',
+  'Session expired': 'Session หมดอายุ',
+  Error: 'มีข้อผิดพลาด',
+  Unknown: 'กำลังตรวจสอบ…',
+  Stale: 'ไม่มีผล poll ใหม่',
+}
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -348,139 +359,98 @@ export function DashboardComponent() {
   })
   const hasSessionExpired = teamControlState.primaryLabel === 'Session expired'
 
-  const primaryStatusClassName = cn(
-    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] transition-all disabled:opacity-50',
-    teamControlState.primaryTone === 'live'
-      ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-      : teamControlState.primaryTone === 'paused'
-        ? 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
-        : teamControlState.primaryTone === 'error'
-          ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25'
-          : 'bg-white/[0.06] text-muted-foreground hover:bg-white/10'
-  )
-
-  const primaryStatusContent = (
-    <>
-      {teamControlState.primaryTone === 'live' ? (
-        <span className="relative flex h-2 w-2 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-        </span>
-      ) : teamControlState.primaryTone === 'off' ? (
-        <PowerOff className="h-3 w-3" />
-      ) : teamControlState.primaryTone === 'paused' ? (
-        <PauseCircle className="h-3 w-3" />
-      ) : teamControlState.primaryTone === 'error' ? (
-        <AlertTriangle className="h-3 w-3" />
-      ) : (
-        <WifiOff className="h-3 w-3" />
-      )}
-      <span>{teamControlState.primaryLabel}</span>
-    </>
-  )
-
-  const statusGroup = (
-    <div className="flex max-w-full flex-col items-start gap-1">
-      <div
-        className={cn(
-          "inline-flex max-w-full items-center gap-1.5 rounded-full border p-0.5 pr-2.5 backdrop-blur-md transition-all shadow-sm",
-          teamControlState.primaryTone === 'live'
-            ? "border-emerald-500/25 bg-emerald-500/[0.06] shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-            : teamControlState.primaryTone === 'paused'
-              ? "border-amber-500/25 bg-amber-500/[0.06] shadow-[0_0_12px_rgba(245,158,11,0.08)]"
-              : teamControlState.primaryTone === 'error'
-                ? "border-rose-500/25 bg-rose-500/[0.06] shadow-[0_0_12px_rgba(244,63,94,0.1)]"
-                : "border-white/10 bg-white/[0.03]"
-        )}
-        role="status"
-        aria-label={`สถานะ Worker: ${teamControlState.runtimeReason}; ${teamControlState.healthLabel}`}
-      >
-        {teamControlState.canToggle ? (
-          <button
-            type="button"
-            onClick={() => toggleTeamMutation.mutate()}
-            disabled={teamControlState.disabled}
-            className={primaryStatusClassName}
-            title={teamControlState.title}
-            aria-label={teamControlState.title}
-          >
-            {primaryStatusContent}
-          </button>
-        ) : (
-          <span className={primaryStatusClassName} title={teamControlState.title}>
-            {primaryStatusContent}
-          </span>
-        )}
-        <span className="h-3 w-px shrink-0 bg-white/10" aria-hidden="true" />
-        {teamControlState.healthTone === 'healthy' ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-emerald-400">
-            <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-400" />
-            <span className="truncate">{teamControlState.healthLabel}</span>
-          </span>
-        ) : teamControlState.healthTone === 'degraded' ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-amber-400">
-            <WifiOff className="h-3 w-3 shrink-0" />
-            <span className="truncate">{teamControlState.healthLabel}</span>
-          </span>
-        ) : (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-muted-foreground">
-            <WifiOff className="h-3 w-3 shrink-0" />
-            <span className="truncate">{teamControlState.healthLabel}</span>
-          </span>
-        )}
-      </div>
-      <span className="max-w-[22rem] text-[0.72rem] leading-snug text-muted-foreground">
-        {teamControlState.runtimeReason}
-      </span>
-    </div>
-  )
+  const nowMs = Date.now()
+  const systemStatus = isAdmin ? getDashboardSystemStatus({ metrics, nowMs }) : null
+  const teamLastPollAt = metrics && currentTeam && metrics.teamId === currentTeam.id && metrics.lastPoll.timestamp
+    ? Date.parse(metrics.lastPoll.timestamp)
+    : Number.NaN
+  const headerStatus = systemStatus
+    ? {
+        tone: systemStatus.tone,
+        label: systemStatus.label,
+        detail: systemStatus.detail,
+        age: systemStatus.tone === 'unknown' ? null : formatPollAge(systemStatus.lastPollAt, nowMs),
+      }
+    : {
+        tone: teamControlState.primaryTone,
+        label: teamStatusLabels[teamControlState.primaryLabel],
+        detail: `${teamControlState.runtimeReason} · ${teamControlState.healthLabel}`,
+        age: teamControlState.primaryTone === 'unknown' || teamControlState.primaryTone === 'off' || !Number.isFinite(teamLastPollAt)
+          ? null
+          : formatPollAge(teamLastPollAt, nowMs),
+      }
+  const showProviderWarning = shouldLoadCurrentTeam && teamControlState.healthTone === 'degraded'
   const sessionRecovery = getDashboardSessionRecovery(user)
 
   return (
     <PageShell>
       <PageHeader
         icon={LayoutDashboard}
-        title={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span>ภาพรวมระบบ</span>
-            {isAdmin ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.68rem] font-semibold text-primary">
-                <Activity className="h-3 w-3" />
-                <span>Admin Console</span>
-              </span>
-            ) : currentTeam?.name ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[0.68rem] font-semibold text-foreground/90">
-                <Car className="h-3 w-3 text-primary" />
-                <span>ทีม {currentTeam.name}</span>
-              </span>
+        title="ภาพรวมระบบ"
+        subtitle={
+          isAdmin ? (
+            'Pipeline telemetry และ rule ที่กำลังทำงาน'
+          ) : (
+            <>
+              {currentTeam?.name ? <span className="text-foreground/80">ทีม {currentTeam.name}</span> : null}
+              {currentTeam?.name ? <span className="mx-1.5 text-muted-foreground/50" aria-hidden="true">·</span> : null}
+              <span>รายการค้นหาและสถานะการทำงาน</span>
+              {showProviderWarning ? (
+                <span className="mt-1 flex items-center gap-1.5 text-xs text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {teamControlState.healthLabel}
+                </span>
+              ) : null}
+            </>
+          )
+        }
+        actions={
+          <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 sm:w-auto sm:justify-end">
+            <StatusIndicator
+              tone={headerStatus.tone}
+              label={headerStatus.label}
+              age={headerStatus.age}
+              detail={headerStatus.detail}
+            />
+            {teamControlState.canToggle ? (
+              <>
+                <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden="true" />
+                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>ระบบบิท</span>
+                  <Switch
+                    checked={currentTeam?.enabled === true}
+                    onCheckedChange={() => toggleTeamMutation.mutate()}
+                    disabled={teamControlState.disabled}
+                    aria-label={teamControlState.title}
+                    title={teamControlState.title}
+                  />
+                </label>
+              </>
+            ) : null}
+            {shouldLoadCurrentTeam ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowProviderAuth((prev) => !prev)}
+                className="-mx-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground sm:mx-0"
+                aria-expanded={showProviderAuth}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
+              </Button>
+            ) : isAdmin ? (
+              <a
+                href="/teams"
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'sm' }),
+                  '-mx-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground sm:mx-0'
+                )}
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>จัดการทีม</span>
+              </a>
             ) : null}
           </div>
-        }
-        subtitle={isAdmin ? "Pipeline telemetry และ rule ที่กำลังทำงาน" : "รายการค้นหาและสถานะการทำงาน"}
-        meta={statusGroup}
-        actions={
-          shouldLoadCurrentTeam ? (
-            <Button
-              variant={showProviderAuth ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => setShowProviderAuth((prev) => !prev)}
-              className="text-xs gap-1.5"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-              <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
-            </Button>
-          ) : isAdmin ? (
-            <a
-              href="/teams"
-              className={cn(
-                buttonVariants({ variant: 'outline', size: 'sm' }),
-                "text-xs gap-1.5 border-white/10 bg-white/[0.03] hover:bg-white/[0.08] hover:border-white/20 transition-all"
-              )}
-            >
-              <Users className="h-3.5 w-3.5 text-primary" />
-              <span>จัดการทีม</span>
-            </a>
-          ) : undefined
         }
       />
 
