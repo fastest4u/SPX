@@ -22,7 +22,9 @@ export const DEFAULT_CODEX_IMAGE_PROMPT = `อ่านข้อมูลจา�
 
 ตัวอย่างรูปแบบคำตอบที่ถูกต้อง (เป็นเพียงตัวอย่างรูปแบบ ห้ามคัดลอกค่าเหล่านี้ถ้าไม่ตรงกับรูปจริง):
 ${LINE_IMAGE_EXAMPLE_OUTPUT}`;
-export const DEFAULT_CODEX_IMAGE_MODEL = "gpt-5.5";
+// ChatGPT-account Codex rejects gpt-5.x / *-codex ("model is not supported when using Codex with a
+// ChatGPT account"). gpt-6-sol read the OCR fixture exactly in ~3.4s (2026-10-19 production probe).
+export const DEFAULT_CODEX_IMAGE_MODEL = "gpt-6-sol";
 export const CODEX_IMAGE_SYSTEM_PROMPT = "Follow the user's image-reading instructions exactly and return only the requested answer.";
 
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);

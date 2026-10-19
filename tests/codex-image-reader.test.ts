@@ -27,8 +27,10 @@ ${LINE_IMAGE_EXAMPLE_OUTPUT}`;
 
 assert.equal(DEFAULT_CODEX_IMAGE_PROMPT, expectedPrompt);
 
-assert.equal(resolveCodexImageModel(" gpt-5.5 "), "gpt-5.5");
-assert.equal(resolveCodexImageModel(""), "gpt-5.5");
+assert.equal(resolveCodexImageModel(" gpt-6.1-sol "), "gpt-6.1-sol");
+// ChatGPT-account Codex rejects gpt-5.x ("model is not supported when using Codex with a ChatGPT account").
+assert.equal(resolveCodexImageModel(""), "gpt-6-sol");
+assert.equal(resolveCodexImageModel(undefined), "gpt-6-sol");
 assert.deepEqual(buildCodexExecSettings(), {
   allowNpx: true,
   skipGitRepoCheck: true,

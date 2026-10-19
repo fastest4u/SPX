@@ -330,7 +330,7 @@ const AI_IMAGE_FIELDS = [
         key: 'CODEX_IMAGE_MODEL',
         label: 'Codex image model',
         helper: 'model ที่ใช้แยกข้อมูลจากรูป runsheet',
-        placeholder: 'gpt-5-mini',
+        placeholder: 'gpt-6-sol',
     },
     {
         key: 'CODEX_IMAGE_TIMEOUT_MS',

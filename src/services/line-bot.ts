@@ -1090,6 +1090,7 @@ function attachImageListener(c: LineJsClient): void {
         senderId: msg.from.id,
         traceId: `${msg.to.id}:${startedAt}`,
         timeoutMs,
+        model: env.CODEX_IMAGE_MODEL,
         ocrServiceUrl: env.OCR_SERVICE_URL,
         sharedSecret: resolveOutboundNodeSecret({
           nodeSecret: env.OCR_NODE_SECRET,
