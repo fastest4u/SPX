@@ -1,5 +1,5 @@
 import { useScopedMetrics } from '../hooks/useScopedMetrics'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { ErrorState } from '../components/ui/error-state'
 import { currentTeamApi, rulesApi, metricsApi } from '../lib/api'
@@ -27,7 +27,6 @@ import {
   PauseCircle,
   PowerOff,
   Plus,
-  Radio,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -44,8 +43,6 @@ import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
 import {
-  DASHBOARD_CLOCK_SKEW_TOLERANCE_MS,
-  DASHBOARD_POLL_FRESHNESS_MS,
   DASHBOARD_STATUS_CLOCK_INTERVAL_MS,
   DASHBOARD_TEAM_RUNTIME_REFRESH_MS,
   getDashboardTeamControlState,
@@ -333,12 +330,6 @@ export function DashboardComponent() {
     return columns
   }, [handleDeleteRule, handleEditRule, handlePreviewRule, isAdmin])
 
-  const activeRulesCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules])
-  const totalTeamsCount = useMemo(() => {
-    const teamIds = new Set(rules.map((r) => r.teamId).filter((id): id is number => typeof id === 'number' && id > 0))
-    return teamIds.size || 3
-  }, [rules])
-
   if (rulesLoading) {
     return (
       <div className="space-y-3 sm:space-y-4">
@@ -356,12 +347,6 @@ export function DashboardComponent() {
     isMutating: toggleTeamMutation.isPending,
   })
   const hasSessionExpired = teamControlState.primaryLabel === 'Session expired'
-
-  // Fleet telemetry status for admin
-  const adminPollTimestampMs = metrics?.lastPoll?.timestamp ? Date.parse(metrics.lastPoll.timestamp) : null
-  const isAdminPollValid = adminPollTimestampMs !== null && Number.isFinite(adminPollTimestampMs) && (adminPollTimestampMs - Date.now() <= DASHBOARD_CLOCK_SKEW_TOLERANCE_MS)
-  const isAdminLive = isAdminPollValid && (Date.now() - adminPollTimestampMs <= DASHBOARD_POLL_FRESHNESS_MS)
-  const isAdminPaused = metrics?.isPaused === true
 
   const primaryStatusClassName = cn(
     'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] transition-all disabled:opacity-50',
@@ -394,56 +379,7 @@ export function DashboardComponent() {
     </>
   )
 
-  const statusGroup = isAdmin ? (
-    <div className="flex max-w-full flex-col items-start gap-1">
-      <div
-        className={cn(
-          "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1 backdrop-blur-md transition-all shadow-sm",
-          isAdminPaused
-            ? "border-amber-500/25 bg-amber-500/[0.08] shadow-[0_0_12px_rgba(245,158,11,0.1)]"
-            : isAdminLive || hasFreshSse
-              ? "border-emerald-500/25 bg-emerald-500/[0.08] shadow-[0_0_15px_rgba(16,185,129,0.12)]"
-              : "border-white/10 bg-white/[0.03]"
-        )}
-        role="status"
-        aria-label="สถานะระบบรวม Admin"
-      >
-        <div className="inline-flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-[0.14em]">
-          {isAdminPaused ? (
-            <>
-              <PauseCircle className="h-3 w-3 text-amber-400" />
-              <span className="text-amber-400">Fleet Paused</span>
-            </>
-          ) : isAdminLive || hasFreshSse ? (
-            <>
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              <span className="text-emerald-400">Fleet Live</span>
-            </>
-          ) : (
-            <>
-              <Radio className="h-3 w-3 text-muted-foreground animate-pulse" />
-              <span className="text-muted-foreground">Fleet Standby</span>
-            </>
-          )}
-        </div>
-        <span className="h-3 w-px shrink-0 bg-white/10" aria-hidden="true" />
-        <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-foreground/80">
-          <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-400" />
-          <span className="truncate">{totalTeamsCount} ทีมออนไลน์</span>
-        </span>
-      </div>
-      <span className="max-w-[24rem] text-[0.72rem] leading-snug text-muted-foreground">
-        {isAdminPaused
-          ? `ระบบพักการทำงานชั่วคราว • ${activeRulesCount} กฎเปิดอยู่`
-          : isAdminLive || hasFreshSse
-            ? `Worker ทุกระบบส่งผล telemetry ล่าสุด • ${activeRulesCount} กฎเปิดรับงาน`
-            : `กำลังเชื่อมต่อ Telemetry รวม • ${activeRulesCount} กฎในระบบ`}
-      </span>
-    </div>
-  ) : (
+  const statusGroup = (
     <div className="flex max-w-full flex-col items-start gap-1">
       <div
         className={cn(
@@ -534,8 +470,8 @@ export function DashboardComponent() {
               <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
             </Button>
           ) : isAdmin ? (
-            <Link
-              to="/teams"
+            <a
+              href="/teams"
               className={cn(
                 buttonVariants({ variant: 'outline', size: 'sm' }),
                 "text-xs gap-1.5 border-white/10 bg-white/[0.03] hover:bg-white/[0.08] hover:border-white/20 transition-all"
@@ -543,7 +479,7 @@ export function DashboardComponent() {
             >
               <Users className="h-3.5 w-3.5 text-primary" />
               <span>จัดการทีม</span>
-            </Link>
+            </a>
           ) : undefined
         }
       />

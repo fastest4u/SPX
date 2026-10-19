@@ -6,7 +6,7 @@ export const DASHBOARD_POLL_FRESHNESS_MS = 120_000
 export const DASHBOARD_TEAM_RUNTIME_REFRESH_MS = 30_000
 export const DASHBOARD_STATUS_CLOCK_INTERVAL_MS = 5_000
 /** Tolerates client-server clock skew so minor local clock drift does not flip runtime to Unknown. */
-export const DASHBOARD_CLOCK_SKEW_TOLERANCE_MS = 60_000
+export const DASHBOARD_CLOCK_SKEW_TOLERANCE_MS = 15_000
 
 export type DashboardTeamControlState = {
   canToggle: boolean
