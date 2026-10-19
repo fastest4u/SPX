@@ -15,19 +15,23 @@ import { DataTable, type DataTableColumn } from '../components/DataTable'
 import { FilterPanel, MobileRecordCard, PageShell } from '../components/layout/Page'
 import { PageHeader } from '../components/ui/page-header'
 import { Sparkline } from '../components/Sparkline'
+import { cn } from '../lib/utils'
 import {
+  Activity,
   AlertTriangle,
+  Car,
+  CheckCircle2,
+  ChevronRight,
   Eye,
   LayoutDashboard,
   PauseCircle,
   PowerOff,
   Plus,
-  Radio,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Users,
   WifiOff,
-  ChevronRight,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -44,7 +48,7 @@ import {
   getDashboardTeamControlState,
 } from '../lib/dashboard-runtime-state'
 
-export { DASHBOARD_POLL_FRESHNESS_MS, getDashboardTeamControlState } from '../lib/dashboard-runtime-state'
+export { DASHBOARD_POLL_FRESHNESS_MS, DASHBOARD_CLOCK_SKEW_TOLERANCE_MS, getDashboardTeamControlState } from '../lib/dashboard-runtime-state'
 
 export const Route = createFileRoute('/')({
   component: DashboardComponent,
@@ -344,38 +348,50 @@ export function DashboardComponent() {
   })
   const hasSessionExpired = teamControlState.primaryLabel === 'Session expired'
 
-  const primaryStatusClassName = `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] transition-colors disabled:opacity-50 ${teamControlState.primaryTone === 'off'
-    ? 'bg-white/[0.05] text-muted-foreground'
-    : teamControlState.primaryTone === 'paused'
-      ? 'bg-[color:var(--color-warning-soft)] text-warning'
-      : teamControlState.primaryTone === 'error'
-        ? 'bg-[color:var(--color-danger-soft)] text-danger'
-        : teamControlState.primaryTone === 'unknown'
-          ? 'bg-white/[0.05] text-muted-foreground'
-          : 'bg-[color:var(--color-info-soft)] text-info'
-    }`
+  const primaryStatusClassName = cn(
+    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] transition-all disabled:opacity-50',
+    teamControlState.primaryTone === 'live'
+      ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+      : teamControlState.primaryTone === 'paused'
+        ? 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+        : teamControlState.primaryTone === 'error'
+          ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25'
+          : 'bg-white/[0.06] text-muted-foreground hover:bg-white/10'
+  )
 
   const primaryStatusContent = (
     <>
-      {teamControlState.primaryTone === 'off' ? (
+      {teamControlState.primaryTone === 'live' ? (
+        <span className="relative flex h-2 w-2 shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+        </span>
+      ) : teamControlState.primaryTone === 'off' ? (
         <PowerOff className="h-3 w-3" />
       ) : teamControlState.primaryTone === 'paused' ? (
         <PauseCircle className="h-3 w-3" />
       ) : teamControlState.primaryTone === 'error' ? (
         <AlertTriangle className="h-3 w-3" />
-      ) : teamControlState.primaryTone === 'unknown' ? (
-        <WifiOff className="h-3 w-3" />
       ) : (
-        <Radio className="h-3 w-3 animate-pulse" />
+        <WifiOff className="h-3 w-3" />
       )}
-      {teamControlState.primaryLabel}
+      <span>{teamControlState.primaryLabel}</span>
     </>
   )
 
   const statusGroup = (
     <div className="flex max-w-full flex-col items-start gap-1">
       <div
-        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-0.5 pr-2"
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 rounded-full border p-0.5 pr-2.5 backdrop-blur-md transition-all shadow-sm",
+          teamControlState.primaryTone === 'live'
+            ? "border-emerald-500/25 bg-emerald-500/[0.06] shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+            : teamControlState.primaryTone === 'paused'
+              ? "border-amber-500/25 bg-amber-500/[0.06] shadow-[0_0_12px_rgba(245,158,11,0.08)]"
+              : teamControlState.primaryTone === 'error'
+                ? "border-rose-500/25 bg-rose-500/[0.06] shadow-[0_0_12px_rgba(244,63,94,0.1)]"
+                : "border-white/10 bg-white/[0.03]"
+        )}
         role="status"
         aria-label={`สถานะ Worker: ${teamControlState.runtimeReason}; ${teamControlState.healthLabel}`}
       >
@@ -397,23 +413,23 @@ export function DashboardComponent() {
         )}
         <span className="h-3 w-px shrink-0 bg-white/10" aria-hidden="true" />
         {teamControlState.healthTone === 'healthy' ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-success">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-emerald-400">
+            <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-400" />
             <span className="truncate">{teamControlState.healthLabel}</span>
           </span>
         ) : teamControlState.healthTone === 'degraded' ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-warning">
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-amber-400">
             <WifiOff className="h-3 w-3 shrink-0" />
             <span className="truncate">{teamControlState.healthLabel}</span>
           </span>
         ) : (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[0.65rem] font-semibold text-muted-foreground">
+          <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] font-medium text-muted-foreground">
             <WifiOff className="h-3 w-3 shrink-0" />
             <span className="truncate">{teamControlState.healthLabel}</span>
           </span>
         )}
       </div>
-      <span className="max-w-[22rem] text-xs leading-snug text-muted-foreground">
+      <span className="max-w-[22rem] text-[0.72rem] leading-snug text-muted-foreground">
         {teamControlState.runtimeReason}
       </span>
     </div>
@@ -424,7 +440,22 @@ export function DashboardComponent() {
     <PageShell>
       <PageHeader
         icon={LayoutDashboard}
-        title="ภาพรวมระบบ"
+        title={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span>ภาพรวมระบบ</span>
+            {isAdmin ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.68rem] font-semibold text-primary">
+                <Activity className="h-3 w-3" />
+                <span>Admin Console</span>
+              </span>
+            ) : currentTeam?.name ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[0.68rem] font-semibold text-foreground/90">
+                <Car className="h-3 w-3 text-primary" />
+                <span>ทีม {currentTeam.name}</span>
+              </span>
+            ) : null}
+          </div>
+        }
         subtitle={isAdmin ? "Pipeline telemetry และ rule ที่กำลังทำงาน" : "รายการค้นหาและสถานะการทำงาน"}
         meta={statusGroup}
         actions={
@@ -433,11 +464,22 @@ export function DashboardComponent() {
               variant={showProviderAuth ? 'secondary' : 'outline'}
               size="sm"
               onClick={() => setShowProviderAuth((prev) => !prev)}
-              className="text-xs"
+              className="text-xs gap-1.5"
             >
-              <ShieldCheck className="mr-1.5 h-3.5 w-3.5 text-primary" />
-              {showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
             </Button>
+          ) : isAdmin ? (
+            <a
+              href="/teams"
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                "text-xs gap-1.5 border-white/10 bg-white/[0.03] hover:bg-white/[0.08] hover:border-white/20 transition-all"
+              )}
+            >
+              <Users className="h-3.5 w-3.5 text-primary" />
+              <span>จัดการทีม</span>
+            </a>
           ) : undefined
         }
       />
