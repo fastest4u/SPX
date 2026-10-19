@@ -333,6 +333,12 @@ export function DashboardComponent() {
     return columns
   }, [handleDeleteRule, handleEditRule, handlePreviewRule, isAdmin])
 
+  const activeRulesCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules])
+  const totalTeamsCount = useMemo(() => {
+    const teamIds = new Set(rules.map((r) => r.teamId).filter((id): id is number => typeof id === 'number' && id > 0))
+    return teamIds.size || 3
+  }, [rules])
+
   if (rulesLoading) {
     return (
       <div className="space-y-3 sm:space-y-4">
@@ -350,12 +356,6 @@ export function DashboardComponent() {
     isMutating: toggleTeamMutation.isPending,
   })
   const hasSessionExpired = teamControlState.primaryLabel === 'Session expired'
-
-  const activeRulesCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules])
-  const totalTeamsCount = useMemo(() => {
-    const teamIds = new Set(rules.map((r) => r.teamId).filter((id): id is number => typeof id === 'number' && id > 0))
-    return teamIds.size || 3
-  }, [rules])
 
   // Fleet telemetry status for admin
   const adminPollTimestampMs = metrics?.lastPoll?.timestamp ? Date.parse(metrics.lastPoll.timestamp) : null
