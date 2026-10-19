@@ -80,7 +80,7 @@ Object.assign(window, {
       }) as typeof window.setInterval
     })
     await page.goto(`${baseUrl}tests/dashboard-runtime-fixture.html`)
-    await page.getByText('Live', { exact: true }).waitFor()
+    await page.getByText('ทำงานอยู่', { exact: true }).waitFor()
     await page.clock.pauseAt(initialTime + 60_000)
     await page.clock.runFor(5_001)
     const { tick, now } = await page.evaluate(() => ({ tick: window.__dashboardClockTick, now: Date.now() }))
@@ -94,9 +94,9 @@ Object.assign(window, {
         .getByText(new Date(timestamp).toISOString(), { exact: true }).waitFor()
     }
     const assertLive = async (message: string) => {
-      assert.equal(await page.getByText('Live', { exact: true }).count(), 1, message)
-      assert.equal(await page.getByText('Unknown', { exact: true }).count(), 0, message)
-      assert.equal(await page.getByText('บัญชีผู้ให้บริการ: ปกติ', { exact: true }).count(), 1, message)
+      assert.equal(await page.getByText('ทำงานอยู่', { exact: true }).count(), 1, message)
+      assert.equal(await page.getByText('กำลังตรวจสอบ…', { exact: true }).count(), 0, message)
+      assert.equal(await page.getByRole('status', { name: /บัญชีผู้ให้บริการ: ปกติ$/ }).count(), 1, message)
     }
 
     // A real poll at T+1000 arrives at T+1100, before the next T+5000 tick.
@@ -113,18 +113,18 @@ Object.assign(window, {
 
     const receiptTime = await page.evaluate(() => Date.now())
     await publish(receiptTime + 60_000)
-    assert.equal(await page.getByText('Unknown', { exact: true }).count(), 1, 'a genuinely future poll remains Unknown')
-    assert.equal(await page.getByText('บัญชีผู้ให้บริการ: ยังไม่ยืนยัน', { exact: true }).count(), 1)
+    assert.equal(await page.getByText('กำลังตรวจสอบ…', { exact: true }).count(), 1, 'a genuinely future poll remains Unknown')
+    assert.equal(await page.getByRole('status', { name: /บัญชีผู้ให้บริการ: ยังไม่ยืนยัน$/ }).count(), 1)
 
     await publish(receiptTime - 120_001)
-    assert.equal(await page.getByText('Stale', { exact: true }).count(), 1, 'old observations remain Stale')
+    assert.equal(await page.getByText('ไม่มีผล poll ใหม่', { exact: true }).count(), 1, 'old observations remain Stale')
 
     const freshTime = await page.evaluate(() => Date.now())
     await publish(freshTime)
     await assertLive('fresh data recovers immediately')
     await page.clock.runFor(125_001)
-    assert.equal(await page.getByText('Stale', { exact: true }).count(), 1, 'the presentation timer ages an unchanged poll during silence')
-    assert.equal(await page.getByText('บัญชีผู้ให้บริการ: ล่าสุดปกติ (ข้อมูลเก่า)', { exact: true }).count(), 1)
+    assert.equal(await page.getByText('ไม่มีผล poll ใหม่', { exact: true }).count(), 1, 'the presentation timer ages an unchanged poll during silence')
+    assert.equal(await page.getByRole('status', { name: /บัญชีผู้ให้บริการ: ล่าสุดปกติ \(ข้อมูลเก่า\)$/ }).count(), 1)
     assert.deepEqual(externalRequests, [], 'the mounted regression stays on the loopback fixture')
     console.log('frontend-dashboard-clock-arrival-browser: immediate/repeated arrivals, true future rejection, old data and silent aging passed')
   } finally {

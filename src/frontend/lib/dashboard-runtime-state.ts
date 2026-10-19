@@ -158,3 +158,67 @@ export function getDashboardTeamControlState({
     ...provider,
   }
 }
+
+export type DashboardStatusTone = DashboardTeamControlState['primaryTone']
+
+export type DashboardSystemStatus = {
+  tone: Exclude<DashboardStatusTone, 'off'>
+  label: string
+  detail: string
+  lastPollAt: number | null
+}
+
+/** Admin header status from the aggregate (teamId === null) metrics snapshot. */
+export function getDashboardSystemStatus({
+  metrics,
+  nowMs,
+}: {
+  metrics?: DashboardMetricsObservation | null
+  nowMs: number
+}): DashboardSystemStatus {
+  if (!metrics || metrics.teamId !== null) {
+    return {
+      tone: 'unknown',
+      label: 'กำลังเชื่อมต่อ…',
+      detail: metrics ? 'ข้อมูล metrics ไม่ใช่ภาพรวมระบบ' : 'ยังไม่ได้รับข้อมูล metrics ของระบบ',
+      lastPollAt: null,
+    }
+  }
+  if (metrics.isPaused) {
+    return { tone: 'paused', label: 'พักการ poll', detail: 'Worker พักการ poll ชั่วคราว', lastPollAt: null }
+  }
+  const parsed = metrics.lastPoll.timestamp ? Date.parse(metrics.lastPoll.timestamp) : Number.NaN
+  const lastPollAt = Number.isFinite(parsed) && parsed - nowMs <= DASHBOARD_CLOCK_SKEW_TOLERANCE_MS ? parsed : null
+  if (lastPollAt === null) {
+    return { tone: 'unknown', label: 'รอผล poll แรก', detail: 'ยังไม่มีเวลาผล poll ที่ยืนยันได้', lastPollAt: null }
+  }
+  if (metrics.lastPoll.status === 'session_expired') {
+    return { tone: 'error', label: 'Session หมดอายุ', detail: 'Session ผู้ให้บริการหมดอายุ', lastPollAt }
+  }
+  if (nowMs - lastPollAt > DASHBOARD_POLL_FRESHNESS_MS) {
+    return { tone: 'paused', label: 'ไม่มีผล poll ใหม่', detail: 'ไม่พบผล poll ใหม่ภายใน 120 วินาที', lastPollAt }
+  }
+  const status = metrics.lastPoll.status
+  if (!status || !successfulPollStatuses.has(status)) {
+    return {
+      tone: 'error',
+      label: 'poll ล่าสุดล้มเหลว',
+      detail: `ผล poll ล่าสุดล้มเหลว (${status ?? 'unknown'})`,
+      lastPollAt,
+    }
+  }
+  if (!metrics.session.isHealthy) {
+    return { tone: 'error', label: 'ต้องตรวจสอบบัญชี', detail: 'บัญชีผู้ให้บริการต้องตรวจสอบ', lastPollAt }
+  }
+  return { tone: 'live', label: 'ทำงานปกติ', detail: 'Worker ทำงานและมีผล poll ล่าสุด', lastPollAt }
+}
+
+/** Short Thai relative age; negative deltas (client clock behind) collapse to "เมื่อสักครู่". */
+export function formatPollAge(lastPollAt: number | null, nowMs: number): string | null {
+  if (lastPollAt === null) return null
+  const seconds = Math.floor((nowMs - lastPollAt) / 1000)
+  if (seconds < 5) return 'เมื่อสักครู่'
+  if (seconds < 60) return `${seconds} วินาทีที่แล้ว`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} นาทีที่แล้ว`
+  return `${Math.floor(seconds / 3600)} ชั่วโมงที่แล้ว`
+}
