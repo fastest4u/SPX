@@ -17,6 +17,8 @@ export interface LocalLineImageReadInput {
   mimeType: OcrLineImageMimeType;
   prompt: string;
   timeoutMs: number;
+  /** Codex model override (CODEX_IMAGE_MODEL); empty falls back to DEFAULT_CODEX_IMAGE_MODEL. */
+  model?: string;
 }
 
 export interface ProcessLineImageOptions {
@@ -28,6 +30,7 @@ export interface ProcessLineImageOptions {
   traceId: string;
   timeoutMs: number;
   prompt?: string;
+  model?: string;
   ocrServiceUrl?: string;
   sharedSecret: string;
   nodeId: string;
@@ -55,6 +58,7 @@ async function defaultReadLocalLineImage(
       readImageWithCodex({
         imagePath: input.tempImagePath,
         mimeType: input.mimeType,
+        model: input.model,
         prompt: promptOverride ?? input.prompt,
         timeoutMs: input.timeoutMs,
       }),
@@ -119,6 +123,7 @@ export async function processLineImage(
       mimeType: options.mimeType,
       prompt,
       timeoutMs: options.timeoutMs,
+      model: options.model,
     });
   }
 

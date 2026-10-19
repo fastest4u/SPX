@@ -68,10 +68,13 @@ async function testRemoteOcrUsedWhenConfigured(): Promise<void> {
 
 async function testLocalOcrUsedWithoutRemoteUrl(): Promise<void> {
   let localReadCount = 0;
+  let receivedModel: string | undefined = "unset";
   const result = await processLineImage({
     ...baseOptions(),
-    readLocalLineImage: async () => {
+    model: "gpt-6-sol",
+    readLocalLineImage: async (input) => {
       localReadCount += 1;
+      receivedModel = input.model;
       return {
         text: LINE_IMAGE_EXAMPLE_OUTPUT,
         attempts: 1,
@@ -82,6 +85,7 @@ async function testLocalOcrUsedWithoutRemoteUrl(): Promise<void> {
 
   assert.equal(result.usedRemoteOcr, false);
   assert.equal(localReadCount, 1);
+  assert.equal(receivedModel, "gpt-6-sol", "LINE local OCR must honour the CODEX_IMAGE_MODEL setting");
   assert.equal(result.replyText, `${LINE_IMAGE_EXAMPLE_OUTPUT}\n\nSaved to DB: #77`);
 }
 
