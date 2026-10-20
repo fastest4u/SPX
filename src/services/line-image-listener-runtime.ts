@@ -25,7 +25,7 @@ function maskTarget(value: string): string {
 
 function roleOwnsLineClient(role: RuntimeRole, lineServiceUrl?: string): boolean {
   if (role === "line-service") return true;
-  if (Boolean(lineServiceUrl?.trim())) return false;
+  if (lineServiceUrl?.trim()) return false;
   return role === "notifier" || roleRunsLineService(role);
 }
 
