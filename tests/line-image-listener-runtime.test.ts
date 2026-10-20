@@ -5,8 +5,11 @@ import {
 } from "../src/services/line-image-listener-runtime.js";
 
 assert.equal(shouldStartLineImageListener("line-service", "C123"), true);
+assert.equal(shouldStartLineImageListener("line-service", "C123", "http://line-service:3003"), true);
 assert.equal(shouldStartLineImageListener("combined", "C123"), true);
+assert.equal(shouldStartLineImageListener("combined", "C123", "http://line-service:3003"), false);
 assert.equal(shouldStartLineImageListener("notifier", "C123"), true);
+assert.equal(shouldStartLineImageListener("notifier", "C123", "http://line-service:3003"), false);
 assert.equal(shouldStartLineImageListener("line-service", " "), false);
 assert.equal(shouldStartLineImageListener("api", "C123"), false);
 assert.equal(shouldStartLineImageListener("notification-service", "C123"), false);
@@ -64,6 +67,19 @@ async function main(): Promise<void> {
   });
 
   assert.equal(skipped, false);
+  assert.deepEqual(started, ["C123456789-secret-chat"]);
+
+  const skippedNotifierWhenRemoteLineServiceConfigured = await startLineImageListenerForRole({
+    role: "notifier",
+    nodeId: "prod-notifier-1",
+    chatId: "C123",
+    lineServiceUrl: "http://line-service:3003",
+    startImageListener: async (chatId) => {
+      started.push(chatId);
+    },
+  });
+
+  assert.equal(skippedNotifierWhenRemoteLineServiceConfigured, false);
   assert.deepEqual(started, ["C123456789-secret-chat"]);
 }
 

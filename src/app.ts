@@ -304,6 +304,7 @@ async function main(): Promise<void> {
     role: env.SPX_ROLE,
     nodeId: env.SPX_NODE_ID || "combined-line-service",
     chatId: env.LINE_IMAGE_LISTENER_CHAT_ID,
+    lineServiceUrl: env.LINE_SERVICE_URL,
   });
 
   const workerNodeId = env.SPX_NODE_ID || "combined-worker";

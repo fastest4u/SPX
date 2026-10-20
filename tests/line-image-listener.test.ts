@@ -4,6 +4,8 @@ import {
   formatLineImageListenerError,
   isRecoverableLineJsListenerRejection,
   isLineImageReadTimeout,
+  parseLineMessageTimestampMs,
+  shouldIgnoreIncomingLineMessage,
 } from "../src/services/line-bot.js";
 
 const readFailedPrefix = "\u0e2d\u0e48\u0e32\u0e19\u0e23\u0e39\u0e1b\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08";
@@ -60,6 +62,42 @@ async function main(): Promise<void> {
     "    at currentTeamController (file:///app/dist/controllers/teams-controller.js:130:15)",
   ].join("\n");
   assert.equal(isRecoverableLineJsListenerRejection(appFetchError), false);
+
+  const nowMs = 1_792_510_927_000;
+  assert.equal(parseLineMessageTimestampMs(nowMs), nowMs);
+  assert.equal(parseLineMessageTimestampMs(BigInt(nowMs)), nowMs);
+  assert.equal(parseLineMessageTimestampMs(String(nowMs)), nowMs);
+  assert.equal(parseLineMessageTimestampMs({ toNumber: () => nowMs }), nowMs);
+  assert.equal(parseLineMessageTimestampMs(null), null);
+
+  const seenIds = new Set<string>();
+  const freshResult = shouldIgnoreIncomingLineMessage({
+    messageId: "msg-100",
+    createdTime: nowMs - 10_000,
+    nowMs,
+    seenMessageIds: seenIds,
+  });
+  assert.equal(freshResult.ignore, false);
+  assert.equal(seenIds.has("msg-100"), true);
+
+  const duplicateResult = shouldIgnoreIncomingLineMessage({
+    messageId: "msg-100",
+    createdTime: nowMs - 5_000,
+    nowMs,
+    seenMessageIds: seenIds,
+  });
+  assert.equal(duplicateResult.ignore, true);
+  assert.equal(duplicateResult.reason, "duplicate_message_id");
+
+  const staleReplayResult = shouldIgnoreIncomingLineMessage({
+    messageId: "msg-old-replay",
+    createdTime: nowMs - 11 * 60 * 60 * 1000,
+    nowMs,
+    seenMessageIds: seenIds,
+  });
+  assert.equal(staleReplayResult.ignore, true);
+  assert.equal(staleReplayResult.reason, "stale_message");
+  assert.equal(seenIds.has("msg-old-replay"), false);
 
   console.log("line-image-listener: all assertions passed");
 }

@@ -899,6 +899,72 @@ export async function bufferLineImageBlob(
 
 const STATUS_COMMAND_COOLDOWN_MS = 3_000;
 const lastStatusCommandReplyAt = new Map<string, number>();
+const MAX_INCOMING_LINE_MESSAGE_AGE_MS = 5 * 60 * 1000;
+const MAX_SEEN_LINE_MESSAGE_IDS = 2_000;
+const processedLineMessageIds = new Set<string>();
+let imageProcessingQueue: Promise<void> = Promise.resolve();
+
+export function parseLineMessageTimestampMs(value: unknown): number | null {
+  let num: number | null = null;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    num = value;
+  } else if (typeof value === "bigint" && value > 0n) {
+    num = Number(value);
+  } else if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    num = Number(value.trim());
+  } else if (
+    value &&
+    typeof value === "object" &&
+    "toNumber" in value &&
+    typeof (value as { toNumber: unknown }).toNumber === "function"
+  ) {
+    const converted = (value as { toNumber(): number }).toNumber();
+    if (typeof converted === "number" && Number.isFinite(converted) && converted > 0) {
+      num = converted;
+    }
+  }
+
+  if (num === null || !Number.isFinite(num) || num <= 0) {
+    return null;
+  }
+  return num < 100_000_000_000 ? num * 1000 : num;
+}
+
+export function shouldIgnoreIncomingLineMessage(input: {
+  messageId?: string;
+  createdTime?: unknown;
+  nowMs?: number;
+  maxAgeMs?: number;
+  seenMessageIds?: Set<string>;
+}): { ignore: boolean; reason?: "duplicate_message_id" | "stale_message"; ageMs?: number } {
+  const nowMs = input.nowMs ?? Date.now();
+  const maxAgeMs = input.maxAgeMs ?? MAX_INCOMING_LINE_MESSAGE_AGE_MS;
+  const messageId = input.messageId?.trim() ?? "";
+
+  if (messageId && input.seenMessageIds?.has(messageId)) {
+    return { ignore: true, reason: "duplicate_message_id" };
+  }
+
+  const createdTimeMs = parseLineMessageTimestampMs(input.createdTime);
+  if (createdTimeMs !== null) {
+    const ageMs = nowMs - createdTimeMs;
+    if (ageMs > maxAgeMs) {
+      return { ignore: true, reason: "stale_message", ageMs };
+    }
+  }
+
+  if (messageId && input.seenMessageIds) {
+    if (input.seenMessageIds.size >= MAX_SEEN_LINE_MESSAGE_IDS) {
+      const oldest = input.seenMessageIds.values().next().value;
+      if (oldest !== undefined) {
+        input.seenMessageIds.delete(oldest);
+      }
+    }
+    input.seenMessageIds.add(messageId);
+  }
+
+  return { ignore: false };
+}
 
 async function replyToLineMessage(
   msg: { to?: { id: string }; from?: { id: string }; reply?: (text: string) => Promise<unknown> },
@@ -978,7 +1044,7 @@ function attachImageListener(c: LineJsClient): void {
   c.on("message", async (rawMessage: unknown) => {
     const msg = rawMessage as {
       text?: string;
-      raw?: { contentType?: string; text?: string };
+      raw?: { id?: string; createdTime?: unknown; contentType?: string; text?: string };
       to?: { id: string; type: string };
       from?: { id: string };
       getData?(): Promise<Blob>;
@@ -987,6 +1053,25 @@ function attachImageListener(c: LineJsClient): void {
 
     const toId = msg.to?.id;
     if (!toId) return;
+
+    const messageCheck = shouldIgnoreIncomingLineMessage({
+      messageId: msg.raw?.id,
+      createdTime: msg.raw?.createdTime,
+      nowMs: Date.now(),
+      seenMessageIds: processedLineMessageIds,
+    });
+    if (messageCheck.ignore) {
+      if (imageListenerChatId && toId === imageListenerChatId && msg.raw?.contentType === "IMAGE") {
+        logger.info("line-image-listener-ignored-message", {
+          to: toId,
+          from: msg.from?.id,
+          messageId: msg.raw?.id,
+          reason: messageCheck.reason,
+          ageMs: messageCheck.ageMs,
+        });
+      }
+      return;
+    }
 
     // Check for !status / !Status / !สถานะ commands from team groups
     const text = msg.text ?? msg.raw?.text;
@@ -1053,95 +1138,101 @@ function attachImageListener(c: LineJsClient): void {
 
     if (!imageListenerChatId || toId !== imageListenerChatId || !isLineImageMessage(msg)) return;
 
-
-
-
-    let tempDir = "";
-    const startedAt = Date.now();
-    const timeoutMs = env.CODEX_IMAGE_TIMEOUT_MS;
-    logger.info("line-image-listener-received", {
-      to: msg.to?.id,
-      from: msg.from?.id,
-      contentType: msg.raw?.contentType,
-      timeoutMs,
-    });
-    try {
-      const blob = await msg.getData();
-      const { buffer, mimeType } = await bufferLineImageBlob(blob, env.CODEX_IMAGE_MAX_BYTES);
-
-      tempDir = await mkdtemp(join(tmpdir(), "spx-line-image-"));
-      const imagePath = join(tempDir, `line-upload${extensionForLineImageMimeType(mimeType)}`);
-
-      await pipeline(Readable.from(buffer), createWriteStream(imagePath, { flags: "wx" }));
-
-      const ocrStartedAt = Date.now();
-      logger.info("line-image-listener-ocr-start", {
-        to: msg.to.id,
-        bytes: buffer.byteLength,
-        timeoutMs,
-        remoteOcr: Boolean(env.OCR_SERVICE_URL.trim()),
-      });
-      const { processLineImage } = await import("./line-image-processor.js");
-      const processed = await processLineImage({
-        tempImagePath: imagePath,
-        imageBuffer: buffer,
-        mimeType,
-        chatId: msg.to.id,
-        senderId: msg.from.id,
-        traceId: `${msg.to.id}:${startedAt}`,
-        timeoutMs,
-        model: env.CODEX_IMAGE_MODEL,
-        ocrServiceUrl: env.OCR_SERVICE_URL,
-        sharedSecret: resolveOutboundNodeSecret({
-          nodeSecret: env.OCR_NODE_SECRET,
-          legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
-          nodeEnv: env.NODE_ENV,
-          deploymentMode: env.DEPLOYMENT_MODE,
-        }).secret,
-        nodeId: env.SPX_NODE_ID || "combined-line-service",
-        ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
-      });
-      const read = processed.read;
-      if (read.attempts > 1) {
-        logger.info("line-image-listener-retried", {
-          to: msg.to.id,
-          attempts: read.attempts,
-          ok: read.validation.ok,
-          reason: read.validation.ok ? undefined : read.validation.reason,
+    imageProcessingQueue = imageProcessingQueue
+      .then(async () => {
+        let tempDir = "";
+        const startedAt = Date.now();
+        const timeoutMs = env.CODEX_IMAGE_TIMEOUT_MS;
+        logger.info("line-image-listener-received", {
+          to: msg.to?.id,
+          from: msg.from?.id,
+          messageId: (msg.raw as { id?: string } | undefined)?.id,
+          contentType: msg.raw?.contentType,
+          timeoutMs,
         });
-      }
-      logger.info("line-image-listener-ocr-finished", {
-        to: msg.to.id,
-        durationMs: Date.now() - ocrStartedAt,
-        textLength: read.text.length,
-        attempts: read.attempts,
-        remoteOcr: processed.usedRemoteOcr,
-      });
+        try {
+          const blob = await msg.getData();
+          const { buffer, mimeType } = await bufferLineImageBlob(blob, env.CODEX_IMAGE_MAX_BYTES);
 
-      const replyDelivered = await replyToLineImageMessage(msg, processed.replyText);
-      logger.info("line-image-listener-reply", {
-        to: msg.to.id,
-        savedToDb: processed.saved.saved,
-        extractionId: processed.saved.id,
-        reason: processed.saved.reason,
-        replyDelivered,
-        durationMs: Date.now() - startedAt,
+          tempDir = await mkdtemp(join(tmpdir(), "spx-line-image-"));
+          const imagePath = join(tempDir, `line-upload${extensionForLineImageMimeType(mimeType)}`);
+
+          await pipeline(Readable.from(buffer), createWriteStream(imagePath, { flags: "wx" }));
+
+          const ocrStartedAt = Date.now();
+          logger.info("line-image-listener-ocr-start", {
+            to: msg.to.id,
+            bytes: buffer.byteLength,
+            timeoutMs,
+            remoteOcr: Boolean(env.OCR_SERVICE_URL.trim()),
+          });
+          const { processLineImage } = await import("./line-image-processor.js");
+          const processed = await processLineImage({
+            tempImagePath: imagePath,
+            imageBuffer: buffer,
+            mimeType,
+            chatId: msg.to.id,
+            senderId: msg.from.id,
+            traceId: `${msg.to.id}:${startedAt}`,
+            timeoutMs,
+            model: env.CODEX_IMAGE_MODEL,
+            ocrServiceUrl: env.OCR_SERVICE_URL,
+            sharedSecret: resolveOutboundNodeSecret({
+              nodeSecret: env.OCR_NODE_SECRET,
+              legacySharedSecret: env.NOTIFIER_SHARED_SECRET,
+              nodeEnv: env.NODE_ENV,
+              deploymentMode: env.DEPLOYMENT_MODE,
+            }).secret,
+            nodeId: env.SPX_NODE_ID || "combined-line-service",
+            ocrServiceRequestTimeoutMs: env.OCR_SERVICE_REQUEST_TIMEOUT_MS,
+          });
+          const read = processed.read;
+          if (read.attempts > 1) {
+            logger.info("line-image-listener-retried", {
+              to: msg.to.id,
+              attempts: read.attempts,
+              ok: read.validation.ok,
+              reason: read.validation.ok ? undefined : read.validation.reason,
+            });
+          }
+          logger.info("line-image-listener-ocr-finished", {
+            to: msg.to.id,
+            durationMs: Date.now() - ocrStartedAt,
+            textLength: read.text.length,
+            attempts: read.attempts,
+            remoteOcr: processed.usedRemoteOcr,
+          });
+
+          const replyDelivered = await replyToLineImageMessage(msg, processed.replyText);
+          logger.info("line-image-listener-reply", {
+            to: msg.to.id,
+            savedToDb: processed.saved.saved,
+            extractionId: processed.saved.id,
+            reason: processed.saved.reason,
+            replyDelivered,
+            durationMs: Date.now() - startedAt,
+          });
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          logger.warn("line-image-listener-error", {
+            to: msg.to?.id,
+            error: errMsg,
+            timeout: isLineImageReadTimeout(error),
+            durationMs: Date.now() - startedAt,
+            timeoutMs,
+          });
+          await replyToLineImageMessage(msg, formatLineImageListenerError(error, timeoutMs));
+        } finally {
+          if (tempDir) {
+            await rm(tempDir, { recursive: true, force: true });
+          }
+        }
+      })
+      .catch((queueError) => {
+        logger.warn("line-image-listener-queue-error", {
+          error: queueError instanceof Error ? queueError.message : String(queueError),
+        });
       });
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.warn("line-image-listener-error", {
-        to: msg.to?.id,
-        error: errMsg,
-        timeout: isLineImageReadTimeout(error),
-        durationMs: Date.now() - startedAt,
-        timeoutMs,
-      });
-      await replyToLineImageMessage(msg, formatLineImageListenerError(error, timeoutMs));
-    } finally {
-      if (tempDir) {
-        await rm(tempDir, { recursive: true, force: true });
-      }
-    }
   });
 
   c.listen({ talk: true });
