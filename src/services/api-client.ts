@@ -23,6 +23,11 @@ import type {
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
+// Job-discovery ("critical") reads retry quickly: a new job is only winnable
+// for a few hundred ms, so a 1–2 s backoff makes the retry worthless. HTTP 429
+// still honors Retry-After, and SPX business rate limits are never retried here.
+const CRITICAL_RETRY_BASE_DELAY_MS = 150;
+const CRITICAL_MAX_RETRIES = 2;
 const REQUEST_LIST_PAGE_CONCURRENCY = 2;
 const FETCH_TIMEOUT_MS = 15_000;
 const ACCEPT_TIMEOUT_MS = 10_000;
@@ -173,9 +178,13 @@ async function fetchWithRetry(
     onDispatch?: () => void;
     scheduleAttempt?: (read: () => Promise<Response>) => Promise<Response>;
     observeResponse?: (response: Response) => void | Promise<void>;
+    /** Exponential backoff base for retries (defaults to BASE_DELAY_MS). */
+    retryBaseDelayMs?: number;
   } = {},
 ): Promise<Response> {
   let lastError: Error | null = null;
+  const retryBaseDelayMs = hooks.retryBaseDelayMs ?? BASE_DELAY_MS;
+  const retryJitterMs = Math.min(500, retryBaseDelayMs);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -219,7 +228,7 @@ async function fetchWithRetry(
         })();
         // Prefer a server-supplied Retry-After (429/503) when present, bounded
         // to MAX_RETRY_AFTER_MS; otherwise fall back to exponential backoff.
-        const computedDelay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+        const computedDelay = retryBaseDelayMs * Math.pow(2, attempt) + Math.random() * retryJitterMs;
         const retryAfterMs = parseRetryAfterMs(response);
         const delay = retryAfterMs ?? computedDelay;
         logger.warn(`retryable-response`, {
@@ -248,7 +257,7 @@ async function fetchWithRetry(
         throw lastError;
       }
       if (attempt < retries) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+        const delay = retryBaseDelayMs * Math.pow(2, attempt) + Math.random() * retryJitterMs;
         logger.warn(`retryable-error`, {
           label,
           url,
@@ -565,11 +574,13 @@ export class ApiClient {
     timeoutMs = FETCH_TIMEOUT_MS,
     admissionGuard?: ProviderReadAdmissionGuard,
   ): Promise<Response> {
-    return fetchWithRetry(url, options, label, retries, timeoutMs, true, {
+    const critical = priority === "critical";
+    return fetchWithRetry(url, options, label, critical ? Math.min(retries, CRITICAL_MAX_RETRIES) : retries, timeoutMs, true, {
       metricsCollector: this.metricsCollector,
       onDispatch: this.verificationReadStarted,
       scheduleAttempt: (read) => this.readScheduler.schedule(read, priority, admissionGuard),
       observeResponse: (response) => this.inspectReadResponse(response),
+      ...(critical ? { retryBaseDelayMs: CRITICAL_RETRY_BASE_DELAY_MS } : {}),
     });
   }
 
