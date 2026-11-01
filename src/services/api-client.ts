@@ -40,7 +40,8 @@ const READ_CONCURRENCY = 2;
 // Extra slots reserved for job-discovery reads (bidding-list poll and the
 // pending-tab request list). Ordinary reads keep READ_CONCURRENCY; discovery
 // never queues behind them. Hard upper bound: READ_CONCURRENCY + this value.
-const CRITICAL_READ_RESERVE = 2;
+// Kept at 1: SPX rate-limits bursts (retcode 130008001), so widen only with data.
+const CRITICAL_READ_RESERVE = 1;
 
 /**
  * Fail-fast retry budget for the bidding-list poll. In-tick retries only pay
