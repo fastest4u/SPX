@@ -37,6 +37,10 @@ const MAX_RETRY_AFTER_MS = 30_000;
 // healthy responses viable even at very aggressive poll intervals.
 const LIST_TIMEOUT_FLOOR_MS = 5_000;
 const READ_CONCURRENCY = 2;
+// Extra slots reserved for job-discovery reads (bidding-list poll and the
+// pending-tab request list). Ordinary reads keep READ_CONCURRENCY; discovery
+// never queues behind them. Hard upper bound: READ_CONCURRENCY + this value.
+const CRITICAL_READ_RESERVE = 2;
 
 /**
  * Fail-fast retry budget for the bidding-list poll. In-tick retries only pay
@@ -79,6 +83,12 @@ export interface BiddingListFetchOptions {
 interface BookingRequestListOptions {
   tabPendingConfirmation?: boolean;
   onPage?: (page: BookingRequestListResponse) => boolean | void;
+  /**
+   * "critical" marks a job-discovery read so it jumps ahead of background
+   * reads. Ignored inside a verification-priority scope, which keeps its own
+   * priority and admission guard.
+   */
+  priority?: "critical";
 }
 
 type ParsedReadResponse =
@@ -421,7 +431,10 @@ export class ApiClient {
    * number = filter by vehicle type. null/undefined = no filter (all types).
    */
   private readonly teamBiddingVehicleType: number | null | undefined;
-  private readonly readScheduler = new ProviderReadScheduler({ maxConcurrency: READ_CONCURRENCY });
+  private readonly readScheduler = new ProviderReadScheduler({
+    maxConcurrency: READ_CONCURRENCY,
+    criticalReserve: CRITICAL_READ_RESERVE,
+  });
   private readonly parsedReadResponses = new WeakMap<Response, ParsedReadResponse>();
   private verificationPriorityScopeDepth = 0;
   private verificationReadStarted: (() => void) | undefined;
@@ -492,8 +505,9 @@ export class ApiClient {
     }
   }
 
-  private captureReadPriority(): ProviderReadPriority {
-    return this.verificationPriorityScopeDepth > 0 ? "verification" : "normal";
+  private captureReadPriority(requested?: "critical"): ProviderReadPriority {
+    if (this.verificationPriorityScopeDepth > 0) return "verification";
+    return requested === "critical" ? "critical" : "normal";
   }
 
   private captureReadAdmissionGuard(): ProviderReadAdmissionGuard | undefined {
@@ -573,7 +587,9 @@ export class ApiClient {
   }
 
   async fetch(requestNumber: number, options: BiddingListFetchOptions = {}): Promise<PollingResult> {
-    const priority = this.captureReadPriority();
+    // The bidding-list poll is how new jobs are discovered: never let it queue
+    // behind background reads.
+    const priority = this.captureReadPriority("critical");
     const admissionGuard = this.captureReadAdmissionGuard();
     const startTime = Date.now();
     try {
@@ -836,7 +852,7 @@ export class ApiClient {
     bookingId: number,
     options: BookingRequestListOptions = {}
   ): Promise<BookingRequestListResponse | null> {
-    const priority = this.captureReadPriority();
+    const priority = this.captureReadPriority(options.priority);
     const admissionGuard = this.captureReadAdmissionGuard();
     const tabPendingConfirmation = options.tabPendingConfirmation ?? env.REQUEST_TAB_PENDING_CONFIRMATION;
     const firstPage = await this.fetchBookingRequestListPage(

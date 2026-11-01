@@ -170,6 +170,56 @@ async function main(): Promise<void> {
     assert.equal(rawReads, 1);
   }
 
+  {
+    // Critical (job-discovery) reads use reserved slots while background reads
+    // saturate the ordinary bound, and jump ahead of queued verification work.
+    const scheduler = new ProviderReadScheduler({ maxConcurrency: 1, criticalReserve: 1 });
+    const backgroundGate = deferred();
+    const criticalGate = deferred();
+    const order: string[] = [];
+    const background = scheduler.schedule(async () => {
+      order.push("background");
+      await backgroundGate.promise;
+    });
+    await waitFor(() => order.length === 1);
+
+    const verification = scheduler.schedule(async () => { order.push("verification"); }, "verification");
+    const critical = scheduler.schedule(async () => {
+      order.push("critical");
+      await criticalGate.promise;
+    }, "critical");
+    await waitFor(() => order.includes("critical"));
+    assert.deepEqual(order, ["background", "critical"], "critical must start while the ordinary slot is busy");
+
+    const secondCritical = scheduler.schedule(async () => { order.push("critical-2"); }, "critical");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(!order.includes("critical-2"), "total in-flight reads must stay within maxConcurrency + criticalReserve");
+
+    criticalGate.resolve();
+    await critical;
+    await waitFor(() => order.includes("critical-2"));
+    assert.ok(!order.includes("verification"), "non-critical reads must never use the reserved slot");
+
+    backgroundGate.resolve();
+    await Promise.all([background, verification, secondCritical]);
+    assert.deepEqual(order, ["background", "critical", "critical-2", "verification"]);
+  }
+
+  {
+    // Default reserve keeps the previous single-bound behavior.
+    const scheduler = new ProviderReadScheduler({ maxConcurrency: 1 });
+    const gate = deferred();
+    const order: string[] = [];
+    const first = scheduler.schedule(async () => { order.push("normal"); await gate.promise; });
+    await waitFor(() => order.length === 1);
+    const critical = scheduler.schedule(async () => { order.push("critical"); }, "critical");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(order, ["normal"], "without a reserve, critical reads wait for a free slot");
+    gate.resolve();
+    await Promise.all([first, critical]);
+    assert.throws(() => new ProviderReadScheduler({ criticalReserve: -1 }), /criticalReserve/);
+  }
+
   console.log("provider-read-scheduler: all assertions passed");
 }
 

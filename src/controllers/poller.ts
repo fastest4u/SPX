@@ -972,6 +972,9 @@ export class Poller {
       this.metrics.recordInterval("page1ToDetailStart", firstPageObservedAtMs);
     }
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
+      // Pending-tab request list = the accept-critical discovery read. With
+      // the reprocess cooldown, this runs mostly for new/changed bookings.
+      priority: "critical",
       onPage: autoAcceptEnabled && !this.requiresWholeBookingOwnershipCheck()
         ? (page) => {
             const pageTrips = filterTripsByBiddingVehicleType(
