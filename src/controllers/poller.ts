@@ -555,9 +555,14 @@ export class Poller {
       });
     };
     const detailsEnabled = env.FETCH_DETAILS || env.SAVE_TO_DB || env.AUTO_ACCEPT_ENABLED;
+    let firstPageWasComplete = false;
     try {
       const result = await this.apiClient.fetch(reqNum, detailsEnabled ? {
-        onFirstPage: (page, observedAtMs) => enqueueDetails(page.data.list, false, observedAtMs),
+        onFirstPage: (page, observedAtMs) => {
+          const isComplete = !env.BIDDING_LIST_FETCH_EXTRA_PAGES || page.data.list.length >= page.data.total;
+          firstPageWasComplete = isComplete;
+          enqueueDetails(page.data.list, isComplete, observedAtMs);
+        },
       } : {});
 
       if (!result.success) {
@@ -631,7 +636,7 @@ export class Poller {
         logger.info("poll-summary", summary);
       }
 
-      if (detailsEnabled && result.data.data?.list) {
+      if (detailsEnabled && result.data.data?.list && !firstPageWasComplete) {
         enqueueDetails(result.data.data.list, true);
       }
     } finally {
@@ -696,11 +701,15 @@ export class Poller {
 
     // Priority sort: origin-matching bookings first
     let sortedBookings = adhocBookings;
+    const deferredOriginBookingIds = new Set<number>();
     if (env.AUTO_ACCEPT_ENABLED && this.tickAutoAcceptRules.length > 0) {
       const originFilters = getAutoAcceptOriginFilters(this.tickAutoAcceptRules);
       if (originFilters.length > 0) {
         const prioritized = orderBookingsByOriginHint(adhocBookings, originFilters);
         sortedBookings = prioritized.ordered;
+        for (const deferredBooking of prioritized.deferred) {
+          deferredOriginBookingIds.add(deferredBooking.booking_id);
+        }
         if (prioritized.prioritized.length > 0) {
           logger.info("booking-origin-prefilter", {
             total: adhocBookings.length,
@@ -862,7 +871,8 @@ export class Poller {
       launched++;
 
       // Fire-and-forget: each booking is independent
-      void this.processOneBooking(booking, options.firstPageObservedAtMs)
+      const isCriticalDetail = isFastLane || !deferredOriginBookingIds.has(booking.booking_id);
+      void this.processOneBooking(booking, options.firstPageObservedAtMs, isCriticalDetail)
         .then((cooldownEligible) => {
           // Clean processing stamps the full cooldown. Non-clean (failed
           // detail fetch, failed/deferred accept) gets an escalating failure
@@ -935,7 +945,7 @@ export class Poller {
    * detail fetch failed or any accept attempt failed/was deferred, so the
    * booking is retried on the next tick instead of waiting out the cooldown.
    */
-  private async processOneBooking(booking: Booking, firstPageObservedAtMs?: number): Promise<boolean> {
+  private async processOneBooking(booking: Booking, firstPageObservedAtMs?: number, isCriticalDetail = true): Promise<boolean> {
     if (!isAdhocBookingName(booking.booking_name)) {
       return true;
     }
@@ -974,7 +984,7 @@ export class Poller {
     const requestList = await this.apiClient.fetchBookingRequestList(booking.booking_id, {
       // Pending-tab request list = the accept-critical discovery read. With
       // the reprocess cooldown, this runs mostly for new/changed bookings.
-      priority: "critical",
+      priority: isCriticalDetail ? "critical" : undefined,
       onPage: autoAcceptEnabled && !this.requiresWholeBookingOwnershipCheck()
         ? (page) => {
             const pageTrips = filterTripsByBiddingVehicleType(
@@ -995,7 +1005,8 @@ export class Poller {
 
               // Early-abort optimization: if matched trips on this page already satisfy the target need,
               // abort fetching remaining pages to save SPX rate-limit quota.
-              const targetQuota = this.tickAutoAcceptRules.reduce((sum, r) => sum + (r.need || 0), 0);
+              const pageMatches = matchAutoAcceptRuleTripsWithRules(pageTrips, this.tickAutoAcceptRules);
+              const targetQuota = pageMatches.reduce((sum, m) => sum + (m.need || 0), 0);
               if (targetQuota > 0 && matchedPageTrips.length >= targetQuota) {
                 logger.info("booking-request-list-early-abort-quota-met", {
                   bookingId: booking.booking_id,

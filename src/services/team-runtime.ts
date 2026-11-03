@@ -6,6 +6,7 @@ import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
 import type { RealtimePublisher, RealtimeSource } from "./realtime-contract.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
+import { reloadSettingsLive } from "./settings.js";
 import { createTeamRuntimeSession, type TeamRuntimeSession } from "./provider-auth/runtime-session.js";
 import { TeamCredentialPool, getOrCreateTeamCredentialPool } from "./team-credential-pool.js";
 
@@ -115,7 +116,12 @@ export class TeamRuntime implements TeamRuntimeHandle {
           const now = Date.now();
           if (now - this.lastAccountReloadAt > 30_000) {
             this.lastAccountReloadAt = now;
-            await this.credentialPool?.reloadAccounts();
+            await Promise.all([
+              this.credentialPool?.reloadAccounts(),
+              process.env.NODE_ENV === "production"
+                ? reloadSettingsLive().catch(() => undefined)
+                : Promise.resolve(),
+            ]);
           }
           return this.providerSession ? this.providerSession.beforePoll() : true;
         },

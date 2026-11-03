@@ -2,6 +2,7 @@ import { getTeamRuntimeConfig, listEnabledTeamRuntimeConfigs, type TeamRuntimeCo
 import { listTeamRuntimeDesiredStates, setTeamRuntimeDesiredState, type SetTeamRuntimeDesiredStateInput, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
 import { logger } from "../utils/logger.js";
 import { pauseTeam as pausePollerTeam, resumeTeam as resumePollerTeam } from "./poller-control.js";
+import { reloadSettingsLive } from "./settings.js";
 import { acquireTeamLease, releaseTeamLease, renewTeamLease, type AcquireTeamLeaseInput, type ReleaseTeamLeaseInput, type RenewTeamLeaseInput } from "./runtime-lease.js";
 import type { RuntimeReleaseIdentity } from "./runtime-release-identity.js";
 import { createRuntimeRealtimePublisher, type RuntimeRealtimePublisherOptions } from "./realtime-publisher.js";
@@ -193,6 +194,9 @@ export class TeamRuntimeManager {
       await this.stopTeamNow(teamId);
     }
 
+    if (process.env.NODE_ENV === "production") {
+      await reloadSettingsLive().catch(() => undefined);
+    }
     const team = await this.loadTeam(teamId);
     if (!team) throw new Error(`Team ${teamId} was not found`);
     this.teamConfigs.set(team.id, team);

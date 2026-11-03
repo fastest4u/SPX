@@ -1256,11 +1256,17 @@ async function acceptAutoAcceptMatch(
   });
 
   const runner = options.verificationMode === "detached" ? getAutoAcceptVerificationRunner(apiClient, options) : undefined;
-  await runner?.restore();
-  if (runner) await recoverAutoAcceptPreparations(apiClient, options.teamId ?? 1);
-  const ownedKeys = runner ? await getOwnedAutoAcceptRequestKeys(options.teamId ?? 1,
-    match.trips.map(trip => Number(trip.booking_id)).filter(Number.isSafeInteger),
-    match.trips.map(trip => Number(trip.request_id)).filter(Number.isSafeInteger)) : new Set<string>();
+  const [, , ownedKeys] = runner
+    ? await Promise.all([
+        runner.restore(),
+        recoverAutoAcceptPreparations(apiClient, options.teamId ?? 1),
+        getOwnedAutoAcceptRequestKeys(
+          options.teamId ?? 1,
+          match.trips.map(trip => Number(trip.booking_id)).filter(Number.isSafeInteger),
+          match.trips.map(trip => Number(trip.request_id)).filter(Number.isSafeInteger),
+        ),
+      ])
+    : [undefined, undefined, new Set<string>()];
   const { selected, claimToken, reservationCount } = selectAutoAcceptRequests(match, options, runner, ownedKeys);
   if (selected.length === 0) {
     return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match], claimToken };
