@@ -1,43 +1,43 @@
 ---
 name: spx-memory-verify
-description: Verify SPX Memory Vault health using project-memory MCP tools. Use when the user invokes `$spx-memory-verify`, asks for memory verify, asks whether memory is healthy, or after memory/vault edits.
+description: Verify SPX Project Memory V2 store health using project-memory MCP tools and operator CLI. Use when the user invokes `$spx-memory-verify`, asks for memory verify, asks whether memory is healthy, or after memory/governance updates.
 ---
 
-# /memory-verify - MCP Memory Health Gate
+# /memory-verify - MCP Memory V2 Health Gate
 
-Run Memory Vault verification through project-memory MCP tools, not shell memory scripts.
+Run Project Memory V2 verification through project-memory V2 MCP tools (`memory-v2/`), not legacy shell memory scripts.
 
 ## When To Run
 
-- After creating or editing memory notes.
-- After `$spx-dream` or compaction work.
+- After creating or updating governed memory records (ADRs, insights, mistakes, session logs).
+- After `$spx-dream` or governed lifecycle transitions (`memory_promote`, `memory_supersede`, `memory_retract`, `memory_expire`, `memory_forgetEvidence`).
 - When asked whether memory is healthy.
-- Before claiming vault health in an awaken report.
+- Before claiming store health in an awaken report.
 
 ## MCP Steps
 
-1. Call `memory_verifyVault` with `includeWarnings: true`.
-2. If individual notes changed, call `memory_verifyNote` for each important path.
-3. If source-backed factual claims changed, call `memory_verifySourceTruth`.
-4. If the task involved links, call `memory_findBrokenLinks`.
-5. If the task involved stale facts, call `memory_checkStaleness`.
-6. If the index looks stale, call `memory_reindex`, then repeat the relevant verification.
+1. Call `memory_v2Status` (`{}`) to confirm `mode: "active"`, `productionReady: true`, and `projectId: "310f00ba-ff0f-47bc-9430-a3a838647462"`.
+2. Call `memory_verifyVault` (`{}`).
+3. If individual governed records changed, call `memory_verifyNote` for each record.
+4. If source-backed factual claims changed, call `memory_verifySourceTruth`.
+5. Call `memory_findDuplicates` and `memory_checkStaleness` when checking content hygiene.
+6. If projections need rebuilding or V1 archive integrity needs operator verification, use the V2 operator CLI:
+   - `node "C:\Users\Server\Desktop\Awakened-AI-System\dist\v2-admin.js" rebuild-projections --project-root "C:\Users\Server\Desktop\SPX" --v2-vault-root "C:\Users\Server\Desktop\SPX\memory-v2" --v1-archive-root "C:\Users\Server\Desktop\SPX\memory"`
+   - `node "C:\Users\Server\Desktop\Awakened-AI-System\dist\v2-admin.js" verify-v1-archive --project-root "C:\Users\Server\Desktop\SPX" --v2-vault-root "C:\Users\Server\Desktop\SPX\memory-v2" --v1-archive-root "C:\Users\Server\Desktop\SPX\memory"`
 
 ## Output
 
 Report pass/fail first:
 
 ```text
-Memory Vault Health: pass/fail
-- Files scanned: <N>
-- Score/grade: <score>/<grade>
-- Errors: <N>
-- Warnings: <N>
-- Targeted note checks: <summary>
+Memory V2 Store Health: pass/fail
+- Mode / Production Ready: active / true
+- Vault Verification: <status>
+- Targeted checks: <summary>
 ```
 
 ## Rules
 
-- Do not use removed npm memory scripts; use project-memory MCP verification tools.
+- Do not use removed npm memory scripts; use project-memory V2 MCP verification tools.
 - Do not claim "memory is healthy" without a fresh MCP verification result.
 - Fix errors before calling the task complete; summarize warnings honestly.

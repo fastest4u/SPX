@@ -1,11 +1,11 @@
 ---
 name: spx-session-end
-description: Close meaningful SPX work by writing a Memory Vault session log and running project-memory MCP verification. Use when the user invokes `$spx-session-end`, asks for session-end, says done/finished/save this, or after code, docs, memory, or workflow changes.
+description: Close meaningful SPX work by recording a governed Project Memory V2 session log and running V2 store verification. Use when the user invokes `$spx-session-end`, asks for session-end, says done/finished/save this, or after code, docs, memory, or workflow changes.
 ---
 
-# /session-end - Tool-Native Memory Closeout
+# /session-end - Tool-Native Memory V2 Closeout
 
-This workflow persists the current session into long-term memory without hooks, shell memory scripts, or manual vault writes.
+This workflow persists the current session into Project Memory V2 (`memory-v2/`) without hooks, shell memory scripts, or manual file writes.
 
 ## When To Run
 
@@ -22,40 +22,36 @@ This workflow persists the current session into long-term memory without hooks, 
    - `filesTouched` (string[]): Relative or absolute paths of modified/created files.
    - `openFollowUps` (string[]): Any pending unclosed tasks or next steps.
    - `verification` (string): Exact command line outputs, test counts, or SSH checks verifying success.
-   - `agent` (string): e.g. "antigravity" or "codex".
-   - `date` (string, "YYYY-MM-DD"): Current session date.
+   - `agent` (string): e.g. `"antigravity"` or `"codex"`.
+   - `date` (string, `"YYYY-MM-DD"`): Current session date.
 
-2. Call `memory_sessionEnd` with `{ topic, outcomes, decisionsMade, filesTouched, openFollowUps, verification, verify: true }`.
-   - `topic` is mandatory; omitting it will throw an MCP schema validation error.
-   - Use `autoCompact: true` by default.
-   - If the MCP process has a stale in-memory index and closeout fails during auto-compact, call `memory_reindex`, retry with `autoCompact: false`, then run `memory_verifyVault`.
+2. If durable lessons or decisions emerged during the session, record them first:
+   - `memory_writeADR` for architecture decisions,
+   - `memory_writeMistake` for reusable failure lessons,
+   - `memory_writeInsight` for recurring patterns,
+   - `memory_promote`, `memory_supersede`, `memory_retract`, `memory_expire`, or `memory_forgetEvidence` for governed lifecycle transitions.
 
-3. Inspect the returned `qualityGate`.
-   - If it says verification was skipped or missing, call `memory_verifyVault`.
-   - If specific notes changed, call `memory_verifyNote`.
-   - If source-backed claims changed, call `memory_verifySourceTruth`.
-   - If links or stale claims are in scope, call `memory_findBrokenLinks` or `memory_checkStaleness`.
+3. Call `memory_sessionEnd` with `{ topic, outcomes, decisionsMade, filesTouched, openFollowUps, verification, verify: true }`.
+   - If a completed session needs an addendum or cancellation, use `memory_amendSessionEnd` or `memory_cancelSessionEnd`.
 
-4. If a durable lesson emerged:
-   - use `memory_writeADR` for architecture decisions,
-   - use `memory_writeMistake` for reusable failure lessons,
-   - use `memory_writeInsight` for recurring patterns.
+4. Call `memory_verifyVault` (and optionally `memory_v2Status`) to confirm store integrity and projection health:
+   - If specific governed records changed, call `memory_verifyNote` or `memory_verifySourceTruth`.
+   - If duplicate or stale claims are in scope, call `memory_findDuplicates` or `memory_checkStaleness`.
 
 ## Output
 
 Report:
 
 ```text
-Session saved.
-- Log: <path from memory_sessionEnd>
-- Quality gate: pass/fail, score/grade if returned
-- Vault verification: pass/fail, score/grade if run
+Session saved to Project Memory V2.
+- Session ID: <sessionId>
+- Store verification: pass/fail
 - Follow-ups: <N>
 ```
 
 ## Rules
 
-- Do not use removed npm memory scripts for normal Codex closeout.
-- Do not manually create or edit session log files; use `memory_sessionEnd` or `memory_writeSessionLog`.
+- Do not use removed npm memory scripts for closeout.
+- Never write directly to the frozen V1 archive (`memory/`).
 - Do not commit or push unless explicitly asked.
 - Do not log secrets or `.env` values.

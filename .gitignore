@@ -38,6 +38,9 @@ output/playwright/
 
 # Editors / IDEs
 
+# Project Memory V2 SQLite Store (local runtime store)
+memory-v2/
+
 # ─── Obsidian Memory Vault ───────────────────────────────────────────────
 # Strategy: track CONFIG (settings, plugin manifests + data) so a fresh clone
 # has the same vault behavior, but never track binaries (plugin main.js / styles.css

@@ -1,8 +1,358 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-01T05:57:30.347Z",
+  "updatedAt": "2026-10-20T17:36:26.931Z",
   "activeSession": null,
   "recentSessions": [
+    {
+      "id": "memory-1792514151761",
+      "startedAt": "2026-10-20T16:35:51.761Z",
+      "updatedAt": "2026-10-20T17:36:26.929Z",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-20T16:35:51.761Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-20T16:35:51.766Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-20T17:04:30.066Z",
+          "details": {
+            "taskArea": "spx-review-line-ocr-single-owner"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-10-20T17:04:34.872Z",
+          "details": {
+            "task": "Run /spx-review workflow: create PR, 8-category review, verify, merge, and deploy single-owner LINE OCR listener fix to production",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-10-20T17:36:26.929Z",
+          "details": {
+            "topic": "spx-review-pr-149-single-line-ocr-listener",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "taskArea": "spx-review-line-ocr-single-owner",
+      "topic": "spx-review-pr-149-single-line-ocr-listener",
+      "endedAt": "2026-10-20T17:36:26.929Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 100,
+        "grade": "A",
+        "warnings": []
+      }
+    },
+    {
+      "id": "memory-1792511181992",
+      "startedAt": "2026-10-20T15:46:21.992Z",
+      "updatedAt": "2026-10-20T16:24:09.274Z",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-20T15:46:21.992Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-20T15:46:21.998Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-20T15:46:43.667Z",
+          "details": {
+            "taskArea": "line-bot-ocr-spam"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-10-20T16:00:41.527Z",
+          "details": {
+            "task": "Prevent notifier from running duplicate LINE image listener when LINE_SERVICE_URL is configured, and filter/deduplicate stale replayed LINE messages in attachImageListener",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-10-20T16:24:09.274Z",
+          "details": {
+            "topic": "line-bot-ocr-spam-fix",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "taskArea": "line-bot-ocr-spam",
+      "topic": "line-bot-ocr-spam-fix",
+      "endedAt": "2026-10-20T16:24:09.274Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 100,
+        "grade": "A",
+        "warnings": []
+      }
+    },
+    {
+      "id": "memory-1792430354175",
+      "startedAt": "2026-10-19T17:19:14.175Z",
+      "updatedAt": "2026-10-19T17:19:14.178Z",
+      "taskArea": "line-bot-ocr local codex",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-19T17:19:14.175Z",
+          "details": {
+            "taskArea": "line-bot-ocr local codex"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-19T17:19:14.178Z",
+          "details": {
+            "query": "line-bot-ocr local codex",
+            "taskArea": "line-bot-ocr local codex"
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "endedAt": "2026-10-20T15:46:21.992Z",
+      "endReason": "superseded",
+      "lastQualityGate": null,
+      "warnings": [
+        "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+      ]
+    },
+    {
+      "id": "memory-1792427644234",
+      "startedAt": "2026-10-19T16:34:04.234Z",
+      "updatedAt": "2026-10-19T17:18:32.542Z",
+      "taskArea": "deploy docker-compose line-service + dashboard frontend",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-19T16:34:04.234Z",
+          "details": {
+            "taskArea": "spx-review dashboard-header line-service-ocr"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-19T16:34:04.238Z",
+          "details": {
+            "query": "spx-review dashboard-header line-service-ocr",
+            "taskArea": "spx-review dashboard-header line-service-ocr"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-10-19T16:34:04.820Z",
+          "details": {
+            "task": "spx-review: PR + merge (auto-deploy to production) for docker-compose OCR_SERVICE_URL fix and dashboard header redesign",
+            "area": "deploy docker-compose line-service + dashboard frontend",
+            "riskLevel": "high"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-10-19T17:18:32.542Z",
+          "details": {
+            "topic": "spx-review-pr-146-147-deploy",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "spx-review-pr-146-147-deploy",
+      "endedAt": "2026-10-19T17:18:32.542Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 100,
+        "grade": "A",
+        "warnings": []
+      }
+    },
+    {
+      "id": "memory-1792426704739",
+      "startedAt": "2026-10-19T16:18:24.739Z",
+      "updatedAt": "2026-10-19T16:32:39.261Z",
+      "taskArea": "frontend-dashboard-header",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-19T16:18:24.739Z",
+          "details": {
+            "taskArea": "frontend-dashboard-header"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-19T16:18:24.743Z",
+          "details": {
+            "query": "frontend-dashboard-header",
+            "taskArea": "frontend-dashboard-header"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-10-19T16:32:39.261Z",
+          "details": {
+            "topic": "dashboard-header-minimal-redesign",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "dashboard-header-minimal-redesign",
+      "endedAt": "2026-10-19T16:32:39.261Z",
+      "lastQualityGate": {
+        "ok": false,
+        "score": 88,
+        "grade": "B",
+        "warnings": [
+          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck."
+        ]
+      }
+    },
+    {
+      "id": "memory-1792426186923",
+      "startedAt": "2026-10-19T16:09:46.923Z",
+      "updatedAt": "2026-10-19T16:12:24.509Z",
+      "taskArea": "docker-compose / line-service",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 2,
+        "selfCheck": 1,
+        "sessionEnd": 1
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-19T16:09:46.923Z",
+          "details": {
+            "taskArea": "line-bot-ocr"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-19T16:09:46.927Z",
+          "details": {
+            "query": "line-bot-ocr",
+            "taskArea": "line-bot-ocr"
+          }
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-19T16:09:49.476Z",
+          "details": {
+            "taskArea": "line-bot-ocr"
+          }
+        },
+        {
+          "tool": "memory_selfCheck",
+          "at": "2026-10-19T16:09:56.666Z",
+          "details": {
+            "task": "Make OCR_SERVICE_URL optional in docker-compose.yml and restart spx-line-service-1 with local OCR fallback",
+            "area": "docker-compose / line-service",
+            "riskLevel": "medium"
+          }
+        },
+        {
+          "tool": "memory_sessionEnd",
+          "at": "2026-10-19T16:12:24.509Z",
+          "details": {
+            "topic": "line-service-ocr-fix",
+            "verify": true
+          }
+        }
+      ],
+      "missingSessionStart": false,
+      "topic": "line-service-ocr-fix",
+      "endedAt": "2026-10-19T16:12:24.509Z",
+      "lastQualityGate": {
+        "ok": true,
+        "score": 100,
+        "grade": "A",
+        "warnings": []
+      }
+    },
+    {
+      "id": "memory-1791271209811",
+      "startedAt": "2026-10-06T07:20:09.811Z",
+      "updatedAt": "2026-10-06T07:20:09.815Z",
+      "startedBy": "memory_sessionStart",
+      "counts": {
+        "sessionStart": 1,
+        "contextPack": 1,
+        "selfCheck": 0,
+        "sessionEnd": 0
+      },
+      "events": [
+        {
+          "tool": "memory_sessionStart",
+          "at": "2026-10-06T07:20:09.811Z",
+          "details": {}
+        },
+        {
+          "tool": "memory_contextPack",
+          "at": "2026-10-06T07:20:09.815Z",
+          "details": {}
+        }
+      ],
+      "missingSessionStart": false,
+      "endedAt": "2026-10-19T16:09:46.923Z",
+      "endReason": "superseded",
+      "lastQualityGate": null,
+      "warnings": [
+        "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
+      ]
+    },
     {
       "id": "memory-1780289230180",
       "startedAt": "2026-06-01T04:47:10.180Z",
@@ -760,365 +1110,6 @@
         "grade": "B",
         "warnings": [
           "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779855157140",
-      "startedAt": "2026-05-27T04:12:37.140Z",
-      "updatedAt": "2026-05-27T04:12:37.803Z",
-      "taskArea": "Dragonfly cache for SPX DB churn",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 1,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-27T04:12:37.140Z",
-          "details": {
-            "taskArea": "Dragonfly cache for SPX DB churn"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T04:12:37.142Z",
-          "details": {
-            "query": "Dragonfly cache for SPX DB churn",
-            "taskArea": "Dragonfly cache for SPX DB churn"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T04:12:37.361Z",
-          "details": {
-            "query": "Use Dragonfly Redis-compatible cache to reduce INSERT IGNORE duplicate DB churn in SPX polling production",
-            "taskArea": "Dragonfly cache for SPX DB churn"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-27T04:12:37.803Z",
-          "details": {
-            "task": "Evaluate whether adding Dragonfly/Redis-compatible cache would help reduce SPX INSERT IGNORE duplicate DB churn and production polling overhead; planning only, no infra changes.",
-            "area": "Dragonfly cache for SPX DB churn",
-            "riskLevel": "medium"
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "endedAt": "2026-05-27T04:15:33.762Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779855047181",
-      "startedAt": "2026-05-27T04:10:47.181Z",
-      "updatedAt": "2026-05-27T04:11:25.554Z",
-      "taskArea": "INSERT IGNORE duplicate DB churn",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 2,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-27T04:10:47.182Z",
-          "details": {
-            "taskArea": "INSERT IGNORE duplicate DB churn"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T04:10:47.183Z",
-          "details": {
-            "query": "INSERT IGNORE duplicate DB churn",
-            "taskArea": "INSERT IGNORE duplicate DB churn"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T04:10:47.407Z",
-          "details": {
-            "query": "SPX INSERT IGNORE duplicate skipped rows DB churn production polling saveBookingRequests insertBookingHistories",
-            "taskArea": "INSERT IGNORE duplicate DB churn"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-27T04:11:25.554Z",
-          "details": {
-            "topic": "Plan fix for INSERT IGNORE duplicate DB churn",
-            "verify": false
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Plan fix for INSERT IGNORE duplicate DB churn",
-      "endedAt": "2026-05-27T04:11:25.554Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 78,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779854904879",
-      "startedAt": "2026-05-27T04:08:24.879Z",
-      "updatedAt": "2026-05-27T04:09:33.638Z",
-      "taskArea": "Zed keymap VS Code",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-27T04:08:24.879Z",
-          "details": {
-            "taskArea": "Zed keymap VS Code"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T04:08:24.881Z",
-          "details": {
-            "query": "Zed keymap VS Code",
-            "taskArea": "Zed keymap VS Code"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-27T04:09:33.638Z",
-          "details": {
-            "topic": "Set Zed keymap to VS Code behavior",
-            "verify": false
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Set Zed keymap to VS Code behavior",
-      "endedAt": "2026-05-27T04:09:33.638Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 90,
-        "grade": "B",
-        "warnings": [
-          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779853800727",
-      "startedAt": "2026-05-27T03:50:00.727Z",
-      "updatedAt": "2026-05-27T04:00:42.153Z",
-      "taskArea": "production auto-accept latency",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 3,
-        "selfCheck": 1,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-27T03:50:00.727Z",
-          "details": {
-            "taskArea": "memory location"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T03:50:00.740Z",
-          "details": {
-            "query": "memory location",
-            "taskArea": "memory location"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T03:50:10.614Z",
-          "details": {
-            "query": "Where is MCP memory stored for this SPX project right now?",
-            "taskArea": "memory location"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-27T03:51:31.386Z",
-          "details": {
-            "query": "Investigate production server SPX not accepting jobs fast enough; root ssh production logs auto-accept polling latency notifications",
-            "taskArea": "production auto-accept latency"
-          }
-        },
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-27T03:51:31.752Z",
-          "details": {
-            "task": "SSH to production server as root to investigate why SPX auto-accept/polling is not keeping up with jobs; inspect logs/process/metrics only, no deploy or config changes unless separately confirmed.",
-            "area": "production auto-accept latency",
-            "riskLevel": "high"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-27T04:00:42.153Z",
-          "details": {
-            "topic": "Investigate SPX production auto-accept not keeping up",
-            "verify": false
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "Investigate SPX production auto-accept not keeping up",
-      "endedAt": "2026-05-27T04:00:42.153Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 90,
-        "grade": "B",
-        "warnings": [
-          "vault verification ran: End-of-task protocol expects vault verification after memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779752607652",
-      "startedAt": "2026-05-25T23:43:27.652Z",
-      "updatedAt": "2026-05-25T23:48:07.097Z",
-      "taskArea": "spx-review for auto-accept dual-tab verify fix",
-      "startedBy": "memory_sessionStart",
-      "counts": {
-        "sessionStart": 1,
-        "contextPack": 1,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionStart",
-          "at": "2026-05-25T23:43:27.652Z",
-          "details": {
-            "taskArea": "spx-review for auto-accept dual-tab verify fix"
-          }
-        },
-        {
-          "tool": "memory_contextPack",
-          "at": "2026-05-25T23:43:27.654Z",
-          "details": {
-            "query": "spx-review for auto-accept dual-tab verify fix",
-            "taskArea": "spx-review for auto-accept dual-tab verify fix"
-          }
-        },
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-25T23:48:07.097Z",
-          "details": {
-            "topic": "spx-review: branch + PR + 8-category review + squash-merge of auto-accept dual-tab verify fix (#36)",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": false,
-      "topic": "spx-review: branch + PR + 8-category review + squash-merge of auto-accept dual-tab verify fix (#36)",
-      "endedAt": "2026-05-25T23:48:07.097Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 80,
-        "grade": "C",
-        "warnings": [
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 78."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779752607560",
-      "startedAt": "2026-05-25T23:43:27.560Z",
-      "updatedAt": "2026-05-25T23:43:27.560Z",
-      "taskArea": "code review + production deploy of auto-accept verify fix",
-      "startedBy": "memory_selfCheck",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
-        "selfCheck": 1,
-        "sessionEnd": 0
-      },
-      "events": [
-        {
-          "tool": "memory_selfCheck",
-          "at": "2026-05-25T23:43:27.560Z",
-          "details": {
-            "task": "spx-review flow: commit local changes (api-client.ts + notifier.ts dual-tab verify fix), create branch, push, open PR, run 8-category strict review, auto-fix P0-P3, then merge to main and clean up. Touches auto-accept logic and src/services modules.",
-            "area": "code review + production deploy of auto-accept verify fix",
-            "riskLevel": "high"
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "endedAt": "2026-05-25T23:43:27.652Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 0,
-        "grade": "F",
-        "warnings": [
-          "Lifecycle was replaced by a new memory_sessionStart before memory_sessionEnd."
-        ]
-      }
-    },
-    {
-      "id": "memory-1779752524986",
-      "startedAt": "2026-05-25T23:42:04.986Z",
-      "updatedAt": "2026-05-25T23:42:04.986Z",
-      "startedBy": "memory_sessionEnd",
-      "counts": {
-        "sessionStart": 0,
-        "contextPack": 0,
-        "selfCheck": 0,
-        "sessionEnd": 1
-      },
-      "events": [
-        {
-          "tool": "memory_sessionEnd",
-          "at": "2026-05-25T23:42:04.986Z",
-          "details": {
-            "topic": "Fix SPX auto-accept partial-failure verify to query both pending and confirmed tabs (booking 2527287 root cause)",
-            "verify": true
-          }
-        }
-      ],
-      "missingSessionStart": true,
-      "topic": "Fix SPX auto-accept partial-failure verify to query both pending and confirmed tabs (booking 2527287 root cause)",
-      "endedAt": "2026-05-25T23:42:04.986Z",
-      "lastQualityGate": {
-        "ok": false,
-        "score": 50,
-        "grade": "F",
-        "warnings": [
-          "No active memory lifecycle was recorded before memory_sessionEnd; created an implicit lifecycle for diagnostics.",
-          "sessionStart recorded: Every task should begin with memory_sessionStart.",
-          "contextPack recorded: Each task should retrieve a task-specific memory_contextPack.",
-          "selfCheck for risky work: Risky, deployment-like, decision-heavy, or multi-file work needs memory_selfCheck.",
-          "vault warnings reviewed: Vault grade C with score 80."
         ]
       }
     }

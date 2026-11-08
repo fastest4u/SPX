@@ -1,11 +1,11 @@
 ---
 name: spx-session-start
-description: Load SPX Memory Vault startup context for Codex using project-memory MCP tools. Use when the user invokes `$spx-session-start`, asks for session-start, starts work in SPX, or wants the Codex equivalent of `/session-start`.
+description: Load SPX Memory V2 startup context using project-memory MCP tools. Use when the user invokes `$spx-session-start`, asks for session-start, starts work in SPX, or wants the Codex equivalent of `/session-start`.
 ---
 
-# /session-start - Tool-Native Memory Startup
+# /session-start - Tool-Native Memory V2 Startup
 
-This workflow primes Codex with persistent SPX project memory without hooks, shell memory scripts, or manual vault reads.
+This workflow primes the agent with persistent SPX Project Memory V2 (`memory-v2/`, `projectId: 310f00ba-ff0f-47bc-9430-a3a838647462`, `releaseId: 5fae44bb-2cf3-4303-bb0c-4d6716e2c812`) without hooks, shell memory scripts, or manual V1 archive reads.
 
 ## When To Run
 
@@ -16,18 +16,18 @@ This workflow primes Codex with persistent SPX project memory without hooks, she
 ## MCP Steps
 
 1. Call `memory_sessionStart` as the **MANDATORY FIRST ACTION** before any other tool call (no arguments required: `{}`).
-   - Confirm `vaultRoot` is `C:\Users\Server\Desktop\SPX\memory`. Stop and report if it is not.
+   - Optionally call `memory_v2Status` (`{}`) to confirm `projectId` is `310f00ba-ff0f-47bc-9430-a3a838647462`, `mode` is `"active"`, and `productionReady` is `true`.
 
 2. Call `memory_contextPack` with `{ mode, taskArea }`:
    - Pick `mode`: `coding` (feature/refactor), `debugging` (bugs/errors), `deploy` (deploy/SSH/pipeline), `planning` (architecture), or `docs` (memory/vault).
-   - Use a short `taskArea` (e.g. `deploy`, `poller`, `skills`, `database`).
-   - Read `contextPack.selected[]`; call `memory_get` only for selected notes that need full body.
+   - Use a short `taskArea` (e.g. `deploy`, `poller`, `skills`, `database`, `memory-v2`).
+   - Inspect `items[]`; call `memory_get` only for selected governed notes/records that need full body.
 
 3. Call `memory_followUpRadar` with `{ taskArea }`:
    - Mention relevant open follow-ups to the user before editing code or taking risky actions.
    - Carry still-relevant follow-ups into `memory_sessionEnd.openFollowUps`.
 
-4. Call `memory_lifecycleStatus` when resuming a long or interrupted thread.
+4. Call `memory_lifecycleStatus` when resuming a long or interrupted thread, or `memory_recoverSession` if recovering a prior session lease.
 
 5. If the user asks what to do next, call `memory_awaken` after startup context is loaded.
 
@@ -36,8 +36,8 @@ This workflow primes Codex with persistent SPX project memory without hooks, she
 Summarize briefly in Thai when the user writes Thai:
 
 ```text
-Memory loaded from SPX vault.
-- Selected context: <N> notes
+Memory V2 loaded from SPX store.
+- Selected context: <N> items
 - Relevant follow-ups: <N>
 - Lifecycle: sessionStart/contextPack/followUpRadar recorded
 Ready to continue.
@@ -46,5 +46,5 @@ Ready to continue.
 ## Rules
 
 - Do not use removed npm memory scripts for startup context.
-- Do not manually read broad vault folders when MCP retrieval can select context.
-- Keep the summary short; link to exact notes only when useful.
+- Do not write to or manually scan the frozen V1 archive (`memory/`).
+- Keep the summary short; cite governed V2 `recordId`s only when useful.

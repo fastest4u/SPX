@@ -35,37 +35,41 @@ Recent history uses Conventional Commit-style prefixes such as `docs:`, `fix:`, 
 
 Never read, print, copy, or commit secret values from `.env`. Runtime config is validated in `src/config/env.ts`; trust executable config over prose when docs conflict.
 
-### Auto Memory Management (project-memory MCP)
+### Auto Memory Management (Project Memory V2 MCP)
 
-Use the `memory_*` project-memory MCP tools for ALL memory operations. Do NOT use obsidian MCP, manual vault file writes, Codex hooks, or removed `npm run memory:*` scripts for Codex memory lifecycle work.
+Use the `memory_*` **Project Memory V2** MCP tools (`C:\Users\Server\Desktop\Awakened-AI-System\dist\v2.js`) for ALL memory operations.
+- **Authoritative V2 Vault**: `C:\Users\Server\Desktop\SPX\memory-v2` (`projectId: 310f00ba-ff0f-47bc-9430-a3a838647462`, `vaultId: 63bf9dcf-d761-493d-b297-a888e220e5b3`, `storeId: 9de5d804-f085-4c97-9866-ad0199be2020`, `releaseId: 5fae44bb-2cf3-4303-bb0c-4d6716e2c812`).
+- **Frozen V1 Archive**: The legacy `C:\Users\Server\Desktop\SPX\memory` directory is a cryptographically verified read-only V1 archive (`0o444`) and must never be written to directly.
+- Do NOT use obsidian MCP, manual vault file writes, Codex hooks, or removed `npm run memory:*` scripts for memory lifecycle work.
 
-Codex hooks and memory npm scripts are intentionally disabled in this workspace. Do not rely on `.codex/hooks.json` or `scripts/memory-*.mjs` for lifecycle enforcement; call the project-memory MCP tools directly from these instructions and the SPX skills.
+Codex hooks and memory npm scripts are intentionally disabled in this workspace. Do not rely on `.codex/hooks.json` or `scripts/memory-*.mjs` for lifecycle enforcement; call the project-memory V2 MCP tools directly from these instructions and the SPX skills.
 
-#### Project-Memory Tool Map (authoritative for Codex)
-Codex should learn the whole project-memory toolkit and auto-select the right tool by task intent. Do not call every tool every turn; choose the smallest useful set.
+#### Project-Memory V2 Tool Map (All 34 Tools — Full-Auto)
+Codex should use the V2 project-memory toolkit and auto-select the right tool by task intent. Do not call every tool every turn; choose the smallest useful set.
 
-- Startup/context: `memory_sessionStart`, `memory_contextPack`, `memory_followUpRadar`, `memory_awaken`, `memory_lifecycleStatus`
-- Read/search: `memory_search`, `memory_get`, `memory_list`, `memory_recent`
-- Risk and verification: `memory_selfCheck`, `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`
-- Maintenance: `memory_findBrokenLinks`, `memory_findDuplicates`, `memory_checkStaleness`, `memory_reindex`, `memory_indexNote`, `memory_compactVault`
-- Structured writing: `memory_sessionEnd`, `memory_writeSessionLog`, `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_createFromTemplate`
-- Vault transfer/bootstrap: `memory_export`, `memory_import`, `memory_bootstrapProject`
+- **Status & Startup/Context**: `memory_v2Status`, `memory_sessionStart`, `memory_contextPack`, `memory_followUpRadar`, `memory_awaken`, `memory_lifecycleStatus`
+- **Read/Search**: `memory_search`, `memory_get`, `memory_list`, `memory_recent`
+- **Risk & Verification**: `memory_selfCheck`, `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findDuplicates`, `memory_checkStaleness`
+- **Governed Writing**: `memory_writeSessionLog`, `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`
+- **Checkpoints, Recovery & Child Sessions**: `memory_checkpoint`, `memory_recoverSession`, `memory_sessionFork`, `memory_recordChildResult`, `memory_completeChildSession`, `memory_sessionEnd`, `memory_amendSessionEnd`, `memory_cancelSessionEnd`, `memory_recordEvidenceBatch`
+- **Governed Lifecycle Transitions**: `memory_promote`, `memory_supersede`, `memory_retract`, `memory_expire`, `memory_forgetEvidence`
+- **Operator CLI (`node C:\Users\Server\Desktop\Awakened-AI-System\dist\v2-admin.js`)**: Store status (`status`), backups (`backup`), isolated restores (`restore`), recovery checks (`verify-recovery`), projection rebuilds (`rebuild-projections`), and V1 archive verification (`verify-v1-archive`).
 
 Default routing:
-- Start meaningful work with `memory_sessionStart` plus `memory_contextPack`; confirm `vaultRoot` is `C:\Users\Server\Desktop\SPX\memory`.
+- Start meaningful work with `memory_sessionStart` plus `memory_contextPack` (optionally check `memory_v2Status` to confirm `projectId: 310f00ba-ff0f-47bc-9430-a3a838647462` and `mode: "active"`).
 - Before work, call `memory_followUpRadar`; before risky work, call `memory_selfCheck`.
-- For memory-only verification, use `memory_verifyVault` and targeted validators such as `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findBrokenLinks`, and `memory_checkStaleness`.
-- For durable learning, use `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_createFromTemplate`, or `memory_sessionEnd` rather than editing vault notes manually.
-- For vault maintenance, use `memory_reindex`, `memory_indexNote`, `memory_compactVault`, `memory_findDuplicates`, `memory_export`, `memory_import`, or `memory_bootstrapProject` only when the task specifically calls for them.
+- For memory verification, use `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findDuplicates`, and `memory_checkStaleness`.
+- For durable learning, use `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_writeSessionLog`, or `memory_sessionEnd` rather than editing files manually.
+- For governed record lifecycle transitions, use `memory_promote`, `memory_supersede`, `memory_retract`, `memory_expire`, and `memory_forgetEvidence`.
 
 #### Lifecycle Summary
-Every meaningful task should follow this MCP-native loop:
+Every meaningful task should follow this MCP-native V2 loop:
 
 1. Start with `memory_sessionStart`, `memory_contextPack`, and `memory_followUpRadar`.
 2. Run `memory_selfCheck` before risky work.
-3. Use targeted retrieval, verification, maintenance, and writing tools from the tool map as the task requires.
-4. End with `memory_sessionEnd`; include concrete outcomes, decisions, files touched, open follow-ups, and verification evidence.
-5. If `memory_sessionEnd` cannot verify internally, call `memory_verifyVault` and record that result in the final response and session log.
+3. Use targeted retrieval, verification, governance, checkpoint, and writing tools from the V2 tool map as the task requires.
+4. End with `memory_sessionEnd`; include concrete `topic`, `outcomes`, `decisionsMade`, `filesTouched`, `openFollowUps`, and `verification` evidence.
+5. Verify health via `memory_verifyVault` / `memory_v2Status` and record that result in the final response and session log.
 
 #### Layer 1 — Session Start (every new chat)
 Call `memory_sessionStart` automatically on the first substantive user request.
@@ -95,7 +99,7 @@ Call `memory_sessionEnd` automatically after any of:
 - User says "done", "เสร็จแล้ว", "save this", "ship it"
 - Approaching context limit
 
-If the same problem pattern appeared in ≥ 2 previous sessions → also call `memory_writeInsight` to promote it as a durable lesson.
+If the same problem pattern appeared in ≥ 2 previous sessions → also call `memory_writeInsight` (and `memory_promote` when verified) to promote it as a durable lesson.
 
 ### Commit & Deploy Policy
 

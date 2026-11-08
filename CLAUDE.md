@@ -90,40 +90,43 @@ Push to `main` triggers `.github/workflows/deploy.yml`: lint → build → test 
 
 ## Do not edit
 
-Generated / runtime / secret artifacts — never hand-edit or commit changes to: `src/frontend/routeTree.gen.ts` (TanStack Router codegen), `dist/`, `data/`, `logs/`, `node_modules/`, `.env`, and `notify-rules.json`. Never read, print, copy, or commit secret values from `.env`. When prose docs and executable config (`src/config/env.ts`, `package.json`) disagree, trust the code.
+Generated / runtime / secret artifacts — never hand-edit or commit changes to: `src/frontend/routeTree.gen.ts` (TanStack Router codegen), `dist/`, `data/`, `logs/`, `node_modules/`, `.env`, `notify-rules.json`, and the frozen V1 archive `memory/`. Never read, print, copy, or commit secret values from `.env`. When prose docs and executable config (`src/config/env.ts`, `package.json`) disagree, trust the code.
 
 ## Commit & deploy policy
 
 After code changes, stop at **typecheck passing** and explain what changed. **Do not auto-commit, push, branch, open PRs, merge, or deploy unless the user explicitly asks** — the repo preference is direct-to-`main`, and the user decides when to commit and when to ship to production. Recent history uses Conventional Commit prefixes (`fix:`, `feat:`, `docs:`, `chore:`); keep commits scoped and imperative.
 
-## Auto Memory Management (project-memory MCP)
+## Auto Memory Management (Project Memory V2 MCP)
 
-Use the `project-memory` MCP server for all SPX cross-session memory. The server is named `project-memory`; its memory tools are auto-approved locally by `.claude/settings.local.json` via `mcp__project-memory__memory_*`. The vault root must be `C:\Users\Server\Desktop\SPX\memory`; if `memory_sessionStart` reports any other vault root, stop and surface the routing issue.
+Use the `project-memory` **Project Memory V2** MCP server (`C:\Users\Server\Desktop\Awakened-AI-System\dist\v2.js`) for all SPX cross-session memory. The server is named `project-memory`; its 34 V2 tools are auto-approved locally by `.claude/settings.local.json` via `mcp__project-memory__*`.
+- **Authoritative V2 Vault**: `C:\Users\Server\Desktop\SPX\memory-v2` (`projectId: 310f00ba-ff0f-47bc-9430-a3a838647462`, `vaultId: 63bf9dcf-d761-493d-b297-a888e220e5b3`, `storeId: 9de5d804-f085-4c97-9866-ad0199be2020`, `releaseId: 5fae44bb-2cf3-4303-bb0c-4d6716e2c812`).
+- **Frozen V1 Archive**: The legacy `C:\Users\Server\Desktop\SPX\memory` directory is a frozen read-only V1 archive (`0o444`) and must never be written to directly.
 
-Do not use obsidian MCP, manual vault file writes, Codex hooks, Claude file-based auto-memory, or removed `npm run memory:*` scripts for SPX lifecycle work. Pick the smallest useful set of project-memory tools per task; do not call every tool every turn.
+Do not use obsidian MCP, manual vault file writes, Codex hooks, Claude file-based auto-memory, or removed `npm run memory:*` scripts for SPX lifecycle work. Pick the smallest useful set of project-memory V2 tools per task; do not call every tool every turn.
 
-### Tool map
+### V2 Tool Map (All 34 Tools)
 
-- Startup/context: `memory_sessionStart`, `memory_contextPack`, `memory_followUpRadar`, `memory_awaken`, `memory_lifecycleStatus`
-- Read/search: `memory_search`, `memory_get`, `memory_list`, `memory_recent`
-- Risk and verification: `memory_selfCheck`, `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`
-- Maintenance: `memory_findBrokenLinks`, `memory_findDuplicates`, `memory_checkStaleness`, `memory_reindex`, `memory_indexNote`, `memory_compactVault`
-- Structured writing: `memory_sessionEnd`, `memory_writeSessionLog`, `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`, `memory_createFromTemplate`
-- Vault transfer/bootstrap: `memory_export`, `memory_import`, `memory_bootstrapProject`
+- **Status & Startup/Context**: `memory_v2Status`, `memory_sessionStart`, `memory_contextPack`, `memory_followUpRadar`, `memory_awaken`, `memory_lifecycleStatus`
+- **Read/Search**: `memory_search`, `memory_get`, `memory_list`, `memory_recent`
+- **Risk & Verification**: `memory_selfCheck`, `memory_verifyVault`, `memory_verifyNote`, `memory_verifySourceTruth`, `memory_findDuplicates`, `memory_checkStaleness`
+- **Governed Writing**: `memory_writeSessionLog`, `memory_writeADR`, `memory_writeMistake`, `memory_writeInsight`
+- **Checkpoints, Recovery & Child Sessions**: `memory_checkpoint`, `memory_recoverSession`, `memory_sessionFork`, `memory_recordChildResult`, `memory_completeChildSession`, `memory_sessionEnd`, `memory_amendSessionEnd`, `memory_cancelSessionEnd`, `memory_recordEvidenceBatch`
+- **Governed Lifecycle Transitions**: `memory_promote`, `memory_supersede`, `memory_retract`, `memory_expire`, `memory_forgetEvidence`
+- **Operator CLI (`node C:\Users\Server\Desktop\Awakened-AI-System\dist\v2-admin.js`)**: `status`, `backup`, `restore`, `verify-recovery`, `rebuild-projections`, `verify-v1-archive`, `generate-client-configs`
 
 ### Lifecycle
 
 **Hooks are off by design — this file IS the driver.** Mirrors the Codex setup: `.codex/config.toml` sets `codex_hooks = false`/`hooks = false` and `.codex/hooks.json` is empty, and `AGENTS.md` drives the loop purely through instructions. Run this lifecycle yourself on every session; the user should not have to ask. **Do not add a SessionStart/Stop hook (or any file-based auto-memory) to enforce it** — that contradicts the workspace's deliberate no-hook decision. Reliability comes from following the layers below, backstopped by the `memory_sessionEnd` quality gate.
 
-**Layer 1 — Session start (first substantive request):** call `memory_sessionStart`, then `memory_contextPack`. Infer `mode` from intent — `coding` (feature/refactor), `debugging` (error/bug), `deploy` (commit/push/production), `planning` (architecture/design), `docs` (memory/docs/vault) — plus a short `taskArea`. Confirm `vaultRoot` is `C:\Users\Server\Desktop\SPX\memory`; if it is anything else, stop and surface the routing issue.
+**Layer 1 — Session start (first substantive request):** call `memory_sessionStart`, then `memory_contextPack`. Infer `mode` from intent — `coding` (feature/refactor), `debugging` (error/bug), `deploy` (commit/push/production), `planning` (architecture/design), `docs` (memory/docs/vault) — plus a short `taskArea`. Optionally verify V2 binding via `memory_v2Status` (`projectId: 310f00ba-ff0f-47bc-9430-a3a838647462`, `mode: "active"`).
 
 **Layer 2 — Before work (every task):** call `memory_followUpRadar` for the task area and mention relevant unclosed follow-ups to the user before proceeding.
 
-**Layer 3 — Before risky work:** call `memory_selfCheck` *up front* (not after). Risky = production deploy / SSH / `docker compose`, DB schema or migrations, auth/secrets/`.env`, MCP config, multi-file refactors in `src/services` or `src/controllers`, any `notify-rules.json` or auto-accept change. The `memory_sessionEnd` quality gate flags a skipped selfCheck after the fact — treat that as a backstop, not the plan.
+**Layer 3 — Before risky work:** call `memory_selfCheck` *up front* (not after). Risky = production deploy / SSH / `docker compose`, DB schema or migrations, auth/secrets/`.env`, MCP config, multi-file refactors in `src/services` or `src/controllers`, any `notify-rules.json` or auto-accept change.
 
-**Layer 4 — Session end (after meaningful work):** call `memory_sessionEnd` with concrete `outcomes`, `decisionsMade`, `filesTouched`, `openFollowUps`, and precise verification evidence. Fire it automatically when you finish a feature/fix/refactor, when approaching the context limit, or when the user signals completion — e.g. "done" / "เสร็จแล้ว" / "save this" / "ship it". Also write durable memory the same way (never by hand-editing vault notes): `memory_writeADR` for a decision that should outlive the task, `memory_writeMistake` when a new bug pattern was found, `memory_writeInsight` when the same pattern has appeared in ≥2 prior sessions. If `memory_sessionEnd` cannot verify internally, call `memory_verifyVault` and record that result in both the reply and the session log.
+**Layer 4 — Session end (after meaningful work):** call `memory_sessionEnd` with concrete `topic`, `outcomes`, `decisionsMade`, `filesTouched`, `openFollowUps`, and precise `verification` evidence. Fire it automatically when you finish a feature/fix/refactor, when approaching the context limit, or when the user signals completion — e.g. "done" / "เสร็จแล้ว" / "save this" / "ship it". Also write durable memory via governed V2 tools (never by hand-editing vault notes): `memory_writeADR` for a decision that should outlive the task, `memory_writeMistake` when a new bug pattern was found, `memory_writeInsight` when the same pattern has appeared in ≥2 prior sessions, and `memory_promote` / `memory_supersede` / `memory_retract` / `memory_expire` / `memory_forgetEvidence` for governed lifecycle transitions. Call `memory_verifyVault` / `memory_v2Status` to confirm V2 store health.
 
-During every layer: auto-select targeted retrieval, verification, maintenance, and writing tools by intent; pick the smallest useful set and prefer ADRs, mistakes, runbooks, and recent sessions over broad vault reads.
+During every layer: auto-select targeted retrieval, verification, governance, checkpoint, and writing tools by intent; pick the smallest useful set and prefer ADRs, mistakes, insights, and recent sessions over broad queries.
 
 ## Library docs (Context7 MCP)
 
@@ -132,7 +135,3 @@ When the user asks about any library, framework, SDK, API, CLI, or cloud service
 ## Communication style (pordee)
 
 `.cursor/rules/pordee.mdc` defines a terse Thai response mode the user may toggle with `พอดี` / `/pordee` (off: `หยุดพอดี`). When active, keep it for every response. It never applies to code blocks, commit messages, PR/review text, error messages, file paths, identifiers, or stack traces — those stay exact/English.
-
-
-
-claude --resume 9abecc53-1187-4e9f-b34d-cd3aa031425d
