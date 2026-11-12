@@ -2,19 +2,23 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Fastify from "fastify";
 import { internalLineController } from "../src/controllers/internal-line-controller.js";
 import { createInternalSignature } from "../src/services/internal-auth.js";
 import { LINE_INTERNAL_SEND_PATH, LINE_INTERNAL_STATUS_PATH } from "../src/services/line-service-contract.js";
-import { isDisallowedExternalHost, validateExternalSettingUrl } from "../src/config/env.js";
+import { env, isDisallowedExternalHost, validateExternalSettingUrl } from "../src/config/env.js";
 import {
   CodexReauthRequiredError,
   clearCodexDeviceAuth,
   codexDeviceModel,
+  completeCodexBrowserAuth,
+  getCodexDeviceAuthStatus,
+  startCodexBrowserAuth,
 } from "../src/services/codex-device-auth.js";
+import { reloadSettingsLive, writeSettings } from "../src/services/settings.js";
 
 function fakeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
@@ -321,12 +325,251 @@ function testDeployReadinessAndRuntimeGuards(): void {
   );
 }
 
+// 6. spx-review P1-1: reloadSettingsLive overlapping in-flight writeSettings must not overwrite new in-memory settings with stale DB read
+async function testSettingsLiveReloadDoesNotClobberInFlightWrite(): Promise<void> {
+  const keysToSave = [
+    "NODE_ENV",
+    "SPX_ROLE",
+    "DB_MODE",
+    "HTTP_ENABLED",
+    "SAVE_TO_DB",
+    "NOTIFY_ENABLED",
+    "LINEJS_TEST_ENABLED",
+    "AUTO_ACCEPT_ENABLED",
+    "DEBUG",
+    "FETCH_DETAILS",
+    "REQUEST_TAB_PENDING_CONFIRMATION",
+    "API_URL",
+    "APP_NAME",
+    "REFERER",
+    "POLL_INTERVAL_MS",
+  ] as const;
+  const savedEnv: Record<string, string | undefined> = {};
+  for (const k of keysToSave) {
+    savedEnv[k] = process.env[k];
+  }
+
+  try {
+    process.env.NODE_ENV = "test";
+    process.env.SPX_ROLE = "combined";
+    process.env.DB_MODE = "memory";
+    process.env.HTTP_ENABLED = "false";
+    process.env.SAVE_TO_DB = "false";
+    process.env.NOTIFY_ENABLED = "false";
+    process.env.LINEJS_TEST_ENABLED = "false";
+    process.env.AUTO_ACCEPT_ENABLED = "false";
+    process.env.DEBUG = "false";
+    process.env.FETCH_DETAILS = "false";
+    process.env.REQUEST_TAB_PENDING_CONFIRMATION = "true";
+    process.env.API_URL = "https://spx.shopee.co.th/api/in-station/general_to/booking/bidding/list";
+    process.env.APP_NAME = "spx";
+    process.env.REFERER = "https://spx.shopee.co.th/";
+    process.env.POLL_INTERVAL_MS = "15000";
+
+    let notifyUpsertStarted!: () => void;
+    let releaseUpsert!: () => void;
+    const upsertStarted = new Promise<void>((res) => {
+      notifyUpsertStarted = res;
+    });
+    const upsertGate = new Promise<void>((res) => {
+      releaseUpsert = res;
+    });
+
+    let notifyReloadRead!: () => void;
+    let releaseReloadRead!: () => void;
+    const reloadReadStarted = new Promise<void>((res) => {
+      notifyReloadRead = res;
+    });
+    const reloadReadGate = new Promise<void>((res) => {
+      releaseReloadRead = res;
+    });
+
+    const writePromise = writeSettings(
+      {
+        API_URL: "https://spx.shopee.co.th/api/in-station/general_to/booking/bidding/list",
+        APP_NAME: "spx",
+        REFERER: "https://spx.shopee.co.th/",
+        POLL_INTERVAL_MS: "2500",
+      },
+      {
+        upsertAppSettingsImpl: async () => {
+          notifyUpsertStarted();
+          await upsertGate;
+        },
+      },
+    );
+
+    await upsertStarted;
+
+    // Background reload starts while writeSettings is still awaiting DB commit, reading stale 15000
+    const reloadPromise = reloadSettingsLive({
+      getAppSettingsImpl: async () => {
+        notifyReloadRead();
+        await reloadReadGate;
+        return {
+          API_URL: "https://spx.shopee.co.th/api/in-station/general_to/booking/bidding/list",
+          APP_NAME: "spx",
+          REFERER: "https://spx.shopee.co.th/",
+          POLL_INTERVAL_MS: "15000",
+        };
+      },
+    });
+
+    // Either reload bails out before reading DB (ideal) or pauses at reloadReadStarted
+    const raceOutcome = await Promise.race([
+      reloadPromise.then(() => "early_return" as const),
+      reloadReadStarted.then(() => "paused_at_read" as const),
+    ]);
+
+    releaseUpsert();
+    await writePromise;
+
+    if (raceOutcome === "paused_at_read") {
+      releaseReloadRead();
+      await reloadPromise;
+    }
+
+    assert.equal(
+      process.env.POLL_INTERVAL_MS,
+      "2500",
+      "process.env.POLL_INTERVAL_MS must stay at newly written 2500 instead of reverting to stale 15000",
+    );
+    assert.equal(
+      env.POLL_INTERVAL_MS,
+      2500,
+      "env.POLL_INTERVAL_MS must stay at newly written 2500 instead of reverting to stale 15000",
+    );
+  } finally {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+// 7. spx-review P2-1 & P3-2: Codex re-login during in-flight invalid_grant refresh must preserve new token, and failed rename cleans up .tmp
+async function testCodexReloginDuringStaleRefreshAndTempCleanup(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  const originalAuthPath = process.env.CODEX_DEVICE_AUTH_PATH;
+  const dir = await mkdtemp(join(tmpdir(), "spx-codex-relogin-race-"));
+  const authFile = join(dir, "codex-device-auth.json");
+
+  try {
+    process.env.CODEX_DEVICE_AUTH_PATH = authFile;
+    const expiredToken = fakeJwt({
+      exp: Math.floor((Date.now() - 10_000) / 1000),
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_old01" },
+    });
+    const reloginToken = fakeJwt({
+      exp: Math.floor((Date.now() + 3600_000) / 1000),
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct_new99" },
+    });
+
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        accessToken: expiredToken,
+        refreshToken: "rt_dead_old",
+        expiresAt: Date.now() - 10_000,
+        accountId: "acct_old01",
+        updatedAt: new Date().toISOString(),
+      }),
+      "utf8",
+    );
+
+    let notifyRefreshStarted!: () => void;
+    let releaseRefresh!: () => void;
+    const refreshStarted = new Promise<void>((res) => {
+      notifyRefreshStarted = res;
+    });
+    const refreshGate = new Promise<void>((res) => {
+      releaseRefresh = res;
+    });
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/oauth/token")) {
+        const bodyText = init?.body instanceof URLSearchParams ? init.body.toString() : String(init?.body ?? "");
+        if (bodyText.includes("grant_type=refresh_token")) {
+          notifyRefreshStarted();
+          await refreshGate;
+          return new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (bodyText.includes("grant_type=authorization_code")) {
+          return new Response(
+            JSON.stringify({
+              access_token: reloginToken,
+              refresh_token: "rt_fresh_new",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    const model = codexDeviceModel("gpt-5");
+    const staleCall = model.doGenerate({
+      prompt: [{ role: "user", content: [{ type: "text", text: "ocr" }] }],
+    });
+
+    await refreshStarted;
+
+    // Admin re-authenticates via Browser OAuth without clicking Clear first
+    const started = await startCodexBrowserAuth();
+    await completeCodexBrowserAuth(
+      `http://localhost:1455/auth/callback?code=fresh_auth_code&state=${encodeURIComponent(started.state)}`,
+    );
+
+    // Now the stale refresh returns 401 invalid_grant
+    releaseRefresh();
+    await assert.rejects(staleCall, (err: unknown) => err instanceof CodexReauthRequiredError);
+
+    const statusAfter = await getCodexDeviceAuthStatus();
+    assert.equal(
+      statusAfter.authenticated,
+      true,
+      "Stale invalid_grant refresh must not delete newly re-authenticated token file",
+    );
+    assert.equal(statusAfter.accountIdSuffix, "_new99");
+
+    // P3-2: Verify failed rename in writeStoredToken cleans up .tmp file
+    const dirCollisionTarget = join(dir, "collision-dir");
+    await mkdir(dirCollisionTarget, { recursive: true });
+    process.env.CODEX_DEVICE_AUTH_PATH = dirCollisionTarget;
+    const startedCollision = await startCodexBrowserAuth();
+    await assert.rejects(
+      completeCodexBrowserAuth(
+        `http://localhost:1455/auth/callback?code=collision_code&state=${encodeURIComponent(startedCollision.state)}`,
+      ),
+    );
+    const remainingTmp = (await readdir(dir)).filter((entry) => entry.endsWith(".tmp"));
+    assert.deepEqual(
+      remainingTmp,
+      [],
+      "writeStoredToken must remove temporary .tmp file when atomic rename fails",
+    );
+  } finally {
+    await clearCodexDeviceAuth().catch(() => {});
+    globalThis.fetch = originalFetch;
+    if (originalAuthPath === undefined) delete process.env.CODEX_DEVICE_AUTH_PATH;
+    else process.env.CODEX_DEVICE_AUTH_PATH = originalAuthPath;
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   await testInternalLineRequiresRequestIdAndEnforcesReplay();
   testSsrfValidatorEdgeCases();
   await testSkipEnvFileInMemoryDevelopmentMode();
   await testCodexClearDuringRefreshDoesNotResurrectToken();
   testDeployReadinessAndRuntimeGuards();
+  await testSettingsLiveReloadDoesNotClobberInFlightWrite();
+  await testCodexReloginDuringStaleRefreshAndTempCleanup();
   console.log("task8-review-fixes: all assertions passed");
 }
 

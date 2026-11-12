@@ -333,40 +333,60 @@ export async function readStoredSettings(): Promise<EnvSettings> {
 }
 
 let settingsWriteGeneration = 0;
+let settingsWritesInFlight = 0;
 
-export async function writeSettings(newSettings: EnvSettings): Promise<void> {
-  settingsWriteGeneration += 1;
-  const settings = pickKnownSettings(newSettings as Record<string, string>);
-
-  // Stage candidate settings into a snapshot of process.env so we can validate
-  // before persisting. This blocks UI updates that would put the poller into a
-  // bad state (invalid URL, zero interval, etc.).
-  const previousProcessEnv: Record<string, string | undefined> = {};
-  for (const key of Object.keys(settings) as SettingsKey[]) {
-    previousProcessEnv[key] = process.env[key];
-    process.env[key] = settings[key];
-  }
-  syncEnvObjectFromProcess();
-
-  try {
-    validateRuntimeConfig();
-  } catch (err) {
-    // Roll back the in-memory mutation so the running process keeps the old config.
-    for (const [key, prev] of Object.entries(previousProcessEnv)) {
-      if (prev === undefined) delete process.env[key];
-      else process.env[key] = prev;
-    }
-    syncEnvObjectFromProcess();
-    throw err instanceof Error ? err : new Error(String(err));
-  }
-
-  await upsertAppSettings(settings as Record<string, string>);
+export interface SettingsPersistenceDeps {
+  getAppSettingsImpl?: typeof getAppSettings;
+  upsertAppSettingsImpl?: typeof upsertAppSettings;
 }
 
-export async function reloadSettingsLive(): Promise<void> {
+export async function writeSettings(
+  newSettings: EnvSettings,
+  deps?: SettingsPersistenceDeps,
+): Promise<void> {
+  settingsWriteGeneration += 1;
+  settingsWritesInFlight += 1;
+  try {
+    const settings = pickKnownSettings(newSettings as Record<string, string>);
+
+    // Stage candidate settings into a snapshot of process.env so we can validate
+    // before persisting. This blocks UI updates that would put the poller into a
+    // bad state (invalid URL, zero interval, etc.).
+    const previousProcessEnv: Record<string, string | undefined> = {};
+    for (const key of Object.keys(settings) as SettingsKey[]) {
+      previousProcessEnv[key] = process.env[key];
+      process.env[key] = settings[key];
+    }
+    syncEnvObjectFromProcess();
+
+    try {
+      validateRuntimeConfig();
+    } catch (err) {
+      // Roll back the in-memory mutation so the running process keeps the old config.
+      for (const [key, prev] of Object.entries(previousProcessEnv)) {
+        if (prev === undefined) delete process.env[key];
+        else process.env[key] = prev;
+      }
+      syncEnvObjectFromProcess();
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
+    await upsertImpl(settings as Record<string, string>);
+  } finally {
+    settingsWritesInFlight -= 1;
+    settingsWriteGeneration += 1;
+  }
+}
+
+export async function reloadSettingsLive(deps?: SettingsPersistenceDeps): Promise<void> {
+  if (settingsWritesInFlight > 0) {
+    return;
+  }
   const observedWriteGeneration = settingsWriteGeneration;
-  const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
-  if (observedWriteGeneration !== settingsWriteGeneration) {
+  const getImpl = deps?.getAppSettingsImpl ?? getAppSettings;
+  const dbSettings = pickKnownSettings(await getImpl(SETTINGS_KEYS));
+  if (settingsWritesInFlight > 0 || observedWriteGeneration !== settingsWriteGeneration) {
     return;
   }
 

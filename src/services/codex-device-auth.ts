@@ -226,7 +226,12 @@ async function writeStoredToken(token: TokenResult): Promise<void> {
     encoding: "utf8",
     mode: 0o600,
   });
-  await rename(tempPath, authPath);
+  try {
+    await rename(tempPath, authPath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => { /* ignore */ });
+    throw error;
+  }
 }
 
 async function exchangeToken(params: URLSearchParams): Promise<TokenResult> {
@@ -627,6 +632,8 @@ function startDeviceCodePolling(): void {
           redirect_uri: DEVICE_REDIRECT_URI,
         }));
 
+        authGeneration += 1;
+        refreshInFlight = null;
         await writeStoredToken(token);
 
         logger.info("codex-device-code-auth-success");
@@ -752,8 +759,11 @@ export async function completeCodexBrowserAuth(input: string): Promise<{ authent
     code_verifier: pendingFlow.verifier,
     redirect_uri: pendingFlow.redirectUri,
   }));
+  authGeneration += 1;
+  refreshInFlight = null;
   await writeStoredToken(token);
   pendingFlow = null;
+  stopCallbackServer();
   return { authenticated: true, expiresAt: token.expiresAt };
 }
 
