@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { existsSync, fstatSync } from "node:fs";
 import { appendFile, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { PassThrough } from "node:stream";
 
 import { canonicalJson, sha256Canonical } from "../scripts/lib/evidence-artifact.mjs";
 import {
@@ -875,7 +878,208 @@ async function main() {
       await rm(compensationCrashRoot, { recursive: true, force: true });
     }
 
+    {
+      // Regression: util-linux `flock [options] <target> <command...>` without `--fd` treats
+      // `<target>` ("3") as a filename in `process.cwd()` rather than open file descriptor 3.
+      // Two ledgers with distinct `rootPath` directories sharing `cwd` must lock their own
+      // `actions.lock` fd 3 rather than colliding on `<cwd>/3`.
+      const isolatedRootA = await mkdtemp(join(tmpdir(), "spx-staging-flock-isolated-a-"));
+      const isolatedRootB = await mkdtemp(join(tmpdir(), "spx-staging-flock-isolated-b-"));
+      const sharedCwd = await mkdtemp(join(tmpdir(), "spx-staging-flock-shared-cwd-"));
+      const heldKernelLocks = new Set<string>();
+      const makeUtilLinuxFlockSpawner = () => (
+        command: string,
+        args: string[],
+        options: { stdio?: unknown[] },
+      ) => {
+        const child = new EventEmitter() as EventEmitter & {
+          stdin: PassThrough;
+          stdout: PassThrough;
+          stderr: PassThrough;
+          kill: () => boolean;
+        };
+        child.stdin = new PassThrough();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        let released = false;
+        let lockKey = "";
+        child.kill = () => {
+          if (!released && lockKey) {
+            released = true;
+            heldKernelLocks.delete(lockKey);
+            queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
+          }
+          return true;
+        };
+
+        const resolveLockKey = (): string => {
+          if (command === "flock") {
+            const positional = args.filter((arg) => !arg.startsWith("-"));
+            if (positional.length > 1 && !args.includes("--fd")) {
+              return `cwd-file:${resolve(sharedCwd, positional[0])}`;
+            }
+            const fd = Number(positional[0]);
+            const passedFd = options.stdio?.[fd];
+            assert.equal(typeof passedFd, "number");
+            const stat = fstatSync(passedFd as number, { bigint: true });
+            return `inode:${stat.dev}:${stat.ino}`;
+          }
+          if (command === "sh" && args[0] === "-c" && typeof args[1] === "string") {
+            const flockStatement = args[1].split(";")[0]?.split("||")[0]?.trim() ?? "";
+            const tokens = flockStatement.split(/\s+/).filter(Boolean);
+            assert.equal(tokens[0], "flock");
+            const positional = tokens.slice(1).filter((token) => !token.startsWith("-"));
+            if (positional.length > 1 && !tokens.includes("--fd")) {
+              return `cwd-file:${resolve(sharedCwd, positional[0])}`;
+            }
+            assert.deepEqual(positional, ["3"]);
+            const passedFd = options.stdio?.[3];
+            assert.equal(typeof passedFd, "number");
+            const stat = fstatSync(passedFd as number, { bigint: true });
+            return `inode:${stat.dev}:${stat.ino}`;
+          }
+          throw new Error(`unexpected lock helper command: ${command}`);
+        };
+
+        queueMicrotask(() => {
+          lockKey = resolveLockKey();
+          if (heldKernelLocks.has(lockKey)) {
+            released = true;
+            child.emit("exit", 1, null);
+            return;
+          }
+          heldKernelLocks.add(lockKey);
+          child.stdout.write("SPX_LOCKED\n");
+          child.stdin.once("finish", () => {
+            if (!released) {
+              released = true;
+              heldKernelLocks.delete(lockKey);
+              child.emit("exit", 0, null);
+            }
+          });
+        });
+        return child;
+      };
+
+      try {
+        const isolatedAction = action(1, "staging-isolated-flock-action", "database");
+        let releaseLedgerA!: () => void;
+        const ledgerABlocked = new Promise<void>((resolveBlocked) => {
+          releaseLedgerA = resolveBlocked;
+        });
+        let signalLedgerAStarted!: () => void;
+        const ledgerAStarted = new Promise<void>((resolveStarted) => {
+          signalLedgerAStarted = resolveStarted;
+        });
+
+        const spawner = makeUtilLinuxFlockSpawner();
+        const ledgerA = await openStagingActionLedger({
+          rootPath: isolatedRootA,
+          binding,
+          actions: [isolatedAction],
+          now: () => NOW,
+          verifyAction: verifySignedAction,
+          verifyReconciliation: verifySignedAction,
+          operationRegistry: createTestStagingOperationRegistry([isolatedAction], {
+            [isolatedAction.actionId]: async () => {
+              signalLedgerAStarted();
+              await ledgerABlocked;
+              return { ok: true, code: "isolated-ledger-a-complete" };
+            },
+          }),
+          lockStrategy: "native-flock",
+          testHooks: { spawnProcess: spawner },
+          enforceOwnership: false,
+          enforceMode: process.platform !== "win32",
+        });
+        const ledgerAContender = await openStagingActionLedger({
+          rootPath: isolatedRootA,
+          binding,
+          actions: [isolatedAction],
+          now: () => NOW,
+          verifyAction: verifySignedAction,
+          verifyReconciliation: verifySignedAction,
+          operationRegistry: createTestStagingOperationRegistry([isolatedAction]),
+          lockStrategy: "native-flock",
+          testHooks: { spawnProcess: spawner },
+          enforceOwnership: false,
+          enforceMode: process.platform !== "win32",
+        });
+        const ledgerB = await openStagingActionLedger({
+          rootPath: isolatedRootB,
+          binding,
+          actions: [isolatedAction],
+          now: () => NOW,
+          verifyAction: verifySignedAction,
+          verifyReconciliation: verifySignedAction,
+          operationRegistry: createTestStagingOperationRegistry([isolatedAction]),
+          lockStrategy: "native-flock",
+          testHooks: { spawnProcess: spawner },
+          enforceOwnership: false,
+          enforceMode: process.platform !== "win32",
+        });
+
+        const inFlightA = ledgerA.consume(isolatedAction);
+        await ledgerAStarted;
+        // Distinct journal root in the same cwd MUST NOT collide with ledgerA's lock.
+        await ledgerB.consume(isolatedAction);
+        // Same journal root MUST still reject concurrent controller access.
+        await assert.rejects(
+          () => ledgerAContender.consume(isolatedAction),
+          /locked by another controller/i,
+        );
+        releaseLedgerA();
+        await inFlightA;
+        await ledgerA.close();
+        await ledgerAContender.close();
+        await ledgerB.close();
+      } finally {
+        await rm(isolatedRootA, { recursive: true, force: true });
+        await rm(isolatedRootB, { recursive: true, force: true });
+        await rm(sharedCwd, { recursive: true, force: true });
+      }
+    }
+
     if (process.platform !== "win32") {
+      const realRootA = await mkdtemp(join(tmpdir(), "spx-staging-real-flock-a-"));
+      const realRootB = await mkdtemp(join(tmpdir(), "spx-staging-real-flock-b-"));
+      try {
+        const realAction = action(1, "staging-real-flock-isolation", "database");
+        let releaseRealA!: () => void;
+        const realABlocked = new Promise<void>((resolveBlocked) => {
+          releaseRealA = resolveBlocked;
+        });
+        let signalRealAStarted!: () => void;
+        const realAStarted = new Promise<void>((resolveStarted) => {
+          signalRealAStarted = resolveStarted;
+        });
+        const realLedgerA = await openLedger(realRootA, [realAction], {
+          [realAction.actionId]: async () => {
+            signalRealAStarted();
+            await realABlocked;
+            return { ok: true, code: "real-flock-a-complete" };
+          },
+        });
+        const realLedgerAContender = await openLedger(realRootA, [realAction]);
+        const realLedgerB = await openLedger(realRootB, [realAction]);
+        const realInFlightA = realLedgerA.consume(realAction);
+        await realAStarted;
+        await realLedgerB.consume(realAction);
+        await assert.rejects(
+          () => realLedgerAContender.consume(realAction),
+          /locked by another controller/i,
+        );
+        assert.equal(existsSync(join(process.cwd(), "3")), false);
+        releaseRealA();
+        await realInFlightA;
+        await realLedgerA.close();
+        await realLedgerAContender.close();
+        await realLedgerB.close();
+      } finally {
+        await rm(realRootA, { recursive: true, force: true });
+        await rm(realRootB, { recursive: true, force: true });
+      }
+
       const modeRoot = await mkdtemp(join(tmpdir(), "spx-staging-action-mode-"));
       try {
         const modeLedger = await openLedger(modeRoot, [dbAction]);

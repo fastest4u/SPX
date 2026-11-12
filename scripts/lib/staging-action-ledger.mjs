@@ -401,6 +401,10 @@ class StagingActionLedger {
     }
     this.operationRegistry = options.operationRegistry;
     this.testHooks = process.env.NODE_ENV === "test" ? (options.testHooks ?? {}) : {};
+    this.spawnProcess =
+      process.env.NODE_ENV === "test" && typeof this.testHooks.spawnProcess === "function"
+        ? this.testHooks.spawnProcess
+        : spawn;
     this.records = [];
     this.actions = new Map();
     this.states = new Map();
@@ -590,15 +594,19 @@ class StagingActionLedger {
 
   async acquireNativeFlock() {
     const lockFile = await this.openNativeLockFile();
-    const child = spawn(
-      "flock",
-      ["--exclusive", "--nonblock", "3", "sh", "-c", 'printf "SPX_LOCKED\\n"; IFS= read -r _'],
+    const child = this.spawnProcess(
+      "sh",
+      [
+        "-c",
+        'flock --exclusive --nonblock 3 || exit "$?"; printf "SPX_LOCKED\\n"; IFS= read -r _',
+      ],
       {
         shell: false,
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe", lockFile.handle.fd],
       },
     );
+    child.stdin?.on?.("error", () => undefined);
     try {
       await new Promise((resolveReady, rejectReady) => {
         let settled = false;
