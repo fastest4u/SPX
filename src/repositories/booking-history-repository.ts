@@ -3,7 +3,6 @@ import { spxBookingHistory, teams } from "../db/schema.js";
 import { and, count, desc, asc, eq, like, ne, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import type { SQL } from "drizzle-orm";
-import type { Pool } from "mysql2/promise";
 
 export interface BookingHistoryRecord {
   requestId: number;
@@ -82,10 +81,6 @@ function buildHistoryOrderBy(query: HistoryFilterQuery) {
 }
 
 const historyColumns = ["team_id", "request_id", "booking_id", "booking_name", "agency_name", "route", "origin", "destination", "cost_type", "trip_type", "shift_type", "vehicle_type", "standby_datetime", "acceptance_status", "assignment_status"] as const;
-const requestIdLookupChunkSize = 1000;
-const seenRequestIdTtlMs = 6 * 60 * 60 * 1000;
-const seenRequestIdCacheMax = 100_000;
-const seenRequestIdCache = new Map<string, number>();
 
 function historyValues(teamId: number, record: BookingHistoryRecord): unknown[] {
   return [teamId, record.requestId, record.bookingId ?? null, record.bookingName ?? null, record.agencyName ?? null, record.route, record.origin, record.destination, record.costType, record.tripType, record.shiftType, record.vehicleType, record.standbyDateTime, record.acceptanceStatus ?? null, record.assignmentStatus ?? null];
@@ -112,85 +107,6 @@ export function filterKnownBookingHistoryRecords(
 ): { records: BookingHistoryRecord[]; skipped: number } {
   const unknownRecords = records.filter((record) => !knownRequestIds.has(record.requestId));
   return { records: unknownRecords, skipped: records.length - unknownRecords.length };
-}
-
-function requestCacheKey(teamId: number, requestId: number): string {
-  return `${teamId}:${requestId}`;
-}
-
-function isRequestIdCached(teamId: number, requestId: number, now: number): boolean {
-  const key = requestCacheKey(teamId, requestId);
-  const expiresAt = seenRequestIdCache.get(key);
-  if (expiresAt === undefined) {
-    return false;
-  }
-
-  if (expiresAt <= now) {
-    seenRequestIdCache.delete(key);
-    return false;
-  }
-
-  return true;
-}
-
-function pruneExpiredSeenRequestIds(now: number): void {
-  for (const [requestId, expiresAt] of seenRequestIdCache) {
-    if (expiresAt <= now) {
-      seenRequestIdCache.delete(requestId);
-    }
-  }
-}
-
-function rememberBookingHistoryRequestIds(teamId: number, requestIds: Iterable<number>, now = Date.now()): void {
-  const expiresAt = now + seenRequestIdTtlMs;
-  let remembered = 0;
-
-  for (const requestId of requestIds) {
-    if (!Number.isFinite(requestId)) {
-      continue;
-    }
-    seenRequestIdCache.set(requestCacheKey(teamId, requestId), expiresAt);
-    remembered += 1;
-  }
-
-  if (remembered === 0) {
-    return;
-  }
-
-  if (seenRequestIdCache.size > seenRequestIdCacheMax) {
-    pruneExpiredSeenRequestIds(now);
-  }
-
-  while (seenRequestIdCache.size > seenRequestIdCacheMax) {
-    const oldestRequestId = seenRequestIdCache.keys().next().value;
-    if (oldestRequestId === undefined) {
-      break;
-    }
-    seenRequestIdCache.delete(oldestRequestId);
-  }
-}
-
-async function findExistingBookingHistoryRequestIds(pool: Pool, teamId: number, requestIds: number[]): Promise<Set<number>> {
-  const existingRequestIds = new Set<number>();
-
-  for (let index = 0; index < requestIds.length; index += requestIdLookupChunkSize) {
-    const chunk = requestIds.slice(index, index + requestIdLookupChunkSize);
-    if (chunk.length === 0) {
-      continue;
-    }
-
-    const placeholders = chunk.map(() => "?").join(", ");
-    const [rows] = await pool.query(
-      `SELECT request_id FROM spx_booking_history WHERE team_id = ? AND request_id IN (${placeholders})`,
-      [teamId, ...chunk]
-    );
-
-    for (const row of rows as Array<{ request_id: number | string | bigint }>) {
-      existingRequestIds.add(Number(row.request_id));
-    }
-  }
-
-  return existingRequestIds;
 }
 
 export async function insertBookingHistory(teamId: number, record: BookingHistoryRecord): Promise<{ action: "inserted" | "skipped" }> {
@@ -250,29 +166,13 @@ export async function insertBookingHistories(teamId: number, records: BookingHis
   const pool = getPool();
   if (!pool) throw new Error("Database pool not initialised");
 
-  const now = Date.now();
-
-  // seenRequestIdCache is a HINT ONLY: it lets us skip the existence SELECT for
-  // request_ids we already confirmed exist this TTL window. It must NOT remove
-  // rows from the INSERT set — UNIQUE(request_id) + INSERT IGNORE is the
-  // authoritative dedup, so a row that was deleted/changed in the DB can still
-  // re-insert. We therefore INSERT IGNORE the full deduped set unconditionally.
-  const uncachedRequestIds = deduped.records
-    .map((record) => record.requestId)
-    .filter((requestId) => !isRequestIdCached(teamId, requestId, now));
-
-  if (uncachedRequestIds.length > 0) {
-      const existingRequestIds = await findExistingBookingHistoryRequestIds(pool, teamId, uncachedRequestIds);
-    // Remember confirmed-existing ids so future ticks can skip the SELECT for them.
-    rememberBookingHistoryRequestIds(teamId, existingRequestIds, now);
-  }
-
+  // UNIQUE(team_id, request_id) + INSERT IGNORE is the authoritative dedup and
+  // returns the exact inserted row count via affectedRows in a single round-trip.
   const placeholders = `(${historyColumns.map(() => "?").join(", ")}, UTC_TIMESTAMP())`;
   const values = deduped.records.flatMap((record) => historyValues(teamId, record));
   const query = `INSERT IGNORE INTO spx_booking_history (${historyColumns.join(", ")}, created_at) VALUES ${deduped.records.map(() => placeholders).join(", ")}`;
   const [result] = await pool.query(query, values);
   const inserted = (result as { affectedRows: number }).affectedRows;
-  rememberBookingHistoryRequestIds(teamId, deduped.records.map((record) => record.requestId), now);
   return { inserted, skipped: records.length - inserted };
 }
 

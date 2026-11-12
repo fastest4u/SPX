@@ -99,11 +99,10 @@ function verifySignedRequest(input: {
   const eventKey = firstHeader(input.request.headers["idempotency-key"]);
   const requestId = firstHeader(input.request.headers["x-spx-request-id"]);
 
-  if (!nodeId || !timestamp || !signature) return { ok: false };
+  if (!nodeId || !timestamp || !signature || !requestId) return { ok: false };
 
   // An explicitly configured map, including an empty one, disables shared-key fallback.
   if (input.nodeSecrets !== undefined) {
-    if (!requestId) return { ok: false };
     const authResult = verifyInternalNodeSignature({
       body: input.rawBody, timestamp, nodeId, path: input.path, signature, eventKey, requestId,
       nodeSecrets: input.nodeSecrets,
@@ -226,8 +225,8 @@ export const internalLineController: FastifyPluginAsync<InternalLineControllerOp
     }
     const requestId = firstHeader(request.headers["x-spx-request-id"]);
     if (!requestId) {
-      if (options.nodeSecrets !== undefined) { sendInternalAuthFailed(reply); return false; }
-      return true;
+      sendInternalAuthFailed(reply);
+      return false;
     }
     try {
       const result = await replayGuard.consume({ nodeId, requestId,

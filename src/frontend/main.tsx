@@ -4,13 +4,25 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
 import { AuthError } from './lib/api'
+import { ErrorState } from './components/ui/error-state'
 import './index.css'
 
 // Import the generated route tree
 import { routeTree } from './routeTree.gen'
 
 // Create a new router instance
-const router = createRouter({ routeTree })
+const router = createRouter({
+  routeTree,
+  defaultErrorComponent: ({ error, reset }) => (
+    <div className="min-h-screen flex items-center justify-center p-6 gradient-bg">
+      <ErrorState
+        title="เกิดข้อผิดพลาดในการแสดงผลหน้าเว็บ"
+        error={error}
+        onRetry={() => reset()}
+      />
+    </div>
+  ),
+})
 
 // Create a client
 const queryClient = new QueryClient({

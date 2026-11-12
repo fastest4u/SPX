@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Dispatcher } from "undici";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
@@ -446,9 +447,10 @@ export class ApiClient {
     criticalReserve: CRITICAL_READ_RESERVE,
   });
   private readonly parsedReadResponses = new WeakMap<Response, ParsedReadResponse>();
-  private verificationPriorityScopeDepth = 0;
-  private verificationReadStarted: (() => void) | undefined;
-  private verificationAdmissionGuard: ProviderReadAdmissionGuard | undefined;
+  private readonly verificationScope = new AsyncLocalStorage<{
+    admissionGuard?: ProviderReadAdmissionGuard;
+    onReadStarted?: () => void;
+  }>();
 
   public readonly metricsCollector: MetricsCollector;
 
@@ -482,9 +484,16 @@ export class ApiClient {
   }
 
   private get headers(): Record<string, string> {
+    return this.selectRequestAuth().headers;
+  }
+
+  private selectRequestAuth(): { credentials: ApiClientCredentials; headers: Record<string, string> } {
     const creds = this.credentialsProvider();
     this.lastUsedCredentials = creds;
-    return buildHeadersForRequest(creds);
+    return {
+      credentials: creds,
+      headers: buildHeadersForRequest(creds),
+    };
   }
 
   private buildBody(): BiddingRequest {
@@ -501,53 +510,54 @@ export class ApiClient {
     admissionGuard?: ProviderReadAdmissionGuard,
     onReadStarted?: () => void,
   ): Promise<T> {
-    const previousReadStarted = this.verificationReadStarted;
-    this.verificationReadStarted = onReadStarted;
-    const previousAdmissionGuard = this.verificationAdmissionGuard;
-    this.verificationPriorityScopeDepth += 1;
-    this.verificationAdmissionGuard = admissionGuard;
-    try {
-      return read();
-    } finally {
-      this.verificationReadStarted = previousReadStarted;
-      this.verificationAdmissionGuard = previousAdmissionGuard;
-      this.verificationPriorityScopeDepth -= 1;
-    }
+    return this.verificationScope.run({ admissionGuard, onReadStarted }, read);
   }
 
   private captureReadPriority(requested?: "critical"): ProviderReadPriority {
-    if (this.verificationPriorityScopeDepth > 0) return "verification";
+    if (this.verificationScope.getStore() !== undefined) return "verification";
     return requested === "critical" ? "critical" : "normal";
   }
 
   private captureReadAdmissionGuard(): ProviderReadAdmissionGuard | undefined {
-    return this.verificationPriorityScopeDepth > 0 ? this.verificationAdmissionGuard : undefined;
+    return this.verificationScope.getStore()?.admissionGuard;
   }
 
-  private deferAfterRateLimit(response: Response): void {
+  private deferAfterRateLimit(response: Response, credentials?: ApiClientCredentials): void {
     const retryAfterMs = parseRetryAfterMs(response, null);
     const delayMs = retryAfterMs ?? BASE_DELAY_MS + Math.random() * 500;
+    const effectiveCreds = credentials ?? this.lastUsedCredentials ?? undefined;
     this.readScheduler.deferFor(delayMs);
-    this.onRateLimit?.(this.lastUsedCredentials?.accountId, delayMs);
+    this.onRateLimit?.(effectiveCreds?.accountId, delayMs);
   }
 
-  private recordBusinessRateLimit(response: Response, data: unknown): void {
+  private recordBusinessRateLimit(
+    response: Response,
+    data: unknown,
+    credentials?: ApiClientCredentials,
+  ): void {
     if (getRetcode(data) === SPX_RATE_LIMITED_RETCODE) {
-      this.deferAfterRateLimit(response);
+      this.deferAfterRateLimit(response, credentials);
     }
   }
 
-  private async inspectReadResponse(response: Response): Promise<void> {
-    if (response.status === 429) this.deferAfterRateLimit(response);
+  private async inspectReadResponse(
+    response: Response,
+    credentials?: ApiClientCredentials,
+  ): Promise<void> {
+    const effectiveCreds = credentials ?? this.lastUsedCredentials ?? undefined;
+    if (response.status === 429) this.deferAfterRateLimit(response, effectiveCreds);
+    if (response.status === 401 || response.status === 403) {
+      this.onSessionExpired?.(effectiveCreds?.accountId);
+    }
     if (!response.ok) return;
 
     try {
       const data: unknown = await response.json();
       this.parsedReadResponses.set(response, { ok: true, value: data });
-      this.recordBusinessRateLimit(response, data);
+      this.recordBusinessRateLimit(response, data, effectiveCreds);
       const retcode = getRetcode(data);
       if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
-        this.onSessionExpired?.(this.lastUsedCredentials?.accountId);
+        this.onSessionExpired?.(effectiveCreds?.accountId);
       }
     } catch (error) {
       this.parsedReadResponses.set(response, { ok: false, error });
@@ -573,13 +583,15 @@ export class ApiClient {
     retries = MAX_RETRIES,
     timeoutMs = FETCH_TIMEOUT_MS,
     admissionGuard?: ProviderReadAdmissionGuard,
+    credentials?: ApiClientCredentials,
   ): Promise<Response> {
     const critical = priority === "critical";
+    const onDispatch = this.verificationScope.getStore()?.onReadStarted;
     return fetchWithRetry(url, options, label, critical ? Math.min(retries, CRITICAL_MAX_RETRIES) : retries, timeoutMs, true, {
       metricsCollector: this.metricsCollector,
-      onDispatch: this.verificationReadStarted,
+      onDispatch,
       scheduleAttempt: (read) => this.readScheduler.schedule(read, priority, admissionGuard),
-      observeResponse: (response) => this.inspectReadResponse(response),
+      observeResponse: (response) => this.inspectReadResponse(response, credentials),
       ...(critical ? { retryBaseDelayMs: CRITICAL_RETRY_BASE_DELAY_MS } : {}),
     });
   }
@@ -738,11 +750,12 @@ export class ApiClient {
     // the next tick re-fetches this list anyway, so recovery comes from
     // cadence, not from in-tick retries. Detail/accept hops keep full retries.
     const intervalMs = this.pollIntervalMsProvider();
+    const { credentials, headers } = this.selectRequestAuth();
     return this.fetchReadWithRetry(env.API_URL, {
       method: "POST",
-      headers: this.headers,
+      headers,
       body: JSON.stringify({ ...this.buildBody(), pageno: pageNo }),
-    }, `bidding-list:${pageNo}`, priority, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs), admissionGuard);
+    }, `bidding-list:${pageNo}`, priority, listPollRetries(intervalMs), listPollTimeoutMs(intervalMs), admissionGuard, credentials);
   }
 
   private async fetchRemainingBiddingListPages(
@@ -841,15 +854,17 @@ export class ApiClient {
     const priority = this.captureReadPriority();
     const admissionGuard = this.captureReadAdmissionGuard();
     const url = `${this.overviewBaseUrl}?id=${bookingId}`;
+    const { credentials, headers } = this.selectRequestAuth();
     try {
       const response = await this.fetchReadWithRetry(
         url,
-        { method: "GET", headers: this.headers },
+        { method: "GET", headers },
         "booking-overview",
         priority,
         undefined,
         undefined,
         admissionGuard,
+        credentials,
       );
       if (!response.ok) return null;
       const data = await this.readResponseJson(response);
@@ -992,6 +1007,7 @@ export class ApiClient {
     // competitive number that was previously never timed on its own.
     const acceptStart = Date.now();
     let acceptRttRecorded = false;
+    const { credentials, headers } = this.selectRequestAuth();
     try {
       // Accept is a non-idempotent POST with real operational/financial impact.
       // Do not retry it: `idempotent=false` makes both response-error and
@@ -999,10 +1015,13 @@ export class ApiClient {
       // against the pending + confirmed tabs afterwards.
       const response = await fetchWithRetry(this.acceptUrl, {
         method: "POST",
-        headers: this.headers,
+        headers,
         body: JSON.stringify(body),
       }, `booking-accept:${body.booking_id}`, 0, ACCEPT_TIMEOUT_MS, false, { metricsCollector: this.metricsCollector });
-      if (response.status === 429) this.deferAfterRateLimit(response);
+      if (response.status === 429) this.deferAfterRateLimit(response, credentials);
+      if (response.status === 401 || response.status === 403) {
+        this.onSessionExpired?.(credentials.accountId);
+      }
       this.metricsCollector.recordOperation("acceptRtt", Date.now() - acceptStart);
       acceptRttRecorded = true;
 
@@ -1017,18 +1036,21 @@ export class ApiClient {
       }
 
       const retcode = getRetcode(parsed);
-      this.recordBusinessRateLimit(response, parsed);
+      this.recordBusinessRateLimit(response, parsed, credentials);
       const message = getMessage(parsed);
       const normalized: AcceptBookingResponse | null = retcode === null
         ? null
         : { retcode, message, data: isRecord(parsed) ? parsed.data : undefined };
 
       if (!response.ok) {
+        if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode) && response.status !== 401 && response.status !== 403) {
+          this.onSessionExpired?.(credentials.accountId);
+        }
         return { ok: false, httpStatus: response.status, response: normalized, error: `HTTP ${response.status}: ${rawText.slice(0, 200)}` };
       }
 
       if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
-        this.onSessionExpired?.(this.lastUsedCredentials?.accountId);
+        this.onSessionExpired?.(credentials.accountId);
         return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}` };
       }
 
@@ -1071,12 +1093,13 @@ export class ApiClient {
       count: env.BIDDING_PAGE_COUNT,
     };
 
+    const { credentials, headers } = this.selectRequestAuth();
     try {
       const response = await this.fetchReadWithRetry(this.requestListUrl, {
         method: "POST",
-        headers: this.headers,
+        headers,
         body: JSON.stringify(body),
-      }, `booking-request-list:${bookingId}:${pageNo}`, priority, undefined, undefined, admissionGuard);
+      }, `booking-request-list:${bookingId}:${pageNo}`, priority, undefined, undefined, admissionGuard, credentials);
 
       if (!response.ok) return null;
       const data = await this.readResponseJson(response);

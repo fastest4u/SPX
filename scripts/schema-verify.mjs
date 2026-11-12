@@ -47,6 +47,8 @@ const EXPECTED_SCHEMA = {
       line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
       auto_accept_success_line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
       auto_accept_failure_line_group_id: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
+      rate_limit_notify_enabled: { type: "int", nullable: false, defaultIncludes: "0" },
+      bidding_vehicle_type: { type: "int", nullable: true },
       spx_email: { type: "varchar(254)", nullable: false, defaultIncludes: "" },
       spx_password: { type: "text", nullable: true },
       spx_auth_status: { type: "varchar(24)", nullable: false, defaultIncludes: "manual" },
@@ -65,6 +67,31 @@ const EXPECTED_SCHEMA = {
       { name: "PRIMARY", unique: true, columns: ["id"] },
       { name: "teams_enabled_idx", unique: false, columns: ["enabled"] },
       { name: "teams_name_idx", unique: false, columns: ["name"] },
+    ],
+  },
+  team_spx_accounts: {
+    columns: {
+      id: { type: "int", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: false },
+      name: { type: "varchar(100)", nullable: false },
+      spx_email: { type: "varchar(254)", nullable: false, defaultIncludes: "" },
+      spx_password: { type: "text", nullable: true },
+      spx_cookie: { type: "varchar(4000)", nullable: false, defaultIncludes: "" },
+      spx_device_id: { type: "varchar(1000)", nullable: false, defaultIncludes: "" },
+      spx_app_name: { type: "varchar(1000)", nullable: false, defaultIncludes: "" },
+      spx_referer: { type: "varchar(1000)", nullable: false, defaultIncludes: "" },
+      spx_auth_status: { type: "varchar(24)", nullable: false, defaultIncludes: "connected" },
+      spx_auth_error: { type: "varchar(48)", nullable: true },
+      spx_session_expires_at: { type: "datetime", nullable: true },
+      spx_last_login_at: { type: "datetime", nullable: true },
+      enabled: { type: "int", nullable: false, defaultIncludes: "1" },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "team_spx_accounts_team_id_idx", unique: false, columns: ["team_id"] },
+      { name: "team_spx_accounts_team_enabled_idx", unique: false, columns: ["team_id", "enabled"] },
     ],
   },
   spx_booking_history: {
@@ -93,6 +120,8 @@ const EXPECTED_SCHEMA = {
       { name: "booking_id_idx", unique: false, columns: ["booking_id"] },
       { name: "created_at_idx", unique: false, columns: ["created_at"] },
       { name: "spx_booking_history_team_created_idx", unique: false, columns: ["team_id", "created_at"] },
+      { name: "spx_booking_history_team_vehicle_idx", unique: false, columns: ["team_id", "vehicle_type"] },
+      { name: "spx_booking_history_team_created_id_idx", unique: false, columns: ["team_id", "created_at", "id"] },
     ],
   },
   users: {
@@ -185,6 +214,8 @@ const EXPECTED_SCHEMA = {
       { name: "aah_team_status_created_at_idx", unique: false, columns: ["team_id", "status", "created_at"] },
       { name: "aah_team_reason_created_at_idx", unique: false, columns: ["team_id", "failure_reason", "created_at"] },
       { name: "aah_trace_id_idx", unique: false, columns: ["trace_id"] },
+      { name: "aah_team_id_idx", unique: false, columns: ["team_id", "id"] },
+      { name: "aah_team_trace_idx", unique: false, columns: ["team_id", "trace_id"] },
     ],
   },
   metrics_snapshots: {
@@ -262,11 +293,24 @@ const EXPECTED_SCHEMA = {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
       name: { type: "varchar(255)", nullable: false },
+      checksum_sha256: { type: "char(64)", nullable: true },
+      status: { type: "varchar(16)", nullable: true },
+      execution_mode: { type: "varchar(32)", nullable: true },
+      execution_sha256: { type: "char(64)", nullable: true },
+      started_at: { type: "datetime", nullable: true },
+      applied_at: { type: "datetime", nullable: true },
+      failed_at: { type: "datetime", nullable: true },
+      failed_statement_index: { type: "int unsigned", nullable: true },
+      attempt_count: { type: "int unsigned", nullable: false, defaultIncludes: "0" },
+      last_error_code: { type: "varchar(64)", nullable: true },
       created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp", extraIncludes: ["on update"] },
     },
     indexes: [
       { name: "PRIMARY", unique: true, columns: ["id"] },
       { name: "schema_migrations_name_idx", unique: true, columns: ["name"] },
+      { name: "schema_migrations_checksum_idx", unique: false, columns: ["checksum_sha256"] },
+      { name: "schema_migrations_status_idx", unique: false, columns: ["status"] },
     ],
   },
   jwt_blacklist: {
@@ -607,11 +651,30 @@ const EXPECTED_SCHEMA = {
       }
     ]
   },
+  notification_deliveries: {
+    columns: {
+      id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
+      outbox_id: { type: "bigint unsigned", nullable: false },
+      delivery_attempt: { type: "int", nullable: false },
+      provider: { type: "varchar(32)", nullable: false },
+      status: { type: "varchar(32)", nullable: false },
+      provider_message_id: { type: "varchar(255)", nullable: true },
+      error_message: { type: "varchar(1000)", nullable: true },
+      started_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      finished_at: { type: "datetime", nullable: true },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "notification_deliveries_outbox_idx", unique: false, columns: ["outbox_id"] },
+      { name: "notification_deliveries_started_outbox_idx", unique: false, columns: ["started_at", "outbox_id"] },
+    ],
+  },
 };
 
 const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_", "realtime_"];
 const APP_TABLE_NAMES = new Set([
   "teams",
+  "team_spx_accounts",
   "users",
   "audit_logs",
   "notify_rules",
@@ -621,6 +684,7 @@ const APP_TABLE_NAMES = new Set([
   "internal_request_replays",
   "notification_provider_reconciliations",
   "notification_outbox",
+  "notification_deliveries",
 ]);
 
 function isAppOwnedTable(tableName) {

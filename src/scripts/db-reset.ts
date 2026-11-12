@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { closePool, getPool } from "../db/client.js";
 
 const TABLES_TO_DROP = [
@@ -10,7 +11,16 @@ const TABLES_TO_DROP = [
   "schema_migrations"
 ];
 
+export function assertDbResetAllowed(envVars: NodeJS.ProcessEnv = process.env): void {
+  if (envVars.NODE_ENV === "production" && envVars.ALLOW_PRODUCTION_DB_RESET !== "true") {
+    throw new Error(
+      "Refusing to run db:reset in production without ALLOW_PRODUCTION_DB_RESET=true",
+    );
+  }
+}
+
 async function main(): Promise<void> {
+  assertDbResetAllowed();
   const pool = getPool();
   
   try {
@@ -46,7 +56,14 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error("❌ Error:", error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isMainModule =
+  Boolean(process.argv[1]) &&
+  typeof __filename === "string" &&
+  resolve(process.argv[1]) === resolve(__filename);
+
+if (isMainModule) {
+  main().catch((error) => {
+    console.error("❌ Error:", error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

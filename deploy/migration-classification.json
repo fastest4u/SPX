@@ -168,6 +168,10 @@
     "045_create_team_spx_accounts.sql": {
       "sha256": "e0cda7277926dbb302aa290825eb54b606e356c1b0901b2a5bda15ff246bbb2b",
       "class": "expand"
+    },
+    "046_reconcile_team_spx_accounts_columns.sql": {
+      "sha256": "c4c4a3304c664522c8f19c8851a55c125aec6c322c1ca9e634a8cb8f9cdc28a9",
+      "class": "expand"
     }
   }
 }

@@ -37,6 +37,9 @@ export interface AccountStatusItem {
   isRecovering?: boolean;
 }
 
+const RECOVERY_BASE_COOLDOWN_MS = 5 * 60_000;
+const RECOVERY_MAX_COOLDOWN_MS = 30 * 60_000;
+
 export class TeamCredentialPool {
   public readonly teamId: number;
   private readonly fallbackCredentials: ApiClientCredentials | null;
@@ -49,6 +52,8 @@ export class TeamCredentialPool {
   private readonly rateLimitedUntil = new Map<number, number>();
   private readonly sessionExpired = new Set<number>();
   private readonly recoveringAccountIds = new Set<number>();
+  private readonly recoveryBackoffUntil = new Map<number, number>();
+  private readonly recoveryFailureCounts = new Map<number, number>();
   private currentIndex = 0;
   private initialized = false;
 
@@ -78,6 +83,12 @@ export class TeamCredentialPool {
       }
       for (const id of this.sessionExpired) {
         if (!activeIds.has(id)) this.sessionExpired.delete(id);
+      }
+      for (const id of this.recoveryBackoffUntil.keys()) {
+        if (!activeIds.has(id)) this.recoveryBackoffUntil.delete(id);
+      }
+      for (const id of this.recoveryFailureCounts.keys()) {
+        if (!activeIds.has(id)) this.recoveryFailureCounts.delete(id);
       }
       this.checkProactiveRefresh();
     } catch (err) {
@@ -168,7 +179,9 @@ export class TeamCredentialPool {
       teamId: this.teamId,
       accountId,
     });
-    void this.recoverAccount(accountId);
+    if ((this.recoveryBackoffUntil.get(accountId) ?? 0) <= this.clock()) {
+      void this.recoverAccount(accountId);
+    }
   }
 
   async recoverAccount(accountId: number): Promise<boolean> {
@@ -226,6 +239,8 @@ export class TeamCredentialPool {
 
       this.sessionExpired.delete(accountId);
       this.rateLimitedUntil.delete(accountId);
+      this.recoveryBackoffUntil.delete(accountId);
+      this.recoveryFailureCounts.delete(accountId);
 
       logger.info("team-credential-pool-account-recovered", {
         teamId: this.teamId,
@@ -235,11 +250,19 @@ export class TeamCredentialPool {
       return true;
     } catch (err) {
       const errorCode = err instanceof ProviderAuthError ? err.code : "unknown";
+      const failures = (this.recoveryFailureCounts.get(accountId) ?? 0) + 1;
+      const cooldownMs = Math.min(
+        RECOVERY_BASE_COOLDOWN_MS * 2 ** (failures - 1),
+        RECOVERY_MAX_COOLDOWN_MS,
+      );
+      this.recoveryFailureCounts.set(accountId, failures);
+      this.recoveryBackoffUntil.set(accountId, this.clock() + cooldownMs);
       logger.error("team-credential-pool-account-recovery-failed", {
         teamId: this.teamId,
         accountId,
         error: err instanceof Error ? err.message : String(err),
         errorCode,
+        cooldownMs,
       });
       try {
         await this.updateAccountSessionFn(accountId, {
@@ -259,7 +282,12 @@ export class TeamCredentialPool {
   checkProactiveRefresh(): void {
     const now = this.clock();
     for (const account of this.accounts) {
-      if (!account.spxPassword || !account.spxEmail || this.recoveringAccountIds.has(account.id)) {
+      if (
+        !account.spxPassword ||
+        !account.spxEmail ||
+        this.recoveringAccountIds.has(account.id) ||
+        (this.recoveryBackoffUntil.get(account.id) ?? 0) > now
+      ) {
         continue;
       }
       if (account.spxSessionExpiresAt) {

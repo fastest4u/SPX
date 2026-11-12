@@ -10,6 +10,10 @@ import {
   listAllTeamStatusContexts,
   type TeamStatusContext,
 } from "../repositories/team-repository.js";
+import { insertAuditLog } from "../repositories/audit-repository.js";
+import { env } from "../config/env.js";
+
+export const MAX_LINE_ROUTE_NEED = 1000;
 
 export interface ParsedRouteCommand {
   action: "add_or_update" | "remove";
@@ -125,16 +129,38 @@ function formatVehicleLabel(vehicles?: string[]): string {
   return vehicles.join(", ");
 }
 
+export type LineRouteAuditWriter = (
+  username: string,
+  action: string,
+  details?: string,
+  options?: { targetTeamId?: number | null },
+) => Promise<void>;
+
 export async function handleLineRouteCommand(options: {
   chatId: string;
   text: string;
+  senderId?: string;
+  allowedSenderIds?: ReadonlySet<string> | string[];
   teams?: TeamStatusContext[];
   ruleOps?: RuleOperations;
+  auditWriter?: LineRouteAuditWriter;
 }): Promise<string> {
   const { chatId, text } = options;
   const targetChatId = chatId?.trim();
   if (!targetChatId) {
     return "⚠️ ไม่พบข้อมูล Chat ID";
+  }
+
+  const configuredAllowlist =
+    options.allowedSenderIds !== undefined
+      ? new Set([...options.allowedSenderIds].map((id) => id.trim()).filter(Boolean))
+      : env.LINE_COMMAND_ALLOWED_USER_IDS;
+
+  if (configuredAllowlist.size > 0) {
+    const normalizedSender = options.senderId?.trim() ?? "";
+    if (!normalizedSender || !configuredAllowlist.has(normalizedSender)) {
+      return "⚠️ คุณไม่มีสิทธิ์ใช้คำสั่งจัดการเส้นทางในกลุ่มนี้";
+    }
   }
 
   const teams = options.teams ?? (await listAllTeamStatusContexts());
@@ -188,6 +214,14 @@ export async function handleLineRouteCommand(options: {
       const need = cmd.need ?? 1;
       const vehicleTypes = cmd.vehicleTypes ?? ["4WH-4ล้อ"];
 
+      if (need > MAX_LINE_ROUTE_NEED) {
+        results.push(
+          `${i + 1}. ${cmd.origin} ➔ ${cmd.destination}\n` +
+            `   • สถานะ: ⚠️ โควต้าเกินกำหนดสูงสุด (ไม่เกิน 1,000 คันต่อเส้นทาง)`,
+        );
+        continue;
+      }
+
       if (existing) {
         // Option 1: Update target need, re-enable, and reset fulfilled
         await ruleOps.updateRule(matchedTeam.id, existing.id, {
@@ -238,6 +272,22 @@ export async function handleLineRouteCommand(options: {
             `   • สถานะ: ⚠️ ไม่พบเส้นทางนี้ในระบบ`,
         );
       }
+    }
+  }
+
+  if (successCount > 0) {
+    const auditWriter = options.auditWriter ?? (options.ruleOps === undefined ? insertAuditLog : undefined);
+    if (auditWriter) {
+      const actor = options.senderId?.trim() ? `line:${options.senderId.trim()}` : "line-command";
+      const summary = commands
+        .map((c) => `${c.action === "remove" ? "-" : "+"}${c.origin}-${c.destination}${c.need ? `:${c.need}` : ""}`)
+        .join(", ");
+      await auditWriter(
+        actor,
+        "LINE Route Command",
+        `Updated ${successCount} route rule(s) in chat ${targetChatId}: ${summary}`,
+        { targetTeamId: matchedTeam.id },
+      );
     }
   }
 

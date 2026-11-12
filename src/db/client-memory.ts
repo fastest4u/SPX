@@ -129,6 +129,8 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_booking_id ON spx_booking_history(booking_id);
     CREATE INDEX IF NOT EXISTS idx_created_at ON spx_booking_history(created_at);
     CREATE INDEX IF NOT EXISTS spx_booking_history_team_created_idx ON spx_booking_history(team_id, created_at);
+    CREATE INDEX IF NOT EXISTS spx_booking_history_team_vehicle_idx ON spx_booking_history(team_id, vehicle_type);
+    CREATE INDEX IF NOT EXISTS spx_booking_history_team_created_id_idx ON spx_booking_history(team_id, created_at, id);
 
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,6 +236,8 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS aah_team_status_created_at_idx ON auto_accept_history(team_id, status, created_at);
     CREATE INDEX IF NOT EXISTS aah_team_reason_created_at_idx ON auto_accept_history(team_id, failure_reason, created_at);
     CREATE INDEX IF NOT EXISTS aah_trace_id_idx ON auto_accept_history(trace_id);
+    CREATE INDEX IF NOT EXISTS aah_team_id_idx ON auto_accept_history(team_id, id);
+    CREATE INDEX IF NOT EXISTS aah_team_trace_idx ON auto_accept_history(team_id, trace_id);
 
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -326,6 +330,7 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS notification_deliveries_outbox_idx ON notification_deliveries(outbox_id);
+    CREATE INDEX IF NOT EXISTS notification_deliveries_started_outbox_idx ON notification_deliveries(started_at, outbox_id);
 
     CREATE TABLE IF NOT EXISTS runtime_nodes (
       node_id TEXT NOT NULL PRIMARY KEY,

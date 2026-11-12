@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { closePool } from "../src/db/client.js";
 import { getRawMemoryDb, resetMemoryDb } from "../src/db/client-memory.js";
@@ -10,12 +11,12 @@ const secret = "synthetic-test-only";
 const path = "/internal/line/messages";
 const fence = { outboxId: 1, providerRequestId: "request-1", providerStartedAt: "2030-06-29 09:00:03" };
 const body = { targetId: "target-1", text: "title\nmessage", traceId: "event-1", ...fence };
-function inject(app: ReturnType<typeof Fastify>, value = body, nodeId = "worker", requestId?: string) {
+function inject(app: ReturnType<typeof Fastify>, value = body, nodeId = "worker", requestId = randomUUID()) {
   const payload = JSON.stringify(value);
   const timestamp = new Date().toISOString();
   return app.inject({ method: "POST", url: path, payload, headers: {
     "content-type": "application/json", "x-spx-node-id": nodeId, "x-spx-timestamp": timestamp,
-    "x-spx-signature": createInternalSignature({ body: payload, timestamp, nodeId, path, secret, requestId }),
+    "x-spx-signature": createInternalSignature({ body: payload, timestamp, nodeId, path, secret, requestId: requestId || undefined }),
     ...(requestId ? { "x-spx-request-id": requestId } : {}),
   } });
 }

@@ -40,5 +40,6 @@
   "042_notification_provider_reconciliations.sql": "5eb0bbe5f3c63d585f0ec54130369ee6607ad357c715c176a3385f8518a718f9",
   "043_notification_provider_execution_fence.sql": "43b26a3edb850adfb95effab4cab5f54626281c11de56ea5714a2ad46991e138",
   "044_create_realtime_execution_metrics.sql": "2c278431ae369c1ba8067a34dc42d3aafd074234801ffc10dc1051f51ae03b01",
-  "045_create_team_spx_accounts.sql": "e0cda7277926dbb302aa290825eb54b606e356c1b0901b2a5bda15ff246bbb2b"
+  "045_create_team_spx_accounts.sql": "e0cda7277926dbb302aa290825eb54b606e356c1b0901b2a5bda15ff246bbb2b",
+  "046_reconcile_team_spx_accounts_columns.sql": "c4c4a3304c664522c8f19c8851a55c125aec6c322c1ca9e634a8cb8f9cdc28a9"
 }

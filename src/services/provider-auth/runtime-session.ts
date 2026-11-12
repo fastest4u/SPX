@@ -41,6 +41,7 @@ export function createTeamRuntimeSession(
   let cached = { ...initialCredentials };
   let current: ProviderAuthRecord | null = null;
   let lastLoadedAt = Number.NEGATIVE_INFINITY;
+  let reloadInFlight: Promise<ProviderAuthRecord | null> | null = null;
   let disposed = false;
   let usable = false;
 
@@ -64,12 +65,25 @@ export function createTeamRuntimeSession(
   }
 
   async function reload(force = false): Promise<ProviderAuthRecord | null> {
-    if (disposed || (!force && clock() - lastLoadedAt < CACHE_REFRESH_MS)) return current;
-    lastLoadedAt = clock();
-    const result = await load(teamId);
-    if (disposed) return null;
-    apply(result);
-    return result;
+    if (disposed) return current;
+    if (!force && reloadInFlight) return reloadInFlight;
+    if (!force && clock() - lastLoadedAt < CACHE_REFRESH_MS) return current;
+    const promise = (async () => {
+      const loadedAt = clock();
+      const result = await load(teamId);
+      if (disposed) return null;
+      lastLoadedAt = loadedAt;
+      apply(result);
+      return result;
+    })();
+    reloadInFlight = promise;
+    try {
+      return await promise;
+    } finally {
+      if (reloadInFlight === promise) {
+        reloadInFlight = null;
+      }
+    }
   }
 
   return {

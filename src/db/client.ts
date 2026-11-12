@@ -230,13 +230,17 @@ async function createSpxBookingHistoryTable(): Promise<void> {
       UNIQUE KEY spx_booking_history_team_request_uidx (team_id, request_id),
       KEY booking_id_idx (booking_id),
       KEY created_at_idx (created_at),
-      KEY spx_booking_history_team_created_idx (team_id, created_at)
+      KEY spx_booking_history_team_created_idx (team_id, created_at),
+      KEY spx_booking_history_team_vehicle_idx (team_id, vehicle_type),
+      KEY spx_booking_history_team_created_id_idx (team_id, created_at, id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await ensureMysqlColumn(pool, "spx_booking_history", "team_id", "ALTER TABLE spx_booking_history ADD COLUMN team_id INT NOT NULL DEFAULT 1 AFTER id");
   await dropMysqlIndexIfExists(pool, "spx_booking_history", "request_id_idx");
   await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_request_uidx", "ALTER TABLE spx_booking_history ADD UNIQUE KEY spx_booking_history_team_request_uidx (team_id, request_id)");
   await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_created_idx", "ALTER TABLE spx_booking_history ADD INDEX spx_booking_history_team_created_idx (team_id, created_at)");
+  await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_vehicle_idx", "ALTER TABLE spx_booking_history ADD INDEX spx_booking_history_team_vehicle_idx (team_id, vehicle_type)");
+  await ensureMysqlIndex(pool, "spx_booking_history", "spx_booking_history_team_created_id_idx", "ALTER TABLE spx_booking_history ADD INDEX spx_booking_history_team_created_id_idx (team_id, created_at, id)");
 }
 
 async function createDashboardTables(): Promise<void> {
@@ -434,7 +438,9 @@ async function createDashboardTables(): Promise<void> {
       KEY aah_team_created_at_idx (team_id, created_at),
       KEY aah_team_status_created_at_idx (team_id, status, created_at),
       KEY aah_team_reason_created_at_idx (team_id, failure_reason, created_at),
-      KEY aah_trace_id_idx (trace_id)
+      KEY aah_trace_id_idx (trace_id),
+      KEY aah_team_id_idx (team_id, id),
+      KEY aah_team_trace_idx (team_id, trace_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await pool.query(`
@@ -483,6 +489,8 @@ CREATE TABLE IF NOT EXISTS internal_request_replays (
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_status_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_status_created_at_idx (team_id, status, created_at)");
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_reason_created_at_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_reason_created_at_idx (team_id, failure_reason, created_at)");
   await ensureMysqlIndex(pool, "auto_accept_history", "aah_trace_id_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_trace_id_idx (trace_id)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_id_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_id_idx (team_id, id)");
+  await ensureMysqlIndex(pool, "auto_accept_history", "aah_team_trace_idx", "ALTER TABLE auto_accept_history ADD INDEX aah_team_trace_idx (team_id, trace_id)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS line_bot_sessions (
@@ -595,13 +603,15 @@ CREATE TABLE IF NOT EXISTS internal_request_replays (
       error_message VARCHAR(1000) NULL,
       started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       finished_at DATETIME NULL,
-      KEY notification_deliveries_outbox_idx (outbox_id)
+      KEY notification_deliveries_outbox_idx (outbox_id),
+      KEY notification_deliveries_started_outbox_idx (started_at, outbox_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   `);
   await ensureMysqlColumn(pool, "notification_deliveries", "provider_message_id", "ALTER TABLE notification_deliveries ADD COLUMN provider_message_id VARCHAR(255) NULL AFTER status");
   await ensureMysqlColumn(pool, "notification_deliveries", "error_message", "ALTER TABLE notification_deliveries ADD COLUMN error_message VARCHAR(1000) NULL AFTER provider_message_id");
   await ensureMysqlColumn(pool, "notification_deliveries", "finished_at", "ALTER TABLE notification_deliveries ADD COLUMN finished_at DATETIME NULL AFTER started_at");
   await ensureMysqlIndex(pool, "notification_deliveries", "notification_deliveries_outbox_idx", "ALTER TABLE notification_deliveries ADD INDEX notification_deliveries_outbox_idx (outbox_id)");
+  await ensureMysqlIndex(pool, "notification_deliveries", "notification_deliveries_started_outbox_idx", "ALTER TABLE notification_deliveries ADD INDEX notification_deliveries_started_outbox_idx (started_at, outbox_id)");
 
   await pool!.query(`
     CREATE TABLE IF NOT EXISTS runtime_nodes (

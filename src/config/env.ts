@@ -12,8 +12,10 @@ import {
 const envFilePath = resolve(process.cwd(), ".env");
 const DEFAULT_CODEX_IMAGE_TIMEOUT_MS = 300000;
 
-// Explicit subprocess-test isolation; application startup always keeps file loading.
-const skipEnvFile = process.env.NODE_ENV === "test" && process.env.SPX_TEST_SKIP_ENV_FILE === "1";
+// Explicit subprocess-test and memory-dev isolation; production/standard startup keeps file loading.
+const skipEnvFile =
+  (process.env.NODE_ENV === "test" || process.env.DB_MODE === "memory") &&
+  process.env.SPX_TEST_SKIP_ENV_FILE === "1";
 if (!skipEnvFile && existsSync(envFilePath)) {
   const lines = readFileSync(envFilePath, "utf8").split(/\r?\n/);
 
@@ -335,6 +337,120 @@ function isCanonicalLedgerDir(path: string): boolean {
   return /^\/app\/data\/[A-Za-z0-9._\-/]+$/.test(path) && !path.endsWith("/");
 }
 
+export function isSafeLineJsStoragePath(rawPath: string): boolean {
+  const path = rawPath.trim();
+  if (!path || path.includes("\0") || path.includes("\\") || path.includes("//")) return false;
+  const subPath = path.startsWith("/app/data/")
+    ? path.slice("/app/data/".length)
+    : path.startsWith("data/")
+      ? path.slice("data/".length)
+      : "";
+  if (!subPath || subPath.endsWith("/")) return false;
+  const segments = subPath.split("/");
+  return segments.every(
+    (segment) => segment !== "" && segment !== "." && segment !== ".." && /^[A-Za-z0-9._-]+$/.test(segment),
+  );
+}
+
+function isPrivateOrReservedIpv4Octets(octets: number[]): boolean {
+  if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
+    return true;
+  }
+  const [a, b] = octets;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 100 && b !== undefined && b >= 64 && b <= 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a !== undefined && a >= 224) return true;
+  return false;
+}
+
+export function isDisallowedExternalHost(rawHost: string): boolean {
+  const host = rawHost.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (!host) return true;
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "metadata.google.internal" ||
+    host === "0.0.0.0" ||
+    host === "::" ||
+    host === "::1"
+  ) {
+    return true;
+  }
+
+  let mappedV4Suffix: string | null = null;
+  if (host.startsWith("::ffff:")) {
+    mappedV4Suffix = host.slice("::ffff:".length);
+  } else {
+    const expandedMapped = /^(?:0{1,4}:){5}ffff:(.+)$/.exec(host);
+    if (expandedMapped?.[1]) {
+      mappedV4Suffix = expandedMapped[1];
+    }
+  }
+
+  const candidateV4 = mappedV4Suffix ?? host;
+  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(candidateV4);
+  if (ipv4Match) {
+    return isPrivateOrReservedIpv4Octets(ipv4Match.slice(1).map((part) => Number(part)));
+  }
+
+  if (mappedV4Suffix !== null) {
+    const hexPair = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(mappedV4Suffix);
+    if (!hexPair?.[1] || !hexPair?.[2]) {
+      return true;
+    }
+    const hi = Number.parseInt(hexPair[1], 16);
+    const lo = Number.parseInt(hexPair[2], 16);
+    return isPrivateOrReservedIpv4Octets([(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff]);
+  }
+
+  if (host.includes(":")) {
+    if (
+      host.startsWith("fe80:") ||
+      host.startsWith("fc") ||
+      host.startsWith("fd") ||
+      host.startsWith("2001:db8:") ||
+      !/^[23][0-9a-f]{0,3}:/.test(host)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function validateExternalSettingUrl(
+  name: "API_URL" | "REFERER" | "DISCORD_WEBHOOK_URL",
+  value: string,
+  options: { requireHttpsAndPublicHost?: boolean } = {},
+): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return `${name} must be a valid URL`;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return `${name} must use http or https`;
+  }
+  if (parsed.username || parsed.password) {
+    return `${name} must not contain embedded credentials`;
+  }
+  if (name === "API_URL" && !value.includes("/booking/bidding/list")) {
+    return "API_URL must contain /booking/bidding/list";
+  }
+  if (options.requireHttpsAndPublicHost) {
+    if (parsed.protocol !== "https:") {
+      return `${name} must use https://`;
+    }
+    if (isDisallowedExternalHost(parsed.hostname)) {
+      return `${name} must not target localhost, private, or link-local hosts`;
+    }
+  }
+  return null;
+}
+
 export const env = {
   SPX_ROLE: safeParseRuntimeRole(process.env.SPX_ROLE),
   SPX_NODE_ID: (process.env.SPX_NODE_ID || "").trim(),
@@ -513,6 +629,7 @@ export const env = {
   CODEX_IMAGE_TIMEOUT_MS: readIntegerEnv("CODEX_IMAGE_TIMEOUT_MS", DEFAULT_CODEX_IMAGE_TIMEOUT_MS),
   CODEX_IMAGE_MAX_BYTES: readIntegerEnv("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024),
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
+  LINE_COMMAND_ALLOWED_USER_IDS: parseNodeSet(process.env.LINE_COMMAND_ALLOWED_USER_IDS),
 } as const;
 
 export function validateRuntimeConfig(): void {
@@ -908,10 +1025,18 @@ export function validateRuntimeConfig(): void {
     }
   }
 
-  if (env.API_URL && !isValidUrl(env.API_URL)) invalid.push("API_URL must be a valid URL");
-  if (env.API_URL && !env.API_URL.includes("/booking/bidding/list"))
-    invalid.push("API_URL must contain /booking/bidding/list");
-  if (env.REFERER && !isValidUrl(env.REFERER)) invalid.push("REFERER must be a valid URL");
+  if (env.API_URL) {
+    const apiUrlError = validateExternalSettingUrl("API_URL", env.API_URL, {
+      requireHttpsAndPublicHost: productionRuntime,
+    });
+    if (apiUrlError) invalid.push(apiUrlError);
+  }
+  if (env.REFERER) {
+    const refererError = validateExternalSettingUrl("REFERER", env.REFERER, {
+      requireHttpsAndPublicHost: productionRuntime,
+    });
+    if (refererError) invalid.push(refererError);
+  }
   // POLL_INTERVAL_MS is intentionally only checked for positivity. The operator
   // controls how aggressive polling is — a lower interval captures more bidding
   // jobs (a competitive advantage), and ticks are serialized so a low value
@@ -982,8 +1107,12 @@ export function validateRuntimeConfig(): void {
       invalid.push("DB_PORT must be an integer from 1 to 65535");
   }
 
-  if (env.DISCORD_WEBHOOK_URL && !isValidUrl(env.DISCORD_WEBHOOK_URL))
-    invalid.push("DISCORD_WEBHOOK_URL must be a valid URL");
+  if (env.DISCORD_WEBHOOK_URL) {
+    const discordError = validateExternalSettingUrl("DISCORD_WEBHOOK_URL", env.DISCORD_WEBHOOK_URL, {
+      requireHttpsAndPublicHost: productionRuntime,
+    });
+    if (discordError) invalid.push(discordError);
+  }
   if (env.NOTIFY_MODE !== "each" && env.NOTIFY_MODE !== "batch")
     invalid.push("NOTIFY_MODE must be 'each' or 'batch'");
 
@@ -1003,6 +1132,12 @@ export function validateRuntimeConfig(): void {
     if (!env.LINEJS_TEST_DEVICE.trim()) invalid.push("LINEJS_TEST_DEVICE must not be empty");
     if (!env.LINEJS_TEST_STORAGE_PATH.trim())
       invalid.push("LINEJS_TEST_STORAGE_PATH must not be empty");
+  }
+  if (
+    env.LINEJS_TEST_STORAGE_PATH.trim() &&
+    !isSafeLineJsStoragePath(env.LINEJS_TEST_STORAGE_PATH)
+  ) {
+    invalid.push("LINEJS_TEST_STORAGE_PATH must be a safe path under data/ or /app/data/");
   }
 
   if (env.LINEJS_TEST_ENABLED && !env.LINEJS_TEST_TARGET_ID) {

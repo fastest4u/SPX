@@ -76,6 +76,8 @@ export const spxBookingHistory = mysqlTable("spx_booking_history", {
   bookingIdIdx: index("booking_id_idx").on(table.bookingId),
   createdAtIdx: index("created_at_idx").on(table.createdAt),
   teamCreatedAtIdx: index("spx_booking_history_team_created_idx").on(table.teamId, table.createdAt),
+  teamVehicleIdx: index("spx_booking_history_team_vehicle_idx").on(table.teamId, table.vehicleType),
+  teamCreatedAtIdIdx: index("spx_booking_history_team_created_id_idx").on(table.teamId, table.createdAt, table.id),
 }));
 
 export const users = mysqlTable("users", {
@@ -155,6 +157,8 @@ export const autoAcceptHistory = mysqlTable("auto_accept_history", {
   teamStatusCreatedAtIdx: index("aah_team_status_created_at_idx").on(table.teamId, table.status, table.createdAt),
   teamReasonCreatedAtIdx: index("aah_team_reason_created_at_idx").on(table.teamId, table.failureReason, table.createdAt),
   traceIdIdx: index("aah_trace_id_idx").on(table.traceId),
+  teamIdDescIdx: index("aah_team_id_idx").on(table.teamId, table.id),
+  teamTraceIdx: index("aah_team_trace_idx").on(table.teamId, table.traceId),
 }));
 
 export const autoAcceptAttempts = mysqlTable("auto_accept_attempts", {
@@ -329,6 +333,7 @@ export const notificationDeliveries = mysqlTable("notification_deliveries", {
   finishedAt: datetime("finished_at"),
 }, (table) => ({
   outboxIdx: index("notification_deliveries_outbox_idx").on(table.outboxId),
+  startedOutboxIdx: index("notification_deliveries_started_outbox_idx").on(table.startedAt, table.outboxId),
 }));
 
 export const notificationProviderReconciliations = mysqlTable("notification_provider_reconciliations", {

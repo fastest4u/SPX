@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { decodeMetricsSsePayload } from '../lib/dashboard-sse-events'
+import {
+  decodeMetricsSsePayload,
+  decodeRulesSsePayload,
+  decodeSessionExpiredSsePayload,
+  extractSseEnvelopeTeamId,
+  matchesExpectedSseTeam,
+  registerDashboardSseListeners,
+  type DashboardSseMessage,
+  type SessionExpiredEvent,
+} from '../lib/dashboard-sse-events'
 import type { MetricsSnapshot, NotifyRule } from '../types'
 
 type SseStatus = 'connecting' | 'connected' | 'disconnected'
@@ -13,31 +22,6 @@ interface SseState {
   rules: NotifyRule[] | null
   sessionAlert: SessionExpiredEvent | null
   error: Error | null
-}
-
-interface SessionExpiredEvent {
-  message: string
-  timestamp: string
-}
-
-interface TeamSseEvent<T> {
-  teamId: number
-  event: string
-  data: T
-}
-
-function unwrapSseData<T>(raw: string): T {
-  const parsed = JSON.parse(raw) as T | TeamSseEvent<T>
-  if (
-    parsed &&
-    typeof parsed === 'object' &&
-    'teamId' in parsed &&
-    'event' in parsed &&
-    'data' in parsed
-  ) {
-    return (parsed as TeamSseEvent<T>).data
-  }
-  return parsed as T
 }
 
 const SSE_INITIAL_RECONNECT_MS = 5000
@@ -90,52 +74,47 @@ export function useSse(url: string, enabled: boolean = true, scopeKey = '', expe
       setState((prev: SseState) => ({ ...prev, status: 'connected', error: null }))
     }
 
-    const onMetrics = (event: MessageEvent<string>) => {
+    const onMetrics = (event: DashboardSseMessage) => {
       if (!isMountedRef.current || eventSourceRef.current !== es) return
       try {
         const data = decodeMetricsSsePayload(event.data)
         if (!data || data.teamId !== expectedMetricsTeamId) return
-        const envelope = JSON.parse(event.data)
-        const envelopeTeamId = envelope.scope?.kind === 'team' ? envelope.scope.teamId : envelope.teamId
+        const envelopeTeamId = extractSseEnvelopeTeamId(event.data)
         if (typeof envelopeTeamId === 'number' && data.teamId !== envelopeTeamId) return
         setState((prev: SseState) => ({ ...prev, data, metricsReceivedAt: Date.now(), scopeKey }))
       } catch (error) {
         console.error('Failed to parse SSE metrics data:', error)
       }
     }
-    es.addEventListener('metrics', onMetrics)
-    es.addEventListener('metrics.snapshot', onMetrics)
 
-    es.addEventListener('rules', (event) => {
+    const onRules = (event: DashboardSseMessage) => {
       if (!isMountedRef.current || eventSourceRef.current !== es) return
-      try {
-        const rules = unwrapSseData<NotifyRule[]>(event.data)
-        setState((prev: SseState) => ({ ...prev, rules }))
-      } catch (error) {
-        console.error('Failed to parse SSE rules data:', error)
-      }
-    })
+      if (!matchesExpectedSseTeam(event.data, expectedMetricsTeamId)) return
+      const rules = decodeRulesSsePayload(event.data)
+      if (!rules) return
+      setState((prev: SseState) => ({ ...prev, rules, scopeKey }))
+    }
 
-    es.addEventListener('session-expired', (event) => {
+    const onSessionExpired = (event: DashboardSseMessage) => {
       if (!isMountedRef.current || eventSourceRef.current !== es) return
-      try {
-        const sessionAlert = unwrapSseData<SessionExpiredEvent>(event.data)
-        setState((prev: SseState) => ({ ...prev, sessionAlert, status: 'disconnected' }))
-      } catch (error) {
-        console.error('Failed to parse SSE session-expired data:', error)
-      }
-      // Session is gone: invalidate auth state and stop reconnecting against
-      // the now-rejecting endpoint.
-      void queryClient.invalidateQueries({ queryKey: ['auth'] })
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-      }
-    })
+      if (!matchesExpectedSseTeam(event.data, expectedMetricsTeamId)) return
+      const sessionAlert = decodeSessionExpiredSsePayload(event.data)
+      if (!sessionAlert) return
+      setState((prev: SseState) => ({ ...prev, sessionAlert, scopeKey }))
+      void queryClient.invalidateQueries({ queryKey: ['current-team'] })
+      void queryClient.invalidateQueries({ queryKey: ['provider-auth'] })
+    }
+
+    registerDashboardSseListeners(
+      (eventName, handler) => {
+        es.addEventListener(eventName, (event) => handler(event as MessageEvent<string>))
+      },
+      {
+        metrics: onMetrics,
+        rules: onRules,
+        sessionExpired: onSessionExpired,
+      },
+    )
 
     es.onerror = () => {
       if (!isMountedRef.current || eventSourceRef.current !== es) return
@@ -208,6 +187,43 @@ export function useSse(url: string, enabled: boolean = true, scopeKey = '', expe
     disconnect()
     connect()
   }, [connect, disconnect])
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') return
+
+    const recoverIfDisconnected = () => {
+      if (!isMountedRef.current || !enabled) return
+      if (eventSourceRef.current !== null && eventSourceRef.current.readyState !== 2) return
+      if (eventSourceRef.current !== null) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+      retriesRef.current = 0
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      connect()
+    }
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        recoverIfDisconnected()
+      }
+    }
+
+    window.addEventListener('online', recoverIfDisconnected)
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+    }
+
+    return () => {
+      window.removeEventListener('online', recoverIfDisconnected)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
+    }
+  }, [connect, enabled])
 
   return {
     ...state,

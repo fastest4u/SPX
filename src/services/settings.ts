@@ -43,9 +43,12 @@ function readIntegerSetting(name: string, defaultValue: number): number {
   return Number.isInteger(value) ? value : Number.NaN;
 }
 
-function readOptionalIntegerSetting(name: string): number | undefined {
+function readOptionalIntegerSetting(name: string, defaultValue?: number): number | undefined {
   const rawValue = process.env[name];
-  if (rawValue === undefined || rawValue.trim() === "") {
+  if (rawValue === undefined) {
+    return defaultValue;
+  }
+  if (rawValue.trim() === "") {
     return undefined;
   }
 
@@ -209,7 +212,7 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.LINE_SERVICE_ADMIN_SECRET = process.env.LINE_SERVICE_ADMIN_SECRET || "";
   mutableEnv.LINE_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
     "LINE_SERVICE_REQUEST_TIMEOUT_MS",
-    1500,
+    5000,
   );
   mutableEnv.OCR_SERVICE_URL = process.env.OCR_SERVICE_URL || "";
   mutableEnv.OCR_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
@@ -246,16 +249,16 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
   }
   // Re-process cooldown (ms). Guard against NaN/negative; 0 disables it.
-  const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 0);
+  const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 10000);
   if (!Number.isFinite(reprocessCooldown) || reprocessCooldown < 0) {
     console.warn(
-      `BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 0`,
+      `BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 10000`,
     );
-    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 0;
+    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 10000;
   } else {
     mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = reprocessCooldown;
   }
-  const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
+  const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE", 13);
   if (
     biddingVehicleType !== undefined &&
     (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)
@@ -329,36 +332,63 @@ export async function readStoredSettings(): Promise<EnvSettings> {
   }
 }
 
-export async function writeSettings(newSettings: EnvSettings): Promise<void> {
-  const settings = pickKnownSettings(newSettings as Record<string, string>);
+let settingsWriteGeneration = 0;
+let settingsWritesInFlight = 0;
 
-  // Stage candidate settings into a snapshot of process.env so we can validate
-  // before persisting. This blocks UI updates that would put the poller into a
-  // bad state (invalid URL, zero interval, etc.).
-  const previousProcessEnv: Record<string, string | undefined> = {};
-  for (const key of Object.keys(settings) as SettingsKey[]) {
-    previousProcessEnv[key] = process.env[key];
-    process.env[key] = settings[key];
-  }
-  syncEnvObjectFromProcess();
-
-  try {
-    validateRuntimeConfig();
-  } catch (err) {
-    // Roll back the in-memory mutation so the running process keeps the old config.
-    for (const [key, prev] of Object.entries(previousProcessEnv)) {
-      if (prev === undefined) delete process.env[key];
-      else process.env[key] = prev;
-    }
-    syncEnvObjectFromProcess();
-    throw err instanceof Error ? err : new Error(String(err));
-  }
-
-  await upsertAppSettings(settings as Record<string, string>);
+export interface SettingsPersistenceDeps {
+  getAppSettingsImpl?: typeof getAppSettings;
+  upsertAppSettingsImpl?: typeof upsertAppSettings;
 }
 
-export async function reloadSettingsLive(): Promise<void> {
-  const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
+export async function writeSettings(
+  newSettings: EnvSettings,
+  deps?: SettingsPersistenceDeps,
+): Promise<void> {
+  settingsWriteGeneration += 1;
+  settingsWritesInFlight += 1;
+  try {
+    const settings = pickKnownSettings(newSettings as Record<string, string>);
+
+    // Stage candidate settings into a snapshot of process.env so we can validate
+    // before persisting. This blocks UI updates that would put the poller into a
+    // bad state (invalid URL, zero interval, etc.).
+    const previousProcessEnv: Record<string, string | undefined> = {};
+    for (const key of Object.keys(settings) as SettingsKey[]) {
+      previousProcessEnv[key] = process.env[key];
+      process.env[key] = settings[key];
+    }
+    syncEnvObjectFromProcess();
+
+    try {
+      validateRuntimeConfig();
+    } catch (err) {
+      // Roll back the in-memory mutation so the running process keeps the old config.
+      for (const [key, prev] of Object.entries(previousProcessEnv)) {
+        if (prev === undefined) delete process.env[key];
+        else process.env[key] = prev;
+      }
+      syncEnvObjectFromProcess();
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
+    await upsertImpl(settings as Record<string, string>);
+  } finally {
+    settingsWritesInFlight -= 1;
+    settingsWriteGeneration += 1;
+  }
+}
+
+export async function reloadSettingsLive(deps?: SettingsPersistenceDeps): Promise<void> {
+  if (settingsWritesInFlight > 0) {
+    return;
+  }
+  const observedWriteGeneration = settingsWriteGeneration;
+  const getImpl = deps?.getAppSettingsImpl ?? getAppSettings;
+  const dbSettings = pickKnownSettings(await getImpl(SETTINGS_KEYS));
+  if (settingsWritesInFlight > 0 || observedWriteGeneration !== settingsWriteGeneration) {
+    return;
+  }
 
   // Snapshot the current process.env for every settings key so we can roll back
   // if the DB-sourced config fails validation. Without this, an invalid stored
