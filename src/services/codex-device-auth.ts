@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -17,8 +17,13 @@ const DEVICE_REDIRECT_URI = `${AUTH_BASE_URL}/deviceauth/callback`;
 const SCOPE = "openid profile email offline_access";
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const AUTH_CLAIM = "https://api.openai.com/auth";
-const AUTH_PATH = resolve(process.cwd(), "data", "codex-device-auth.json");
 const REFRESH_SKEW_MS = 60_000;
+
+function getAuthPath(): string {
+  return process.env.CODEX_DEVICE_AUTH_PATH
+    ? resolve(process.env.CODEX_DEVICE_AUTH_PATH)
+    : resolve(process.cwd(), "data", "codex-device-auth.json");
+}
 const CALLBACK_PORT = 1455;
 const CALLBACK_SERVER_TIMEOUT_MS = 10 * 60_000;
 const ORIGINATOR = "opencode";
@@ -187,8 +192,9 @@ function parseAuthorizationInput(input: string): { code?: string; state?: string
 }
 
 async function readStoredToken(): Promise<StoredToken | null> {
+  const authPath = getAuthPath();
   try {
-    const raw = await readFile(AUTH_PATH, "utf8");
+    const raw = await readFile(authPath, "utf8");
     const token = JSON.parse(raw) as StoredToken;
     const accessToken = decryptString(token.accessToken);
     const refreshToken = decryptString(token.refreshToken);
@@ -207,8 +213,10 @@ async function readStoredToken(): Promise<StoredToken | null> {
 }
 
 async function writeStoredToken(token: TokenResult): Promise<void> {
-  await mkdir(dirname(AUTH_PATH), { recursive: true });
-  await writeFile(AUTH_PATH, JSON.stringify({
+  const authPath = getAuthPath();
+  await mkdir(dirname(authPath), { recursive: true });
+  const tempPath = `${authPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await writeFile(tempPath, JSON.stringify({
     ...token,
     idToken: token.idToken ? encryptString(token.idToken) : undefined,
     accessToken: encryptString(token.accessToken),
@@ -218,6 +226,7 @@ async function writeStoredToken(token: TokenResult): Promise<void> {
     encoding: "utf8",
     mode: 0o600,
   });
+  await rename(tempPath, authPath);
 }
 
 async function exchangeToken(params: URLSearchParams): Promise<TokenResult> {
@@ -267,7 +276,13 @@ function isInvalidGrantFailure(error: unknown): boolean {
   return error.body.toLowerCase().includes("invalid_grant");
 }
 
-async function refreshStoredToken(token: StoredToken): Promise<StoredToken> {
+let refreshInFlight: Promise<StoredToken> | null = null;
+let authGeneration = 0;
+
+async function refreshStoredToken(
+  token: StoredToken,
+  expectedGeneration: number,
+): Promise<StoredToken> {
   let refreshed: TokenResult;
   try {
     refreshed = await exchangeToken(new URLSearchParams({
@@ -277,10 +292,12 @@ async function refreshStoredToken(token: StoredToken): Promise<StoredToken> {
     }));
   } catch (error) {
     if (isInvalidGrantFailure(error)) {
-      // The stored refresh token is dead. Clear it from disk so subsequent OCR
-      // calls fail fast with a distinct re-auth-required state instead of
-      // repeatedly retrying a stale token.
-      await rm(AUTH_PATH, { force: true }).catch(() => { /* ignore */ });
+      if (expectedGeneration === authGeneration) {
+        // The stored refresh token is dead. Clear it from disk so subsequent OCR
+        // calls fail fast with a distinct re-auth-required state instead of
+        // repeatedly retrying a stale token.
+        await rm(getAuthPath(), { force: true }).catch(() => { /* ignore */ });
+      }
       logger.warn("codex-device-refresh-invalid-grant", {
         status: error instanceof TokenExchangeError ? error.status : undefined,
       });
@@ -290,19 +307,36 @@ async function refreshStoredToken(token: StoredToken): Promise<StoredToken> {
     }
     throw error;
   }
+  if (expectedGeneration !== authGeneration) {
+    throw new CodexReauthRequiredError(
+      "Codex device auth was cleared during token refresh. Re-authentication is required.",
+    );
+  }
   await writeStoredToken(refreshed);
   return { ...refreshed, updatedAt: new Date().toISOString() };
 }
 
 async function getUsableToken(): Promise<StoredToken> {
-  const token = await readStoredToken();
-  if (!token) {
-    throw new Error("Codex device auth is not logged in. Start and complete Codex OAuth login first.");
+  if (refreshInFlight) {
+    return refreshInFlight;
   }
-  if (token.expiresAt <= Date.now() + REFRESH_SKEW_MS) {
-    return refreshStoredToken(token);
-  }
-  return token;
+  const expectedGeneration = authGeneration;
+  const current = (async () => {
+    const token = await readStoredToken();
+    if (!token) {
+      throw new Error("Codex device auth is not logged in. Start and complete Codex OAuth login first.");
+    }
+    if (token.expiresAt <= Date.now() + REFRESH_SKEW_MS) {
+      return refreshStoredToken(token, expectedGeneration);
+    }
+    return token;
+  })().finally(() => {
+    if (refreshInFlight === current) {
+      refreshInFlight = null;
+    }
+  });
+  refreshInFlight = current;
+  return current;
 }
 
 function isStreamingRequest(init: RequestInit | undefined): boolean {
@@ -743,16 +777,19 @@ export async function getCodexDeviceAuthStatus(): Promise<{
     verificationUri: pendingDeviceCode?.verificationUri,
     expiresAt: token?.expiresAt,
     accountIdSuffix: token?.accountId.slice(-6),
-    authPath: AUTH_PATH,
+      authPath: getAuthPath(),
   };
 }
 
 export async function clearCodexDeviceAuth(): Promise<void> {
+  authGeneration += 1;
   pendingFlow = null;
+  refreshInFlight = null;
   stopCallbackServer();
   stopDeviceCodePolling();
-  if (existsSync(AUTH_PATH)) {
-    await rm(AUTH_PATH, { force: true });
+  const authPath = getAuthPath();
+  if (existsSync(authPath)) {
+    await rm(authPath, { force: true });
   }
 }
 

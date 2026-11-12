@@ -46,6 +46,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private providerSession: TeamRuntimeSession | null = null;
   private credentialPool: TeamCredentialPool | null = null;
   private lastAccountReloadAt = 0;
+  private refreshInFlight: Promise<void> | null = null;
   private statusValue: TeamRuntimeStatusValue = "stopped";
   private lastPollAt: string | null = null;
   private lastError: string | null = null;
@@ -71,6 +72,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
       : null;
 
     this.credentialPool = await getOrCreateTeamCredentialPool(this.teamId, fallbackCredentials);
+    this.lastAccountReloadAt = Date.now();
 
     if (!this.credentialPool.hasCredentials()) {
       this.statusValue = "misconfigured";
@@ -113,16 +115,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
         exitOnStop: false,
         biddingVehicleType: this.config.biddingVehicleType,
         beforePoll: async () => {
-          const now = Date.now();
-          if (now - this.lastAccountReloadAt > 30_000) {
-            this.lastAccountReloadAt = now;
-            await Promise.all([
-              this.credentialPool?.reloadAccounts(),
-              process.env.NODE_ENV === "production"
-                ? reloadSettingsLive().catch(() => undefined)
-                : Promise.resolve(),
-            ]);
-          }
+          this.triggerBackgroundRefresh();
           return this.providerSession ? this.providerSession.beforePoll() : true;
         },
         onSessionRejected: async () => {
@@ -152,14 +145,37 @@ export class TeamRuntime implements TeamRuntimeHandle {
     }
   }
 
+  private triggerBackgroundRefresh(): void {
+    const now = Date.now();
+    if (now - this.lastAccountReloadAt <= 30_000 || this.refreshInFlight) {
+      return;
+    }
+    this.lastAccountReloadAt = now;
+    const pool = this.credentialPool;
+    this.refreshInFlight = Promise.all([
+      pool ? pool.reloadAccounts() : Promise.resolve(),
+      process.env.NODE_ENV === "production"
+        ? reloadSettingsLive().catch(() => undefined)
+        : Promise.resolve(),
+    ])
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+  }
+
   async stop(): Promise<void> {
-    this.providerSession?.dispose();
-    this.providerSession = null;
-    this.credentialPool = null;
     if (this.poller) {
       await this.poller.stop(0);
       this.poller = null;
     }
+    if (this.refreshInFlight) {
+      await this.refreshInFlight;
+    }
+    this.providerSession?.dispose();
+    this.providerSession = null;
+    this.credentialPool = null;
     this.statusValue = "stopped";
   }
 

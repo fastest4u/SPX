@@ -190,6 +190,33 @@ export function decodeSessionExpiredSsePayload(raw: string): SessionExpiredEvent
   return decodeValidatedSsePayload(raw, isSessionExpiredEvent)
 }
 
+export function extractSseEnvelopeTeamId(raw: string): number | null {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) return null
+    if (isRecord(parsed.scope) && parsed.scope.kind === 'team' && isFiniteNumber(parsed.scope.teamId)) {
+      return parsed.scope.teamId
+    }
+    if (isFiniteNumber(parsed.teamId)) {
+      return parsed.teamId
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function matchesExpectedSseTeam(raw: string, expectedTeamId?: number | null): boolean {
+  if (expectedTeamId === null || expectedTeamId === undefined) {
+    return true
+  }
+  const envelopeTeamId = extractSseEnvelopeTeamId(raw)
+  if (envelopeTeamId === null) {
+    return true
+  }
+  return envelopeTeamId === expectedTeamId
+}
+
 export function registerDashboardSseListeners(
   addListener: (eventName: string, handler: DashboardSseMessageHandler) => void,
   handlers: DashboardSseEventHandlers,

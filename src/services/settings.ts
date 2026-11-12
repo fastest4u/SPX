@@ -43,9 +43,12 @@ function readIntegerSetting(name: string, defaultValue: number): number {
   return Number.isInteger(value) ? value : Number.NaN;
 }
 
-function readOptionalIntegerSetting(name: string): number | undefined {
+function readOptionalIntegerSetting(name: string, defaultValue?: number): number | undefined {
   const rawValue = process.env[name];
-  if (rawValue === undefined || rawValue.trim() === "") {
+  if (rawValue === undefined) {
+    return defaultValue;
+  }
+  if (rawValue.trim() === "") {
     return undefined;
   }
 
@@ -209,7 +212,7 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.LINE_SERVICE_ADMIN_SECRET = process.env.LINE_SERVICE_ADMIN_SECRET || "";
   mutableEnv.LINE_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
     "LINE_SERVICE_REQUEST_TIMEOUT_MS",
-    1500,
+    5000,
   );
   mutableEnv.OCR_SERVICE_URL = process.env.OCR_SERVICE_URL || "";
   mutableEnv.OCR_SERVICE_REQUEST_TIMEOUT_MS = readIntegerSetting(
@@ -246,16 +249,16 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.BOOKING_DETAIL_CONCURRENCY = concurrency;
   }
   // Re-process cooldown (ms). Guard against NaN/negative; 0 disables it.
-  const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 0);
+  const reprocessCooldown = readIntegerSetting("BOOKING_REPROCESS_COOLDOWN_MS", 10000);
   if (!Number.isFinite(reprocessCooldown) || reprocessCooldown < 0) {
     console.warn(
-      `BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 0`,
+      `BOOKING_REPROCESS_COOLDOWN_MS is invalid (${process.env.BOOKING_REPROCESS_COOLDOWN_MS}); falling back to 10000`,
     );
-    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 0;
+    mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = 10000;
   } else {
     mutableEnv.BOOKING_REPROCESS_COOLDOWN_MS = reprocessCooldown;
   }
-  const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE");
+  const biddingVehicleType = readOptionalIntegerSetting("BIDDING_VEHICLE_TYPE", 13);
   if (
     biddingVehicleType !== undefined &&
     (!Number.isFinite(biddingVehicleType) || biddingVehicleType <= 0)
@@ -329,7 +332,10 @@ export async function readStoredSettings(): Promise<EnvSettings> {
   }
 }
 
+let settingsWriteGeneration = 0;
+
 export async function writeSettings(newSettings: EnvSettings): Promise<void> {
+  settingsWriteGeneration += 1;
   const settings = pickKnownSettings(newSettings as Record<string, string>);
 
   // Stage candidate settings into a snapshot of process.env so we can validate
@@ -358,7 +364,11 @@ export async function writeSettings(newSettings: EnvSettings): Promise<void> {
 }
 
 export async function reloadSettingsLive(): Promise<void> {
+  const observedWriteGeneration = settingsWriteGeneration;
   const dbSettings = pickKnownSettings(await getAppSettings(SETTINGS_KEYS));
+  if (observedWriteGeneration !== settingsWriteGeneration) {
+    return;
+  }
 
   // Snapshot the current process.env for every settings key so we can roll back
   // if the DB-sourced config fails validation. Without this, an invalid stored

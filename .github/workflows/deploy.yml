@@ -309,11 +309,26 @@ jobs:
                 worker-ifn-split worker-ptwl-split worker-krtk-split
             }
 
+            detect_legacy_line_service() {
+              line_cid="$(docker compose --profile split ps -q line-service 2>/dev/null | head -n1 || true)"
+              if [ -n "${line_cid}" ]; then
+                running="$(docker inspect --format '{{.State.Running}}' "${line_cid}" 2>/dev/null || echo false)"
+                if [ "${running}" = "true" ]; then
+                  echo true
+                  return 0
+                fi
+              fi
+              echo false
+            }
+
             compose_up_current() {
               if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
                 compose_up_split
               else
-                docker compose up -d --force-recreate notifier worker-krtk
+                docker compose up -d --force-recreate notifier worker-krtk || return 1
+                if [ "${ROLLBACK_LINE_SERVICE_ACTIVE}" = "true" ]; then
+                  docker compose --profile split up -d --no-deps --force-recreate line-service || return 1
+                fi
               fi
             }
 
@@ -329,13 +344,20 @@ jobs:
             rollback_legacy() {
               if [ "${DEPLOY_TOPOLOGY}" = "split" ] || [ "${ROLLBACK_TOPOLOGY}" = "legacy" ]; then
                 docker compose --profile split stop \
-                  web-api notification-service line-service ocr-service \
+                  web-api notification-service ocr-service \
                   worker-ifn-split worker-ptwl-split worker-krtk-split || true
+                if [ "${ROLLBACK_LINE_SERVICE_ACTIVE}" != "true" ]; then
+                  docker compose --profile split stop line-service || true
+                fi
               fi
-              docker compose up -d --force-recreate notifier worker-krtk
+              docker compose up -d --force-recreate notifier worker-krtk || return 1
+              if [ "${ROLLBACK_LINE_SERVICE_ACTIVE}" = "true" ]; then
+                docker compose --profile split up -d --no-deps --force-recreate line-service || return 1
+              fi
             }
 
             rollback_runtime() {
+              ACTIVE_READINESS_TOPOLOGY="${ROLLBACK_TOPOLOGY}"
               if [ "${ROLLBACK_TOPOLOGY}" = "split" ]; then
                 docker compose stop notifier worker-ifn worker-ptwl worker-krtk || true
                 compose_up_split
@@ -396,14 +418,52 @@ jobs:
               return 1
             }
 
+            wait_legacy_line_service_ready() {
+              deadline=$(( $(date +%s) + 90 ))
+              while [ "$(date +%s)" -le "${deadline}" ]; do
+                if split_service_state "line-service" >/dev/null; then
+                  echo "Legacy companion service healthy: line-service"
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "Legacy companion line-service readiness failed:"
+              split_service_state "line-service" || true
+              return 1
+            }
+
+            wait_legacy_worker_krtk_ready() {
+              deadline=$(( $(date +%s) + 90 ))
+              while [ "$(date +%s)" -le "${deadline}" ]; do
+                container_id="$(docker compose ps -q worker-krtk 2>/dev/null | head -n1 || true)"
+                if [ -n "${container_id}" ]; then
+                  running="$(docker inspect --format '{{.State.Running}}' "${container_id}" 2>/dev/null || echo false)"
+                  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo missing)"
+                  if [ "${running}" = "true" ] && [ "${health}" = "healthy" ]; then
+                    echo "Legacy primary worker healthy: worker-krtk"
+                    return 0
+                  fi
+                fi
+                sleep 5
+              done
+              echo "Legacy primary worker-krtk readiness failed:"
+              docker compose ps worker-krtk || true
+              return 1
+            }
+
             wait_current_readiness() {
               if ! curl -fsS --retry 18 --retry-delay 5 --retry-connrefused --retry-all-errors --connect-timeout 5 --max-time 10 --retry-max-time 90 http://127.0.0.1:3000/ready >/dev/null; then
                 echo "Public web/API readiness check failed"
                 return 1
               fi
 
-              if [ "${DEPLOY_TOPOLOGY}" = "split" ]; then
+              if [ "${ACTIVE_READINESS_TOPOLOGY:-${DEPLOY_TOPOLOGY}}" = "split" ]; then
                 wait_split_services_ready
+              else
+                wait_legacy_worker_krtk_ready || return 1
+                if [ "${ROLLBACK_LINE_SERVICE_ACTIVE}" = "true" ]; then
+                  wait_legacy_line_service_ready || return 1
+                fi
               fi
             }
 
@@ -414,7 +474,9 @@ jobs:
             fi
 
             ROLLBACK_TOPOLOGY="$(detect_rollback_topology)"
-            echo "Rollback topology: ${ROLLBACK_TOPOLOGY}"
+            ROLLBACK_LINE_SERVICE_ACTIVE="$(detect_legacy_line_service)"
+            ACTIVE_READINESS_TOPOLOGY="${DEPLOY_TOPOLOGY}"
+            echo "Rollback topology: ${ROLLBACK_TOPOLOGY} (legacy line-service active: ${ROLLBACK_LINE_SERVICE_ACTIVE})"
 
             git fetch origin "${{ github.sha }}"
             git reset --hard "${{ github.sha }}"

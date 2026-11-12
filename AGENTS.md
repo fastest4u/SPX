@@ -11,6 +11,8 @@ This is one npm package for a TypeScript SPX bidding poller plus React dashboard
 - `npm ci`: install locked dependencies; keep `.npmrc` for the `@jsr` registry alias.
 - `npm run dev`: run `HTTP_ENABLED=true tsx src/app.ts` and Vite together.
 - `npm run typecheck`: run backend and frontend TypeScript checks.
+- `npm run lint`: run ESLint (`eslint.config.mjs`) across `src/`, `scripts/`, and `tests/`.
+- `npm test`: run `scripts/run-tests.mjs` across `tests/*.test.ts` (unit suites run in bounded parallel batches via `TEST_CONCURRENCY`; browser/Playwright suites run serially).
 - `npm run build`: CI gate; typechecks, clears `dist/`, bundles backend/scripts, then builds Vite assets.
 - `npm run db:generate`: rebuild and regenerate `migrations/001_create_booking_requests.sql`.
 - `npm run db:migrate`: rebuild and apply sorted `migrations/*.sql`.
@@ -21,11 +23,11 @@ On PowerShell, POSIX-style scripts such as `test:memory*` may need manual `$env:
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript. Backend uses `moduleResolution: "NodeNext"`, so keep `.js` suffixes on local relative imports in `.ts` files. Match nearby 2-space style: backend generally uses double quotes and semicolons; frontend/Vite uses single quotes with minimal semicolons. No ESLint or Prettier config exists.
+Use strict TypeScript. Backend uses `moduleResolution: "NodeNext"`, so keep `.js` suffixes on local relative imports in `.ts` files. Match nearby 2-space style: backend generally uses double quotes and semicolons; frontend/Vite uses single quotes with minimal semicolons. Lint rules live in `eslint.config.mjs` (`npm run lint`); no Prettier config exists.
 
 ## Testing Guidelines
 
-There is no unit-test framework configured. Use `npm run typecheck` for focused checks and `npm run build` or `npm run verify` before shipping. `db:test`, `smoke:test`, and `flow:test` call live SPX/MySQL paths and may insert rows.
+Automated tests live in `tests/*.test.ts` and are executed via `npm test` (`node scripts/run-tests.mjs`, which supports file-substring filters and `TEST_CONCURRENCY` bounded parallelism for non-browser suites while running Playwright browser suites serially). Use `npm run typecheck`, `npm run lint`, targeted `node scripts/run-tests.mjs <filter>`, and `npm run build` before shipping. `db:test`, `smoke:test`, and `flow:test` call live SPX/MySQL paths and may insert rows.
 
 ## Commit & Pull Request Guidelines
 

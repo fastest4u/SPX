@@ -221,6 +221,7 @@ const EXPLICITLY_EXCLUDED_OPERATIONAL_FILES = new Set([
   "scripts/dev-backend.mjs",
   "scripts/dev-frontend.mjs",
   "scripts/dev-linejs.ps1",
+  "scripts/dev-memory.mjs",
   "scripts/e2e-runner.mjs",
   // Ad hoc operator inspection/activation scripts are not A3 capabilities.
   "scripts/enable-both-teams.mjs",

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import { closePool } from "../src/db/client.js";
 import { resetMemoryDb } from "../src/db/client-memory.js";
@@ -61,14 +62,17 @@ function signedHeaders(input: {
   nodeId?: string;
   secret?: string;
   timestamp?: string;
+  requestId?: string;
 }): Record<string, string> {
   const timestamp = input.timestamp ?? new Date().toISOString();
   const nodeId = input.nodeId ?? notificationNodeId;
   const secret = input.secret ?? sharedSecret;
+  const requestId = input.requestId ?? randomUUID();
   return {
     "content-type": "application/json",
     "x-spx-node-id": nodeId,
     "x-spx-timestamp": timestamp,
+    "x-spx-request-id": requestId,
     "x-spx-signature": createInternalSignature({
       body: input.body,
       timestamp,
@@ -76,6 +80,7 @@ function signedHeaders(input: {
       path: input.path,
       secret,
       eventKey: input.eventKey,
+      requestId,
     }),
     ...(input.eventKey ? { "idempotency-key": input.eventKey } : {}),
   };

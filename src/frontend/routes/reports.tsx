@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import { metricsApi, reportsApi } from '../lib/api'
+import { useAuth } from '../hooks/useAuth'
 import { Card, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { ContentSection, EmptyPanel, PageShell } from '../components/layout/Page'
@@ -41,7 +42,26 @@ const TONE_CLASSES: Record<ReportTile['tone'], string> = {
   primary: 'border-primary/22 bg-primary/10 text-primary',
 }
 
+export function selectLatestMetricsHistoryRow(
+  rows: readonly MetricsHistoryRow[],
+): MetricsHistoryRow | null {
+  if (rows.length === 0) return null
+  return rows.reduce((latest, row) => {
+    const rowTime = Date.parse(row.createdAt)
+    const latestTime = Date.parse(latest.createdAt)
+    if (Number.isFinite(rowTime) && Number.isFinite(latestTime) && rowTime > latestTime) {
+      return row
+    }
+    return latest
+  }, rows[0]!)
+}
+
+export function isAuditReportVisibleForRole(role?: string | null): boolean {
+  return role === 'admin'
+}
+
 function ReportsComponent() {
+  const { user } = useAuth()
   const tiles: ReportTile[] = [
     {
       icon: Activity,
@@ -57,13 +77,17 @@ function ReportsComponent() {
       description: 'รายงานประวัติการจองและรับงาน',
       onDownload: () => reportsApi.downloadHistory(),
     },
-    {
-      icon: FileBarChart,
-      tone: 'primary',
-      title: 'Audit Report',
-      description: 'รายงานประวัติการใช้งานระบบ',
-      onDownload: () => reportsApi.downloadAudit(),
-    },
+    ...(isAuditReportVisibleForRole(user?.role)
+      ? [
+          {
+            icon: FileBarChart,
+            tone: 'primary' as const,
+            title: 'Audit Report',
+            description: 'รายงานประวัติการใช้งานระบบ',
+            onDownload: () => reportsApi.downloadAudit(),
+          },
+        ]
+      : []),
   ]
 
   const {
@@ -76,6 +100,7 @@ function ReportsComponent() {
     queryKey: ['metrics-history', 96],
     queryFn: () => metricsApi.history(96),
     staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
   })
 
   return (
@@ -117,7 +142,7 @@ function ReportsComponent() {
 
       <ContentSection>
           <h2 className="section-title mb-3">Export CSV</h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className={`grid grid-cols-1 gap-3 ${tiles.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
             {tiles.map((tile) => (
               <ReportTileCard key={tile.title} tile={tile} />
             ))}
@@ -137,8 +162,8 @@ function MetricsSummary({ rows, loading }: { rows: MetricsHistoryRow[]; loading:
       </div>
     )
   }
-  if (rows.length === 0) return null
-  const last = rows[rows.length - 1]
+  const last = selectLatestMetricsHistoryRow(rows)
+  if (!last) return null
   const totalRequests = rows.reduce((sum, r) => sum + (r.requestCount ?? 0), 0)
   const avgLatency = Math.round(rows.reduce((sum, r) => sum + (r.latencyAvg ?? 0), 0) / rows.length)
   const p95Latency = Math.round(rows.reduce((sum, r) => sum + (r.latencyP95 ?? 0), 0) / rows.length)

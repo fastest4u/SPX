@@ -41,7 +41,7 @@ Expected healthy indicators:
 
 ## Step 2: Inspect Worker 1 Host (`147.50.240.44`)
 
-Runs Dedicated Poller for **Team 2 (IFN)** (`spx-worker-ifn-1`) with direct MySQL connection to `210.246.215.212:3306`.
+Runs Dedicated Poller for **Team 2 (IFN)** (`spx-worker-ifn-1`) with direct MySQL connection to `45.83.207.139:3306`.
 
 ```bash
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@147.50.240.44 "
@@ -59,7 +59,7 @@ Expected healthy indicators:
 
 ## Step 3: Inspect Worker 2 Host (`45.154.26.83` AMD EPYC)
 
-Runs Dedicated Poller for **Team 1 (PTWL)** (`spx-worker-ptwl-1`) with direct MySQL connection to `210.246.215.212:3306`.
+Runs Dedicated Poller for **Team 1 (PTWL)** (`spx-worker-ptwl-1`) with direct MySQL connection to `45.83.207.139:3306`.
 
 ```bash
 ssh -o StrictHostKeyChecking=no -i C:\Users\Server\.ssh\id_ed25519 root@45.154.26.83 "
@@ -106,6 +106,7 @@ Analyze the logs for:
    - Commit: `<short-sha>`
    - Containers:
      - `spx-notifier-1`: Up (healthy) ✅
+     - `spx-worker-krtk-1`: Up (healthy) ✅
      - `spx-line-service-1`: Up (healthy) ✅
    - API / Dashboard: พร้อมใช้งาน (Ready: true) ✅
    - Disk / RAM: ปกติ (เหลือ X GB / X MB)

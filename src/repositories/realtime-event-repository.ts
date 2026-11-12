@@ -27,12 +27,20 @@ export interface PruneReplayableRealtimeEventsInput {
   minimumRetainedEvents?: number;
 }
 
+export interface PruneNonReplayableRealtimeEventsInput {
+  now?: Date;
+  retentionMs?: number;
+}
+
 export type RealtimeEventPersistedListener = (envelope: RealtimeEnvelopeV1<unknown>) => void;
 
 const DEFAULT_REPLAY_LIMIT = 100;
 const MAX_REPLAY_LIMIT = 500;
 export const REALTIME_REPLAY_RETENTION_MS = 10 * 60 * 1000;
 export const REALTIME_REPLAY_RETENTION_EVENT_LIMIT = 2_000;
+export const REALTIME_NON_REPLAY_RETENTION_MS = 24 * 60 * 60 * 1000;
+const NON_REPLAY_PRUNE_MIN_INTERVAL_MS = 60_000;
+let lastNonReplayPruneAt = 0;
 const persistedListeners = new Set<RealtimeEventPersistedListener>();
 
 export function onRealtimeEventPersisted(listener: RealtimeEventPersistedListener): () => void {
@@ -213,6 +221,15 @@ export async function persistRealtimeEnvelope(envelope: RealtimeEnvelopeV1<unkno
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    } else if (Date.now() - lastNonReplayPruneAt >= NON_REPLAY_PRUNE_MIN_INTERVAL_MS) {
+      lastNonReplayPruneAt = Date.now();
+      try {
+        await pruneNonReplayableRealtimeEvents();
+      } catch (error) {
+        logger.warn("realtime-event-retention-prune-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     notifyRealtimeEventPersisted(envelope);
     return { duplicate: false, row };
@@ -297,6 +314,27 @@ export async function pruneReplayableRealtimeEvents(
         lt(realtimeEvents.createdAt, cutoffTimestamp),
       ));
   }
+}
+
+export async function pruneNonReplayableRealtimeEvents(
+  input: PruneNonReplayableRealtimeEventsInput = {},
+): Promise<void> {
+  const now = normalizeRetentionNow(input.now);
+  const retentionMs =
+    input.retentionMs !== undefined && Number.isFinite(input.retentionMs) && input.retentionMs > 0
+      ? Math.floor(input.retentionMs)
+      : REALTIME_NON_REPLAY_RETENTION_MS;
+  const cutoff = new Date(now.getTime() - retentionMs);
+
+  await ensureDashboardTables();
+  const db = await getDb();
+  const cutoffTimestamp = dbTimestamp(cutoff.toISOString());
+  await db
+    .delete(realtimeEvents)
+    .where(and(
+      eq(realtimeEvents.replayable, 0),
+      lt(realtimeEvents.createdAt, cutoffTimestamp),
+    ));
 }
 
 export async function listRealtimeEventsForReplay(input: ListRealtimeEventsForReplayInput): Promise<RealtimeEventRow[]> {

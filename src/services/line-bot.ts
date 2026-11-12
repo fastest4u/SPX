@@ -1123,7 +1123,11 @@ function attachImageListener(c: LineJsClient): void {
         text,
       });
       try {
-        const replyText = await handleLineRouteCommand({ chatId: toId, text: text! });
+        const replyText = await handleLineRouteCommand({
+          chatId: toId,
+          text: text!,
+          senderId: msg.from?.id,
+        });
         await replyToLineMessage(msg, replyText);
         logger.info("line-route-command-replied", { to: toId });
       } catch (cmdError) {

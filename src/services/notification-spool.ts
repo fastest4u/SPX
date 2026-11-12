@@ -93,11 +93,12 @@ export class NotificationSpool {
         const retryCount = entry.retryCount + 1;
         if (retryCount < this.maxAttempts) {
           failedCount += 1;
+          const backoffMs = this.baseDelayMs * Math.min(2 ** Math.max(0, retryCount - 1), 32);
           this.addOutcome(outcomes, entry, {
             replacement: {
               ...entry,
               retryCount,
-              nextRetryAt: new Date(nowMs + this.baseDelayMs).toISOString(),
+              nextRetryAt: new Date(nowMs + backoffMs).toISOString(),
             },
           });
         } else {
@@ -171,10 +172,19 @@ export class NotificationSpool {
       throw error;
     }
 
-    return content
-      .split(/\r?\n/)
-      .filter((line) => line.trim() !== "")
-      .map((line) => JSON.parse(line) as NotificationSpoolEntry);
+    const entries: NotificationSpoolEntry[] = [];
+    for (const line of content.split(/\r?\n/)) {
+      if (line.trim() === "") continue;
+      try {
+        const parsed = JSON.parse(line) as NotificationSpoolEntry;
+        if (parsed && typeof parsed === "object" && typeof parsed.eventKey === "string") {
+          entries.push(parsed);
+        }
+      } catch {
+        // Skip corrupt or truncated JSONL lines so a partial crash write cannot wedge spool recovery.
+      }
+    }
+    return entries;
   }
 
   private async rewriteUnlocked(entries: NotificationSpoolEntry[]): Promise<void> {

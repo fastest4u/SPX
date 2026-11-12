@@ -16,6 +16,8 @@ import { fetchLineQuota } from "../services/notifier.js";
 import { runtimeMetricsSnapshotFor, runtimeMetricsSummaryReadModelFromRecords } from "../services/runtime-metrics.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { isJtiRevoked } from "../repositories/jwt-blacklist-repository.js";
+import { getUserAuthStateById } from "../repositories/user-repository.js";
+import { resolveAuthUserFromJwtPayload } from "../services/auth-session.js";
 import { hasRole, type AuthUser, type UserRole, normalizeRole } from "../services/authz.js";
 import { isTeamPaused, pauseTeam, resumeTeam } from "../services/poller-control.js";
 import { env } from "../config/env.js";
@@ -191,33 +193,60 @@ interface AuthTokenLike {
   role?: unknown;
   teamId?: number | null;
   jti?: string;
+  authVersion?: number;
 }
 
 async function authenticate(
   req: FastifyRequest,
   reply: FastifyReply,
   requiredRole: UserRole = "user",
+  enforceDbSession = false,
 ): Promise<AuthUser | null> {
   try {
     const decoded = (await req.jwtVerify({ onlyCookie: true })) as AuthTokenLike;
-    const role = normalizeRole(decoded.role);
-    if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
-      sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
-      return null;
+    const shouldResolveDbSession =
+      enforceDbSession
+      || decoded.jti !== undefined
+      || decoded.authVersion !== undefined
+      || (typeof decoded.id === "number" && (await getUserAuthStateById(decoded.id)) !== null);
+
+    let user: AuthUser;
+    if (shouldResolveDbSession) {
+      user = await resolveAuthUserFromJwtPayload(decoded);
+    } else {
+      const role = normalizeRole(decoded.role);
+      if (decoded.jti && (await isJtiRevoked(decoded.jti))) {
+        sendError(reply, 401, "TOKEN_REVOKED", "Token revoked");
+        return null;
+      }
+      user = {
+        id: typeof decoded.id === "number" ? decoded.id : 0,
+        username: typeof decoded.username === "string" ? decoded.username : "unknown",
+        role,
+        teamId: typeof decoded.teamId === "number" ? decoded.teamId : null,
+      };
     }
-    if (!hasRole(role, requiredRole)) {
+
+    if (!hasRole(user.role, requiredRole)) {
       sendError(reply, 403, "FORBIDDEN", "Forbidden");
       return null;
     }
-    const user: AuthUser = {
-      id: typeof decoded.id === "number" ? decoded.id : 0,
-      username: typeof decoded.username === "string" ? decoded.username : "unknown",
-      role,
-      teamId: typeof decoded.teamId === "number" ? decoded.teamId : null,
-    };
     req.user = user;
     return user;
-  } catch {
+  } catch (error) {
+    const errorCode =
+      error instanceof Error && "errorCode" in error
+        ? (error as { errorCode?: string }).errorCode
+        : undefined;
+    if (errorCode === "TOKEN_REVOKED" || errorCode === "TOKEN_INVALID") {
+      sendError(
+        reply,
+        401,
+        errorCode,
+        error instanceof Error ? error.message : "Token revoked",
+      );
+      return null;
+    }
     sendError(reply, 401, "UNAUTHORIZED", "Not authenticated");
     return null;
   }
@@ -289,6 +318,10 @@ export function buildDashboardHealthResponse(snap: MetricsSnapshot): {
 }
 
 export const dashboardController: FastifyPluginAsync<DashboardControllerOptions> = async (app, options) => {
+  const enforceDbSession = app.hasDecorator("authenticate");
+  const auth = (req: FastifyRequest, reply: FastifyReply, requiredRole: UserRole = "user") =>
+    authenticate(req, reply, requiredRole, enforceDbSession);
+
   // Public — load balancer + uptime checks. Returns service health, no internals.
   app.get("/health", async (_req, reply) => {
     const health = buildDashboardHealthResponse(runtimeMetricsSnapshotFor(metrics.snapshot(), null));
@@ -336,7 +369,7 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
       },
     },
     async (req, reply) => {
-      const user = await authenticate(req, reply);
+      const user = await auth(req, reply);
       if (!user) return;
       const scope = realtimeScopeForUser(user, parseOptionalTeamId(req.query.teamId));
       if (!scope) {
@@ -367,7 +400,7 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
   );
 
   app.get("/events", async (req, reply) => {
-    const user = await authenticate(req, reply);
+    const user = await auth(req, reply);
     if (!user) return;
     const scope = realtimeScopeForUser(user, undefined);
     if (!scope) {
@@ -415,7 +448,7 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
       },
     },
     async (req, reply) => {
-      const user = await authenticate(req, reply);
+      const user = await auth(req, reply);
       if (!user) return;
       const limit = (req.query as { limit?: number }).limit ?? 100;
       const scope = realtimeScopeForUser(
@@ -445,12 +478,12 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
   );
 
   app.get("/pool-stats", async (req, reply) => {
-    if (!(await authenticate(req, reply, "admin"))) return;
+    if (!(await auth(req, reply, "admin"))) return;
     return sendSuccess(reply, getPoolStats() ?? null);
   });
 
   app.get("/line-quota", async (req, reply) => {
-    if (!(await authenticate(req, reply))) return;
+    if (!(await auth(req, reply))) return;
     const quota = await fetchLineQuota();
     return sendSuccess(reply, quota);
   });
@@ -464,7 +497,7 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
     "/system/pause",
     { schema: { querystring: teamControlQuerySchema } },
     async (req, reply) => {
-      const user = await authenticate(req, reply);
+      const user = await auth(req, reply);
       if (!user) return;
       const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
       if (teamId === null)
@@ -492,7 +525,7 @@ export const dashboardController: FastifyPluginAsync<DashboardControllerOptions>
     "/system/resume",
     { schema: { querystring: teamControlQuerySchema } },
     async (req, reply) => {
-      const user = await authenticate(req, reply);
+      const user = await auth(req, reply);
       if (!user) return;
       const teamId = resolveOperationalTeamId(user, parseOptionalTeamId(req.query.teamId));
       if (teamId === null)

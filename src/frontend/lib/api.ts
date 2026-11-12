@@ -89,9 +89,7 @@ function pathnameOf(url: string): string {
 /** True when the URL targets one of the auth-exempt endpoints. */
 function isAuthExempt(url: string): boolean {
   const pathname = pathnameOf(url)
-  return AUTH_EXEMPT_PATHS.some(
-    exempt => pathname === exempt || pathname.endsWith(exempt),
-  )
+  return AUTH_EXEMPT_PATHS.some(exempt => pathname === exempt)
 }
 
 function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
@@ -148,8 +146,9 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return queryParams.toString()
 }
 
-/** Attempt a single silent token refresh. Resolves true on success. */
-async function attemptSilentRefresh(): Promise<boolean> {
+let refreshInFlight: Promise<boolean> | null = null
+
+async function runSilentRefresh(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/refresh`, {
       method: 'POST',
@@ -161,6 +160,20 @@ async function attemptSilentRefresh(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** Attempt a single silent token refresh, deduplicating concurrent callers. Resolves true on success. */
+async function attemptSilentRefresh(): Promise<boolean> {
+  if (refreshInFlight) {
+    return refreshInFlight
+  }
+  const promise = runSilentRefresh().finally(() => {
+    if (refreshInFlight === promise) {
+      refreshInFlight = null
+    }
+  })
+  refreshInFlight = promise
+  return promise
 }
 
 async function fetchRaw<T>(

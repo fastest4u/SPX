@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
 import { getAppSettingMetadata } from "../config/config-catalog.js";
+import { isSafeLineJsStoragePath, validateExternalSettingUrl } from "../config/env.js";
 import { readStoredSettings, writeSettings, reloadSettingsLive, SETTINGS_KEYS, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
-import { sendSuccess } from "../utils/response.js";
+import { sendError, sendSuccess } from "../utils/response.js";
 
 const WRITABLE_SETTINGS_KEYS = new Set<string>(SETTINGS_KEYS);
 const REDACTED_PREFIX = "********";
@@ -100,6 +101,26 @@ function writableSettings(body: Record<string, unknown>): EnvSettings {
   return result;
 }
 
+function validateSettingsPayload(data: EnvSettings): string | null {
+  for (const urlKey of ["API_URL", "REFERER", "DISCORD_WEBHOOK_URL"] as const) {
+    const raw = data[urlKey];
+    if (typeof raw === "string" && raw.trim() !== "") {
+      const error = validateExternalSettingUrl(urlKey, raw.trim(), {
+        requireHttpsAndPublicHost: true,
+      });
+      if (error) return error;
+    }
+  }
+  if (
+    typeof data.LINEJS_TEST_STORAGE_PATH === "string" &&
+    data.LINEJS_TEST_STORAGE_PATH.trim() !== "" &&
+    !isSafeLineJsStoragePath(data.LINEJS_TEST_STORAGE_PATH)
+  ) {
+    return "LINEJS_TEST_STORAGE_PATH must be a safe path under data/ or /app/data/";
+  }
+  return null;
+}
+
 export const settingsController: FastifyPluginAsync = async (app) => {
   app.get("/", async (req, reply) => {
     return sendSuccess(reply, {
@@ -115,6 +136,10 @@ export const settingsController: FastifyPluginAsync = async (app) => {
     { schema: { body: settingsSchema } },
     async (req, reply) => {
       const data = writableSettings(req.body as Record<string, unknown>);
+      const validationError = validateSettingsPayload(data);
+      if (validationError) {
+        return sendError(reply, 400, "INVALID_SETTINGS", validationError);
+      }
       await writeSettings(data);
       await reloadSettingsLive();
       await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Live Reload)");

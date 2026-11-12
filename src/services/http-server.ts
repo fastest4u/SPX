@@ -309,6 +309,12 @@ function jwtSecretForRuntime(): string {
   return env.JWT_SECRET;
 }
 
+function cookieSecretForRuntime(): string | undefined {
+  if (env.COOKIE_SECRET) return env.COOKIE_SECRET;
+  if (env.NODE_ENV === "test") return "test-cookie-secret-minimum-32-characters";
+  return undefined;
+}
+
 export async function createHttpServer(options: HttpServerOptions): Promise<FastifyInstance> {
   const previousApp = app;
   const databaseReplayGuard = new DurableInternalRequestReplayGuard();
@@ -331,7 +337,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
   });
 
   if (options.surface === "web-api") {
-    await app.register(fastifyCookie, { secret: env.COOKIE_SECRET || undefined });
+    await app.register(fastifyCookie, { secret: cookieSecretForRuntime() });
     await app.register(fastifyJwt, {
       secret: jwtSecretForRuntime(),
       cookie: { cookieName: "token", signed: true },
@@ -368,8 +374,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
 
   await app.register(fastifyFormbody);
 
-  // Graceful shutdown: close DB pool when Fastify closes
+  // Graceful shutdown: close DB pool and clear rate-limit state when Fastify closes
   app.addHook("onClose", async () => {
+    requestBuckets.clear();
+    lastBucketCleanup = 0;
     const { closePool } = await import("../db/client.js");
     try {
       await closePool();
@@ -378,25 +386,51 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     }
   });
 
-  async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  type ResolvedCookieAuth =
+    | { ok: true; user: AuthUser }
+    | { ok: false; error: unknown };
+  type RequestWithCachedAuth = FastifyRequest & {
+    _resolvedCookieAuth?: ResolvedCookieAuth;
+  };
+
+  async function resolveCookieAuthOnce(req: FastifyRequest): Promise<ResolvedCookieAuth> {
+    const carrier = req as RequestWithCachedAuth;
+    if (carrier._resolvedCookieAuth) {
+      return carrier._resolvedCookieAuth;
+    }
     try {
       const decoded = await req.jwtVerify({ onlyCookie: true });
-      req.user = await resolveAuthUserFromJwtPayload(decoded);
+      const user = await resolveAuthUserFromJwtPayload(decoded);
+      const resolved: ResolvedCookieAuth = { ok: true, user };
+      carrier._resolvedCookieAuth = resolved;
+      return resolved;
     } catch (error) {
-      const errorCode =
-        error instanceof Error && "errorCode" in error
-          ? (error as { errorCode?: string }).errorCode
-          : undefined;
-      if (errorCode === "TOKEN_REVOKED" || errorCode === "TOKEN_INVALID") {
-        return sendApiError(
-          reply,
-          401,
-          error instanceof Error ? error.message : "Unauthorized",
-          errorCode,
-        );
-      }
-      return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
+      const resolved: ResolvedCookieAuth = { ok: false, error };
+      carrier._resolvedCookieAuth = resolved;
+      return resolved;
     }
+  }
+
+  async function authenticateRequest(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const resolved = await resolveCookieAuthOnce(req);
+    if (resolved.ok) {
+      req.user = resolved.user;
+      return;
+    }
+    const error = resolved.error;
+    const errorCode =
+      error instanceof Error && "errorCode" in error
+        ? (error as { errorCode?: string }).errorCode
+        : undefined;
+    if (errorCode === "TOKEN_REVOKED" || errorCode === "TOKEN_INVALID") {
+      return sendApiError(
+        reply,
+        401,
+        error instanceof Error ? error.message : "Unauthorized",
+        errorCode,
+      );
+    }
+    return sendApiError(reply, 401, "Unauthorized", "UNAUTHORIZED");
   }
 
   if (options.surface === "web-api") {
@@ -429,11 +463,27 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     // would let normal dashboard requests exhaust (or dilute) the much
     // stricter brute-force budget.
     const isLoginRequest = request.url.startsWith("/api/login");
-    const limit = isLoginRequest ? AUTH_RATE_LIMIT_MAX_REQUESTS : RATE_LIMIT_MAX_REQUESTS;
-    const rateLimit = checkRateLimit(
-      `${isLoginRequest ? "login" : "api"}:${getClientKey(request)}`,
-      limit,
-    );
+    const clientKey = getClientKey(request);
+    let bucketKey = `api:${clientKey}`;
+    let limit = RATE_LIMIT_MAX_REQUESTS;
+
+    if (isLoginRequest) {
+      bucketKey = `login:${clientKey}`;
+      limit = AUTH_RATE_LIMIT_MAX_REQUESTS;
+    } else if (options.surface === "web-api" && request.cookies?.token) {
+      const resolved = await resolveCookieAuthOnce(request);
+      if (resolved.ok) {
+        if (resolved.user.role === "admin") {
+          bucketKey = `role:admin:${clientKey}`;
+          limit = RATE_LIMIT_ADMIN;
+        } else {
+          bucketKey = `role:user:${clientKey}`;
+          limit = RATE_LIMIT_USER;
+        }
+      }
+    }
+
+    const rateLimit = checkRateLimit(bucketKey, limit);
 
     reply.header("X-RateLimit-Limit", String(limit));
     reply.header("X-RateLimit-Remaining", String(rateLimit.remaining));
@@ -597,12 +647,6 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
 
       await apiScope.register(async (userScope) => {
         userScope.addHook("preHandler", requireRole("user"));
-        userScope.addHook("onRequest", async (request, reply) => {
-          const rateLimit = checkRateLimit(`role:user:${getClientKey(request)}`, RATE_LIMIT_USER);
-          if (!rateLimit.allowed) {
-            return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
-          }
-        });
         await userScope.register(rulesController, { prefix: "/rules" });
         await userScope.register(currentTeamController, { prefix: "/team" });
         await userScope.register(createOwnTeamProviderAuthController(), { prefix: "/team/provider-auth" });
@@ -613,13 +657,6 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
 
       await apiScope.register(async (adminScope) => {
         adminScope.addHook("preHandler", requireRole("admin"));
-        // Admins get highest rate limit
-        adminScope.addHook("onRequest", async (request, reply) => {
-          const rateLimit = checkRateLimit(`role:admin:${getClientKey(request)}`, RATE_LIMIT_ADMIN);
-          if (!rateLimit.allowed) {
-            return sendApiError(reply, 429, "Too many requests", "RATE_LIMITED");
-          }
-        });
         await adminScope.register(teamsController, { prefix: "/teams" });
         await adminScope.register(createAdminProviderAuthController(), { prefix: "/teams" });
         await adminScope.register(usersController, { prefix: "/users" });

@@ -480,69 +480,57 @@ export class NeedBudget {
 }
 
 const acceptedRequestKeys = new Set<string>();
-const acceptedRequestKeyOrder: string[] = [];
 const MAX_ACCEPTED_REQUEST_KEYS = 5000;
 const autoAcceptRequestKeys = new Set<string>();
-const autoAcceptRequestKeyOrder: string[] = [];
 const autoAcceptAllBookingKeys = new Set<string>();
-const autoAcceptAllBookingKeyOrder: string[] = [];
 
-function acceptedRequestKey(ruleId: string, requestId: number): string {
-  return `${ruleId}:${requestId}`;
+function addBoundedKey(set: Set<string>, key: string): void {
+  set.add(key);
+  while (set.size > MAX_ACCEPTED_REQUEST_KEYS) {
+    const oldest = set.values().next().value;
+    if (oldest === undefined) break;
+    set.delete(oldest);
+  }
 }
 
-function rememberAcceptedRequest(ruleId: string, requestId: number): void {
-  const key = acceptedRequestKey(ruleId, requestId);
+function acceptedRequestKey(teamId: number, ruleId: string, requestId: number): string {
+  return `${teamId}:${ruleId}:${requestId}`;
+}
+
+function rememberAcceptedRequest(teamId: number, ruleId: string, requestId: number): void {
+  const key = acceptedRequestKey(teamId, ruleId, requestId);
   if (acceptedRequestKeys.has(key)) return;
-
-  acceptedRequestKeys.add(key);
-  acceptedRequestKeyOrder.push(key);
-  while (acceptedRequestKeyOrder.length > MAX_ACCEPTED_REQUEST_KEYS) {
-    const oldest = acceptedRequestKeyOrder.shift();
-    if (oldest) acceptedRequestKeys.delete(oldest);
-  }
+  addBoundedKey(acceptedRequestKeys, key);
 }
 
-function autoAcceptRequestKey(bookingId: number, requestId: number): string {
-  return `${bookingId}:${requestId}`;
+function autoAcceptRequestKey(teamId: number, bookingId: number, requestId: number): string {
+  return `${teamId}:${bookingId}:${requestId}`;
 }
 
-function autoAcceptAllBookingKey(ruleId: string, bookingId: number): string {
-  return `${ruleId}:${bookingId}`;
+function autoAcceptAllBookingKey(teamId: number, ruleId: string, bookingId: number): string {
+  return `${teamId}:${ruleId}:${bookingId}`;
 }
 
-function claimAutoAcceptRequest(bookingId: number, requestId: number): boolean {
-  const key = autoAcceptRequestKey(bookingId, requestId);
+export function claimAutoAcceptRequest(bookingId: number, requestId: number, teamId = 1): boolean {
+  const key = autoAcceptRequestKey(teamId, bookingId, requestId);
   if (autoAcceptRequestKeys.has(key)) return false;
-
-  autoAcceptRequestKeys.add(key);
-  autoAcceptRequestKeyOrder.push(key);
-  while (autoAcceptRequestKeyOrder.length > MAX_ACCEPTED_REQUEST_KEYS) {
-    const oldest = autoAcceptRequestKeyOrder.shift();
-    if (oldest) autoAcceptRequestKeys.delete(oldest);
-  }
+  addBoundedKey(autoAcceptRequestKeys, key);
   return true;
 }
 
-function claimAutoAcceptAllBooking(ruleId: string, bookingId: number): boolean {
-  const key = autoAcceptAllBookingKey(ruleId, bookingId);
+function claimAutoAcceptAllBooking(teamId: number, ruleId: string, bookingId: number): boolean {
+  const key = autoAcceptAllBookingKey(teamId, ruleId, bookingId);
   if (autoAcceptAllBookingKeys.has(key)) return false;
-
-  autoAcceptAllBookingKeys.add(key);
-  autoAcceptAllBookingKeyOrder.push(key);
-  while (autoAcceptAllBookingKeyOrder.length > MAX_ACCEPTED_REQUEST_KEYS) {
-    const oldest = autoAcceptAllBookingKeyOrder.shift();
-    if (oldest) autoAcceptAllBookingKeys.delete(oldest);
-  }
+  addBoundedKey(autoAcceptAllBookingKeys, key);
   return true;
 }
 
-function releaseAutoAcceptRequest(bookingId: number, requestId: number): void {
-  autoAcceptRequestKeys.delete(autoAcceptRequestKey(bookingId, requestId));
+export function releaseAutoAcceptRequest(bookingId: number, requestId: number, teamId = 1): void {
+  autoAcceptRequestKeys.delete(autoAcceptRequestKey(teamId, bookingId, requestId));
 }
 
-function releaseAutoAcceptAllBooking(ruleId: string, bookingId: number): void {
-  autoAcceptAllBookingKeys.delete(autoAcceptAllBookingKey(ruleId, bookingId));
+function releaseAutoAcceptAllBooking(teamId: number, ruleId: string, bookingId: number): void {
+  autoAcceptAllBookingKeys.delete(autoAcceptAllBookingKey(teamId, ruleId, bookingId));
 }
 
 function runDetached(label: string, promise: Promise<unknown>): void {
@@ -918,9 +906,9 @@ export async function recoverAutoAcceptPreparations(apiClient: ApiClient, teamId
       getAutoAcceptVerificationRunner(apiClient, options).adopt(record);
     } else {
       options.needBudget?.trackVerification(job.ruleId, job.traceId, 0);
-      for (const requestId of job.requestIds) releaseAutoAcceptRequest(job.bookingId, requestId);
+      for (const requestId of job.requestIds) releaseAutoAcceptRequest(job.bookingId, requestId, job.teamId);
       if (job.acceptAll) {
-        releaseAutoAcceptAllBooking(job.ruleId, job.bookingId);
+        releaseAutoAcceptAllBooking(job.teamId, job.ruleId, job.bookingId);
         options.onRetryableBooking?.(job.ruleId, job.bookingId);
       }
     }
@@ -955,16 +943,16 @@ export function getAutoAcceptVerificationRunner(apiClient: ApiClient, options: R
       const newlyFailed = new Set(failedIds);
       const retryable = record.notifications.flatMap(notification => notification.outcome.requests)
         .filter(request => newlyFailed.has(request.requestId) && request.releaseRequestDedupe);
-      for (const request of retryable) releaseAutoAcceptRequest(record.job.bookingId, request.requestId);
+      for (const request of retryable) releaseAutoAcceptRequest(record.job.bookingId, request.requestId, record.job.teamId);
       if (record.job.acceptAll && retryable.length > 0 && verificationHoldCount(record) === 0) {
-        releaseAutoAcceptAllBooking(record.job.ruleId, record.job.bookingId);
+        releaseAutoAcceptAllBooking(record.job.teamId, record.job.ruleId, record.job.bookingId);
         options.onRetryableBooking?.(record.job.ruleId, record.job.bookingId);
       }
       if (record.job.discovery && record.job.requestIds.length === 0 && !record.job.ambiguousAccept
         && !record.job.acceptResult.ok && verificationHoldCount(record) === 0) {
         options.onRetryableBooking?.(record.job.ruleId, record.job.bookingId);
       }
-      for (const id of acceptedIds) rememberAcceptedRequest(record.job.ruleId, id);
+      for (const id of acceptedIds) rememberAcceptedRequest(record.job.teamId, record.job.ruleId, id);
       for (const _id of acceptedIds) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(true);
       for (const _id of failedIds) (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordAutoAccept(false);
       if (acceptedIds.length > 0) {
@@ -1106,8 +1094,9 @@ async function sendDetachedAutoAcceptFailureAlert(
   for (const [key, sentAt] of failureAlertLastSentByBooking) {
     if (alertNow - sentAt >= FAILURE_ALERT_THROTTLE_MS) failureAlertLastSentByBooking.delete(key);
   }
+  const alertTeamId = context?.teamId ?? 1;
   const failureAlertKey = (f: AutoAcceptResult["failed"][number]): string =>
-    `${f.bookingId}:${[...f.requestIds].sort((a, b) => a - b).join(",")}`;
+    `${alertTeamId}:${f.bookingId}:${[...f.requestIds].sort((a, b) => a - b).join(",")}`;
   const failedToAlert = failures.filter((f) => !failureAlertLastSentByBooking.has(failureAlertKey(f)));
   if (failedToAlert.length === 0) return;
 
@@ -1181,6 +1170,7 @@ function selectAutoAcceptRequests(
   runner?: AutoAcceptVerificationRunner,
   ownedKeys: Set<string> = new Set(),
 ): { selected: SelectedAutoAcceptRequest[]; claimToken: ClaimToken; reservationCount: number } {
+  const teamId = options.teamId ?? 1;
   const candidates: SelectedAutoAcceptRequest[] = [];
 
   for (const trip of match.trips) {
@@ -1192,7 +1182,7 @@ function selectAutoAcceptRequests(
       continue;
     }
 
-    if (acceptedRequestKeys.has(acceptedRequestKey(match.ruleId, requestId))) continue;
+    if (acceptedRequestKeys.has(acceptedRequestKey(teamId, match.ruleId, requestId))) continue;
     if (ownedKeys.has(`${bookingId}:${requestId}`)) continue;
     if (runner?.hasPending(bookingId, match.acceptAll ? undefined : requestId)) continue;
     candidates.push({ trip, bookingId, requestId });
@@ -1212,13 +1202,13 @@ function selectAutoAcceptRequests(
     if (selected.length >= Math.min(limit, reserveWholeRule ? 1 : limit)) break;
     if (match.acceptAll) {
       if (selectedAcceptAllBookings.has(candidate.bookingId)) continue;
-      if (!claimAutoAcceptAllBooking(match.ruleId, candidate.bookingId)) continue;
+      if (!claimAutoAcceptAllBooking(teamId, match.ruleId, candidate.bookingId)) continue;
       selectedAcceptAllBookings.add(candidate.bookingId);
     }
-    if (claimAutoAcceptRequest(candidate.bookingId, candidate.requestId)) {
+    if (claimAutoAcceptRequest(candidate.bookingId, candidate.requestId, teamId)) {
       selected.push(candidate);
     } else if (match.acceptAll) {
-      releaseAutoAcceptAllBooking(match.ruleId, candidate.bookingId);
+      releaseAutoAcceptAllBooking(teamId, match.ruleId, candidate.bookingId);
       selectedAcceptAllBookings.delete(candidate.bookingId);
     }
   }
@@ -1502,6 +1492,7 @@ async function acceptAutoAcceptMatch(
     };
   }));
 
+  const matchTeamId = options.teamId ?? 1;
   for (const { bookingId, entry, requestIds, result, verifiedAcceptedIds, verifiedFailedIds, deferredIds, verificationRan, canonicalFailureFactsAllowed, detachedQueued, detachedAcceptClean, traceId, acceptRttMs } of acceptResults) {
     if (detachedQueued) {
       pendingVerification += requestIds.length;
@@ -1516,13 +1507,13 @@ async function acceptAutoAcceptMatch(
         const requestId = typeof trip.request_id === "number" ? trip.request_id : 0;
         if (requestId > 0 && verifiedAcceptedIds.includes(requestId)) {
           accepted.push({ trip, bookingId, requestId, traceId });
-          rememberAcceptedRequest(entry.ruleId, requestId);
+          rememberAcceptedRequest(matchTeamId, entry.ruleId, requestId);
         }
       }
       acceptedProgress.push({ ruleId: entry.ruleId, acceptedCount: verifiedAcceptedIds.length });
       for (const requestId of verifiedAcceptedIds) {
         await recordAutoAcceptResultSafely({
-          teamId: options.teamId ?? 1,
+          teamId: matchTeamId,
           bookingId,
           requestId,
           traceId,
@@ -1538,7 +1529,7 @@ async function acceptAutoAcceptMatch(
           },
         });
       }
-      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
+      historyWrites.push(() => insertAutoAcceptHistory(matchTeamId, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -1557,9 +1548,9 @@ async function acceptAutoAcceptMatch(
 
     if (verifiedFailedIds.length > 0) {
       for (const requestId of verifiedFailedIds) {
-        releaseAutoAcceptRequest(bookingId, requestId);
+        releaseAutoAcceptRequest(bookingId, requestId, matchTeamId);
       }
-      if (match.acceptAll) releaseAutoAcceptAllBooking(entry.ruleId, bookingId);
+      if (match.acceptAll) releaseAutoAcceptAllBooking(matchTeamId, entry.ruleId, bookingId);
       options.needBudget?.release(entry.ruleId, claimToken, verifiedFailedIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds: verifiedFailedIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds: verifiedFailedIds, error: result.error || "Unknown error" });
@@ -1568,7 +1559,7 @@ async function acceptAutoAcceptMatch(
       if (canonicalFailureFactsAllowed) {
         for (const requestId of verifiedFailedIds) {
           await recordAutoAcceptResultSafely({
-            teamId: options.teamId ?? 1,
+            teamId: matchTeamId,
             bookingId,
             requestId,
             traceId,
@@ -1586,7 +1577,7 @@ async function acceptAutoAcceptMatch(
           });
         }
       }
-      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
+      historyWrites.push(() => insertAutoAcceptHistory(matchTeamId, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -1606,9 +1597,9 @@ async function acceptAutoAcceptMatch(
 
     if (deferredIds.length > 0) {
       for (const requestId of deferredIds) {
-        releaseAutoAcceptRequest(bookingId, requestId);
+        releaseAutoAcceptRequest(bookingId, requestId, matchTeamId);
       }
-      if (match.acceptAll) releaseAutoAcceptAllBooking(entry.ruleId, bookingId);
+      if (match.acceptAll) releaseAutoAcceptAllBooking(matchTeamId, entry.ruleId, bookingId);
       deferredRequests += deferredIds.length;
       logger.warn("auto-accept-deferred-unverified", { bookingId, requestIds: deferredIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
     }
@@ -1617,9 +1608,9 @@ async function acceptAutoAcceptMatch(
       // Verification actually ran and confirmed the requests are absent —
       // treat the original batch as fully failed.
       for (const requestId of requestIds) {
-        releaseAutoAcceptRequest(bookingId, requestId);
+        releaseAutoAcceptRequest(bookingId, requestId, matchTeamId);
       }
-      if (match.acceptAll) releaseAutoAcceptAllBooking(entry.ruleId, bookingId);
+      if (match.acceptAll) releaseAutoAcceptAllBooking(matchTeamId, entry.ruleId, bookingId);
       options.needBudget?.release(entry.ruleId, claimToken, requestIds.length);
       logger.error("auto-accept-failed", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
       failed.push({ bookingId, requestIds, error: result.error || "Unknown error" });
@@ -1628,7 +1619,7 @@ async function acceptAutoAcceptMatch(
       if (canonicalFailureFactsAllowed) {
         for (const requestId of requestIds) {
           await recordAutoAcceptResultSafely({
-            teamId: options.teamId ?? 1,
+            teamId: matchTeamId,
             bookingId,
             requestId,
             traceId,
@@ -1646,7 +1637,7 @@ async function acceptAutoAcceptMatch(
           });
         }
       }
-      historyWrites.push(() => insertAutoAcceptHistory(options.teamId ?? 1, {
+      historyWrites.push(() => insertAutoAcceptHistory(matchTeamId, {
         ruleId: entry.ruleId,
         ruleName: entry.ruleName,
         bookingId,
@@ -1671,9 +1662,9 @@ async function acceptAutoAcceptMatch(
       // never be reconciled), so holding the slot until the claim TTL biases
       // toward under-accepting instead of overshooting the operator's quota.
       for (const requestId of requestIds) {
-        releaseAutoAcceptRequest(bookingId, requestId);
+        releaseAutoAcceptRequest(bookingId, requestId, matchTeamId);
       }
-      if (match.acceptAll) releaseAutoAcceptAllBooking(entry.ruleId, bookingId);
+      if (match.acceptAll) releaseAutoAcceptAllBooking(matchTeamId, entry.ruleId, bookingId);
       deferredRequests += requestIds.length;
       logger.warn("auto-accept-deferred-unverified", { bookingId, requestIds, ruleId: entry.ruleId, error: result.error, httpStatus: result.httpStatus });
     }
@@ -1795,8 +1786,9 @@ export async function acceptAndNotifyMatchedRules(
   for (const [key, sentAt] of failureAlertLastSentByBooking) {
     if (alertNow - sentAt >= FAILURE_ALERT_THROTTLE_MS) failureAlertLastSentByBooking.delete(key);
   }
+  const alertTeamId = options.notificationContext?.teamId ?? teamId;
   const failureAlertKey = (f: AutoAcceptResult["failed"][number]): string =>
-    `${f.bookingId}:${[...f.requestIds].sort((a, b) => a - b).join(",")}`;
+    `${alertTeamId}:${f.bookingId}:${[...f.requestIds].sort((a, b) => a - b).join(",")}`;
   const failedToAlert = failed.filter((f) => !failureAlertLastSentByBooking.has(failureAlertKey(f)));
   const alertKeys = failedToAlert.map(failureAlertKey);
   for (const key of alertKeys) failureAlertLastSentByBooking.set(key, alertNow);
