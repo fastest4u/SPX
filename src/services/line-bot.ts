@@ -12,7 +12,7 @@
  * of touching @evex/linejs directly.
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -41,15 +41,16 @@ type LineJsGroupSharedKey = {
   creatorKeyId: number;
   receiver?: string;
   receiverKeyId: number;
-  encryptedSharedKey: Buffer | Uint8Array | string;
+  encryptedSharedKey?: Buffer | Uint8Array | string;
   allowedTypes?: number[];
   specVersion?: number;
 };
 
-type LineJsStorageLike = {
+export type LineJsStorageLike = {
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<void>;
   delete?(key: string): Promise<void>;
+  getAll?(): Promise<Record<string, unknown>> | Record<string, unknown>;
 };
 
 type LineJsE2EELike = {
@@ -79,7 +80,7 @@ type LineJsE2EELike = {
     privK: Buffer,
     pubK: Buffer,
     specVersion?: number,
-    contentType?: number,
+    contentType?: number | string,
   ): Record<string, unknown>;
   encryptE2EEMessage(
     to: string,
@@ -107,9 +108,14 @@ type LineJsClient = {
       getChats(args: {
         chatMids: string[];
       }): Promise<{ chats: Array<{ chatMid: string; chatName: string }> }>;
+      getE2EEPublicKey?(args: {
+        mid: string;
+        keyVersion: number;
+        keyId: number;
+      }): Promise<{ version?: number; keyId: number; keyData: Buffer | Uint8Array | string }>;
       getLastE2EEPublicKeys?(args: {
         chatMid: string;
-      }): Promise<Record<string, { keyId: number; keyData: Buffer | Uint8Array }>>;
+      }): Promise<Record<string, { keyId: number; keyData: Buffer | Uint8Array | string }>>;
       registerE2EEGroupKey?(args: {
         keyVersion: number;
         chatMid: string;
@@ -129,7 +135,7 @@ type LineJsClient = {
     };
     profile?: { displayName?: string; mid?: string; statusMessage?: string };
     storage?: LineJsStorageLike;
-    getToType?(mid: string): number | undefined;
+    getToType?(mid: string): number | null | undefined;
     e2ee?: LineJsE2EELike;
   };
   profile?: { displayName?: string; mid?: string; statusMessage?: string };
@@ -373,6 +379,34 @@ async function hasStoredE2EEKeys(): Promise<boolean> {
 
 const CURVE25519_P = (1n << 255n) - 19n;
 const CURVE25519_A24 = 121665n;
+const ZERO_32_BYTES = Buffer.alloc(32, 0);
+const MAX_HISTORICAL_GROUP_KEYS = 256;
+const MAX_DEDUPLICATED_UNCLAMPED_KEYS = 500;
+const LINE_CONTENT_TYPE_IDS: Record<string, number> = {
+  NONE: 0,
+  IMAGE: 1,
+  VIDEO: 2,
+  AUDIO: 3,
+  HTML: 4,
+  PDF: 5,
+  CALL: 6,
+  STICKER: 7,
+  PRESENCE: 8,
+  GIFT: 9,
+  GROUPBOARD: 10,
+  APPLINK: 11,
+  LINK: 12,
+  CONTACT: 13,
+  FILE: 14,
+  LOCATION: 15,
+  POSTNOTIFICATION: 16,
+  RICH: 17,
+  CHATEVENT: 18,
+  MUSIC: 19,
+  PAYMENT: 20,
+  EXTIMAGE: 21,
+  FLEX: 22,
+};
 const hardenedE2EEInstances = new WeakSet<object>();
 
 function modCurve25519(value: bigint): bigint {
@@ -417,6 +451,72 @@ function byte2intBE(bytes: Uint8Array): number {
     result = 256 * result + bytes[i]!;
   }
   return result;
+}
+
+function normalizeE2EEContentType(contentType: unknown): number {
+  if (typeof contentType === "number" && Number.isFinite(contentType)) {
+    return Math.trunc(contentType);
+  }
+  if (typeof contentType === "string") {
+    const trimmed = contentType.trim();
+    if (/^-?\d+$/.test(trimmed)) {
+      return Number.parseInt(trimmed, 10);
+    }
+    const mapped = LINE_CONTENT_TYPE_IDS[trimmed.toUpperCase()];
+    if (mapped !== undefined) {
+      return mapped;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Losslessly decode a Thrift binary field returned by @evex/linejs.
+ * @evex/linejs `readValue` converts Thrift `STRING`/`BINARY` buffers that happen
+ * to be valid UTF-8 via `bin.toString()` (UTF-8), so `Buffer.from(val, "utf-8")`
+ * restores the exact original bytes without latin1 truncation.
+ */
+function toThriftBytes(value: unknown): Buffer {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value);
+  }
+  if (typeof value === "string") {
+    return Buffer.from(value, "utf-8");
+  }
+  if (Array.isArray(value)) {
+    return Buffer.from(value);
+  }
+  if (
+    value &&
+    typeof value === "object" &&
+    "data" in value &&
+    Array.isArray((value as { data: unknown }).data)
+  ) {
+    return Buffer.from((value as { data: number[] }).data);
+  }
+  throw new TypeError("Unsupported Thrift binary field value");
+}
+
+/**
+ * Return true iff u (masked to 255 bits) is a low-order point on Curve25519 or
+ * its quadratic twist (i.e. [8]P = O, projective Z_8 === 0 mod 2^255-19).
+ */
+function isLowOrderCurve25519U(uRaw: bigint): boolean {
+  let x = modCurve25519(uRaw);
+  let z = 1n;
+  for (let i = 0; i < 3; i += 1) {
+    const a = modCurve25519(x + z);
+    const aa = modCurve25519(a * a);
+    const b = modCurve25519(x - z);
+    const bb = modCurve25519(b * b);
+    const e = modCurve25519(aa - bb);
+    x = modCurve25519(aa * bb);
+    z = modCurve25519(e * modCurve25519(aa + modCurve25519(CURVE25519_A24 * e)));
+  }
+  return z === 0n;
 }
 
 function parseStoredJsonRecord(raw: unknown): Record<string, unknown> | null {
@@ -466,8 +566,9 @@ export function isClampedCurve25519Scalar(scalarBytes: Uint8Array): boolean {
 
 /**
  * Full 256-bit X25519 Montgomery ladder WITHOUT scalar bit-clamping.
- * Used as a read-only fallback to decrypt Official LINE messages sent under
- * legacy unclamped group keys (e.g. bit 255 = 1).
+ * Used for Official LINE group key compatibility when TalkServer retains a
+ * legacy unclamped group key (e.g. bit 255 = 1). Rejects RFC 7748 low-order
+ * public keys and all-zero shared secrets.
  */
 export function x25519Unclamped(scalarBytes: Uint8Array, pointBytes: Uint8Array): Buffer {
   if (scalarBytes.byteLength !== 32 || pointBytes.byteLength !== 32) {
@@ -475,6 +576,9 @@ export function x25519Unclamped(scalarBytes: Uint8Array, pointBytes: Uint8Array)
   }
   const k = bytesToBigIntLE(scalarBytes);
   const u = bytesToBigIntLE(pointBytes) & ((1n << 255n) - 1n);
+  if (isLowOrderCurve25519U(u)) {
+    throw new Error("Invalid X25519 public key: low-order point");
+  }
   const x1 = u;
   let x2 = 1n;
   let z2 = 0n;
@@ -485,10 +589,13 @@ export function x25519Unclamped(scalarBytes: Uint8Array, pointBytes: Uint8Array)
   for (let t = 255; t >= 0; t -= 1) {
     const kt = (k >> BigInt(t)) & 1n;
     swap ^= kt;
-    if (swap === 1n) {
-      [x2, x3] = [x3, x2];
-      [z2, z3] = [z3, z2];
-    }
+    const mask = -swap;
+    const dx = mask & (x2 ^ x3);
+    x2 ^= dx;
+    x3 ^= dx;
+    const dz = mask & (z2 ^ z3);
+    z2 ^= dz;
+    z3 ^= dz;
     swap = kt;
 
     const a = modCurve25519(x2 + z2);
@@ -508,12 +615,19 @@ export function x25519Unclamped(scalarBytes: Uint8Array, pointBytes: Uint8Array)
     z2 = modCurve25519(e * modCurve25519(aa + modCurve25519(CURVE25519_A24 * e)));
   }
 
-  if (swap === 1n) {
-    [x2, x3] = [x3, x2];
-    [z2, z3] = [z3, z2];
-  }
+  const finalMask = -swap;
+  const finalDx = finalMask & (x2 ^ x3);
+  x2 ^= finalDx;
+  x3 ^= finalDx;
+  const finalDz = finalMask & (z2 ^ z3);
+  z2 ^= finalDz;
+  z3 ^= finalDz;
 
-  return bigIntToBytes32LE(modCurve25519(x2 * modPowCurve25519(z2, CURVE25519_P - 2n)));
+  const out = bigIntToBytes32LE(modCurve25519(x2 * modPowCurve25519(z2, CURVE25519_P - 2n)));
+  if (timingSafeEqual(out, ZERO_32_BYTES)) {
+    throw new Error("Invalid X25519 public key: low-order point");
+  }
+  return out;
 }
 
 /**
@@ -533,13 +647,62 @@ export function resolveClientSelfMid(
 }
 
 /**
- * Synchronize E2EE storage keys in linejs-storage.json.
+ * Synchronize E2EE storage keys in linejs-storage.json (or via a live BaseStorage
+ * instance so mutations serialize through FileStorage.writeLock).
  * Ensures the self mid mapping points to the latest registered keyId (supporting
  * both FileStorage JSON-string values and plain object values), and clears stale
  * group keys so fresh group sender keys are negotiated cleanly.
  */
-export async function syncE2EEStorageKeys(storagePath: string, selfMid?: string): Promise<void> {
+export async function syncE2EEStorageKeys(
+  storagePath: string,
+  selfMid?: string,
+  storage?: LineJsStorageLike,
+): Promise<void> {
   try {
+    if (storage && typeof storage.getAll === "function" && typeof storage.delete === "function") {
+      const data = (await storage.getAll()) ?? {};
+      const keyEntries = Object.keys(data)
+        .filter((k) => /^e2eeKeys:\d+$/.test(k))
+        .map((k) => ({
+          key: k,
+          keyId: Number(k.replace("e2eeKeys:", "")),
+          value: data[k],
+          parsed: parseStoredJsonRecord(data[k]),
+        }))
+        .filter(
+          (entry) =>
+            Number.isFinite(entry.keyId) &&
+            typeof entry.parsed?.privKey === "string" &&
+            entry.parsed.privKey.length > 0,
+        )
+        .sort((a, b) => b.keyId - a.keyId);
+
+      if (selfMid && keyEntries.length > 0) {
+        const newestKey = keyEntries[0]!;
+        const selfKeyProp = `e2eeKeys:${selfMid}`;
+        const currentSelfKey = parseStoredJsonRecord(data[selfKeyProp]);
+        if (!currentSelfKey || String(currentSelfKey.keyId) !== String(newestKey.keyId)) {
+          logger.info("line-bot-sync-e2ee-self-key", {
+            oldKeyId: currentSelfKey?.keyId,
+            newKeyId: newestKey.keyId,
+          });
+          await storage.set(selfKeyProp, newestKey.value);
+        }
+      }
+
+      let clearedGroupKeys = 0;
+      for (const k of Object.keys(data)) {
+        if (k.startsWith("e2eeGroupKeys:")) {
+          await storage.delete(k);
+          clearedGroupKeys++;
+        }
+      }
+      if (clearedGroupKeys > 0) {
+        logger.info("line-bot-cleared-stale-group-keys", { count: clearedGroupKeys });
+      }
+      return;
+    }
+
     if (!existsSync(storagePath)) return;
     const raw = await readFile(storagePath, "utf-8");
     const data = JSON.parse(raw) as Record<string, unknown>;
@@ -550,8 +713,14 @@ export async function syncE2EEStorageKeys(storagePath: string, selfMid?: string)
         key: k,
         keyId: Number(k.replace("e2eeKeys:", "")),
         value: data[k],
+        parsed: parseStoredJsonRecord(data[k]),
       }))
-      .filter((entry) => Number.isFinite(entry.keyId))
+      .filter(
+        (entry) =>
+          Number.isFinite(entry.keyId) &&
+          typeof entry.parsed?.privKey === "string" &&
+          entry.parsed.privKey.length > 0,
+      )
       .sort((a, b) => b.keyId - a.keyId);
 
     let changed = false;
@@ -594,11 +763,13 @@ export async function syncE2EEStorageKeys(storagePath: string, selfMid?: string)
 
 /**
  * Harden @evex/linejs E2EE runtime on an authenticated client:
- *   1. Clamps newly generated Curve25519 group private keys in `tryRegisterE2EEGroupKey`.
+ *   1. Clamps newly generated Curve25519 group private keys in `tryRegisterE2EEGroupKey`
+ *      and rejects RFC 7748 low-order / all-zero Curve25519 public keys across ECDH.
  *   2. Auto-rotates unclamped latest group keys before encrypting outgoing group messages,
- *      and fetches exact historical `groupKeyId` via `getE2EEGroupSharedKey` on key mismatch.
- *   3. Falls back to 256-bit unclamped X25519 when decrypting V2 messages encrypted by
- *      Official LINE clients under legacy unclamped group keys.
+ *      handles TalkServer deduplication without storage poisoning, and fetches exact
+ *      historical group/peer keys (`getE2EEGroupSharedKey` / `getE2EEPublicKey`).
+ *   3. Falls back to 256-bit unclamped X25519 when encrypting/decrypting V2 group messages
+ *      under deduplicated legacy unclamped group keys.
  *   4. Guards `decryptE2EEMessage` so malformed/undecryptable messages log a warning
  *      instead of crashing `Client.listen()` with an unhandled rejection.
  */
@@ -616,10 +787,62 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
   const origDecryptV2 = e2ee.decryptE2EEMessageV2.bind(e2ee);
   const origDecryptMessage = e2ee.decryptE2EEMessage.bind(e2ee);
   const deduplicatedUnclampedKeys = new Set<string>();
+  const historicalGroupKeyCache = new Map<string, { privKey: string; keyId: number }>();
+
+  const rememberDeduplicatedUnclampedKey = (signature: string): void => {
+    if (
+      !deduplicatedUnclampedKeys.has(signature) &&
+      deduplicatedUnclampedKeys.size >= MAX_DEDUPLICATED_UNCLAMPED_KEYS
+    ) {
+      const oldest = deduplicatedUnclampedKeys.values().next().value;
+      if (oldest !== undefined) {
+        deduplicatedUnclampedKeys.delete(oldest);
+      }
+    }
+    deduplicatedUnclampedKeys.add(signature);
+  };
+
+  const rememberHistoricalGroupKey = (
+    chatMid: string,
+    record: { privKey: string; keyId: number },
+  ): void => {
+    const cacheKey = `${chatMid}:${record.keyId}`;
+    if (historicalGroupKeyCache.has(cacheKey)) {
+      historicalGroupKeyCache.delete(cacheKey);
+    } else if (historicalGroupKeyCache.size >= MAX_HISTORICAL_GROUP_KEYS) {
+      const oldest = historicalGroupKeyCache.keys().next().value;
+      if (oldest !== undefined) {
+        historicalGroupKeyCache.delete(oldest);
+      }
+    }
+    historicalGroupKeyCache.set(cacheKey, record);
+  };
+
+  const safeGenerateSharedSecret = (privateKey: Buffer, publicKey: Buffer): Uint8Array => {
+    const privBuf = toThriftBytes(privateKey);
+    const pubBuf = toThriftBytes(publicKey);
+    if (privBuf.byteLength !== 32 || pubBuf.byteLength !== 32) {
+      throw new RangeError("Curve25519 ECDH requires 32-byte private and public keys");
+    }
+    const u = bytesToBigIntLE(pubBuf) & ((1n << 255n) - 1n);
+    if (isLowOrderCurve25519U(u)) {
+      throw new Error("Invalid X25519 public key: low-order point");
+    }
+    const secret = origGenerateSharedSecret(privBuf, pubBuf);
+    const secretBuf = Buffer.from(secret);
+    if (secretBuf.byteLength !== 32 || timingSafeEqual(secretBuf, ZERO_32_BYTES)) {
+      throw new Error("Invalid X25519 public key: low-order point");
+    }
+    return secret;
+  };
+  e2ee.generateSharedSecret = safeGenerateSharedSecret;
 
   const decryptGroupSharedKey = async (
     sharedKey: LineJsGroupSharedKey,
   ): Promise<{ privKeyBuf: Buffer; record: { privKey: string; keyId: number } }> => {
+    if (sharedKey.encryptedSharedKey === undefined) {
+      throw new Error(`Missing encryptedSharedKey for groupKeyId=${sharedKey.groupKeyId}`);
+    }
     const selfKeyData = await e2ee.getE2EESelfKeyDataByKeyId(sharedKey.receiverKeyId);
     if (!selfKeyData?.privKey) {
       throw new Error(`E2EE Key has not been saved for keyId=${sharedKey.receiverKeyId}`);
@@ -632,10 +855,7 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
     const secret = e2ee.generateSharedSecret(selfPriv, creatorPub);
     const aesKey = e2ee.getSHA256Sum(Buffer.from(secret), "Key");
     const aesIv = e2ee.xor(e2ee.getSHA256Sum(Buffer.from(secret), "IV"));
-    const encryptedBuf =
-      typeof sharedKey.encryptedSharedKey === "string"
-        ? Buffer.from(sharedKey.encryptedSharedKey, "binary")
-        : Buffer.from(sharedKey.encryptedSharedKey);
+    const encryptedBuf = toThriftBytes(sharedKey.encryptedSharedKey);
     const decipher = createDecipheriv("aes-256-cbc", aesKey, aesIv);
     const plain = Buffer.concat([decipher.update(encryptedBuf), decipher.final()]);
     return {
@@ -679,7 +899,17 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
       const memberKey = e2eePublicKeys[mid]!;
       members.push(mid);
       keyIds.push(memberKey.keyId);
-      const sharedSecret = e2ee.generateSharedSecret(selfPriv, Buffer.from(memberKey.keyData));
+      const memberPubBuf = toThriftBytes(memberKey.keyData);
+      if (baseClient.storage && memberPubBuf.byteLength === 32) {
+        const existingPub = await baseClient.storage.get(`e2eePublicKeys:${memberKey.keyId}`);
+        if (!existingPub) {
+          await baseClient.storage.set(
+            `e2eePublicKeys:${memberKey.keyId}`,
+            memberPubBuf.toString("base64"),
+          );
+        }
+      }
+      const sharedSecret = e2ee.generateSharedSecret(selfPriv, memberPubBuf);
       const aesKey = e2ee.getSHA256Sum(Buffer.from(sharedSecret), "Key");
       const aesIv = e2ee.xor(e2ee.getSHA256Sum(Buffer.from(sharedSecret), "IV"));
       const cipher = createCipheriv("aes-256-cbc", aesKey, aesIv);
@@ -697,21 +927,55 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
     });
 
     if (registered?.groupKeyId !== undefined && baseClient.storage) {
-      if (registered.encryptedSharedKey) {
+      let persistedRecord: { privKey: string; keyId: number } | null = null;
+      if (registered.encryptedSharedKey !== undefined) {
         const decryptedRegistered = await decryptGroupSharedKey(registered);
-        await baseClient.storage.set(
-          `e2eeGroupKeys:${chatMid}`,
-          JSON.stringify(decryptedRegistered.record),
-        );
+        persistedRecord = decryptedRegistered.record;
       } else {
-        await baseClient.storage.set(
-          `e2eeGroupKeys:${chatMid}`,
-          JSON.stringify({
+        // When TalkServer deduplicates registerE2EEGroupKey, encryptedSharedKey may be
+        // omitted from the response struct while retaining the existing server groupKeyId.
+        // Always prefer the authoritative server-stored shared key over the candidate key.
+        let serverShared: LineJsGroupSharedKey | undefined;
+        if (typeof baseClient.talk.getE2EEGroupSharedKey === "function") {
+          try {
+            serverShared = await baseClient.talk.getE2EEGroupSharedKey({
+              keyVersion: 2,
+              chatMid,
+              groupKeyId: registered.groupKeyId,
+            });
+          } catch {
+            serverShared = undefined;
+          }
+        }
+        if (
+          !serverShared?.encryptedSharedKey &&
+          typeof baseClient.talk.getLastE2EEGroupSharedKey === "function"
+        ) {
+          try {
+            const latest = await baseClient.talk.getLastE2EEGroupSharedKey({
+              keyVersion: 2,
+              chatMid,
+            });
+            if (latest?.groupKeyId === registered.groupKeyId) {
+              serverShared = latest;
+            }
+          } catch {
+            serverShared = undefined;
+          }
+        }
+        if (serverShared?.encryptedSharedKey !== undefined) {
+          const decryptedServer = await decryptGroupSharedKey(serverShared);
+          persistedRecord = decryptedServer.record;
+        } else {
+          persistedRecord = {
             privKey: clampedGroupPriv.toString("base64"),
             keyId: registered.groupKeyId,
-          }),
-        );
+          };
+        }
       }
+
+      rememberHistoricalGroupKey(chatMid, persistedRecord);
+      await baseClient.storage.set(`e2eeGroupKeys:${chatMid}`, JSON.stringify(persistedRecord));
     }
 
     logger.info("line-bot-e2ee-group-key-registered", {
@@ -728,9 +992,36 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
     keyId?: string | number,
   ): Promise<Buffer | { privKey: string; keyId: number }> => {
     const toType = baseClient.getToType?.(mid);
-    const isUserMid = toType === 0 || (toType === undefined && mid.startsWith("u"));
+    const isUserMid = toType === 0 || (toType == null && mid.startsWith("u"));
     if (isUserMid) {
-      return origGetLocalPublicKey(mid, keyId);
+      try {
+        const res = await origGetLocalPublicKey(mid, keyId);
+        return Buffer.isBuffer(res) ? res : toThriftBytes(res);
+      } catch (primaryUserKeyError) {
+        if (keyId === undefined || typeof baseClient.talk.getE2EEPublicKey !== "function") {
+          throw primaryUserKeyError;
+        }
+        const numericKeyId = Number(keyId);
+        if (!Number.isFinite(numericKeyId)) {
+          throw primaryUserKeyError;
+        }
+        const fetched = await baseClient.talk.getE2EEPublicKey({
+          mid,
+          keyVersion: 1,
+          keyId: numericKeyId,
+        });
+        if (fetched?.keyData === undefined) {
+          throw primaryUserKeyError;
+        }
+        const pubBuf = toThriftBytes(fetched.keyData);
+        if (pubBuf.byteLength !== 32) {
+          throw primaryUserKeyError;
+        }
+        if (baseClient.storage) {
+          await baseClient.storage.set(`e2eePublicKeys:${numericKeyId}`, pubBuf.toString("base64"));
+        }
+        return pubBuf;
+      }
     }
 
     if (!baseClient.storage || typeof baseClient.talk.getLastE2EEGroupSharedKey !== "function") {
@@ -748,6 +1039,11 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
         return { privKey: cachedPrivKey, keyId: targetKeyId };
       }
 
+      const memCached = historicalGroupKeyCache.get(`${mid}:${targetKeyId}`);
+      if (memCached) {
+        return memCached;
+      }
+
       const sharedKey =
         typeof baseClient.talk.getE2EEGroupSharedKey === "function"
           ? await baseClient.talk.getE2EEGroupSharedKey({
@@ -760,8 +1056,11 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
               chatMid: mid,
             });
       const { record } = await decryptGroupSharedKey(sharedKey);
+      rememberHistoricalGroupKey(mid, record);
       if (cachedKeyId === undefined || record.keyId >= cachedKeyId) {
-        await baseClient.storage.set(`e2eeGroupKeys:${mid}`, JSON.stringify(record));
+        if (cachedKeyId !== record.keyId || cachedPrivKey !== record.privKey) {
+          await baseClient.storage.set(`e2eeGroupKeys:${mid}`, JSON.stringify(record));
+        }
       }
       return record;
     }
@@ -782,7 +1081,34 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
       }
     }
 
-    const { privKeyBuf, record } = await decryptGroupSharedKey(latestSharedKey);
+    if (latestSharedKey.encryptedSharedKey === undefined) {
+      const postRegisterCached = parseStoredJsonRecord(
+        await baseClient.storage.get(`e2eeGroupKeys:${mid}`),
+      );
+      if (
+        typeof postRegisterCached?.privKey === "string" &&
+        postRegisterCached.keyId !== undefined
+      ) {
+        const recovered = {
+          privKey: postRegisterCached.privKey,
+          keyId: Number(postRegisterCached.keyId),
+        };
+        rememberHistoricalGroupKey(mid, recovered);
+        return recovered;
+      }
+    }
+
+    const cachedPrivBuf = cachedPrivKey ? Buffer.from(cachedPrivKey, "base64") : null;
+    const { privKeyBuf, record } =
+      cachedPrivKey &&
+      cachedPrivBuf?.byteLength === 32 &&
+      cachedKeyId === latestSharedKey.groupKeyId
+        ? {
+            privKeyBuf: cachedPrivBuf,
+            record: { privKey: cachedPrivKey, keyId: cachedKeyId },
+          }
+        : await decryptGroupSharedKey(latestSharedKey);
+    rememberHistoricalGroupKey(mid, record);
     const dedupSignature = `${mid}:${record.keyId}`;
     if (!isClampedCurve25519Scalar(privKeyBuf) && !deduplicatedUnclampedKeys.has(dedupSignature)) {
       logger.warn("line-bot-e2ee-rotating-unclamped-group-key", {
@@ -791,10 +1117,14 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
       });
       const rotated = await e2ee.tryRegisterE2EEGroupKey(mid);
       if (rotated?.groupKeyId === record.keyId) {
-        deduplicatedUnclampedKeys.add(dedupSignature);
+        rememberDeduplicatedUnclampedKey(dedupSignature);
+        rememberHistoricalGroupKey(mid, record);
+        await baseClient.storage.set(`e2eeGroupKeys:${mid}`, JSON.stringify(record));
+        return record;
       }
-      if (rotated?.encryptedSharedKey) {
+      if (rotated?.encryptedSharedKey !== undefined) {
         const decryptedRotated = await decryptGroupSharedKey(rotated);
+        rememberHistoricalGroupKey(mid, decryptedRotated.record);
         await baseClient.storage.set(
           `e2eeGroupKeys:${mid}`,
           JSON.stringify(decryptedRotated.record),
@@ -805,14 +1135,18 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
         await baseClient.storage.get(`e2eeGroupKeys:${mid}`),
       );
       if (typeof postRotateCached?.privKey === "string" && postRotateCached.keyId !== undefined) {
-        return {
+        const resolvedRotated = {
           privKey: postRotateCached.privKey,
           keyId: Number(postRotateCached.keyId),
         };
+        rememberHistoricalGroupKey(mid, resolvedRotated);
+        return resolvedRotated;
       }
     }
 
-    await baseClient.storage.set(`e2eeGroupKeys:${mid}`, JSON.stringify(record));
+    if (cachedKeyId !== record.keyId || cachedPrivKey !== record.privKey) {
+      await baseClient.storage.set(`e2eeGroupKeys:${mid}`, JSON.stringify(record));
+    }
     return record;
   };
 
@@ -823,7 +1157,7 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
     specVersion?: number,
   ): Promise<Buffer[]> => {
     const toType = baseClient.getToType?.(to);
-    const isUserMid = toType === 0 || (toType === undefined && to.startsWith("u"));
+    const isUserMid = toType === 0 || (toType == null && to.startsWith("u"));
     if (isUserMid) {
       return origEncryptMessage(to, data, contentType, specVersion);
     }
@@ -835,7 +1169,7 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
       generateSharedSecret: {
         value: (privateKey: Buffer, publicKey: Buffer): Uint8Array =>
           isClampedCurve25519Scalar(privateKey)
-            ? origGenerateSharedSecret(privateKey, publicKey)
+            ? safeGenerateSharedSecret(privateKey, publicKey)
             : x25519Unclamped(privateKey, publicKey),
       },
     }) as LineJsE2EELike;
@@ -850,27 +1184,52 @@ export function installLineClientE2EEHardening(c: LineJsClient): void {
     privK: Buffer,
     pubK: Buffer,
     specVersion = 2,
-    contentType = 0,
+    contentType: number | string = 0,
   ): Record<string, unknown> => {
+    const normalizedContentType = normalizeE2EEContentType(contentType);
     try {
-      return origDecryptV2(to, from, chunks, privK, pubK, specVersion, contentType);
+      return origDecryptV2(to, from, chunks, privK, pubK, specVersion, normalizedContentType);
     } catch (primaryError) {
-      if (privK.byteLength !== 32 || isClampedCurve25519Scalar(privK)) {
+      if (
+        !Buffer.isBuffer(privK) ||
+        privK.byteLength !== 32 ||
+        isClampedCurve25519Scalar(privK) ||
+        !Array.isArray(chunks) ||
+        chunks.length < 5
+      ) {
         throw primaryError;
       }
 
-      const salt = chunks[0]!;
-      const message = chunks[1]!;
-      const ciphertext = message.subarray(0, -16);
-      const tag = message.subarray(-16);
-      const nonce = chunks[2]!;
-      const senderKeyId = byte2intBE(chunks[3]!);
-      const receiverKeyId = byte2intBE(chunks[4]!);
-      const unclampedSecret = x25519Unclamped(privK, pubK);
-      const gcmKey = e2ee.getSHA256Sum(unclampedSecret, salt, "Key");
-      const aad = e2ee.generateAAD(to, from, senderKeyId, receiverKeyId, specVersion, contentType);
-
       try {
+        const salt = toThriftBytes(chunks[0]);
+        const message = toThriftBytes(chunks[1]);
+        const nonce = toThriftBytes(chunks[2]);
+        const senderKeyBytes = toThriftBytes(chunks[3]);
+        const receiverKeyBytes = toThriftBytes(chunks[4]);
+        const pubBuf = toThriftBytes(pubK);
+        if (
+          message.byteLength < 16 ||
+          nonce.byteLength !== 12 ||
+          pubBuf.byteLength !== 32 ||
+          senderKeyBytes.byteLength === 0 ||
+          receiverKeyBytes.byteLength === 0
+        ) {
+          throw primaryError;
+        }
+        const ciphertext = message.subarray(0, -16);
+        const tag = message.subarray(-16);
+        const senderKeyId = byte2intBE(senderKeyBytes);
+        const receiverKeyId = byte2intBE(receiverKeyBytes);
+        const unclampedSecret = x25519Unclamped(privK, pubBuf);
+        const gcmKey = e2ee.getSHA256Sum(unclampedSecret, salt, "Key");
+        const aad = e2ee.generateAAD(
+          to,
+          from,
+          senderKeyId,
+          receiverKeyId,
+          specVersion,
+          normalizedContentType,
+        );
         const decipher = createDecipheriv("aes-256-gcm", gcmKey, nonce);
         decipher.setAuthTag(tag);
         decipher.setAAD(aad);
@@ -980,13 +1339,18 @@ export async function getClient(): Promise<LineJsClient> {
       const storedToken = await readStoredAuthToken();
       if (storedToken) {
         try {
+          const fileStorage = new FileStorage(storagePath) as LineJsStorageLike;
           const c = await linejs.loginWithAuthToken(storedToken.token, {
             device: storedToken.device,
-            storage: new FileStorage(storagePath),
+            storage: fileStorage,
           });
-          client = c;
-          await syncE2EEStorageKeys(storagePath, resolveClientSelfMid(c));
           installLineClientE2EEHardening(c);
+          await syncE2EEStorageKeys(
+            storagePath,
+            resolveClientSelfMid(c),
+            c.base.storage ?? fileStorage,
+          );
+          client = c;
           attachImageListener(c);
           logger.info("line-bot-restored-from-token");
           return c;
@@ -998,6 +1362,7 @@ export async function getClient(): Promise<LineJsClient> {
       }
 
       // Fall back to QR login
+      const fileStorage = new FileStorage(storagePath) as LineJsStorageLike;
       const c = await linejs.loginWithQR(
         {
           onReceiveQRUrl(url: string) {
@@ -1013,16 +1378,20 @@ export async function getClient(): Promise<LineJsClient> {
         },
         {
           device: env.LINEJS_TEST_DEVICE,
-          storage: new FileStorage(storagePath),
+          storage: fileStorage,
         },
       );
 
-      client = c;
       currentQrUrl = "";
       currentPincode = "";
-      await saveAuthToken(c.authToken);
-      await syncE2EEStorageKeys(storagePath, resolveClientSelfMid(c));
       installLineClientE2EEHardening(c);
+      await saveAuthToken(c.authToken);
+      await syncE2EEStorageKeys(
+        storagePath,
+        resolveClientSelfMid(c),
+        c.base.storage ?? fileStorage,
+      );
+      client = c;
       attachImageListener(c);
       logger.info("line-bot-authenticated");
       return c;
@@ -1121,7 +1490,7 @@ export async function sendMessage(to: string, text: string): Promise<LineBotSend
         errMsg.includes("invalid sender key")
       ) {
         logger.warn("line-bot-e2ee-sender-key-outdated-retrying", { to, error: errMsg });
-        await syncE2EEStorageKeys(getStoragePath(), resolveClientSelfMid(c));
+        await syncE2EEStorageKeys(getStoragePath(), resolveClientSelfMid(c), c.base.storage);
         try {
           await c.base.talk.sendMessage({ to, text, e2ee: true });
         } catch (retryError: unknown) {
