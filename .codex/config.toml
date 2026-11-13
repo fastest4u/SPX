@@ -18,6 +18,7 @@ MEMORY_PROJECT_ROOT = "C:\\Users\\Server\\Desktop\\SPX"
 MEMORY_V2_VAULT_PATH = "C:\\Users\\Server\\Desktop\\SPX\\memory-v2"
 MEMORY_V1_ARCHIVE_PATH = "C:\\Users\\Server\\Desktop\\SPX\\memory"
 MEMORY_V2_RELEASE_ID = "5fae44bb-2cf3-4303-bb0c-4d6716e2c812"
+MEMORY_V2_AUTO_SYNC_BUILD = "1"
 
 [mcp_servers.project-memory.tools.memory_sessionStart]
 approval_mode = "approve"
