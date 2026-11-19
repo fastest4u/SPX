@@ -469,6 +469,7 @@ const NOTIFIER_RUNTIME_FIELDS = [
 const POSITIVE_INT_PATTERN = /^[1-9]\d*$/
 const DIGITS_ONLY_PATTERN = /^\d+$/
 const MAX_POLL_INTERVAL_MS = 2_147_483_647
+const MAX_TEAM_POLL_INTERVALS_JSON_LENGTH = 4000
 
 export function formatPollIntervalLabel(ms: number): string {
     if (!Number.isFinite(ms) || ms <= 0) return '-'
@@ -503,6 +504,7 @@ export function parseTeamPollIntervalDraft(raw: string | undefined): Record<numb
         for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
             if (!POSITIVE_INT_PATTERN.test(key)) continue
             const teamId = Number(key)
+            if (!Number.isSafeInteger(teamId) || teamId <= 0) continue
             if (typeof value === 'number' && Number.isFinite(value)) {
                 result[teamId] = String(value)
             } else if (typeof value === 'string') {
@@ -519,6 +521,8 @@ export function serializeTeamPollIntervalDraft(draft: Record<number, string>): s
     const entries: Array<[string, number | string]> = []
     for (const [key, rawValue] of Object.entries(draft)) {
         if (!POSITIVE_INT_PATTERN.test(key)) continue
+        const teamId = Number(key)
+        if (!Number.isSafeInteger(teamId) || teamId <= 0) continue
         const trimmed = rawValue.trim()
         if (trimmed === '') continue
         const parsed = parseStrictPositivePollIntervalMs(trimmed)
@@ -614,7 +618,12 @@ export function validateNumericFields(form: SettingsForm): {
                     errors.TEAM_POLL_INTERVALS_MS = 'ค่า poll interval ของบางทีมไม่ถูกต้อง (ต้องเป็นจำนวนเต็มบวก)'
                 } else {
                     const draft = parseTeamPollIntervalDraft(rawTeamIntervals)
-                    sanitized.TEAM_POLL_INTERVALS_MS = serializeTeamPollIntervalDraft(draft)
+                    const canonical = serializeTeamPollIntervalDraft(draft)
+                    if (canonical.length > MAX_TEAM_POLL_INTERVALS_JSON_LENGTH) {
+                        errors.TEAM_POLL_INTERVALS_MS = `ข้อมูล poll interval แยกทีมมีขนาดเกิน ${MAX_TEAM_POLL_INTERVALS_JSON_LENGTH} ตัวอักษร`
+                    } else {
+                        sanitized.TEAM_POLL_INTERVALS_MS = canonical
+                    }
                 }
             }
         } catch {
@@ -1290,6 +1299,7 @@ function TeamPollIntervalsEditor({
                                             size="sm"
                                             onClick={() => handleTeamChange(team.id, '')}
                                             title="กลับไปใช้ค่ากลาง"
+                                            aria-label={`รีเซ็ต poll interval ทีม ${team.name} กลับไปใช้ค่ากลาง`}
                                             className="h-8 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
                                         >
                                             <RotateCcw className="h-3.5 w-3.5" />

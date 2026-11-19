@@ -393,7 +393,89 @@ export async function readStoredSettings(): Promise<EnvSettings> {
 
 let settingsWriteGeneration = 0;
 let settingsWritesInFlight = 0;
+let writeSettingsQueue: Promise<void> = Promise.resolve();
 let reloadSettingsInFlight: Promise<void> | null = null;
+
+interface LiveSettingsSyncHandle {
+  intervalMs: number;
+  deps?: SettingsPersistenceDeps;
+}
+
+const activeLiveSettingsSyncHandles = new Set<LiveSettingsSyncHandle>();
+let sharedLiveSettingsSyncTimer: ReturnType<typeof setInterval> | null = null;
+let sharedLiveSettingsSyncIntervalMs: number | null = null;
+
+function reconcileSharedLiveSettingsSyncTimer(): void {
+  if (activeLiveSettingsSyncHandles.size === 0) {
+    if (sharedLiveSettingsSyncTimer) {
+      clearInterval(sharedLiveSettingsSyncTimer);
+      sharedLiveSettingsSyncTimer = null;
+      sharedLiveSettingsSyncIntervalMs = null;
+    }
+    return;
+  }
+
+  let minIntervalMs = Number.POSITIVE_INFINITY;
+  let selectedDeps: SettingsPersistenceDeps | undefined;
+  for (const handle of activeLiveSettingsSyncHandles) {
+    if (handle.intervalMs < minIntervalMs) {
+      minIntervalMs = handle.intervalMs;
+      selectedDeps = handle.deps;
+    } else if (selectedDeps === undefined && handle.deps !== undefined) {
+      selectedDeps = handle.deps;
+    }
+  }
+
+  if (sharedLiveSettingsSyncTimer && sharedLiveSettingsSyncIntervalMs === minIntervalMs) {
+    return;
+  }
+
+  if (sharedLiveSettingsSyncTimer) {
+    clearInterval(sharedLiveSettingsSyncTimer);
+  }
+  sharedLiveSettingsSyncIntervalMs = minIntervalMs;
+  sharedLiveSettingsSyncTimer = setInterval(() => {
+    let activeDeps: SettingsPersistenceDeps | undefined;
+    for (const handle of activeLiveSettingsSyncHandles) {
+      if (handle.deps !== undefined) {
+        activeDeps = handle.deps;
+        break;
+      }
+    }
+    void reloadSettingsLive(activeDeps ?? selectedDeps).catch(() => undefined);
+  }, minIntervalMs);
+  sharedLiveSettingsSyncTimer.unref?.();
+}
+
+/**
+ * Acquire a reference-counted, process-wide periodic live-settings sync timer.
+ * Multiple TeamRuntime instances in the same process share one DB reload timer,
+ * preventing N-times redundant `app_settings` queries and secret decryptions.
+ * Call the returned async release function on stop() to detach and drain cleanly.
+ */
+export function acquireLiveSettingsSync(
+  intervalMs: number,
+  deps?: SettingsPersistenceDeps,
+): () => Promise<void> {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return async () => undefined;
+  }
+
+  const handle: LiveSettingsSyncHandle = { intervalMs, deps };
+  activeLiveSettingsSyncHandles.add(handle);
+  reconcileSharedLiveSettingsSyncTimer();
+
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    activeLiveSettingsSyncHandles.delete(handle);
+    reconcileSharedLiveSettingsSyncTimer();
+    if (activeLiveSettingsSyncHandles.size === 0 && reloadSettingsInFlight) {
+      await reloadSettingsInFlight.catch(() => undefined);
+    }
+  };
+}
 
 export interface SettingsPersistenceDeps {
   getAppSettingsImpl?: typeof getAppSettings;
@@ -404,40 +486,48 @@ export async function writeSettings(
   newSettings: EnvSettings,
   deps?: SettingsPersistenceDeps,
 ): Promise<void> {
-  settingsWriteGeneration += 1;
-  settingsWritesInFlight += 1;
-  try {
-    const settings = pickKnownSettings(newSettings as Record<string, string>);
-
-    // Stage candidate settings into a snapshot of process.env so we can validate
-    // before persisting. This blocks UI updates that would put the poller into a
-    // bad state (invalid URL, zero interval, etc.) and rolls back on DB failure.
-    const previousProcessEnv: Record<string, string | undefined> = {};
-    for (const key of Object.keys(settings) as SettingsKey[]) {
-      previousProcessEnv[key] = process.env[key];
-      process.env[key] = settings[key];
-    }
-    syncEnvObjectFromProcess();
-
+  const executeWrite = async (): Promise<void> => {
+    settingsWriteGeneration += 1;
+    settingsWritesInFlight += 1;
     try {
-      validateRuntimeConfig();
-      const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
-      await upsertImpl(settings as Record<string, string>);
-    } catch (err) {
-      // Roll back the in-memory mutation so the running process keeps the old config.
-      for (const [key, prev] of Object.entries(previousProcessEnv)) {
-        if (prev === undefined) delete process.env[key];
-        else process.env[key] = prev;
+      const settings = pickKnownSettings(newSettings as Record<string, string>);
+
+      // Stage candidate settings into a snapshot of process.env so we can validate
+      // before persisting. This blocks UI updates that would put the poller into a
+      // bad state (invalid URL, zero interval, etc.) and rolls back on DB failure.
+      const previousProcessEnv: Record<string, string | undefined> = {};
+      for (const key of Object.keys(settings) as SettingsKey[]) {
+        previousProcessEnv[key] = process.env[key];
+        process.env[key] = settings[key];
       }
       syncEnvObjectFromProcess();
-      throw err instanceof Error ? err : new Error(String(err));
-    }
 
-    commitValidatedLiveSettings();
-  } finally {
-    settingsWritesInFlight -= 1;
-    settingsWriteGeneration += 1;
-  }
+      try {
+        validateRuntimeConfig();
+        const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
+        await upsertImpl(settings as Record<string, string>);
+      } catch (err) {
+        // Roll back the in-memory mutation so the running process keeps the old config.
+        for (const [key, prev] of Object.entries(previousProcessEnv)) {
+          if (prev === undefined) delete process.env[key];
+          else process.env[key] = prev;
+        }
+        syncEnvObjectFromProcess();
+        throw err instanceof Error ? err : new Error(String(err));
+      }
+
+      commitValidatedLiveSettings();
+    } finally {
+      settingsWritesInFlight -= 1;
+      settingsWriteGeneration += 1;
+    }
+  };
+
+  // Serialize writes strictly one-at-a-time so concurrent POST /api/settings calls
+  // cannot interleave across `await upsertImpl(...)` or corrupt rollback snapshots.
+  const queuedWrite = writeSettingsQueue.then(executeWrite, executeWrite);
+  writeSettingsQueue = queuedWrite.then(() => undefined, () => undefined);
+  return queuedWrite;
 }
 
 export async function reloadSettingsLive(deps?: SettingsPersistenceDeps): Promise<void> {

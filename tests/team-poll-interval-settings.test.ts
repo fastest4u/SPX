@@ -7,12 +7,14 @@ import { getAppSettingDefaults, getAppSettingMetadata } from "../src/config/conf
 import {
   env,
   MAX_POLL_INTERVAL_MS,
+  MAX_TEAM_POLL_INTERVALS_JSON_LENGTH,
   parseTeamPollIntervalsMs,
   resolveDispatcherKeepAliveIntervalMs,
   resolveTeamPollIntervalMs,
 } from "../src/config/env.js";
 import { getSpxDispatcher, reconfigureSpxDispatcher } from "../src/utils/http-dispatcher.js";
 import {
+  acquireLiveSettingsSync,
   onLiveSettingsReloaded,
   reloadSettingsLive,
   SETTINGS_KEYS,
@@ -84,10 +86,20 @@ async function testCatalogAndParsers(): Promise<void> {
     assert.equal(parsed.ok, false, `Expected parseTeamPollIntervalsMs(${bad}) to fail`);
   }
 
-  // Max entries bound
+  // Max entries bound and VARCHAR(4000) serialized JSON length bound
   const huge: Record<string, number> = {};
   for (let i = 1; i <= 501; i += 1) huge[String(i)] = 1000;
   assert.equal(parseTeamPollIntervalsMs(JSON.stringify(huge)).ok, false);
+
+  const over4000: Record<string, number> = {};
+  for (let i = 100; i <= 499; i += 1) over4000[String(i)] = 1234567;
+  const over4000Json = JSON.stringify(over4000);
+  assert.ok(over4000Json.length > MAX_TEAM_POLL_INTERVALS_JSON_LENGTH);
+  assert.equal(
+    parseTeamPollIntervalsMs(over4000Json).ok,
+    false,
+    "serialized JSON > VARCHAR(4000) must be rejected cleanly",
+  );
 
   // Precedence: CLI override > team override > global POLL_INTERVAL_MS
   const mutableEnv = env as unknown as {
@@ -220,14 +232,63 @@ async function testSettingsPersistenceAndController(): Promise<void> {
     assert.deepEqual(env.TEAM_POLL_INTERVALS_MS, { 1: 900, 2: 5000 });
     assert.equal(reloadNotifications, 2);
 
+    // Concurrent writeSettings calls must serialize so a failing write A never clobbers committed write B
+    const writeAFails = writeSettings(
+      { TEAM_POLL_INTERVALS_MS: '{"1":444}' },
+      {
+        upsertAppSettingsImpl: async () => {
+          await wait(35);
+          throw new Error("write-A DB error");
+        },
+      },
+    );
+    const writeBSucceeds = writeSettings({ TEAM_POLL_INTERVALS_MS: '{"1":1234,"2":5000}' }, deps);
+    const [resA, resB] = await Promise.allSettled([writeAFails, writeBSucceeds]);
+    assert.equal(resA.status, "rejected");
+    assert.equal(resB.status, "fulfilled");
+    assert.deepEqual(
+      env.TEAM_POLL_INTERVALS_MS,
+      { 1: 1234, 2: 5000 },
+      "rollback of failed write A must never clobber subsequent committed write B",
+    );
+
+    // Ref-counted process-wide live settings sync shares 1 timer across multiple teams
+    let sharedSyncReads = 0;
+    const sharedSyncDeps = {
+      getAppSettingsImpl: async () => {
+        sharedSyncReads += 1;
+        return { ...stored, TEAM_POLL_INTERVALS_MS: '{"1":1500,"2":5000}' };
+      },
+    };
+    const release1 = acquireLiveSettingsSync(50, sharedSyncDeps);
+    const release2 = acquireLiveSettingsSync(50, sharedSyncDeps);
+    const release3 = acquireLiveSettingsSync(50, sharedSyncDeps);
+    try {
+      await wait(130);
+      assert.ok(
+        sharedSyncReads >= 1 && sharedSyncReads <= 3,
+        `Expected 1 shared sync timer (~2 reads in 130ms across 3 teams), got ${sharedSyncReads}`,
+      );
+      assert.deepEqual(env.TEAM_POLL_INTERVALS_MS, { 1: 1500, 2: 5000 });
+    } finally {
+      await release1();
+      await release2();
+      await release3();
+    }
+    const readsAfterRelease = sharedSyncReads;
+    await wait(90);
+    assert.equal(sharedSyncReads, readsAfterRelease, "releasing all sync handles must stop timer cleanly");
+
     // Invalid DB row during reloadSettingsLive must roll back and NOT notify listeners
+    const notificationsBeforeInvalidReload = reloadNotifications;
     await reloadSettingsLive({
       getAppSettingsImpl: async () => ({ ...stored, TEAM_POLL_INTERVALS_MS: '{"1":0}' }),
     });
-    assert.deepEqual(env.TEAM_POLL_INTERVALS_MS, { 1: 900, 2: 5000 });
-    assert.equal(reloadNotifications, 2);
+    assert.deepEqual(env.TEAM_POLL_INTERVALS_MS, { 1: 1500, 2: 5000 });
+    assert.equal(reloadNotifications, notificationsBeforeInvalidReload);
 
-    // Settings controller rejects invalid TEAM_POLL_INTERVALS_MS with 400
+    // Settings controller rejects invalid TEAM_POLL_INTERVALS_MS & POLL_INTERVAL_MS with 400
+    // and exposes live reloadBehavior on GET
     const app = Fastify({ logger: false });
     app.addHook("preHandler", async (req) => {
       (req as { user?: unknown }).user = { id: 1, username: "admin", role: "admin" };
@@ -235,13 +296,35 @@ async function testSettingsPersistenceAndController(): Promise<void> {
     await app.register(settingsController, { prefix: "/api/settings" });
     await app.ready();
     try {
-      const badRes = await app.inject({
+      const getRes = await app.inject({ method: "GET", url: "/api/settings" });
+      assert.equal(getRes.statusCode, 200);
+      assert.equal(getRes.json().data?.reloadBehavior?.TEAM_POLL_INTERVALS_MS, "live");
+
+      const badTeamRes = await app.inject({
         method: "POST",
         url: "/api/settings",
         payload: { TEAM_POLL_INTERVALS_MS: '{"1":-5}' },
       });
-      assert.equal(badRes.statusCode, 400);
-      assert.equal(badRes.json().error_code, "INVALID_SETTINGS");
+      assert.equal(badTeamRes.statusCode, 400);
+      assert.equal(badTeamRes.json().error_code, "INVALID_SETTINGS");
+
+      const badGlobalOverflowRes = await app.inject({
+        method: "POST",
+        url: "/api/settings",
+        payload: { POLL_INTERVAL_MS: String(MAX_POLL_INTERVAL_MS + 1) },
+      });
+      assert.equal(badGlobalOverflowRes.statusCode, 400);
+      assert.equal(badGlobalOverflowRes.json().error_code, "INVALID_SETTINGS");
+
+      const over4000Map: Record<string, number> = {};
+      for (let i = 100; i <= 499; i += 1) over4000Map[String(i)] = 1234567;
+      const badTooLongRes = await app.inject({
+        method: "POST",
+        url: "/api/settings",
+        payload: { TEAM_POLL_INTERVALS_MS: JSON.stringify(over4000Map) },
+      });
+      assert.equal(badTooLongRes.statusCode, 400);
+      assert.equal(badTooLongRes.json().error_code, "INVALID_SETTINGS");
     } finally {
       await app.close();
     }
@@ -376,6 +459,69 @@ async function testPollerLiveIndependentIntervalsAndWakeup(): Promise<void> {
     await reloadSettingsLive(deps);
     await wait(120);
     assert.equal(team2Ticks, pausedTicks, "Paused team must stay paused across live settings reload");
+
+    // Poller started with explicit CLI intervalSec must preserve CLI precedence across live reload
+    let cliTicks = 0;
+    const cliPoller = new Poller(30, {
+      teamId: 3,
+      teamName: "KRTK",
+      apiClient: createStubApiClient(() => {
+        cliTicks += 1;
+      }) as never,
+      manageHttpServer: false,
+      manageProcessSignals: false,
+      closeSharedResourcesOnStop: false,
+      exitOnStop: false,
+    });
+    try {
+      resumeTeam(3);
+      await cliPoller.start();
+      await wait(40);
+      assert.equal(cliTicks, 1);
+      await writeSettings({ TEAM_POLL_INTERVALS_MS: '{"1":70,"3":40}' }, deps);
+      await reloadSettingsLive(deps);
+      await wait(140);
+      assert.equal(cliTicks, 1, "CLI intervalSec must retain precedence across live TEAM_POLL_INTERVALS_MS reloads");
+    } finally {
+      await cliPoller.stop(0);
+    }
+
+    // Poller in active rate-limit backoff must NOT prematurely wake on live settings reload
+    let rlTicks = 0;
+    const rlPoller = new Poller(undefined, {
+      teamId: 4,
+      teamName: "RL-TEAM",
+      apiClient: {
+        metricsCollector: new MetricsCollector(),
+        fetch: async () => {
+          rlTicks += 1;
+          return {
+            success: false,
+            status: 200,
+            error: "Rate limited (SPX 130008001)",
+            retcode: 130008001,
+            latencyMs: 1,
+            requestCount: rlTicks,
+          };
+        },
+      } as never,
+      manageHttpServer: false,
+      manageProcessSignals: false,
+      closeSharedResourcesOnStop: false,
+      exitOnStop: false,
+    });
+    try {
+      resumeTeam(4);
+      await rlPoller.start();
+      await wait(40);
+      assert.equal(rlTicks, 1);
+      await writeSettings({ TEAM_POLL_INTERVALS_MS: '{"1":70,"4":30}' }, deps);
+      await reloadSettingsLive(deps);
+      await wait(140);
+      assert.equal(rlTicks, 1, "Rate-limit backoff wait must not be bypassed by live settings reload");
+    } finally {
+      await rlPoller.stop(0);
+    }
   } finally {
     resumeTeam(1);
     resumeTeam(2);
@@ -396,9 +542,21 @@ async function testFrontendSettingsHelpersAndUi(): Promise<void> {
   assert.equal(formatPollIntervalLabel(30000), "30s");
 
   assert.deepEqual(parseTeamPollIntervalDraft("{}"), {});
-  assert.deepEqual(parseTeamPollIntervalDraft('{"1":500,"2":"abc"}'), { 1: "500", 2: "abc" });
+  assert.deepEqual(parseTeamPollIntervalDraft('{"1":500,"2":"abc","99999999999999999999":1000}'), {
+    1: "500",
+    2: "abc",
+  });
   assert.equal(serializeTeamPollIntervalDraft({ 2: "5000", 1: "500", 3: "  " }), '{"1":500,"2":5000}');
   assert.equal(serializeTeamPollIntervalDraft({}), "{}");
+
+  // Over-4000 char serialized JSON rejected on frontend too
+  const over4000Frontend: Record<string, number> = {};
+  for (let i = 100; i <= 499; i += 1) over4000Frontend[String(i)] = 1234567;
+  const over4000FrontendResult = validateNumericFields({
+    ...INITIAL_SETTINGS_FORM,
+    TEAM_POLL_INTERVALS_MS: JSON.stringify(over4000Frontend),
+  });
+  assert.ok(over4000FrontendResult.errors.TEAM_POLL_INTERVALS_MS);
 
   // Valid team overrides pass validateNumericFields and canonicalize JSON
   const validResult = validateNumericFields({
@@ -484,6 +642,11 @@ async function testFrontendSettingsHelpersAndUi(): Promise<void> {
       markup,
       /aria-invalid="false"/,
       "valid per-team inputs must omit aria-invalid=false",
+    );
+    assert.match(
+      markup,
+      /aria-label="รีเซ็ต poll interval ทีม PTWL กลับไปใช้ค่ากลาง"/,
+      "per-team reset button must expose an accessible aria-label",
     );
   } finally {
     client.clear();

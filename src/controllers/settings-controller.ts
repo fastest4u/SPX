@@ -3,6 +3,7 @@ import type { AuthUser } from "../services/authz.js";
 import { getAppSettingMetadata } from "../config/config-catalog.js";
 import {
   isSafeLineJsStoragePath,
+  MAX_POLL_INTERVAL_MS,
   parseTeamPollIntervalsMs,
   validateExternalSettingUrl,
 } from "../config/env.js";
@@ -123,6 +124,18 @@ function validateSettingsPayload(data: EnvSettings): string | null {
   ) {
     return "LINEJS_TEST_STORAGE_PATH must be a safe path under data/ or /app/data/";
   }
+  if (typeof data.POLL_INTERVAL_MS === "string") {
+    const trimmed = data.POLL_INTERVAL_MS.trim();
+    const parsed = Number(trimmed);
+    if (
+      !/^\d+$/.test(trimmed) ||
+      !Number.isSafeInteger(parsed) ||
+      parsed <= 0 ||
+      parsed > MAX_POLL_INTERVAL_MS
+    ) {
+      return `POLL_INTERVAL_MS must be a positive integer up to ${MAX_POLL_INTERVAL_MS} ms`;
+    }
+  }
   if (typeof data.TEAM_POLL_INTERVALS_MS === "string") {
     const parsed = parseTeamPollIntervalsMs(data.TEAM_POLL_INTERVALS_MS);
     if (!parsed.ok) {
@@ -133,15 +146,22 @@ function validateSettingsPayload(data: EnvSettings): string | null {
 }
 
 function normalizeSettingsPayload(data: EnvSettings): EnvSettings {
-  if (typeof data.TEAM_POLL_INTERVALS_MS !== "string") return data;
-  const parsed = parseTeamPollIntervalsMs(data.TEAM_POLL_INTERVALS_MS);
-  if (!parsed.ok) return data;
-  const sortedEntries = Object.entries(parsed.value).sort((a, b) => Number(a[0]) - Number(b[0]));
-  return {
-    ...data,
-    TEAM_POLL_INTERVALS_MS:
-      sortedEntries.length === 0 ? "{}" : JSON.stringify(Object.fromEntries(sortedEntries)),
-  };
+  const normalized: EnvSettings = { ...data };
+  if (typeof normalized.POLL_INTERVAL_MS === "string") {
+    const parsed = Number(normalized.POLL_INTERVAL_MS.trim());
+    if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_POLL_INTERVAL_MS) {
+      normalized.POLL_INTERVAL_MS = String(parsed);
+    }
+  }
+  if (typeof normalized.TEAM_POLL_INTERVALS_MS === "string") {
+    const parsed = parseTeamPollIntervalsMs(normalized.TEAM_POLL_INTERVALS_MS);
+    if (parsed.ok) {
+      const sortedEntries = Object.entries(parsed.value).sort((a, b) => Number(a[0]) - Number(b[0]));
+      normalized.TEAM_POLL_INTERVALS_MS =
+        sortedEntries.length === 0 ? "{}" : JSON.stringify(Object.fromEntries(sortedEntries));
+    }
+  }
+  return normalized;
 }
 
 export const settingsController: FastifyPluginAsync = async (app) => {

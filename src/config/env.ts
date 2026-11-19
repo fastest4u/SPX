@@ -213,6 +213,9 @@ function safeParseRunTeamIds(value: string | undefined): number[] {
 
 /** Node.js 32-bit signed setTimeout upper bound (~24.8 days); larger values overflow to 1ms. */
 export const MAX_POLL_INTERVAL_MS = 2_147_483_647;
+/** Matches MySQL `app_settings.setting_value VARCHAR(4000)` column width. */
+export const MAX_TEAM_POLL_INTERVALS_JSON_LENGTH = 4000;
+const MAX_TEAM_POLL_INTERVALS_RAW_LENGTH = 16_384;
 const MAX_TEAM_POLL_INTERVAL_OVERRIDES = 500;
 const POSITIVE_TEAM_ID_KEY_PATTERN = /^[1-9]\d*$/;
 
@@ -223,11 +226,18 @@ export type ParsedTeamPollIntervalsResult =
 /**
  * Parse and validate TEAM_POLL_INTERVALS_MS JSON mapping (`{ "<teamId>": <ms> }`).
  * Empty/whitespace strings and `{}` resolve to `{}`. Each key must be a canonical
- * positive integer team id and each value must be a positive integer in ms.
+ * positive integer team id and each value must be a positive integer in ms within
+ * the 32-bit setTimeout cap and MySQL VARCHAR(4000) column limit.
  */
 export function parseTeamPollIntervalsMs(raw: string | undefined): ParsedTeamPollIntervalsResult {
   if (raw === undefined || raw.trim() === "") {
     return { ok: true, value: {} };
+  }
+  if (raw.length > MAX_TEAM_POLL_INTERVALS_RAW_LENGTH) {
+    return {
+      ok: false,
+      error: `must not exceed ${MAX_TEAM_POLL_INTERVALS_RAW_LENGTH} raw characters`,
+    };
   }
 
   let parsed: unknown;
@@ -267,6 +277,13 @@ export function parseTeamPollIntervalsMs(raw: string | undefined): ParsedTeamPol
       };
     }
     result[teamId] = value;
+  }
+
+  if (JSON.stringify(result).length > MAX_TEAM_POLL_INTERVALS_JSON_LENGTH) {
+    return {
+      ok: false,
+      error: `serialized JSON must fit within ${MAX_TEAM_POLL_INTERVALS_JSON_LENGTH} characters`,
+    };
   }
 
   return { ok: true, value: result };
