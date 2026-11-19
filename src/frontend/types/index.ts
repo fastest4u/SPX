@@ -360,6 +360,7 @@ export interface EnvSettings {
   LINEJS_TEST_STORAGE_PATH?: string;
   DISCORD_WEBHOOK_URL?: string;
   POLL_INTERVAL_MS?: string;
+  TEAM_POLL_INTERVALS_MS?: string;
   BOOKING_DETAIL_CONCURRENCY?: string;
   BOOKING_REPROCESS_COOLDOWN_MS?: string;
   BIDDING_VEHICLE_TYPE?: string;

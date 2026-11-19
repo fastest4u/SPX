@@ -91,6 +91,7 @@ const APP_SETTING_METADATA = [
   { key: "FETCH_DETAILS", defaultValue: "false", secret: false, reload: "live" },
   { key: "SAVE_TO_DB", defaultValue: "true", secret: false, reload: "live" },
   { key: "POLL_INTERVAL_MS", defaultValue: "30000", secret: false, reload: "live" },
+  { key: "TEAM_POLL_INTERVALS_MS", defaultValue: "{}", secret: false, reload: "live" },
   { key: "BOOKING_DETAIL_CONCURRENCY", defaultValue: "8", secret: false, reload: "live" },
   { key: "BOOKING_REPROCESS_COOLDOWN_MS", defaultValue: "10000", secret: false, reload: "live" },
   { key: "BIDDING_PAGE_NO", defaultValue: "1", secret: false, reload: "live" },

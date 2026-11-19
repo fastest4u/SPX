@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import diagnosticsChannel from "node:diagnostics_channel";
 import { Agent } from "undici";
-import { env } from "../config/env.js";
+import { env, resolveDispatcherKeepAliveIntervalMs } from "../config/env.js";
 
 /**
  * Shared keep-alive connection pool for every SPX upstream API call.
@@ -50,24 +50,30 @@ function createSpxAgent(pollIntervalMs: number): Agent {
   });
 }
 
-let currentInterval = env.POLL_INTERVAL_MS;
-let currentAgent: Agent = createSpxAgent(currentInterval);
+const initialIntervalMs = resolveDispatcherKeepAliveIntervalMs(
+  env.POLL_INTERVAL_MS,
+  env.TEAM_POLL_INTERVALS_MS,
+  env.RUN_TEAM_IDS,
+);
+let currentKeepAliveTimeout = keepAliveTimeoutFor(initialIntervalMs);
+let currentAgent: Agent = createSpxAgent(initialIntervalMs);
 
-/** The live keep-alive pool. Always returns the current Agent (rebuilt on interval change). */
+/** The live keep-alive pool. Always returns the current Agent (rebuilt on keep-alive timeout change). */
 export function getSpxDispatcher(): Agent {
   return currentAgent;
 }
 
 /**
- * Rebuild the pool when the live POLL_INTERVAL_MS changes so the keep-alive window
- * always outlasts the gap between polls. No-ops when the interval is unchanged to
- * avoid needless connection churn. The previous Agent is closed gracefully so any
- * in-flight request finishes on it before its sockets are released.
+ * Rebuild the pool when the derived keep-alive window changes so warm connections
+ * always outlast the gap between polls. No-ops when the derived keep-alive timeout
+ * is unchanged (e.g. tuning fast intervals within the 60s floor) to avoid needless
+ * TCP+TLS connection churn.
  */
 export function reconfigureSpxDispatcher(pollIntervalMs: number): void {
   if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) return;
-  if (pollIntervalMs === currentInterval) return;
-  currentInterval = pollIntervalMs;
+  const nextKeepAliveTimeout = keepAliveTimeoutFor(pollIntervalMs);
+  if (nextKeepAliveTimeout === currentKeepAliveTimeout) return;
+  currentKeepAliveTimeout = nextKeepAliveTimeout;
   const previous = currentAgent;
   currentAgent = createSpxAgent(pollIntervalMs);
   void previous.close().catch(() => {
