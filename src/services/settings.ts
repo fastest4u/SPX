@@ -5,7 +5,13 @@ import {
   type AppSettingKey,
   type AppSettings,
 } from "../config/config-catalog.js";
-import { env, parseTrustProxy, validateRuntimeConfig } from "../config/env.js";
+import {
+  env,
+  parseTeamPollIntervalsMs,
+  parseTrustProxy,
+  resolveDispatcherKeepAliveIntervalMs,
+  validateRuntimeConfig,
+} from "../config/env.js";
 import { parseRuntimeRole, parseRunTeamIds } from "./runtime-role.js";
 import { logger } from "../utils/logger.js";
 import { getAppSettings, upsertAppSettings } from "../repositories/app-settings-repository.js";
@@ -32,6 +38,31 @@ type ProcessEnvSnapshot = Record<string, string | undefined>;
 const DEFAULT_SETTINGS = getAppSettingDefaults();
 
 const RUNTIME_SETTINGS_KEYS = [...SETTINGS_KEYS, ...LEGACY_TEAM_SETTINGS_KEYS] as const;
+
+const liveSettingsReloadListeners = new Set<() => void>();
+
+/**
+ * Subscribe to successful live settings reloads (e.g. Poller timer reschedule).
+ * Returns an unsubscribe function.
+ */
+export function onLiveSettingsReloaded(listener: () => void): () => void {
+  liveSettingsReloadListeners.add(listener);
+  return () => {
+    liveSettingsReloadListeners.delete(listener);
+  };
+}
+
+function notifyLiveSettingsReloaded(): void {
+  for (const listener of [...liveSettingsReloadListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      logger.warn("settings-live-reload-listener-failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
 
 function readIntegerSetting(name: string, defaultValue: number): number {
   const rawValue = process.env[name];
@@ -113,6 +144,15 @@ function syncEnvObjectFromProcess(): void {
     mutableEnv.POLL_INTERVAL_MS = 30000;
   } else {
     mutableEnv.POLL_INTERVAL_MS = pollInterval;
+  }
+  const parsedTeamPollIntervals = parseTeamPollIntervalsMs(process.env.TEAM_POLL_INTERVALS_MS);
+  if (!parsedTeamPollIntervals.ok) {
+    console.warn(
+      `TEAM_POLL_INTERVALS_MS is invalid (${parsedTeamPollIntervals.error}); falling back to {}`,
+    );
+    mutableEnv.TEAM_POLL_INTERVALS_MS = {};
+  } else {
+    mutableEnv.TEAM_POLL_INTERVALS_MS = parsedTeamPollIntervals.value;
   }
   mutableEnv.COOKIE = process.env.COOKIE || "";
   mutableEnv.DEVICE_ID = process.env.DEVICE_ID || "";
@@ -275,9 +315,28 @@ function syncEnvObjectFromProcess(): void {
   mutableEnv.CODEX_IMAGE_TIMEOUT_MS = readIntegerSetting("CODEX_IMAGE_TIMEOUT_MS", 300000);
   mutableEnv.CODEX_IMAGE_MAX_BYTES = readIntegerSetting("CODEX_IMAGE_MAX_BYTES", 10 * 1024 * 1024);
   mutableEnv.LINE_IMAGE_LISTENER_CHAT_ID = process.env.LINE_IMAGE_LISTENER_CHAT_ID || "";
-  // Keep the HTTP keep-alive window in sync with the live poll interval so warm
-  // connections always outlast the gap between polls (no-ops when unchanged).
-  reconfigureSpxDispatcher(mutableEnv.POLL_INTERVAL_MS as number);
+}
+
+function serializeSettingsSnapshot(
+  source: Partial<Record<SettingsKey, string | undefined>>,
+): string {
+  return JSON.stringify(SETTINGS_KEYS.map((key) => source[key] ?? DEFAULT_SETTINGS[key] ?? ""));
+}
+
+let lastAppliedLiveSettingsSignature: string | null = null;
+
+function commitValidatedLiveSettings(): void {
+  // Keep the HTTP keep-alive window in sync with the slowest active poll interval only
+  // after validation succeeds (no-ops when derived keep-alive timeout is unchanged).
+  reconfigureSpxDispatcher(
+    resolveDispatcherKeepAliveIntervalMs(
+      env.POLL_INTERVAL_MS,
+      env.TEAM_POLL_INTERVALS_MS,
+      env.RUN_TEAM_IDS,
+    ),
+  );
+  lastAppliedLiveSettingsSignature = serializeSettingsSnapshot(snapshotProcessEnv(SETTINGS_KEYS));
+  notifyLiveSettingsReloaded();
 }
 
 function applySettingsToEnv(settings: RuntimeSettings): void {
@@ -334,6 +393,7 @@ export async function readStoredSettings(): Promise<EnvSettings> {
 
 let settingsWriteGeneration = 0;
 let settingsWritesInFlight = 0;
+let reloadSettingsInFlight: Promise<void> | null = null;
 
 export interface SettingsPersistenceDeps {
   getAppSettingsImpl?: typeof getAppSettings;
@@ -351,7 +411,7 @@ export async function writeSettings(
 
     // Stage candidate settings into a snapshot of process.env so we can validate
     // before persisting. This blocks UI updates that would put the poller into a
-    // bad state (invalid URL, zero interval, etc.).
+    // bad state (invalid URL, zero interval, etc.) and rolls back on DB failure.
     const previousProcessEnv: Record<string, string | undefined> = {};
     for (const key of Object.keys(settings) as SettingsKey[]) {
       previousProcessEnv[key] = process.env[key];
@@ -361,6 +421,8 @@ export async function writeSettings(
 
     try {
       validateRuntimeConfig();
+      const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
+      await upsertImpl(settings as Record<string, string>);
     } catch (err) {
       // Roll back the in-memory mutation so the running process keeps the old config.
       for (const [key, prev] of Object.entries(previousProcessEnv)) {
@@ -371,8 +433,7 @@ export async function writeSettings(
       throw err instanceof Error ? err : new Error(String(err));
     }
 
-    const upsertImpl = deps?.upsertAppSettingsImpl ?? upsertAppSettings;
-    await upsertImpl(settings as Record<string, string>);
+    commitValidatedLiveSettings();
   } finally {
     settingsWritesInFlight -= 1;
     settingsWriteGeneration += 1;
@@ -383,30 +444,56 @@ export async function reloadSettingsLive(deps?: SettingsPersistenceDeps): Promis
   if (settingsWritesInFlight > 0) {
     return;
   }
-  const observedWriteGeneration = settingsWriteGeneration;
-  const getImpl = deps?.getAppSettingsImpl ?? getAppSettings;
-  const dbSettings = pickKnownSettings(await getImpl(SETTINGS_KEYS));
-  if (settingsWritesInFlight > 0 || observedWriteGeneration !== settingsWriteGeneration) {
-    return;
+  if (reloadSettingsInFlight) {
+    return reloadSettingsInFlight;
   }
 
-  // Snapshot the current process.env for every settings key so we can roll back
-  // if the DB-sourced config fails validation. Without this, an invalid stored
-  // row would replace the live config and leave the poller running on broken
-  // settings (the old code applied first and only logged on failure).
-  const previousProcessEnv = snapshotProcessEnv(SETTINGS_KEYS);
+  const runReload = async (): Promise<void> => {
+    const observedWriteGeneration = settingsWriteGeneration;
+    const getImpl = deps?.getAppSettingsImpl ?? getAppSettings;
+    const dbSettings = pickKnownSettings(await getImpl(SETTINGS_KEYS));
+    if (settingsWritesInFlight > 0 || observedWriteGeneration !== settingsWriteGeneration) {
+      return;
+    }
 
-  applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
-  try {
-    validateRuntimeConfig();
-  } catch (err) {
-    // Roll back to the previously-valid config and keep the poller running on it.
-    restoreProcessEnv(previousProcessEnv);
-    logger.error("settings-live-reload-validation-failed", {
-      error: err instanceof Error ? err.message : String(err),
-      rolledBack: true,
-    });
-  }
+    const candidateSettings = { ...DEFAULT_SETTINGS, ...dbSettings };
+    const candidateSignature = serializeSettingsSnapshot(candidateSettings);
+    const currentEnvSignature = serializeSettingsSnapshot(snapshotProcessEnv(SETTINGS_KEYS));
+    if (
+      lastAppliedLiveSettingsSignature !== null &&
+      candidateSignature === lastAppliedLiveSettingsSignature &&
+      candidateSignature === currentEnvSignature
+    ) {
+      return;
+    }
+
+    // Snapshot the current process.env for every settings key so we can roll back
+    // if the DB-sourced config fails validation. Without this, an invalid stored
+    // row would replace the live config and leave the poller running on broken
+    // settings (the old code applied first and only logged on failure).
+    const previousProcessEnv = snapshotProcessEnv(SETTINGS_KEYS);
+
+    applySettingsToEnv(candidateSettings);
+    try {
+      validateRuntimeConfig();
+      commitValidatedLiveSettings();
+    } catch (err) {
+      // Roll back to the previously-valid config and keep the poller running on it.
+      restoreProcessEnv(previousProcessEnv);
+      logger.error("settings-live-reload-validation-failed", {
+        error: err instanceof Error ? err.message : String(err),
+        rolledBack: true,
+      });
+    }
+  };
+
+  const inFlight = runReload().finally(() => {
+    if (reloadSettingsInFlight === inFlight) {
+      reloadSettingsInFlight = null;
+    }
+  });
+  reloadSettingsInFlight = inFlight;
+  return inFlight;
 }
 
 export async function migrateEnvSettingsToDb(): Promise<void> {
@@ -437,6 +524,7 @@ export async function loadDbSettingsIntoEnv(): Promise<void> {
   applySettingsToEnv({ ...DEFAULT_SETTINGS, ...dbSettings });
   try {
     validateRuntimeConfig();
+    commitValidatedLiveSettings();
   } catch (err) {
     restoreProcessEnv(previousProcessEnv);
     throw err instanceof Error ? err : new Error(String(err));

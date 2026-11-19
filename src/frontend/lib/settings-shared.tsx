@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { aiApi, settingsApi } from '../lib/api'
+import { aiApi, settingsApi, teamsApi } from '../lib/api'
 import { safeBrowserUrl } from '../lib/utils'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -11,6 +11,7 @@ import { PageShell } from '../components/layout/Page'
 import { toast } from 'sonner'
 import {
     Bell,
+    Building2,
     MessageCircle,
     Settings2,
     KeyRound,
@@ -20,6 +21,7 @@ import {
     Loader2,
     ArrowLeft,
     Plus,
+    RotateCcw,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -28,7 +30,7 @@ import {
     DialogTitle,
     DialogDescription,
 } from '../components/ui/dialog'
-import type { SettingsResponse, SettingReloadBehavior } from '../types'
+import type { SettingsResponse, SettingReloadBehavior, Team } from '../types'
 
 export const INITIAL_SETTINGS_FORM = {
     API_URL: '',
@@ -38,6 +40,7 @@ export const INITIAL_SETTINGS_FORM = {
     FETCH_DETAILS: 'false',
     SAVE_TO_DB: 'true',
     POLL_INTERVAL_MS: '30000',
+    TEAM_POLL_INTERVALS_MS: '{}',
     BOOKING_DETAIL_CONCURRENCY: '8',
     BOOKING_REPROCESS_COOLDOWN_MS: '10000',
     BIDDING_PAGE_NO: '1',
@@ -463,6 +466,84 @@ const NOTIFIER_RUNTIME_FIELDS = [
     },
 ] as const satisfies readonly SettingFieldDescriptor[]
 
+const POSITIVE_INT_PATTERN = /^[1-9]\d*$/
+const DIGITS_ONLY_PATTERN = /^\d+$/
+const MAX_POLL_INTERVAL_MS = 2_147_483_647
+
+export function formatPollIntervalLabel(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) return '-'
+    if (ms < 1000) return `${ms} ms`
+    if (ms % 1000 === 0) return `${ms / 1000}s`
+    return `${(ms / 1000).toFixed(1)}s`
+}
+
+function parseStrictPositivePollIntervalMs(raw: string):
+    | { ok: true; value: number }
+    | { ok: false; error: string } {
+    const trimmed = raw.trim()
+    if (!DIGITS_ONLY_PATTERN.test(trimmed)) {
+        return { ok: false, error: 'ต้องเป็นจำนวนเต็ม' }
+    }
+    const num = Number(trimmed)
+    if (!Number.isSafeInteger(num) || num <= 0) {
+        return { ok: false, error: 'ต้องเป็นจำนวนเต็มบวก' }
+    }
+    if (num > MAX_POLL_INTERVAL_MS) {
+        return { ok: false, error: `ต้องไม่เกิน ${MAX_POLL_INTERVAL_MS.toLocaleString()} ms` }
+    }
+    return { ok: true, value: num }
+}
+
+export function parseTeamPollIntervalDraft(raw: string | undefined): Record<number, string> {
+    if (!raw || raw.trim() === '') return {}
+    try {
+        const parsed: unknown = JSON.parse(raw)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+        const result: Record<number, string> = {}
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (!POSITIVE_INT_PATTERN.test(key)) continue
+            const teamId = Number(key)
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                result[teamId] = String(value)
+            } else if (typeof value === 'string') {
+                result[teamId] = value
+            }
+        }
+        return result
+    } catch {
+        return {}
+    }
+}
+
+export function serializeTeamPollIntervalDraft(draft: Record<number, string>): string {
+    const entries: Array<[string, number | string]> = []
+    for (const [key, rawValue] of Object.entries(draft)) {
+        if (!POSITIVE_INT_PATTERN.test(key)) continue
+        const trimmed = rawValue.trim()
+        if (trimmed === '') continue
+        const parsed = parseStrictPositivePollIntervalMs(trimmed)
+        entries.push([key, parsed.ok ? parsed.value : trimmed])
+    }
+    if (entries.length === 0) return '{}'
+    entries.sort((a, b) => Number(a[0]) - Number(b[0]))
+    return JSON.stringify(Object.fromEntries(entries))
+}
+
+export function validateTeamPollIntervals(raw: string | undefined): Record<number, string> {
+    const errors: Record<number, string> = {}
+    const draft = parseTeamPollIntervalDraft(raw)
+    for (const [key, value] of Object.entries(draft)) {
+        const teamId = Number(key)
+        const trimmed = value.trim()
+        if (trimmed === '') continue
+        const parsed = parseStrictPositivePollIntervalMs(trimmed)
+        if (!parsed.ok) {
+            errors[teamId] = parsed.error
+        }
+    }
+    return errors
+}
+
 /**
  * Validate and clamp numeric settings before building the save payload.
  *
@@ -508,11 +589,37 @@ export function validateNumericFields(form: SettingsForm): {
             errors[field] = 'ต้องเป็นจำนวนเต็มบวก'
             continue
         }
+        if (field === 'POLL_INTERVAL_MS' && (!Number.isSafeInteger(num) || num > MAX_POLL_INTERVAL_MS)) {
+            errors[field] = `ต้องไม่เกิน ${MAX_POLL_INTERVAL_MS.toLocaleString()} ms`
+            continue
+        }
 
         let clamped = num
         if (typeof min === 'number' && clamped < min) clamped = min
         if (typeof max === 'number' && clamped > max) clamped = max
         sanitized[field] = String(clamped)
+    }
+
+    const rawTeamIntervals = (form.TEAM_POLL_INTERVALS_MS ?? '').trim()
+    if (rawTeamIntervals === '' || rawTeamIntervals === '{}') {
+        sanitized.TEAM_POLL_INTERVALS_MS = '{}'
+    } else {
+        try {
+            const parsed: unknown = JSON.parse(rawTeamIntervals)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                errors.TEAM_POLL_INTERVALS_MS = 'รูปแบบข้อมูล poll interval แยกทีมไม่ถูกต้อง'
+            } else {
+                const teamErrors = validateTeamPollIntervals(rawTeamIntervals)
+                if (Object.keys(teamErrors).length > 0) {
+                    errors.TEAM_POLL_INTERVALS_MS = 'ค่า poll interval ของบางทีมไม่ถูกต้อง (ต้องเป็นจำนวนเต็มบวก)'
+                } else {
+                    const draft = parseTeamPollIntervalDraft(rawTeamIntervals)
+                    sanitized.TEAM_POLL_INTERVALS_MS = serializeTeamPollIntervalDraft(draft)
+                }
+            }
+        } catch {
+            errors.TEAM_POLL_INTERVALS_MS = 'รูปแบบข้อมูล poll interval แยกทีมไม่ถูกต้อง'
+        }
     }
 
     return { errors, sanitized }
@@ -952,7 +1059,13 @@ export function ApiSection({
     formData: SettingsForm
     setField: (k: keyof SettingsForm, v: string) => void
 }) {
-    const intervalSec = getIntervalSec(formData.POLL_INTERVAL_MS)
+    const parsedGlobalPollMs = Number(formData.POLL_INTERVAL_MS)
+    const globalPollLabel =
+        Number.isFinite(parsedGlobalPollMs) && parsedGlobalPollMs > 0
+            ? formatPollIntervalLabel(parsedGlobalPollMs)
+            : '-'
+    const teamIntervalDraft = parseTeamPollIntervalDraft(formData.TEAM_POLL_INTERVALS_MS)
+    const overrideCount = Object.values(teamIntervalDraft).filter((v) => v.trim() !== '').length
     const concurrency = Number(formData.BOOKING_DETAIL_CONCURRENCY || 0)
     const cooldownMs = Number(formData.BOOKING_REPROCESS_COOLDOWN_MS || 0)
     const providerLabel =
@@ -965,7 +1078,11 @@ export function ApiSection({
     return (
         <div className="min-w-0 space-y-5">
             <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-                <SettingMetric label="Poll" value={intervalSec ? `${intervalSec}s` : '-'} helper="interval" />
+                <SettingMetric
+                    label="Poll"
+                    value={globalPollLabel}
+                    helper={overrideCount > 0 ? `ค่ากลาง · แยก ${overrideCount} ทีม` : 'interval'}
+                />
                 <SettingMetric label="Detail" value={concurrency > 0 ? `${concurrency}` : '-'} helper="parallel jobs" />
                 <SettingMetric label="AI" value={providerLabel} helper={cooldownMs > 0 ? `cooldown ${Math.round(cooldownMs / 1000)}s` : 'no cooldown'} />
             </div>
@@ -990,6 +1107,7 @@ export function ApiSection({
                     setField={setField}
                     columns="sm:grid-cols-2 xl:grid-cols-4"
                 />
+                <TeamPollIntervalsEditor formData={formData} setField={setField} />
             </Section>
 
             <Section icon={Lock} title="HTTP & Auth" description="ค่า dashboard/API และบัญชี admin เริ่มต้น">
@@ -1006,6 +1124,189 @@ export function ApiSection({
             </Section>
 
             <CodexAuthSection />
+        </div>
+    )
+}
+
+function TeamPollIntervalsEditor({
+    formData,
+    setField,
+}: {
+    formData: SettingsForm
+    setField: (k: keyof SettingsForm, v: string) => void
+}) {
+    const { fieldErrors } = useSettingsForm()
+    const { data: teams = [], isLoading, isError, refetch } = useQuery<Team[]>({
+        queryKey: ['teams'],
+        queryFn: teamsApi.list,
+        staleTime: 60 * 1000,
+    })
+
+    const draft = React.useMemo(
+        () => parseTeamPollIntervalDraft(formData.TEAM_POLL_INTERVALS_MS),
+        [formData.TEAM_POLL_INTERVALS_MS],
+    )
+    const teamErrors = React.useMemo(
+        () => validateTeamPollIntervals(formData.TEAM_POLL_INTERVALS_MS),
+        [formData.TEAM_POLL_INTERVALS_MS],
+    )
+
+    const parsedGlobalMs = Number(formData.POLL_INTERVAL_MS)
+    const globalMs = Number.isFinite(parsedGlobalMs) && parsedGlobalMs > 0 ? parsedGlobalMs : 30000
+    const globalLabel = formatPollIntervalLabel(globalMs)
+
+    const displayTeams = React.useMemo(() => {
+        const byId = new Map<number, { id: number; name: string; orphaned: boolean }>()
+        for (const team of teams) {
+            byId.set(team.id, { id: team.id, name: team.name, orphaned: false })
+        }
+        for (const key of Object.keys(draft)) {
+            const teamId = Number(key)
+            if (Number.isInteger(teamId) && teamId > 0 && !byId.has(teamId)) {
+                byId.set(teamId, { id: teamId, name: `ทีม #${teamId} (ไม่พบในรายชื่อทีม)`, orphaned: true })
+            }
+        }
+        return [...byId.values()].sort((a, b) => a.id - b.id)
+    }, [teams, draft])
+
+    const handleTeamChange = (teamId: number, rawValue: string) => {
+        const next: Record<number, string> = { ...draft }
+        if (rawValue.trim() === '') {
+            delete next[teamId]
+        } else {
+            next[teamId] = rawValue
+        }
+        const serialized = serializeTeamPollIntervalDraft(next)
+        if (serialized === formData.TEAM_POLL_INTERVALS_MS) return
+        setField('TEAM_POLL_INTERVALS_MS', serialized)
+    }
+
+    return (
+        <div className="mt-4 border-t border-white/[0.06] pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    <h4 className="text-sm font-semibold text-foreground">
+                        Poll interval แยกตามทีม (Live)
+                    </h4>
+                </div>
+                <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                    ปรับแล้วมีผลทันที ไม่ต้องรีเครื่อง
+                </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+                กำหนดรอบดึงงานแยกแต่ละทีมได้อิสระ (มิลลิวินาที) เว้นว่างเพื่อใช้ค่ากลาง ({globalMs} ms)
+            </p>
+
+            {fieldErrors.TEAM_POLL_INTERVALS_MS ? (
+                <p className="mt-2 text-xs text-destructive" role="alert">
+                    {fieldErrors.TEAM_POLL_INTERVALS_MS}
+                </p>
+            ) : null}
+
+            {isError ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-[6px] border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200">
+                    <span>โหลดรายชื่อทีมล่าสุดไม่สำเร็จ — ยังสามารถแก้ไขค่าที่มีอยู่หรือตั้งค่ากลางได้</span>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { void refetch() }}
+                        className="h-6 px-2 text-xs text-amber-200 hover:text-amber-100"
+                    >
+                        ลองใหม่
+                    </Button>
+                </div>
+            ) : null}
+
+            {isLoading && displayTeams.length === 0 ? (
+                <p className="mt-3 text-xs text-muted-foreground">กำลังโหลดรายชื่อทีม…</p>
+            ) : displayTeams.length === 0 ? (
+                <p className="mt-3 text-xs text-muted-foreground">ยังไม่มีทีมในระบบ</p>
+            ) : (
+                <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                    {displayTeams.map((team) => {
+                        const rawValue = draft[team.id] ?? ''
+                        const hasOverride = rawValue.trim() !== ''
+                        const parsedValue = Number(rawValue)
+                        const teamError = teamErrors[team.id]
+                        const inputId = `team-poll-interval-${team.id}`
+                        const errorId = `${inputId}-error`
+                        const badgeText = hasOverride
+                            ? teamError
+                                ? 'ค่าไม่ถูกต้อง'
+                                : `แยกทีม · ${formatPollIntervalLabel(parsedValue)}`
+                            : `ค่ากลาง · ${globalLabel}`
+
+                        return (
+                            <div
+                                key={team.id}
+                                className="rounded-[8px] border border-white/[0.07] bg-white/[0.02] p-3"
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                            <label
+                                                htmlFor={inputId}
+                                                className="truncate text-sm font-medium text-foreground"
+                                            >
+                                                {team.name}
+                                            </label>
+                                            <span className="text-[11px] text-muted-foreground">
+                                                #{team.id}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span
+                                        className={
+                                            teamError
+                                                ? 'shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[11px] font-medium text-destructive'
+                                                : hasOverride
+                                                    ? 'shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary'
+                                                    : 'shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-muted-foreground'
+                                        }
+                                    >
+                                        {badgeText}
+                                    </span>
+                                </div>
+
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <Input
+                                        id={inputId}
+                                        type="text"
+                                        inputMode="numeric"
+                                        aria-label={`Poll interval ทีม ${team.name} (ms)`}
+                                        aria-invalid={teamError ? true : undefined}
+                                        aria-describedby={teamError ? errorId : undefined}
+                                        value={rawValue}
+                                        onChange={(e) => handleTeamChange(team.id, e.target.value)}
+                                        placeholder={`ค่ากลาง (${globalMs} ms)`}
+                                        className="h-8 font-data text-sm"
+                                    />
+                                    {hasOverride ? (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleTeamChange(team.id, '')}
+                                            title="กลับไปใช้ค่ากลาง"
+                                            className="h-8 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                        >
+                                            <RotateCcw className="h-3.5 w-3.5" />
+                                        </Button>
+                                    ) : null}
+                                </div>
+
+                                {teamError ? (
+                                    <p id={errorId} className="mt-1 text-xs text-destructive" role="alert">
+                                        {teamError}
+                                    </p>
+                                ) : null}
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
         </div>
     )
 }

@@ -1,7 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { AuthUser } from "../services/authz.js";
 import { getAppSettingMetadata } from "../config/config-catalog.js";
-import { isSafeLineJsStoragePath, validateExternalSettingUrl } from "../config/env.js";
+import {
+  isSafeLineJsStoragePath,
+  parseTeamPollIntervalsMs,
+  validateExternalSettingUrl,
+} from "../config/env.js";
 import { readStoredSettings, writeSettings, reloadSettingsLive, SETTINGS_KEYS, type EnvSettings, type SettingsKey } from "../services/settings.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { sendError, sendSuccess } from "../utils/response.js";
@@ -45,6 +49,7 @@ const settingsSchema = {
     LINEJS_TEST_STORAGE_PATH: { type: "string" },
     DISCORD_WEBHOOK_URL: { type: "string" },
     POLL_INTERVAL_MS: { type: "string" },
+    TEAM_POLL_INTERVALS_MS: { type: "string" },
     BOOKING_DETAIL_CONCURRENCY: { type: "string" },
     BOOKING_REPROCESS_COOLDOWN_MS: { type: "string" },
     BIDDING_VEHICLE_TYPE: { type: "string" },
@@ -118,7 +123,25 @@ function validateSettingsPayload(data: EnvSettings): string | null {
   ) {
     return "LINEJS_TEST_STORAGE_PATH must be a safe path under data/ or /app/data/";
   }
+  if (typeof data.TEAM_POLL_INTERVALS_MS === "string") {
+    const parsed = parseTeamPollIntervalsMs(data.TEAM_POLL_INTERVALS_MS);
+    if (!parsed.ok) {
+      return `TEAM_POLL_INTERVALS_MS ${parsed.error}`;
+    }
+  }
   return null;
+}
+
+function normalizeSettingsPayload(data: EnvSettings): EnvSettings {
+  if (typeof data.TEAM_POLL_INTERVALS_MS !== "string") return data;
+  const parsed = parseTeamPollIntervalsMs(data.TEAM_POLL_INTERVALS_MS);
+  if (!parsed.ok) return data;
+  const sortedEntries = Object.entries(parsed.value).sort((a, b) => Number(a[0]) - Number(b[0]));
+  return {
+    ...data,
+    TEAM_POLL_INTERVALS_MS:
+      sortedEntries.length === 0 ? "{}" : JSON.stringify(Object.fromEntries(sortedEntries)),
+  };
 }
 
 export const settingsController: FastifyPluginAsync = async (app) => {
@@ -140,7 +163,7 @@ export const settingsController: FastifyPluginAsync = async (app) => {
       if (validationError) {
         return sendError(reply, 400, "INVALID_SETTINGS", validationError);
       }
-      await writeSettings(data);
+      await writeSettings(normalizeSettingsPayload(data));
       await reloadSettingsLive();
       await insertAuditLog(currentUser(req).username, "Update Settings", "Updated DB-backed settings (Live Reload)");
 

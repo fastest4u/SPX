@@ -1,4 +1,5 @@
-import { env } from "../config/env.js";
+import { env, resolveTeamPollIntervalMs } from "../config/env.js";
+import { onLiveSettingsReloaded } from "../services/settings.js";
 import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
 import { DataProcessor } from "../services/data-processor.js";
@@ -139,6 +140,11 @@ export class Poller {
   private stats: PollingStats;
   private readonly cliIntervalMs: number | null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private unsubscribeLiveSettings: (() => void) | null = null;
+  private lastTickStart = 0;
+  private nextTickScheduledAt = 0;
+  private nextTickWaitMs = 0;
+  private nextTickIsFixed = false;
   private activeTick: Promise<void> | null = null;
   private requestCount = 0;
   private stopped = false;
@@ -342,7 +348,44 @@ export class Poller {
   }
 
   private getIntervalMs(): number {
-    return this.cliIntervalMs ?? env.POLL_INTERVAL_MS;
+    return resolveTeamPollIntervalMs(this.teamId, this.cliIntervalMs);
+  }
+
+  private rescheduleIfIntervalChanged(): void {
+    if (
+      this.stopped ||
+      !this.timer ||
+      this.activeTick ||
+      this.nextTickIsFixed ||
+      isTeamPaused(this.teamId) ||
+      this.rateLimitBackoffMs > 0 ||
+      Date.now() < this.rateLimitPausedUntil
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    const desiredIntervalMs = this.getIntervalMs();
+    const elapsedSinceTickStart = Math.max(0, now - this.lastTickStart);
+    const nextWaitMs = Math.max(0, desiredIntervalMs - elapsedSinceTickStart);
+    const currentRemainingMs = Math.max(0, this.nextTickScheduledAt + this.nextTickWaitMs - now);
+
+    if (Math.abs(nextWaitMs - currentRemainingMs) <= 25) {
+      return;
+    }
+
+    clearTimeout(this.timer);
+    this.nextTickScheduledAt = now;
+    this.nextTickWaitMs = nextWaitMs;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.run();
+    }, nextWaitMs);
+    logger.info("poller-interval-rescheduled", {
+      teamId: this.teamId,
+      intervalMs: desiredIntervalMs,
+      nextWaitMs,
+    });
   }
 
   /**
@@ -419,6 +462,11 @@ export class Poller {
       await getAutoAcceptVerificationRunner(this.apiClient, this.verificationOptions()).start();
     }
 
+    this.unsubscribeLiveSettings?.();
+    this.unsubscribeLiveSettings = onLiveSettingsReloaded(() => {
+      this.rescheduleIfIntervalChanged();
+    });
+
     void this.run();
 
     if (this.manageProcessSignals) {
@@ -487,6 +535,7 @@ export class Poller {
 
     // Measure tick duration so we can subtract it from the interval below (drift compensation).
     const tickStart = Date.now();
+    this.lastTickStart = tickStart;
     try {
       if (!isTeamPaused(this.teamId)) {
         this.activeTick = this.tick();
@@ -502,21 +551,30 @@ export class Poller {
         // duration so cadence does not drift under latency. POLL_INTERVAL_MS is never floored — when
         // a tick takes longer than the interval, waitMs collapses to 0 and the next tick fires ASAP.
         let waitMs: number;
+        let isFixedWait = false;
         if (this.rateLimitBackoffMs > 0) {
           // SPX rate-limit recovery: override the normal interval with the
           // measured backoff so the next tick fires only after the upstream
           // window has reset.
           waitMs = this.rateLimitBackoffMs;
+          isFixedWait = true;
           logger.info("rate-limit-backoff", { teamId: this.teamId, waitMs });
           void this.sendRateLimitAlert("recovered", undefined, waitMs, "ดึงรายการงานหลัก (Bidding List)");
           this.rateLimitBackoffMs = 0;
         } else if (isTeamPaused(this.teamId)) {
           waitMs = 1000;
+          isFixedWait = true;
         } else {
           const tickDuration = Date.now() - tickStart;
           waitMs = Math.max(0, this.getIntervalMs() - tickDuration);
         }
-        this.timer = setTimeout(() => void this.run(), waitMs);
+        this.nextTickIsFixed = isFixedWait;
+        this.nextTickScheduledAt = Date.now();
+        this.nextTickWaitMs = waitMs;
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          void this.run();
+        }, waitMs);
       }
     }
   }
@@ -1718,6 +1776,8 @@ export class Poller {
     }
 
     this.stopped = true;
+    this.unsubscribeLiveSettings?.();
+    this.unsubscribeLiveSettings = null;
     if (!this.isJobOnlyPoller()) await stopAutoAcceptVerificationRecovery(this.apiClient, this.teamId);
     if (this.timer) {
       clearTimeout(this.timer);

@@ -211,6 +211,100 @@ function safeParseRunTeamIds(value: string | undefined): number[] {
   }
 }
 
+/** Node.js 32-bit signed setTimeout upper bound (~24.8 days); larger values overflow to 1ms. */
+export const MAX_POLL_INTERVAL_MS = 2_147_483_647;
+const MAX_TEAM_POLL_INTERVAL_OVERRIDES = 500;
+const POSITIVE_TEAM_ID_KEY_PATTERN = /^[1-9]\d*$/;
+
+export type ParsedTeamPollIntervalsResult =
+  | { ok: true; value: Record<number, number> }
+  | { ok: false; error: string };
+
+/**
+ * Parse and validate TEAM_POLL_INTERVALS_MS JSON mapping (`{ "<teamId>": <ms> }`).
+ * Empty/whitespace strings and `{}` resolve to `{}`. Each key must be a canonical
+ * positive integer team id and each value must be a positive integer in ms.
+ */
+export function parseTeamPollIntervalsMs(raw: string | undefined): ParsedTeamPollIntervalsResult {
+  if (raw === undefined || raw.trim() === "") {
+    return { ok: true, value: {} };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "must be a valid JSON object mapping team IDs to positive integers in milliseconds" };
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "must be a JSON object mapping team IDs to positive integers in milliseconds" };
+  }
+
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length > MAX_TEAM_POLL_INTERVAL_OVERRIDES) {
+    return { ok: false, error: `must not contain more than ${MAX_TEAM_POLL_INTERVAL_OVERRIDES} team entries` };
+  }
+
+  const result: Record<number, number> = {};
+  for (const [key, value] of entries) {
+    if (!POSITIVE_TEAM_ID_KEY_PATTERN.test(key)) {
+      return { ok: false, error: `contains invalid team id key "${key}" (must be a positive integer)` };
+    }
+    const teamId = Number(key);
+    if (!Number.isSafeInteger(teamId) || teamId <= 0) {
+      return { ok: false, error: `contains invalid team id key "${key}"` };
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isSafeInteger(value) ||
+      value <= 0 ||
+      value > MAX_POLL_INTERVAL_MS
+    ) {
+      return {
+        ok: false,
+        error: `team ${key} poll interval must be a positive integer up to ${MAX_POLL_INTERVAL_MS} ms`,
+      };
+    }
+    result[teamId] = value;
+  }
+
+  return { ok: true, value: result };
+}
+
+function readTeamPollIntervalsEnv(): Record<number, number> {
+  const parsed = parseTeamPollIntervalsMs(process.env.TEAM_POLL_INTERVALS_MS);
+  return parsed.ok ? parsed.value : {};
+}
+
+export function resolveDispatcherKeepAliveIntervalMs(
+  globalIntervalMs: number,
+  teamIntervals: Readonly<Record<number, number>>,
+  assignedTeamIds: readonly number[] = [],
+): number {
+  const fallback = Number.isFinite(globalIntervalMs) && globalIntervalMs > 0 ? globalIntervalMs : 30000;
+  if (assignedTeamIds.length > 0) {
+    let maxMs = 0;
+    for (const teamId of assignedTeamIds) {
+      const override = teamIntervals[teamId];
+      const effective =
+        typeof override === "number" && Number.isFinite(override) && override > 0
+          ? override
+          : fallback;
+      if (effective > maxMs) maxMs = effective;
+    }
+    return maxMs > 0 ? maxMs : fallback;
+  }
+
+  let maxMs = fallback;
+  for (const value of Object.values(teamIntervals)) {
+    if (typeof value === "number" && Number.isFinite(value) && value > maxMs) {
+      maxMs = value;
+    }
+  }
+  return maxMs;
+}
+
 function parseNodeSecretPairs(value: string | undefined): Map<string, { active: string }> {
   const result = new Map<string, { active: string }>();
   if (!value || value.trim() === "") return result;
@@ -553,6 +647,7 @@ export const env = {
   ),
   API_URL: process.env.API_URL || "",
   POLL_INTERVAL_MS: readIntegerEnv("POLL_INTERVAL_MS", 30000),
+  TEAM_POLL_INTERVALS_MS: readTeamPollIntervalsEnv(),
   COOKIE: process.env.COOKIE || "",
   DEVICE_ID: process.env.DEVICE_ID || "",
   APP_NAME: process.env.APP_NAME || "",
@@ -631,6 +726,36 @@ export const env = {
   LINE_IMAGE_LISTENER_CHAT_ID: process.env.LINE_IMAGE_LISTENER_CHAT_ID || "",
   LINE_COMMAND_ALLOWED_USER_IDS: parseNodeSet(process.env.LINE_COMMAND_ALLOWED_USER_IDS),
 } as const;
+
+/**
+ * Resolve the effective poll interval (ms) for a team.
+ * Precedence: CLI override > per-team live override (`TEAM_POLL_INTERVALS_MS`) > global `POLL_INTERVAL_MS`.
+ */
+export function resolveTeamPollIntervalMs(
+  teamId: number,
+  cliIntervalMs?: number | null,
+): number {
+  if (
+    typeof cliIntervalMs === "number" &&
+    Number.isFinite(cliIntervalMs) &&
+    cliIntervalMs > 0 &&
+    cliIntervalMs <= MAX_POLL_INTERVAL_MS
+  ) {
+    return cliIntervalMs;
+  }
+  const override = env.TEAM_POLL_INTERVALS_MS[teamId];
+  if (
+    typeof override === "number" &&
+    Number.isFinite(override) &&
+    override > 0 &&
+    override <= MAX_POLL_INTERVAL_MS
+  ) {
+    return override;
+  }
+  return Number.isFinite(env.POLL_INTERVAL_MS) && env.POLL_INTERVAL_MS > 0 && env.POLL_INTERVAL_MS <= MAX_POLL_INTERVAL_MS
+    ? env.POLL_INTERVAL_MS
+    : 30000;
+}
 
 export function validateRuntimeConfig(): void {
   const missing: string[] = [];
@@ -1042,8 +1167,11 @@ export function validateRuntimeConfig(): void {
   // jobs (a competitive advantage), and ticks are serialized so a low value
   // cannot busy-loop. Bound resource use via BOOKING_DETAIL_CONCURRENCY (capped
   // at 50 below) rather than flooring the interval.
-  if (!isPositiveInteger(env.POLL_INTERVAL_MS))
-    invalid.push("POLL_INTERVAL_MS must be a positive integer in milliseconds");
+  if (!isPositiveInteger(env.POLL_INTERVAL_MS) || env.POLL_INTERVAL_MS > MAX_POLL_INTERVAL_MS)
+    invalid.push(`POLL_INTERVAL_MS must be a positive integer up to ${MAX_POLL_INTERVAL_MS} ms`);
+  const parsedTeamPollIntervals = parseTeamPollIntervalsMs(process.env.TEAM_POLL_INTERVALS_MS);
+  if (!parsedTeamPollIntervals.ok)
+    invalid.push(`TEAM_POLL_INTERVALS_MS ${parsedTeamPollIntervals.error}`);
   if (!isPositiveInteger(env.BOOKING_DETAIL_CONCURRENCY) || env.BOOKING_DETAIL_CONCURRENCY > 50)
     invalid.push("BOOKING_DETAIL_CONCURRENCY must be an integer from 1 to 50");
   if (!isNonNegativeInteger(env.BOOKING_REPROCESS_COOLDOWN_MS))

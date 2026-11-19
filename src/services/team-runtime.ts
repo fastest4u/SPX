@@ -1,6 +1,6 @@
 import { teamMetricsCollector } from "./metrics.js";
 import { ApiClient } from "./api-client.js";
-import { env } from "../config/env.js";
+import { resolveTeamPollIntervalMs } from "../config/env.js";
 import { Poller } from "../controllers/poller.js";
 import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
@@ -29,10 +29,13 @@ export interface TeamRuntimeHandle {
   status(): TeamRuntimeStatus;
 }
 
+const DEFAULT_LIVE_SETTINGS_SYNC_INTERVAL_MS = 5_000;
+
 export interface TeamRuntimeOptions {
   intervalSec?: number;
   realtimePublisher?: RealtimePublisher;
   realtimeSource?: RealtimeSource;
+  liveSettingsSyncIntervalMs?: number;
 }
 
 export class TeamRuntime implements TeamRuntimeHandle {
@@ -42,11 +45,14 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private readonly intervalSec: number | undefined;
   private readonly realtimePublisher: RealtimePublisher | undefined;
   private readonly realtimeSource: RealtimeSource | undefined;
+  private readonly liveSettingsSyncIntervalMs: number | undefined;
   private poller: Poller | null = null;
   private providerSession: TeamRuntimeSession | null = null;
   private credentialPool: TeamCredentialPool | null = null;
   private lastAccountReloadAt = 0;
   private refreshInFlight: Promise<void> | null = null;
+  private liveSettingsSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private liveSettingsRefreshInFlight: Promise<void> | null = null;
   private statusValue: TeamRuntimeStatusValue = "stopped";
   private lastPollAt: string | null = null;
   private lastError: string | null = null;
@@ -58,6 +64,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
     this.intervalSec = options.intervalSec;
     this.realtimePublisher = options.realtimePublisher;
     this.realtimeSource = options.realtimeSource;
+    this.liveSettingsSyncIntervalMs = options.liveSettingsSyncIntervalMs;
   }
 
   getCredentialPool(): TeamCredentialPool | null {
@@ -99,7 +106,11 @@ export class TeamRuntime implements TeamRuntimeHandle {
         onSessionExpired: (accountId) => {
           this.credentialPool?.recordSessionExpired(accountId);
         },
-        pollIntervalMsProvider: () => this.intervalSec !== undefined ? this.intervalSec * 1000 : env.POLL_INTERVAL_MS,
+        pollIntervalMsProvider: () =>
+          resolveTeamPollIntervalMs(
+            this.teamId,
+            this.intervalSec !== undefined ? this.intervalSec * 1000 : null,
+          ),
         biddingVehicleType: this.config.biddingVehicleType,
       });
       const context: TeamPollerContext = {
@@ -132,16 +143,46 @@ export class TeamRuntime implements TeamRuntimeHandle {
       };
       this.poller = new Poller(this.intervalSec, context);
       await this.poller.start();
+      this.startLiveSettingsSync();
       this.statusValue = isTeamPaused(this.teamId) ? "paused" : "running";
       this.lastPollAt = new Date().toISOString();
       this.lastError = null;
     } catch (error) {
+      this.stopLiveSettingsSync();
       this.providerSession?.dispose();
       this.providerSession = null;
       this.credentialPool = null;
       this.statusValue = "error";
       this.lastError = error instanceof Error ? error.message : String(error);
       throw error;
+    }
+  }
+
+  private startLiveSettingsSync(): void {
+    if (this.liveSettingsSyncTimer) return;
+    const syncIntervalMs =
+      this.liveSettingsSyncIntervalMs !== undefined
+        ? this.liveSettingsSyncIntervalMs
+        : process.env.NODE_ENV === "test"
+          ? 0
+          : DEFAULT_LIVE_SETTINGS_SYNC_INTERVAL_MS;
+    if (!Number.isFinite(syncIntervalMs) || syncIntervalMs <= 0) return;
+
+    this.liveSettingsSyncTimer = setInterval(() => {
+      if (this.liveSettingsRefreshInFlight) return;
+      this.liveSettingsRefreshInFlight = reloadSettingsLive()
+        .catch(() => undefined)
+        .finally(() => {
+          this.liveSettingsRefreshInFlight = null;
+        });
+    }, syncIntervalMs);
+    this.liveSettingsSyncTimer.unref?.();
+  }
+
+  private stopLiveSettingsSync(): void {
+    if (this.liveSettingsSyncTimer) {
+      clearInterval(this.liveSettingsSyncTimer);
+      this.liveSettingsSyncTimer = null;
     }
   }
 
@@ -154,7 +195,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
     const pool = this.credentialPool;
     this.refreshInFlight = Promise.all([
       pool ? pool.reloadAccounts() : Promise.resolve(),
-      process.env.NODE_ENV === "production"
+      !this.liveSettingsSyncTimer && process.env.NODE_ENV === "production"
         ? reloadSettingsLive().catch(() => undefined)
         : Promise.resolve(),
     ])
@@ -166,9 +207,13 @@ export class TeamRuntime implements TeamRuntimeHandle {
   }
 
   async stop(): Promise<void> {
+    this.stopLiveSettingsSync();
     if (this.poller) {
       await this.poller.stop(0);
       this.poller = null;
+    }
+    if (this.liveSettingsRefreshInFlight) {
+      await this.liveSettingsRefreshInFlight;
     }
     if (this.refreshInFlight) {
       await this.refreshInFlight;
