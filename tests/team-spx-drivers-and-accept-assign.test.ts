@@ -4,6 +4,7 @@ import { env } from "../src/config/env.js";
 import { closePool, ensureDashboardTables } from "../src/db/client.js";
 import { getRawMemoryDb } from "../src/db/client-memory.js";
 import {
+  getDriverCountByTeam,
   getDriverCountsByTeam,
   getDriverSummaryByTeam,
   listDriversByTeam,
@@ -12,7 +13,9 @@ import {
   syncTeamDrivers,
 } from "../src/repositories/team-spx-driver-repository.js";
 import { ApiClient } from "../src/services/api-client.js";
-import { acceptAndNotifyMatchedRules } from "../src/services/notifier.js";
+import { validateAutoAcceptJobDryRunPayloadStructure } from "../src/services/auto-accept-job-dry-run.js";
+import { publishAutoAcceptJob } from "../src/services/auto-accept-job-publisher.js";
+import { acceptAndNotifyMatchedRules, awaitAutoAcceptVerificationIdle } from "../src/services/notifier.js";
 import { createRule } from "../src/services/notify-rules.js";
 import {
   TeamDriverPool,
@@ -79,6 +82,13 @@ async function testRepositorySyncPreserveEnabledAndPruneStale(): Promise<void> {
   assert.equal(changedCount, 2);
   const summary = await getDriverSummaryByTeam(2);
   assert.equal(summary.enabled, 3);
+  assert.deepEqual(await getDriverCountByTeam(2), { total: 3, enabled: 3 });
+
+  // Empty upstream glitch guard: syncing an empty list MUST NOT wipe existing drivers
+  const emptySync = await syncTeamDrivers(2, []);
+  assert.equal(emptySync.synced, 0);
+  assert.equal(emptySync.removed, 0);
+  assert.equal((await listDriversByTeam(2)).length, 3, "Empty sync must preserve existing drivers");
 }
 
 async function testDriverPoolUniqueNamesAndStrictVehicleType(): Promise<void> {
@@ -548,6 +558,218 @@ async function testConcurrentSyncNilSliceAndDbGrants(): Promise<void> {
   assert.equal(grants.roles["poller-ptwl-phase3"].tables.team_spx_drivers, undefined);
 }
 
+async function testDisambiguationPaginationDetachedSplitAndFastAcceptAll(): Promise<void> {
+  await resetDriversTable();
+
+  // 1. Shorthand "6WH" disambiguation with preferredVehicleTypeId & bracketed non-downgrade
+  await syncTeamDrivers(2, [
+    { driverId: 1201, driverName: "หกล้อ ห้าเมตร", agencyName: "IFN", vehicleType: 12, vehicleTypeName: "6WH-6ล้อ[5.5m]" },
+    { driverId: 1301, driverName: "หกล้อ เจ็ดเมตร", agencyName: "IFN", vehicleType: 13, vehicleTypeName: "6WH-6ล้อ[7.2m]" },
+    { driverId: 1401, driverName: "หกล้อ ทั่วไป", agencyName: "IFN", vehicleType: 14, vehicleTypeName: "6WH-6ล้อ" },
+  ]);
+
+  let nowMs = 100_000;
+  let reloadFailCalls = 0;
+  const pool = new TeamDriverPool({ teamId: 2, clock: () => nowMs, random: () => 0.1 });
+  await pool.init();
+
+  assert.equal(pool.nextDriver({ vehicleTypeName: "6WH" }), null, "Ambiguous '6WH' without preferredVehicleTypeId returns null");
+  assert.equal(
+    pool.nextDriver({ vehicleTypeName: "6WH", preferredVehicleTypeId: 13 })?.driverId,
+    1301,
+    "preferredVehicleTypeId disambiguates shorthand '6WH' to type 13",
+  );
+  assert.equal(
+    pool.canResolveDriver({ vehicleTypeId: 8 }),
+    false,
+    "canResolveDriver returns false when no drivers exist for vehicleType=8",
+  );
+
+  // Bracketed subtype must NOT downgrade via reverse containment to generic "6WH-6ล้อ"
+  await resetDriversTable();
+  await syncTeamDrivers(2, [
+    { driverId: 1401, driverName: "หกล้อ ทั่วไป", agencyName: "IFN", vehicleType: 14, vehicleTypeName: "6WH-6ล้อ" },
+  ]);
+  const genericOnlyPool = new TeamDriverPool({ teamId: 2, clock: () => nowMs });
+  await genericOnlyPool.init();
+  assert.equal(
+    genericOnlyPool.nextDriver({ vehicleTypeName: "6WH-6ล้อ[7.2m]" }),
+    null,
+    "Specific bracketed subtype must not downgrade to generic type via reverse containment",
+  );
+
+  // Reload failure backoff prevents tight-loop retries during DB outages
+  const failingPool = new TeamDriverPool({
+    teamId: 2,
+    clock: () => nowMs,
+    loadDrivers: async () => {
+      reloadFailCalls++;
+      throw new Error("simulated DB outage");
+    },
+  });
+  await failingPool.init();
+  assert.equal(reloadFailCalls, 1);
+  nowMs += 2_000;
+  failingPool.triggerBackgroundReloadIfStale(30_000, 10_000);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(reloadFailCalls, 1, "Failure backoff should suppress immediate background retries");
+  nowMs += 11_000;
+  failingPool.triggerBackgroundReloadIfStale(30_000, 10_000);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(reloadFailCalls, 2, "Background reload should resume after failure backoff expires");
+
+  // 2. fetchLinehaulDrivers pagination & truncation fail-safe
+  const originalFetch = globalThis.fetch;
+  const originalApiUrl = env.API_URL;
+  const mutableEnv = env as { API_URL: string };
+  mutableEnv.API_URL = "https://logistics.myagencyservice.in.th/api/line_haul/agency/booking/bidding/list";
+
+  let paginationMode: "multi_page" | "truncated_same_page" = "multi_page";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+    const pageNo = typeof body.pageno === "number" ? body.pageno : 1;
+    if (paginationMode === "multi_page") {
+      const list = pageNo === 1
+        ? [{ driver_id: 1, driver_name: "A", agency_name: "IFN", vehicle_type: 2, vehicle_type_name: "4WH-4ล้อ" }]
+        : [{ driver_id: 2, driver_name: "B", agency_name: "IFN", vehicle_type: 2, vehicle_type_name: "4WH-4ล้อ" }];
+      return new Response(
+        JSON.stringify({ retcode: 0, message: "Success", data: { pageno: pageNo, count: 1, total: 2, list } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        retcode: 0,
+        message: "Success",
+        data: {
+          pageno: 1,
+          count: 1,
+          total: 2,
+          list: [{ driver_id: 1, driver_name: "A", agency_name: "IFN", vehicle_type: 2, vehicle_type_name: "4WH-4ล้อ" }],
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const client = new ApiClient({ credentials: { spxCookie: "fms_user_skey=test", spxDeviceId: "dev-1" } });
+    const merged = await client.fetchLinehaulDrivers({ count: 1 });
+    assert.equal(merged.ok, true);
+    assert.equal(merged.drivers.length, 2, "Multi-page driver list should merge pages cleanly");
+
+    paginationMode = "truncated_same_page";
+    const truncated = await client.fetchLinehaulDrivers({ count: 1 });
+    assert.equal(truncated.ok, false, "Truncated upstream response with ignored pageno must fail safe");
+    assert.match(truncated.error ?? "", /truncated/i);
+
+    // 3. Detached verification multi-request auto-accept splitting assigns unique driver names
+    await resetDriversTable();
+    const db = getRawMemoryDb();
+    db.prepare("DELETE FROM notify_rules WHERE team_id = 2").run();
+    db.prepare("DELETE FROM auto_accept_verification_jobs WHERE team_id = 2").run();
+    await syncTeamDrivers(2, [
+      { driverId: 701, driverName: "ดีแทช หนึ่ง", agencyName: "IFN", vehicleType: 2, vehicleTypeName: "4WH-4ล้อ" },
+      { driverId: 702, driverName: "ดีแทช สอง", agencyName: "IFN", vehicleType: 2, vehicleTypeName: "4WH-4ล้อ" },
+    ]);
+    await createRule(2, {
+      name: "Detached 4W unique",
+      origins: ["NORC"],
+      destinations: ["SOCN"],
+      vehicle_types: ["4WH-4ล้อ"],
+      need: 2,
+      enabled: true,
+      fulfilled: false,
+      auto_accept: true,
+      accept_all: false,
+    });
+    const detachedPool = await getOrCreateTeamDriverPool(2);
+    const detachedCalls: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+      if (url.endsWith("/booking/bidding/accept_assign")) {
+        detachedCalls.push(body);
+        return new Response(
+          JSON.stringify({ retcode: 0, message: "Success", data: { success_count: 1 } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          retcode: 0,
+          message: "Success",
+          data: {
+            pageno: 1,
+            count: 100,
+            total: 2,
+            request_list: [7101, 7102].map((requestId) => ({
+              request_id: requestId,
+              booking_id: 9101,
+              vehicle_type: 2,
+              vehicle_type_name: "4WH-4ล้อ",
+              request_acceptance_status: 2,
+              request_assignment_status: 3,
+              route_detail_list: [],
+            })),
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const detachedClient = new ApiClient({
+      credentials: { spxCookie: "fms_user_skey=test", spxDeviceId: "dev-1" },
+      driverResolver: (input) => detachedPool.nextDriver(input),
+      hasAutoDrivers: (input) => (input ? detachedPool.canResolveDriver(input) : detachedPool.hasDrivers()),
+    });
+    await acceptAndNotifyMatchedRules(
+      [7101, 7102].map((requestId) => ({
+        booking_id: 9101,
+        request_id: requestId,
+        origin: "NORC",
+        destination: "SOCN",
+        vehicle_type: "4WH-4ล้อ",
+        vehicle_type_id: 2,
+        "ต้นทาง": "NORC",
+        "ปลายทาง": "SOCN",
+        "ประเภทรถ": "4WH-4ล้อ",
+        acceptance_status: 1,
+      })),
+      detachedClient,
+      { teamId: 2, dryRun: true, verificationMode: "detached" },
+    );
+    await awaitAutoAcceptVerificationIdle();
+    assert.equal(detachedCalls.length, 2, "Detached multi-request auto-accept must split per request");
+    assert.equal(new Set(detachedCalls.map((c) => c.driver_id)).size, 2, "Detached calls must assign distinct driver_ids");
+  } finally {
+    globalThis.fetch = originalFetch;
+    mutableEnv.API_URL = originalApiUrl;
+  }
+
+  // 4. fast_accept_all job with vehicle_type trip hint passes dry-run payload structure validation
+  const published = await publishAutoAcceptJob({
+    executionMode: "shadow",
+    teamId: 2,
+    bookingId: 9202,
+    requestId: 0,
+    ruleId: "rule-fast-vt",
+    ruleName: "Fast 6W",
+    attemptKind: "fast_accept_all",
+    acceptAll: true,
+    source: "booking_name",
+    bookingName: "[ADHOC] NORC-SOCN",
+    trip: { booking_id: 9202, vehicle_type_id: 13, vehicle_type: "6WH-6ล้อ[7.2m]" },
+    ruleSnapshot: { need: 1, accept_all: true, enabled: true, fulfilled: false },
+    pollerNodeId: "test-poller",
+  });
+  assert.equal(published.published, true);
+  if (published.published) {
+    const validated = validateAutoAcceptJobDryRunPayloadStructure(published.job);
+    assert.equal(validated.ok, true, "fast_accept_all payload with vehicle_type trip hint must validate cleanly");
+  }
+}
+
 async function run(): Promise<void> {
   try {
     await testRepositorySyncPreserveEnabledAndPruneStale();
@@ -556,6 +778,7 @@ async function run(): Promise<void> {
     await testMultiRequestAutoAcceptAssignsUniqueNonDuplicateDriverNames();
     await testStrictVehicleTypeEdgeCasesAndPoolLifecycle();
     await testConcurrentSyncNilSliceAndDbGrants();
+    await testDisambiguationPaginationDetachedSplitAndFastAcceptAll();
     console.log("team-spx-drivers-and-accept-assign: all tests passed");
   } finally {
     await closePool();

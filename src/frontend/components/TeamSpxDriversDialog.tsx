@@ -81,8 +81,14 @@ export function TeamSpxDriversDialog({
     setPage(1)
   }, [search, vehicleTypeFilter])
 
-  const invalidateForTarget = (targetOwnTeam: boolean, targetTeamId?: number | null) => {
-    queryClient.invalidateQueries({ queryKey: buildDriversQueryKey(targetOwnTeam, targetTeamId) })
+  const invalidateForTarget = (
+    targetOwnTeam: boolean,
+    targetTeamId?: number | null,
+    includeDriversList = true,
+  ) => {
+    if (includeDriversList) {
+      queryClient.invalidateQueries({ queryKey: buildDriversQueryKey(targetOwnTeam, targetTeamId) })
+    }
     if (targetOwnTeam) {
       queryClient.invalidateQueries({ queryKey: ['current-team'] })
     } else {
@@ -102,7 +108,7 @@ export function TeamSpxDriversDialog({
         drivers: res.drivers,
         summary: res.summary,
       })
-      invalidateForTarget(vars.targetOwnTeam, vars.targetTeamId)
+      invalidateForTarget(vars.targetOwnTeam, vars.targetTeamId, false)
       toast.success(`ดึงรายชื่อคนขับจาก SPX สำเร็จ ${res.synced.toLocaleString()} คน`, {
         description: `เพิ่มใหม่ ${res.inserted} · อัปเดต ${res.updated} · ลบออก ${res.removed}`,
       })
@@ -177,7 +183,7 @@ export function TeamSpxDriversDialog({
         drivers: res.drivers,
         summary: res.summary,
       })
-      invalidateForTarget(vars.targetOwnTeam, vars.targetTeamId)
+      invalidateForTarget(vars.targetOwnTeam, vars.targetTeamId, false)
       toast.success(`${vars.enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}คนขับ ${res.updatedCount} คนแล้ว`)
     },
     onError: (err: Error) => {

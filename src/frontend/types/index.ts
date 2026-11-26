@@ -610,23 +610,44 @@ export interface ReadyResponse {
 }
 
 // Bidding Types
+export interface AssignedBookingDriver {
+  driverId: number;
+  driverName: string;
+}
+
 export interface AcceptBookingInput {
   teamId?: number;
   bookingId: number;
   requestIds: number[];
+  driverId?: number;
+  vehicleType?: number;
+  vehicleTypeName?: string;
   confirm: true;
 }
 
 export interface AcceptAllBookingInput {
   teamId: number;
   bookingId: number;
+  driverId?: number;
+  vehicleType?: number;
+  vehicleTypeName?: string;
   confirm: true;
 }
 
 export interface AcceptBookingResponse {
-  ok: boolean;
+  ok?: boolean;
   bookingId?: number;
   requestIds?: number[];
+  acceptedRequestIds?: number[];
+  failedRequests?: Array<{
+    requestId: number;
+    httpStatus: number;
+    error: string;
+    response?: unknown;
+  }>;
+  partialSuccess?: boolean;
+  assignedDriver?: AssignedBookingDriver;
+  assignedDrivers?: Array<AssignedBookingDriver & { requestId: number; ok: boolean }>;
   response?: unknown;
   error?: {
     code: string;
@@ -643,6 +664,7 @@ export interface AcceptAllBookingResponse {
   verifiedAcceptedCount?: number;
   verificationStatus?: 'verified_success' | 'indeterminate';
   requestIds?: number[];
+  assignedDriver?: AssignedBookingDriver;
   notified?: boolean;
   response?: unknown;
 }

@@ -135,6 +135,23 @@ export async function getDriverSummaryByTeam(teamId: number): Promise<TeamSpxDri
   return summarizeDriverRecords(records);
 }
 
+export async function getDriverCountByTeam(teamId: number): Promise<{ total: number; enabled: number }> {
+  await ensureDashboardTables();
+  const db = getDb();
+  const [row] = await db
+    .select({
+      total: sql<number>`COUNT(*)`,
+      enabled: sql<number>`COALESCE(SUM(CASE WHEN ${teamSpxDrivers.enabled} = 1 THEN 1 ELSE 0 END), 0)`,
+    })
+    .from(teamSpxDrivers)
+    .where(eq(teamSpxDrivers.teamId, teamId));
+
+  return {
+    total: Number(row?.total) || 0,
+    enabled: Number(row?.enabled) || 0,
+  };
+}
+
 export async function getDriverCountsByTeam(): Promise<Map<number, { total: number; enabled: number }>> {
   await ensureDashboardTables();
   const db = getDb();
@@ -265,9 +282,10 @@ export async function syncTeamDrivers(
     try {
       await conn.beginTransaction();
 
-      // Lock existing team rows so concurrent syncs serialize cleanly on one connection without ER_DUP_ENTRY.
+      // Serialize concurrent cross-process syncs on the parent team row to avoid empty-table InnoDB gap-lock deadlocks.
+      await conn.query("SELECT id FROM teams WHERE id = ? FOR UPDATE", [teamId]);
       const [existingRows] = await conn.query<Array<RowDataPacket & { id: number; driver_id: number }>>(
-        "SELECT id, driver_id FROM team_spx_drivers WHERE team_id = ? FOR UPDATE",
+        "SELECT id, driver_id FROM team_spx_drivers WHERE team_id = ?",
         [teamId],
       );
       const existingDriverIds = new Set<number>(existingRows.map((row) => Number(row.driver_id)));

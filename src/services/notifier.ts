@@ -1285,31 +1285,34 @@ async function acceptAutoAcceptMatch(
     return { ...emptyAutoAcceptRuleRunResult(), autoAcceptMatches: [match], claimToken };
   }
 
-  const splitPerRequestForUniqueDrivers =
-    !match.acceptAll &&
-    typeof apiClient.hasAutoDriverAssignment === "function" &&
-    apiClient.hasAutoDriverAssignment();
+  const byBooking = new Map<number, AutoAcceptBookingEntry>();
+  for (const { trip, bookingId, requestId } of selected) {
+    let entry = byBooking.get(bookingId);
+    if (!entry) {
+      entry = { requestIds: new Set(), trips: [], ruleId: match.ruleId, ruleName: match.ruleName };
+      byBooking.set(bookingId, entry);
+    }
+    entry.requestIds.add(requestId);
+    entry.trips.push(trip);
+  }
 
   const dispatchEntries: Array<{ bookingId: number; entry: AutoAcceptBookingEntry }> = [];
-  if (splitPerRequestForUniqueDrivers) {
-    for (const { trip, bookingId, requestId } of selected) {
-      dispatchEntries.push({
-        bookingId,
-        entry: { requestIds: new Set([requestId]), trips: [trip], ruleId: match.ruleId, ruleName: match.ruleName },
-      });
-    }
-  } else {
-    const byBooking = new Map<number, AutoAcceptBookingEntry>();
-    for (const { trip, bookingId, requestId } of selected) {
-      let entry = byBooking.get(bookingId);
-      if (!entry) {
-        entry = { requestIds: new Set(), trips: [], ruleId: match.ruleId, ruleName: match.ruleName };
-        byBooking.set(bookingId, entry);
+  for (const [bookingId, entry] of byBooking) {
+    const canSplitBookingForUniqueDrivers =
+      !match.acceptAll &&
+      entry.requestIds.size > 1 &&
+      typeof apiClient.hasAutoDriverAssignment === "function" &&
+      apiClient.hasAutoDriverAssignment(extractTripVehicleType(entry.trips[0]));
+    if (canSplitBookingForUniqueDrivers) {
+      for (const trip of entry.trips) {
+        const requestId = Number(trip.request_id);
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) continue;
+        dispatchEntries.push({
+          bookingId,
+          entry: { requestIds: new Set([requestId]), trips: [trip], ruleId: match.ruleId, ruleName: match.ruleName },
+        });
       }
-      entry.requestIds.add(requestId);
-      entry.trips.push(trip);
-    }
-    for (const [bookingId, entry] of byBooking) {
+    } else {
       dispatchEntries.push({ bookingId, entry });
     }
   }

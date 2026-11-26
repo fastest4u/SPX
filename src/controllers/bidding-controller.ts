@@ -2,12 +2,13 @@ import type { FastifyPluginAsync } from "fastify";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import { getTeamRuntimeConfig, type TeamRuntimeConfig } from "../repositories/team-repository.js";
-import { ApiClient, type AcceptBookingOptions } from "../services/api-client.js";
+import { ApiClient, type AcceptBookingOptions, type ApiClientCredentials } from "../services/api-client.js";
 import { getOrCreateTeamCredentialPool, type TeamCredentialPool } from "../services/team-credential-pool.js";
 import { getOrCreateTeamDriverPool, type TeamDriverPool } from "../services/team-driver-pool.js";
 import { sendAutoAcceptSuccessNotification } from "../services/notifier.js";
 import { requireRequestUser, resolveScopedTeamId } from "../services/team-scope.js";
 import { extractAllRequestListTrips, type ExtractedTripInfo } from "../utils/booking-extractor.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { sendSuccess, sendError } from "../utils/response.js";
@@ -39,7 +40,14 @@ function uniquePositiveIntegers(values: unknown): number[] {
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
 }
 
-async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{ team: TeamRuntimeConfig; pool: TeamCredentialPool; driverPool: TeamDriverPool }> {
+const MANUAL_ACCEPT_SPLIT_CONCURRENCY = 3;
+
+async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{
+  team: TeamRuntimeConfig;
+  pool: TeamCredentialPool;
+  driverPool: TeamDriverPool;
+  fallback: ApiClientCredentials | null;
+}> {
   const team = await getTeamRuntimeConfig(teamId);
   if (!team) {
     throw new AppError("Team not found", 404, "TEAM_NOT_FOUND");
@@ -55,10 +63,10 @@ async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{ team: Team
     getOrCreateTeamDriverPool(teamId),
   ]);
   driverPool.triggerBackgroundReloadIfStale();
-  if (!pool.hasCredentials()) {
+  if (pool.getAccountCount() === 0 && !fallback) {
     throw new AppError("Team SPX credentials are incomplete", 400, "TEAM_CREDENTIALS_REQUIRED");
   }
-  return { team, pool, driverPool };
+  return { team, pool, driverPool, fallback };
 }
 
 function mapUpstreamAcceptHttpStatus(httpStatus: number): number {
@@ -67,9 +75,14 @@ function mapUpstreamAcceptHttpStatus(httpStatus: number): number {
   return httpStatus >= 400 && httpStatus < 600 ? httpStatus : 502;
 }
 
-function apiClientForTeam(pool: TeamCredentialPool, driverPool: TeamDriverPool, biddingVehicleType?: number | null): ApiClient {
+function apiClientForTeam(
+  pool: TeamCredentialPool,
+  driverPool: TeamDriverPool,
+  biddingVehicleType?: number | null,
+  fallback?: ApiClientCredentials | null,
+): ApiClient {
   return new ApiClient({
-    credentialsProvider: () => pool.nextCredentials(),
+    credentialsProvider: () => (pool.getAccountCount() > 0 ? pool.nextCredentials() : fallback!),
     onRateLimit: (accountId, retryAfterMs) => {
       pool.recordRateLimit(accountId, retryAfterMs);
     },
@@ -78,7 +91,7 @@ function apiClientForTeam(pool: TeamCredentialPool, driverPool: TeamDriverPool, 
     },
     biddingVehicleType,
     driverResolver: (input) => driverPool.nextDriver(input),
-    hasAutoDrivers: () => driverPool.hasDrivers(),
+    hasAutoDrivers: (input) => (input ? driverPool.canResolveDriver(input) : driverPool.hasDrivers()),
     onDriverAcceptError: (driverId) => {
       driverPool.recordDriverFailure(driverId);
     },
@@ -89,8 +102,8 @@ function apiClientForTeam(pool: TeamCredentialPool, driverPool: TeamDriverPool, 
 }
 
 async function getApiClientForTeam(teamId: number): Promise<{ apiClient: ApiClient; driverPool: TeamDriverPool; team: TeamRuntimeConfig }> {
-  const { team, pool, driverPool } = await getEnabledTeamRuntimeConfig(teamId);
-  return { apiClient: apiClientForTeam(pool, driverPool, team.biddingVehicleType), driverPool, team };
+  const { team, pool, driverPool, fallback } = await getEnabledTeamRuntimeConfig(teamId);
+  return { apiClient: apiClientForTeam(pool, driverPool, team.biddingVehicleType, fallback), driverPool, team };
 }
 
 function acceptAllSuccessCount(response: { data?: unknown } | null): number {
@@ -211,21 +224,23 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     const validBookingId: number = bookingId;
     const actor = requireRequestUser(req);
     const teamId = resolveScopedTeamId(req, req.body.teamId);
-    const { apiClient, driverPool } = await getApiClientForTeam(teamId);
+    const { apiClient } = await getApiClientForTeam(teamId);
     const acceptOptions: AcceptBookingOptions = {
       ...(req.body.driverId !== undefined ? { driverId: req.body.driverId } : {}),
       ...(req.body.vehicleType !== undefined ? { vehicleTypeId: req.body.vehicleType } : {}),
       ...(req.body.vehicleTypeName !== undefined ? { vehicleTypeName: req.body.vehicleTypeName } : {}),
     };
 
-    // When multiple requests are accepted without a single explicit driverId and the team has synced drivers,
-    // split per request so each accepted trip gets a distinct non-duplicate driver name.
-    if (requestIds.length > 1 && req.body.driverId === undefined && driverPool.hasDrivers()) {
-      const results = await Promise.all(
-        requestIds.map(async (requestId) => ({
+    // When multiple requests are accepted without a single explicit driverId and the team has matching synced drivers
+    // for this vehicle type, split per request with bounded concurrency so each accepted trip gets a unique driver name.
+    if (requestIds.length > 1 && req.body.driverId === undefined && apiClient.hasAutoDriverAssignment(acceptOptions)) {
+      const results = await mapWithConcurrency(
+        requestIds,
+        MANUAL_ACCEPT_SPLIT_CONCURRENCY,
+        async (requestId) => ({
           requestId,
           result: await apiClient.acceptBookingRequests(validBookingId, [requestId], acceptOptions),
-        })),
+        }),
       );
       const acceptedItems = results.filter((item) => item.result.ok);
       const failedItems = results.filter((item) => !item.result.ok);
@@ -321,8 +336,8 @@ export const biddingController: FastifyPluginAsync = async (app) => {
 
     const validBookingId: number = bookingId;
     const teamId = req.body.teamId;
-    const { team, pool, driverPool } = await getEnabledTeamRuntimeConfig(teamId);
-    const apiClient = apiClientForTeam(pool, driverPool, team.biddingVehicleType);
+    const { team, pool, driverPool, fallback } = await getEnabledTeamRuntimeConfig(teamId);
+    const apiClient = apiClientForTeam(pool, driverPool, team.biddingVehicleType, fallback);
     const bookingContext = { booking_id: validBookingId, booking_name: `booking_id=${validBookingId}`, agency_name: "" };
     let previouslyAcceptedRequestIds = new Set<number>();
     let beforeReconcileSucceeded = false;

@@ -15,6 +15,7 @@ export interface AllocateDriversOptions {
   count: number;
   vehicleTypeId?: number | null;
   vehicleTypeName?: string | null;
+  preferredVehicleTypeId?: number | null;
   bookingId?: number;
   excludeDriverIds?: Iterable<number>;
   excludeDriverNames?: Iterable<string>;
@@ -23,12 +24,20 @@ export interface AllocateDriversOptions {
 export interface NextDriverOptions {
   vehicleTypeId?: number | null;
   vehicleTypeName?: string | null;
+  preferredVehicleTypeId?: number | null;
   bookingId?: number;
   excludeDriverIds?: Iterable<number>;
   excludeDriverNames?: Iterable<string>;
 }
 
+export interface CanResolveDriverOptions {
+  vehicleTypeId?: number | null;
+  vehicleTypeName?: string | null;
+  preferredVehicleTypeId?: number | null;
+}
+
 const DEFAULT_DRIVER_COOLDOWN_MS = 10 * 60_000;
+const DEFAULT_RELOAD_FAILURE_BACKOFF_MS = 10_000;
 const MAX_TRACKED_BOOKINGS = 200;
 
 function normalizeText(value: string | null | undefined): string {
@@ -65,7 +74,7 @@ export class TeamDriverPool {
   private drivers: TeamSpxDriverRecord[] = [];
   private driversById = new Map<number, TeamSpxDriverRecord>();
   private byVehicleType = new Map<number, TeamSpxDriverRecord[]>();
-  private byVehicleTypeName = new Map<string, TeamSpxDriverRecord[]>();
+  private byVehicleTypeName = new Map<string, Map<number, TeamSpxDriverRecord[]>>();
   private readonly deckByBucket = new Map<string, TeamSpxDriverRecord[]>();
   private readonly usedIdsInCycle = new Map<string, Set<number>>();
   private readonly usedNamesInCycle = new Map<string, Set<string>>();
@@ -74,6 +83,7 @@ export class TeamDriverPool {
   private readonly driverCooldownUntil = new Map<number, number>();
   private initialized = false;
   private lastReloadAt = 0;
+  private lastReloadAttemptAt = 0;
   private reloadInFlight: Promise<void> | null = null;
   private reloadQueued = false;
 
@@ -116,6 +126,7 @@ export class TeamDriverPool {
   }
 
   private async executeSingleReload(): Promise<void> {
+    this.lastReloadAttemptAt = this.clock();
     try {
       const loaded = await this.loadDriversFn(this.teamId);
       const enabledDrivers = loaded.filter((d) => d.enabled && d.driverId > 0 && d.driverName.trim().length > 0);
@@ -124,7 +135,7 @@ export class TeamDriverPool {
 
       const byId = new Map<number, TeamSpxDriverRecord>();
       const byType = new Map<number, TeamSpxDriverRecord[]>();
-      const byName = new Map<string, TeamSpxDriverRecord[]>();
+      const byName = new Map<string, Map<number, TeamSpxDriverRecord[]>>();
       const activeIds = new Set<number>();
 
       for (const driver of enabledDrivers) {
@@ -137,9 +148,14 @@ export class TeamDriverPool {
 
         const nameKey = normalizeVehicleTypeKey(driver.vehicleTypeName);
         if (nameKey) {
-          const nameBucket = byName.get(nameKey);
-          if (nameBucket) nameBucket.push(driver);
-          else byName.set(nameKey, [driver]);
+          let nameBuckets = byName.get(nameKey);
+          if (!nameBuckets) {
+            nameBuckets = new Map<number, TeamSpxDriverRecord[]>();
+            byName.set(nameKey, nameBuckets);
+          }
+          const bucketList = nameBuckets.get(driver.vehicleType);
+          if (bucketList) bucketList.push(driver);
+          else nameBuckets.set(driver.vehicleType, [driver]);
         }
       }
 
@@ -156,7 +172,7 @@ export class TeamDriverPool {
         const rebuiltNames = new Set<string>();
         for (const id of usedIds) {
           const active = byId.get(id);
-          if (!active) {
+          if (!active || `vt:${active.vehicleType}` !== bucketKey) {
             usedIds.delete(id);
           } else {
             const norm = normalizeText(active.driverName);
@@ -197,9 +213,16 @@ export class TeamDriverPool {
     }
   }
 
-  triggerBackgroundReloadIfStale(maxAgeMs = 30_000): void {
+  triggerBackgroundReloadIfStale(
+    maxAgeMs = 30_000,
+    failureBackoffMs = DEFAULT_RELOAD_FAILURE_BACKOFF_MS,
+  ): void {
     if (this.reloadInFlight) return;
-    if (this.clock() - this.lastReloadAt <= maxAgeMs) return;
+    const now = this.clock();
+    if (now - this.lastReloadAt <= maxAgeMs) return;
+    if (this.lastReloadAttemptAt > this.lastReloadAt && now - this.lastReloadAttemptAt <= failureBackoffMs) {
+      return;
+    }
     void this.reloadDrivers();
   }
 
@@ -212,6 +235,16 @@ export class TeamDriverPool {
       return (this.byVehicleType.get(vehicleType)?.length ?? 0) > 0;
     }
     return this.drivers.length > 0;
+  }
+
+  canResolveDriver(options: CanResolveDriverOptions = {}): boolean {
+    if (this.drivers.length === 0) return false;
+    const resolved = this.resolveCandidates(
+      options.vehicleTypeId,
+      options.vehicleTypeName,
+      options.preferredVehicleTypeId,
+    );
+    return Boolean(resolved && resolved.candidates.length > 0);
   }
 
   getDriverCount(vehicleType?: number | null): number {
@@ -269,7 +302,11 @@ export class TeamDriverPool {
     const requestedCount = Math.max(0, Math.floor(options.count));
     if (requestedCount === 0 || this.drivers.length === 0) return [];
 
-    const resolved = this.resolveCandidates(options.vehicleTypeId, options.vehicleTypeName);
+    const resolved = this.resolveCandidates(
+      options.vehicleTypeId,
+      options.vehicleTypeName,
+      options.preferredVehicleTypeId,
+    );
     if (!resolved || resolved.candidates.length === 0) return [];
 
     const { bucketKey, candidates } = resolved;
@@ -350,9 +387,15 @@ export class TeamDriverPool {
   private resolveCandidates(
     vehicleTypeId?: number | null,
     vehicleTypeName?: string | null,
+    preferredVehicleTypeId?: number | null,
   ): { bucketKey: string; candidates: TeamSpxDriverRecord[] } | null {
     const hasNumericType = typeof vehicleTypeId === "number" && Number.isInteger(vehicleTypeId) && vehicleTypeId > 0;
     const normalizedNameKey = normalizeVehicleTypeKey(vehicleTypeName);
+    const validPreferredId = typeof preferredVehicleTypeId === "number"
+      && Number.isInteger(preferredVehicleTypeId)
+      && preferredVehicleTypeId > 0
+      ? preferredVehicleTypeId
+      : null;
 
     if (hasNumericType) {
       // Strict numeric vehicle_type matching: never cross-assign a different numeric vehicle_type via fuzzy name containment.
@@ -364,7 +407,7 @@ export class TeamDriverPool {
     }
 
     if (normalizedNameKey) {
-      return this.findByVehicleTypeName(normalizedNameKey);
+      return this.findByVehicleTypeName(normalizedNameKey, validPreferredId);
     }
 
     // Without vehicle type hints, only auto-pick when the team's enabled drivers belong to a single vehicle type.
@@ -378,30 +421,52 @@ export class TeamDriverPool {
     return null;
   }
 
-  private findByVehicleTypeName(
-    normalizedNameKey: string,
+  private selectBucketFromMatches(
+    matchedBuckets: Map<number, TeamSpxDriverRecord[]>,
+    preferredVehicleTypeId: number | null,
   ): { bucketKey: string; candidates: TeamSpxDriverRecord[] } | null {
-    const exact = this.byVehicleTypeName.get(normalizedNameKey);
-    if (exact && exact.length > 0) {
-      return { bucketKey: `vt:${exact[0].vehicleType}`, candidates: exact };
-    }
-
-    // Only allow containment matching when the query is specific (>= 3 chars) and resolves unambiguously to ONE vehicle type.
-    if (normalizedNameKey.length < 3) return null;
-    const matchedBuckets = new Map<number, TeamSpxDriverRecord[]>();
-    for (const [key, list] of this.byVehicleTypeName) {
-      if (list.length === 0) continue;
-      if (key.includes(normalizedNameKey) || normalizedNameKey.includes(key)) {
-        matchedBuckets.set(list[0].vehicleType, list);
-      }
-    }
-
     if (matchedBuckets.size === 1) {
       const [vehicleType, list] = matchedBuckets.entries().next().value!;
       return { bucketKey: `vt:${vehicleType}`, candidates: list };
     }
-
+    if (matchedBuckets.size > 1 && preferredVehicleTypeId !== null) {
+      const preferred = matchedBuckets.get(preferredVehicleTypeId);
+      if (preferred && preferred.length > 0) {
+        return { bucketKey: `vt:${preferredVehicleTypeId}`, candidates: preferred };
+      }
+    }
     return null;
+  }
+
+  private findByVehicleTypeName(
+    normalizedNameKey: string,
+    preferredVehicleTypeId: number | null,
+  ): { bucketKey: string; candidates: TeamSpxDriverRecord[] } | null {
+    const exactBuckets = this.byVehicleTypeName.get(normalizedNameKey);
+    if (exactBuckets && exactBuckets.size > 0) {
+      return this.selectBucketFromMatches(exactBuckets, preferredVehicleTypeId);
+    }
+
+    // Only allow containment matching when the query is specific (>= 3 chars).
+    // Allow shorthand query matching canonical SPX name (key.includes(query)), and only allow
+    // reverse containment when the stored key is >= 3 chars AND the query has no bracketed subtype qualifier (e.g. [7.2m]).
+    if (normalizedNameKey.length < 3) return null;
+    const queryHasBracketQualifier = normalizedNameKey.includes("[");
+    const matchedBuckets = new Map<number, TeamSpxDriverRecord[]>();
+
+    for (const [key, bucketsByType] of this.byVehicleTypeName) {
+      const forwardMatch = key.includes(normalizedNameKey);
+      const reverseMatch = !queryHasBracketQualifier && key.length >= 3 && normalizedNameKey.includes(key);
+      if (!forwardMatch && !reverseMatch) continue;
+
+      for (const [vehicleType, list] of bucketsByType) {
+        if (list.length > 0) {
+          matchedBuckets.set(vehicleType, list);
+        }
+      }
+    }
+
+    return this.selectBucketFromMatches(matchedBuckets, preferredVehicleTypeId);
   }
 
   private getOrBuildDeck(bucketKey: string, candidates: TeamSpxDriverRecord[]): TeamSpxDriverRecord[] {

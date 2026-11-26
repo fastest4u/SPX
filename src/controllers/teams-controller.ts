@@ -10,8 +10,8 @@ import {
   type UpdateTeamSpxAccountInput,
 } from "../repositories/team-spx-account-repository.js";
 import {
+  getDriverCountByTeam,
   getDriverCountsByTeam,
-  getDriverSummaryByTeam,
   listDriversByTeam,
   setAllTeamDriversEnabled,
   setTeamDriverEnabled,
@@ -126,7 +126,8 @@ async function executeSyncTeamDriversFromSpx(teamId: number): Promise<SyncTeamDr
     ? { spxCookie: team.spxCookie, spxDeviceId: team.spxDeviceId }
     : null;
   const pool = await getOrCreateTeamCredentialPool(teamId, fallback);
-  if (!pool.hasCredentials()) {
+  const hasPoolAccounts = pool.getAccountCount() > 0;
+  if (!hasPoolAccounts && !fallback) {
     return {
       ok: false,
       statusCode: 400,
@@ -136,7 +137,8 @@ async function executeSyncTeamDriversFromSpx(teamId: number): Promise<SyncTeamDr
   }
 
   const apiClient = new ApiClient({
-    credentialsProvider: () => pool.nextCredentials(),
+    // Always use freshly read DB fallback credentials for single-account teams so reconnected sessions recover immediately.
+    credentialsProvider: () => (pool.getAccountCount() > 0 ? pool.nextCredentials() : fallback!),
     onRateLimit: (accountId, retryAfterMs) => {
       pool.recordRateLimit(accountId, retryAfterMs);
     },
@@ -399,15 +401,15 @@ async function listTeamsWithRuntimeStatus() {
 }
 
 async function getCurrentUserTeam(teamId: number) {
-  const [team, summary] = await Promise.all([
+  const [team, counts] = await Promise.all([
     getTeamById(teamId),
-    getDriverSummaryByTeam(teamId),
+    getDriverCountByTeam(teamId),
   ]);
   if (!team) return null;
   return {
     ...(await withRuntimeStatus(team)),
-    driversCount: summary.total,
-    enabledDriversCount: summary.enabled,
+    driversCount: counts.total,
+    enabledDriversCount: counts.enabled,
   };
 }
 

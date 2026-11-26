@@ -117,7 +117,9 @@ export class TeamRuntime implements TeamRuntimeHandle {
           ),
         biddingVehicleType: this.config.biddingVehicleType,
         driverResolver: (input) => this.driverPool?.nextDriver(input) ?? null,
-        hasAutoDrivers: () => this.driverPool?.hasDrivers() ?? false,
+        hasAutoDrivers: (input) => (input
+          ? (this.driverPool?.canResolveDriver(input) ?? false)
+          : (this.driverPool?.hasDrivers() ?? false)),
         onDriverAcceptError: (driverId) => {
           this.driverPool?.recordDriverFailure(driverId);
         },
@@ -164,6 +166,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
       this.providerSession?.dispose();
       this.providerSession = null;
       this.credentialPool = null;
+      this.driverPool = null;
       this.statusValue = "error";
       this.lastError = error instanceof Error ? error.message : String(error);
       throw error;

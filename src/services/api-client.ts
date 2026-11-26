@@ -123,6 +123,7 @@ export interface AcceptDriverResolveInput {
   bookingId: number;
   vehicleTypeId?: number | null;
   vehicleTypeName?: string | null;
+  preferredVehicleTypeId?: number | null;
   excludeDriverIds?: Iterable<number>;
   excludeDriverNames?: Iterable<string>;
 }
@@ -172,7 +173,11 @@ export interface ApiClientOptions {
   /** Optional hot-path in-memory resolver for non-duplicate SPX driver_id assignment. */
   driverResolver?: AcceptDriverResolver;
   /** Optional check whether the team currently has synced drivers available for accept_assign. */
-  hasAutoDrivers?: () => boolean;
+  hasAutoDrivers?: (input?: {
+    vehicleTypeId?: number | null;
+    vehicleTypeName?: string | null;
+    preferredVehicleTypeId?: number | null;
+  }) => boolean;
   /** Optional callback when an accept_assign fails due to a driver error so the pool can cool that driver down. */
   onDriverAcceptError?: (driverId: number, retcode: number | null, message: string) => void;
   /** Optional callback when an accept_assign receives a definitive non-ok response so the booking assignment lock can be released. */
@@ -500,7 +505,13 @@ export class ApiClient {
    */
   private readonly teamBiddingVehicleType: number | null | undefined;
   private readonly driverResolver: AcceptDriverResolver | undefined;
-  private readonly hasAutoDriversFn: (() => boolean) | undefined;
+  private readonly hasAutoDriversFn:
+    | ((input?: {
+        vehicleTypeId?: number | null;
+        vehicleTypeName?: string | null;
+        preferredVehicleTypeId?: number | null;
+      }) => boolean)
+    | undefined;
   private readonly onDriverAcceptError: ((driverId: number, retcode: number | null, message: string) => void) | undefined;
   private readonly onDriverAcceptReleased: ((bookingId: number, driverId: number, driverName: string) => void) | undefined;
   private readonly readScheduler = new ProviderReadScheduler({
@@ -692,19 +703,47 @@ export class ApiClient {
     }
   }
 
-  hasAutoDriverAssignment(): boolean {
-    if (this.hasAutoDriversFn) return this.hasAutoDriversFn();
+  hasAutoDriverAssignment(options?: {
+    vehicleTypeId?: number | null;
+    vehicleTypeName?: string | null;
+  }): boolean {
+    if (this.hasAutoDriversFn) {
+      if (!options) return this.hasAutoDriversFn();
+      const cleanVehicleTypeName = isMeaningfulVehicleTypeText(options.vehicleTypeName)
+        ? options.vehicleTypeName.trim()
+        : undefined;
+      const vehicleTypeId = options.vehicleTypeId !== undefined
+        ? options.vehicleTypeId
+        : (cleanVehicleTypeName ? undefined : this.teamBiddingVehicleType);
+      return this.hasAutoDriversFn({
+        vehicleTypeId,
+        vehicleTypeName: cleanVehicleTypeName,
+        preferredVehicleTypeId: this.teamBiddingVehicleType,
+      });
+    }
     return typeof this.driverResolver === "function";
   }
 
-  async fetchLinehaulDrivers(
-    options: { vehicleType?: number; count?: number } = {},
-  ): Promise<FetchLinehaulDriversResult> {
-    const body: Record<string, number> = {
-      count: options.count ?? 5000,
-    };
-    if (typeof options.vehicleType === "number" && Number.isInteger(options.vehicleType) && options.vehicleType > 0) {
-      body.vehicle_type = options.vehicleType;
+  private async fetchLinehaulDriversPage(
+    count: number,
+    pageNo?: number,
+    vehicleType?: number,
+  ): Promise<
+    | {
+        ok: true;
+        httpStatus: number;
+        message: string;
+        total: number | null;
+        drivers: SpxLinehaulDriver[];
+      }
+    | (Omit<FetchLinehaulDriversResult, "ok"> & { ok: false })
+  > {
+    const body: Record<string, number> = { count };
+    if (typeof pageNo === "number" && Number.isInteger(pageNo) && pageNo > 1) {
+      body.pageno = pageNo;
+    }
+    if (typeof vehicleType === "number" && Number.isInteger(vehicleType) && vehicleType > 0) {
+      body.vehicle_type = vehicleType;
     }
 
     const { credentials, headers } = this.selectRequestAuth();
@@ -716,7 +755,7 @@ export class ApiClient {
           headers,
           body: JSON.stringify(body),
         },
-        "linehaul-driver-list",
+        pageNo && pageNo > 1 ? `linehaul-driver-list:${pageNo}` : "linehaul-driver-list",
         "normal",
         undefined,
         FETCH_TIMEOUT_MS,
@@ -794,20 +833,23 @@ export class ApiClient {
         };
       }
 
+      const rawTotal = data ? safeTotal(data.total) : 0;
+      const total = rawTotal > 0 ? rawTotal : null;
+
       const drivers: SpxLinehaulDriver[] = [];
       for (const item of rawList) {
         if (!isRecord(item)) continue;
         const driverId = typeof item.driver_id === "number" ? item.driver_id : Number(item.driver_id);
-        const vehicleType = typeof item.vehicle_type === "number" ? item.vehicle_type : Number(item.vehicle_type);
+        const vehicleTypeNum = typeof item.vehicle_type === "number" ? item.vehicle_type : Number(item.vehicle_type);
         const driverName = typeof item.driver_name === "string" ? item.driver_name.trim() : "";
-        if (!Number.isInteger(driverId) || driverId <= 0 || !Number.isInteger(vehicleType) || vehicleType <= 0 || !driverName) {
+        if (!Number.isInteger(driverId) || driverId <= 0 || !Number.isInteger(vehicleTypeNum) || vehicleTypeNum <= 0 || !driverName) {
           continue;
         }
         drivers.push({
           driver_id: driverId,
           driver_name: driverName,
           agency_name: typeof item.agency_name === "string" ? item.agency_name.trim() : "",
-          vehicle_type: vehicleType,
+          vehicle_type: vehicleTypeNum,
           vehicle_type_name: typeof item.vehicle_type_name === "string" ? item.vehicle_type_name.trim() : "",
         });
       }
@@ -815,8 +857,8 @@ export class ApiClient {
       return {
         ok: true,
         httpStatus: response.status,
-        retcode: 0,
         message,
+        total,
         drivers,
       };
     } catch (err) {
@@ -829,6 +871,64 @@ export class ApiClient {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  async fetchLinehaulDrivers(
+    options: { vehicleType?: number; count?: number } = {},
+  ): Promise<FetchLinehaulDriversResult> {
+    const count = options.count ?? 5000;
+    const firstPage = await this.fetchLinehaulDriversPage(count, undefined, options.vehicleType);
+    if (!firstPage.ok) {
+      return firstPage;
+    }
+
+    const byDriverId = new Map<number, SpxLinehaulDriver>();
+    for (const driver of firstPage.drivers) {
+      if (!byDriverId.has(driver.driver_id)) {
+        byDriverId.set(driver.driver_id, driver);
+      }
+    }
+
+    // Guard against silent upstream truncation: if SPX reports `total > received`, attempt bounded pagination
+    // and refuse partial sync (ok=false) if subsequent pages fail, repeat page 1, or still leave drivers missing.
+    if (firstPage.total !== null && firstPage.drivers.length > 0 && byDriverId.size < firstPage.total) {
+      const maxExtraPages = 10;
+      for (let pageNo = 2; pageNo <= maxExtraPages + 1 && byDriverId.size < firstPage.total; pageNo++) {
+        const nextPage = await this.fetchLinehaulDriversPage(count, pageNo, options.vehicleType);
+        if (!nextPage.ok) {
+          return nextPage;
+        }
+        let addedOnPage = 0;
+        for (const driver of nextPage.drivers) {
+          if (!byDriverId.has(driver.driver_id)) {
+            byDriverId.set(driver.driver_id, driver);
+            addedOnPage++;
+          }
+        }
+        if (addedOnPage === 0) {
+          break;
+        }
+      }
+
+      if (byDriverId.size < firstPage.total) {
+        return {
+          ok: false,
+          httpStatus: firstPage.httpStatus,
+          retcode: 0,
+          message: firstPage.message,
+          drivers: [],
+          error: `Driver list truncated upstream (received ${byDriverId.size} of ${firstPage.total} drivers); refusing partial sync`,
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      httpStatus: firstPage.httpStatus,
+      retcode: 0,
+      message: firstPage.message,
+      drivers: [...byDriverId.values()],
+    };
   }
 
   async fetch(requestNumber: number, options: BiddingListFetchOptions = {}): Promise<PollingResult> {
@@ -1228,6 +1328,7 @@ export class ApiClient {
       bookingId,
       vehicleTypeId,
       vehicleTypeName: cleanVehicleTypeName,
+      preferredVehicleTypeId: this.teamBiddingVehicleType,
       excludeDriverIds: options?.excludeDriverIds,
       excludeDriverNames: options?.excludeDriverNames,
     });

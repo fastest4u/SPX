@@ -7,7 +7,7 @@ import { env } from "../src/config/env.js";
 
 async function main(): Promise<void> {
   const { resetMemoryDb } = await import("../src/db/client-memory.js");
-  const { createTeam } = await import("../src/repositories/team-repository.js");
+  const { createTeam, updateTeam } = await import("../src/repositories/team-repository.js");
   const {
     teamsController,
     currentTeamController,
@@ -58,7 +58,8 @@ async function main(): Promise<void> {
   mutableEnv.API_URL = "https://logistics.myagencyservice.in.th/api/line_haul/agency/booking/bidding/list";
 
   const acceptAssignCalls: Array<Record<string, unknown>> = [];
-  let driverListMode: "normal" | "unauthorized" | "rate_limited" | "slow_normal" = "normal";
+  const legacyAcceptCalls: Array<Record<string, unknown>> = [];
+  let driverListMode: "normal" | "unauthorized" | "rate_limited" | "slow_normal" | "require_refreshed_cookie" = "normal";
   let driverListFetchCount = 0;
   let acceptMode: "ok" | "partial_fail" | "unauthorized" = "ok";
 
@@ -70,6 +71,12 @@ async function main(): Promise<void> {
 
     if (url.endsWith("/api/driverservice/agency/operation/linehaul/driver/list")) {
       driverListFetchCount++;
+      if (driverListMode === "require_refreshed_cookie" && !cookie.includes("secret-ifn-refreshed")) {
+        return new Response(
+          JSON.stringify({ retcode: 401, message: "Expired cookie" }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        );
+      }
       if (driverListMode === "unauthorized") {
         return new Response(
           JSON.stringify({ retcode: 401, message: "Unauthorized" }),
@@ -115,6 +122,14 @@ async function main(): Promise<void> {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      return new Response(
+        JSON.stringify({ retcode: 0, message: "Success", data: { success_count: 1 } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+
+    if (url.endsWith("/booking/bidding/accept")) {
+      legacyAcceptCalls.push(body);
       return new Response(
         JSON.stringify({ retcode: 0, message: "Success", data: { success_count: 1 } }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -285,6 +300,74 @@ async function main(): Promise<void> {
     assert.equal(toggleTeamRes.statusCode, 200);
     assert.equal(toggleTeamRes.json().data.driversCount, 1);
     assert.equal(toggleTeamRes.json().data.enabledDriversCount, 1);
+
+    // 14. Single-account credential refresh immediately recovers driver sync without restarting server
+    authUser = { id: 1, username: "admin-user", role: "admin", teamId: undefined };
+    driverListMode = "require_refreshed_cookie";
+    const expiredSyncRes = await app.inject({
+      method: "POST",
+      url: `/teams/${team1.id}/spx-drivers/sync`,
+      payload: {},
+    });
+    assert.equal(expiredSyncRes.statusCode, 502);
+    assert.equal(expiredSyncRes.json().error_code, "SPX_SESSION_EXPIRED");
+    await updateTeam(team1.id, { spxCookie: "fms_user_skey=secret-ifn-refreshed", spxDeviceId: "device-ifn" });
+    const recoveredSyncRes = await app.inject({
+      method: "POST",
+      url: `/teams/${team1.id}/spx-drivers/sync`,
+      payload: {},
+    });
+    assert.equal(recoveredSyncRes.statusCode, 200, "Freshly reconnected single-account cookie must recover driver sync");
+    driverListMode = "normal";
+
+    // 15. Manual multi-request /bidding/accept with unmatched vehicleType does NOT split into N legacy calls
+    authUser = { id: 3, username: "ifn-user", role: "user", teamId: team1.id };
+    const beforeLegacyCount = legacyAcceptCalls.length;
+    const unmatchedAcceptRes = await app.inject({
+      method: "POST",
+      url: "/bidding/accept",
+      payload: {
+        bookingId: 3985505,
+        requestIds: [67842501, 67842502],
+        vehicleType: 8,
+        confirm: true,
+      },
+    });
+    assert.equal(unmatchedAcceptRes.statusCode, 200);
+    assert.equal(
+      legacyAcceptCalls.length - beforeLegacyCount,
+      1,
+      "Unmatched vehicleType must fall back to 1 batched legacy /accept instead of splitting into N calls",
+    );
+
+    // 16. Admin POST /bidding/accept-all assigns driver & maps upstream 401 -> 502
+    authUser = { id: 1, username: "admin-user", role: "admin", teamId: undefined };
+    const acceptAllRes = await app.inject({
+      method: "POST",
+      url: "/bidding/accept-all",
+      payload: {
+        teamId: team1.id,
+        bookingId: 3985506,
+        vehicleType: 13,
+        confirm: true,
+      },
+    });
+    assert.equal(acceptAllRes.statusCode, 200);
+    assert.equal(acceptAllRes.json().data.assignedDriver?.driverId, 503);
+
+    acceptMode = "unauthorized";
+    const unauthAcceptAllRes = await app.inject({
+      method: "POST",
+      url: "/bidding/accept-all",
+      payload: {
+        teamId: team1.id,
+        bookingId: 3985507,
+        vehicleType: 13,
+        confirm: true,
+      },
+    });
+    assert.equal(unauthAcceptAllRes.statusCode, 502, "Upstream SPX 401 on /bidding/accept-all must map to HTTP 502");
+    acceptMode = "ok";
   } finally {
     globalThis.fetch = originalFetch;
     mutableEnv.API_URL = originalApiUrl;

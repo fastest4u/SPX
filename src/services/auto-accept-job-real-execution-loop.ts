@@ -173,7 +173,7 @@ export async function loadAutoAcceptJobRealApiClientForTeam(
     pollIntervalMsProvider: () => env.POLL_INTERVAL_MS,
     biddingVehicleType: team.biddingVehicleType,
     driverResolver: (input) => driverPool.nextDriver(input),
-    hasAutoDrivers: () => driverPool.hasDrivers(),
+    hasAutoDrivers: (input) => (input ? driverPool.canResolveDriver(input) : driverPool.hasDrivers()),
     onDriverAcceptError: (driverId) => {
       driverPool.recordDriverFailure(driverId);
     },
