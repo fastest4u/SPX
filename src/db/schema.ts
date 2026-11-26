@@ -52,6 +52,24 @@ export const teamSpxAccounts = mysqlTable("team_spx_accounts", {
   teamEnabledIdx: index("team_spx_accounts_team_enabled_idx").on(table.teamId, table.enabled),
 }));
 
+export const teamSpxDrivers = mysqlTable("team_spx_drivers", {
+  id: int("id").autoincrement().primaryKey(),
+  teamId: int("team_id").notNull(),
+  driverId: int("driver_id").notNull(),
+  driverName: varchar("driver_name", { length: 255 }).notNull(),
+  agencyName: varchar("agency_name", { length: 255 }).notNull().default(""),
+  vehicleType: int("vehicle_type").notNull(),
+  vehicleTypeName: varchar("vehicle_type_name", { length: 100 }).notNull().default(""),
+  enabled: int("enabled").notNull().default(1),
+  syncedAt: datetime("synced_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  teamDriverUid: uniqueIndex("team_spx_drivers_team_driver_uidx").on(table.teamId, table.driverId),
+  teamIdIdx: index("team_spx_drivers_team_id_idx").on(table.teamId),
+  teamVehicleEnabledIdx: index("team_spx_drivers_team_vehicle_enabled_idx").on(table.teamId, table.vehicleType, table.enabled),
+}));
+
 
 export const spxBookingHistory = mysqlTable("spx_booking_history", {
   id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),

@@ -2,11 +2,13 @@ import type { FastifyPluginAsync } from "fastify";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import { insertAutoAcceptHistory } from "../repositories/auto-accept-repository.js";
 import { getTeamRuntimeConfig, type TeamRuntimeConfig } from "../repositories/team-repository.js";
-import { ApiClient } from "../services/api-client.js";
+import { ApiClient, type AcceptBookingOptions, type ApiClientCredentials } from "../services/api-client.js";
 import { getOrCreateTeamCredentialPool, type TeamCredentialPool } from "../services/team-credential-pool.js";
+import { getOrCreateTeamDriverPool, type TeamDriverPool } from "../services/team-driver-pool.js";
 import { sendAutoAcceptSuccessNotification } from "../services/notifier.js";
 import { requireRequestUser, resolveScopedTeamId } from "../services/team-scope.js";
 import { extractAllRequestListTrips, type ExtractedTripInfo } from "../utils/booking-extractor.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { sendSuccess, sendError } from "../utils/response.js";
@@ -15,12 +17,18 @@ interface AcceptBody {
   teamId?: number;
   bookingId?: number;
   requestIds?: number[];
+  driverId?: number;
+  vehicleType?: number;
+  vehicleTypeName?: string;
   confirm?: boolean;
 }
 
 interface AcceptAllBody {
   teamId?: number;
   bookingId?: number;
+  driverId?: number;
+  vehicleType?: number;
+  vehicleTypeName?: string;
   confirm?: boolean;
 }
 
@@ -32,7 +40,14 @@ function uniquePositiveIntegers(values: unknown): number[] {
   return [...new Set(values.filter((value): value is number => Number.isInteger(value) && value > 0))];
 }
 
-async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{ team: TeamRuntimeConfig; pool: TeamCredentialPool }> {
+const MANUAL_ACCEPT_SPLIT_CONCURRENCY = 3;
+
+async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{
+  team: TeamRuntimeConfig;
+  pool: TeamCredentialPool;
+  driverPool: TeamDriverPool;
+  fallback: ApiClientCredentials | null;
+}> {
   const team = await getTeamRuntimeConfig(teamId);
   if (!team) {
     throw new AppError("Team not found", 404, "TEAM_NOT_FOUND");
@@ -43,28 +58,52 @@ async function getEnabledTeamRuntimeConfig(teamId: number): Promise<{ team: Team
   const fallback = (team.spxCookie && team.spxDeviceId)
     ? { spxCookie: team.spxCookie, spxDeviceId: team.spxDeviceId }
     : null;
-  const pool = await getOrCreateTeamCredentialPool(teamId, fallback);
-  if (!pool.hasCredentials()) {
+  const [pool, driverPool] = await Promise.all([
+    getOrCreateTeamCredentialPool(teamId, fallback),
+    getOrCreateTeamDriverPool(teamId),
+  ]);
+  driverPool.triggerBackgroundReloadIfStale();
+  if (pool.getAccountCount() === 0 && !fallback) {
     throw new AppError("Team SPX credentials are incomplete", 400, "TEAM_CREDENTIALS_REQUIRED");
   }
-  return { team, pool };
+  return { team, pool, driverPool, fallback };
 }
 
-function apiClientForTeam(pool: TeamCredentialPool): ApiClient {
+function mapUpstreamAcceptHttpStatus(httpStatus: number): number {
+  // Never surface upstream SPX 401/403 as HTTP 401/403 to the dashboard client (401 triggers JWT logout).
+  if (httpStatus === 401 || httpStatus === 403) return 502;
+  return httpStatus >= 400 && httpStatus < 600 ? httpStatus : 502;
+}
+
+function apiClientForTeam(
+  pool: TeamCredentialPool,
+  driverPool: TeamDriverPool,
+  biddingVehicleType?: number | null,
+  fallback?: ApiClientCredentials | null,
+): ApiClient {
   return new ApiClient({
-    credentialsProvider: () => pool.nextCredentials(),
+    credentialsProvider: () => (pool.getAccountCount() > 0 ? pool.nextCredentials() : fallback!),
     onRateLimit: (accountId, retryAfterMs) => {
       pool.recordRateLimit(accountId, retryAfterMs);
     },
     onSessionExpired: (accountId) => {
       pool.recordSessionExpired(accountId);
     },
+    biddingVehicleType,
+    driverResolver: (input) => driverPool.nextDriver(input),
+    hasAutoDrivers: (input) => (input ? driverPool.canResolveDriver(input) : driverPool.hasDrivers()),
+    onDriverAcceptError: (driverId) => {
+      driverPool.recordDriverFailure(driverId);
+    },
+    onDriverAcceptReleased: (bookingId, driverId, driverName) => {
+      driverPool.releaseBookingDriver(bookingId, driverId, driverName);
+    },
   });
 }
 
-async function getApiClientForTeam(teamId: number): Promise<ApiClient> {
-  const { pool } = await getEnabledTeamRuntimeConfig(teamId);
-  return apiClientForTeam(pool);
+async function getApiClientForTeam(teamId: number): Promise<{ apiClient: ApiClient; driverPool: TeamDriverPool; team: TeamRuntimeConfig }> {
+  const { team, pool, driverPool, fallback } = await getEnabledTeamRuntimeConfig(teamId);
+  return { apiClient: apiClientForTeam(pool, driverPool, team.biddingVehicleType, fallback), driverPool, team };
 }
 
 function acceptAllSuccessCount(response: { data?: unknown } | null): number {
@@ -152,6 +191,9 @@ const acceptSchema = {
     teamId: { type: "integer", minimum: 1 },
     bookingId: { type: "integer", minimum: 1 },
     requestIds: { type: "array", minItems: 1, maxItems: 100, items: { type: "integer", minimum: 1 } },
+    driverId: { type: "integer", minimum: 1 },
+    vehicleType: { type: "integer", minimum: 1 },
+    vehicleTypeName: { type: "string", maxLength: 100 },
     confirm: { type: "boolean", const: true },
   },
 } as const;
@@ -163,6 +205,9 @@ const acceptAllSchema = {
   properties: {
     teamId: { type: "integer", minimum: 1 },
     bookingId: { type: "integer", minimum: 1 },
+    driverId: { type: "integer", minimum: 1 },
+    vehicleType: { type: "integer", minimum: 1 },
+    vehicleTypeName: { type: "string", maxLength: 100 },
     confirm: { type: "boolean", const: true },
   },
 } as const;
@@ -179,18 +224,85 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     const validBookingId: number = bookingId;
     const actor = requireRequestUser(req);
     const teamId = resolveScopedTeamId(req, req.body.teamId);
-    const apiClient = await getApiClientForTeam(teamId);
-    const result = await apiClient.acceptBookingRequests(validBookingId, requestIds);
+    const { apiClient } = await getApiClientForTeam(teamId);
+    const acceptOptions: AcceptBookingOptions = {
+      ...(req.body.driverId !== undefined ? { driverId: req.body.driverId } : {}),
+      ...(req.body.vehicleType !== undefined ? { vehicleTypeId: req.body.vehicleType } : {}),
+      ...(req.body.vehicleTypeName !== undefined ? { vehicleTypeName: req.body.vehicleTypeName } : {}),
+    };
+
+    // When multiple requests are accepted without a single explicit driverId and the team has matching synced drivers
+    // for this vehicle type, split per request with bounded concurrency so each accepted trip gets a unique driver name.
+    if (requestIds.length > 1 && req.body.driverId === undefined && apiClient.hasAutoDriverAssignment(acceptOptions)) {
+      const results = await mapWithConcurrency(
+        requestIds,
+        MANUAL_ACCEPT_SPLIT_CONCURRENCY,
+        async (requestId) => ({
+          requestId,
+          result: await apiClient.acceptBookingRequests(validBookingId, [requestId], acceptOptions),
+        }),
+      );
+      const acceptedItems = results.filter((item) => item.result.ok);
+      const failedItems = results.filter((item) => !item.result.ok);
+      const anyOk = acceptedItems.length > 0;
+      const firstFailure = failedItems[0]?.result;
+      const assignedDrivers = results
+        .filter((item) => item.result.assignedDriver)
+        .map((item) => ({
+          requestId: item.requestId,
+          ...item.result.assignedDriver!,
+          ok: item.result.ok,
+        }));
+      const driverAuditSummary = assignedDrivers.map((d) => `${d.requestId}:${d.driverId}:${d.ok ? "ok" : "fail"}`).join(",");
+
+      await insertAuditLog(
+        actor.username,
+        anyOk ? "Accept Booking Request" : "Accept Booking Request Failed",
+        `booking_id=${bookingId}; request_ids=${requestIds.join(",")}; drivers=${driverAuditSummary}; ok_count=${acceptedItems.length}/${results.length}`,
+        { actorUserId: actor.id, actorTeamId: actor.teamId, targetTeamId: teamId },
+      );
+
+      if (!anyOk && firstFailure) {
+        const statusCode = mapUpstreamAcceptHttpStatus(firstFailure.httpStatus);
+        return sendError(
+          reply,
+          statusCode,
+          "ACCEPT_FAILED",
+          firstFailure.error || firstFailure.response?.message || "Accept request failed",
+          firstFailure.response,
+        );
+      }
+
+      const partialSuccess = failedItems.length > 0;
+      return sendSuccess(reply, {
+        bookingId,
+        requestIds,
+        acceptedRequestIds: acceptedItems.map((item) => item.requestId),
+        failedRequests: failedItems.map((item) => ({
+          requestId: item.requestId,
+          httpStatus: item.result.httpStatus,
+          error: item.result.error || item.result.response?.message || "Accept request failed",
+          response: item.result.response,
+        })),
+        partialSuccess,
+        assignedDrivers,
+        response: acceptedItems[0]?.result.response ?? null,
+      }, partialSuccess
+        ? `Booking accepted partially (${acceptedItems.length}/${results.length} succeeded)`
+        : "Booking accepted successfully");
+    }
+
+    const result = await apiClient.acceptBookingRequests(validBookingId, requestIds, acceptOptions);
 
     await insertAuditLog(
       actor.username,
       result.ok ? "Accept Booking Request" : "Accept Booking Request Failed",
-      `booking_id=${bookingId}; request_ids=${requestIds.join(",")}; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
+      `booking_id=${bookingId}; request_ids=${requestIds.join(",")}; driver_id=${result.assignedDriver?.driverId ?? "none"}; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
       { actorUserId: actor.id, actorTeamId: actor.teamId, targetTeamId: teamId },
     );
 
     if (!result.ok) {
-      const statusCode = result.httpStatus >= 400 ? result.httpStatus : 502;
+      const statusCode = mapUpstreamAcceptHttpStatus(result.httpStatus);
       return sendError(
         reply,
         statusCode,
@@ -203,6 +315,7 @@ export const biddingController: FastifyPluginAsync = async (app) => {
     return sendSuccess(reply, {
       bookingId,
       requestIds,
+      ...(result.assignedDriver ? { assignedDriver: result.assignedDriver } : {}),
       response: result.response,
     }, "Booking accepted successfully");
   });
@@ -223,8 +336,8 @@ export const biddingController: FastifyPluginAsync = async (app) => {
 
     const validBookingId: number = bookingId;
     const teamId = req.body.teamId;
-    const { team, pool } = await getEnabledTeamRuntimeConfig(teamId);
-    const apiClient = apiClientForTeam(pool);
+    const { team, pool, driverPool, fallback } = await getEnabledTeamRuntimeConfig(teamId);
+    const apiClient = apiClientForTeam(pool, driverPool, team.biddingVehicleType, fallback);
     const bookingContext = { booking_id: validBookingId, booking_name: `booking_id=${validBookingId}`, agency_name: "" };
     let previouslyAcceptedRequestIds = new Set<number>();
     let beforeReconcileSucceeded = false;
@@ -238,17 +351,22 @@ export const biddingController: FastifyPluginAsync = async (app) => {
         error: err instanceof Error ? err.message : String(err),
       });
     }
-    const result = await apiClient.acceptAllBookingRequests(validBookingId);
+    const acceptAllOptions: AcceptBookingOptions = {
+      ...(req.body.driverId !== undefined ? { driverId: req.body.driverId } : {}),
+      ...(req.body.vehicleType !== undefined ? { vehicleTypeId: req.body.vehicleType } : {}),
+      ...(req.body.vehicleTypeName !== undefined ? { vehicleTypeName: req.body.vehicleTypeName } : {}),
+    };
+    const result = await apiClient.acceptAllBookingRequests(validBookingId, acceptAllOptions);
 
     await insertAuditLog(
       actor.username,
       result.ok ? "Accept All Booking Requests" : "Accept All Booking Requests Failed",
-      `booking_id=${bookingId}; accept_all=true; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
+      `booking_id=${bookingId}; accept_all=true; driver_id=${result.assignedDriver?.driverId ?? "none"}; status=${result.httpStatus}; message=${result.response?.message ?? result.error ?? ""}`,
       { actorUserId: actor.id, actorTeamId: actor.teamId, targetTeamId: teamId },
     );
 
     if (!result.ok) {
-      const statusCode = result.httpStatus >= 400 ? result.httpStatus : 502;
+      const statusCode = mapUpstreamAcceptHttpStatus(result.httpStatus);
       return sendError(
         reply,
         statusCode,
@@ -286,6 +404,7 @@ export const biddingController: FastifyPluginAsync = async (app) => {
       verifiedAcceptedCount: acceptedTrips.length,
       verificationStatus: acceptedTrips.length > 0 ? "verified_success" : "indeterminate",
       requestIds: acceptedTrips.map((trip) => trip.request_id),
+      ...(result.assignedDriver ? { assignedDriver: result.assignedDriver } : {}),
       notified,
       response: result.response,
     }, "Booking accept-all submitted successfully");

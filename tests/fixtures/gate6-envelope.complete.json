@@ -42,7 +42,7 @@
   "monitorThresholdsSha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "protectedInstallEvidenceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "installedMigrationSetSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "installedSchemaVersion": 46,
+  "installedSchemaVersion": 47,
   "pendingReleasedMigrationCount": 0,
   "issuedAt": "2026-07-10T16:55:00.000Z",
   "expiresAt": "2026-07-10T18:00:00.000Z",
@@ -58,15 +58,15 @@
     "audience": "spx-gate6",
     "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
-  "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
-  "actionIndexSha256": "c8491303648c642ba21131c51340c265174067338e5aa1390629efd79c72ab04",
+  "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
+  "actionIndexSha256": "cc2005b872595d5578cfaf3f12b9f2061c43ca1dd26d221809d6aad7e61c52c2",
   "actionApprovals": [
     {
       "gate6Id": "gate6-20260710-01",
       "scope": "gate6-admit",
       "kind": "forward",
       "actionId": "gate6-20260710-001",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -78,8 +78,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "ef68d305d9eef5de8849ca01c36a770f7adb9fa2d8db445d1e1dcdf029d0b45b",
-        "signatureBase64": "8aVi5A9V2T/fMoj4wwsyiIcTkk2hQuK8A0F9Ht///nSqlTecxXAiXErIOaZj780Al+JwtCGdQEs/LBEDYsowBQ=="
+        "signedPayloadSha256": "c30e563b27d1ea379c550d50b0658bf1535e1b147cf01c2d6a10ec76a40b4658",
+        "signatureBase64": "N0q2OmoDB5nwaIQoYDYd5VuwgViMeJj8ZlXAUcwASoWG23CfLCqxDZvLiHFYLNTYMO0rCHRlujq/EE1zrbsABg=="
       }
     },
     {
@@ -87,7 +87,7 @@
       "scope": "stage-accept-db-transition",
       "kind": "forward",
       "actionId": "gate6-20260710-002",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -99,8 +99,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "22676e69838a233fd03a69604d68a25c068d38e7f2b13f85574bba8b3163c46a",
-        "signatureBase64": "Px6HOdCPLQrL54/a0FSaReB7apE1KM2L0F6agT+8oBh1R4ImtNuxYUjl7E+U4OAAEjq287OHz/WI6DRvt9/vAQ=="
+        "signedPayloadSha256": "2b7d0a4da4ff1d6518e0116501b9105f461b73cb86abbee9da20f4f4c7befde4",
+        "signatureBase64": "k7s9Se9gKCjYYwWgopU+IhHLI48DiKMC9RN4NLnhefd4Uu3RacD9CWd6MYIyIv+y/cPk0D/P6D5oS2Fce5djBw=="
       }
     },
     {
@@ -108,7 +108,7 @@
       "scope": "db-principal-prepare-realtime",
       "kind": "forward",
       "actionId": "gate6-20260710-003",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -120,8 +120,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "672353b253d3f9eee031acf5a1d399f18fc6976b77ae20933990e3c77f79dae8",
-        "signatureBase64": "Ns5/Ed2DV/aYyMnYyxPGisIQtSxlcAiAsmsY2UWDrO8st7x5Gy6xkaZtm5b1qYGigJRStA9dZthFf/yntTNbAg=="
+        "signedPayloadSha256": "775fce6922da6b828dca29e5a9db8c071b5b00a190521045581998b470a6ca41",
+        "signatureBase64": "16eiej8WVeQTzbYGu8YpzQUQ/dm70EH5RyYnctFM6acHnU55ktTECY6o9AX5FL0/oonozuhWPAY03YmBbELcDQ=="
       }
     },
     {
@@ -129,7 +129,7 @@
       "scope": "db-principal-prepare-line",
       "kind": "forward",
       "actionId": "gate6-20260710-004",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -141,8 +141,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "6fa03aaa36dc6d4870f7a16e80f65a273eaa72647a87f325bffe8070cb4a810d",
-        "signatureBase64": "pR+bI/xA1Eu5t5HIA3UfG4U/VgcATFGzFDTqeVPXPar37yr1Fqfq39fn+zxhiqigHPdsCkoF1r/y8W0igNYsBA=="
+        "signedPayloadSha256": "e7851a8e1a920bea53210d0027adf615537c12521c174683b171ebf8a2ce8787",
+        "signatureBase64": "qyaaxjPR5pO1Iw0NuVDBgekR2PqJr4lr000X3fjW9xnHRtqoX5ALmFEVvlhvRRHPgyfCKSLMmEjv4uZ4qF21Ag=="
       }
     },
     {
@@ -150,7 +150,7 @@
       "scope": "db-principal-prepare-notification",
       "kind": "forward",
       "actionId": "gate6-20260710-005",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -162,8 +162,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "f69c1322dacc6519cfa44c47b311710c1a6a592212af22cd32c81eb03ac4c9e8",
-        "signatureBase64": "JB6Abm2R1YW5NmyG/S7bU5kf15MpcdOKNCB1cwb4FjKCB2cfO8mqmePpJKmPJM3NALxDF/BImj+rsPXGJ51EAA=="
+        "signedPayloadSha256": "4053ac99975fa70887593b94ee3d2c4bda013ec2024f3e3eb7ed8efef462d8b9",
+        "signatureBase64": "kREGi/98/FbatqNrJc2ujv3ts/UEtxIi+mGPhGk2aZAXSLEjDZv9aT2z1h52NuApvTRsZKmdEHHS/VkIrg3gAA=="
       }
     },
     {
@@ -171,7 +171,7 @@
       "scope": "db-principal-prepare-worker-ifn",
       "kind": "forward",
       "actionId": "gate6-20260710-006",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -183,8 +183,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "3d0a15f122d4e1aa533cf0c9b84666e71c5c90750db7cac3f53a053e4d89af14",
-        "signatureBase64": "QbwedWvlzIFks/+nhNPiTvoVM0S6Yff9KYRtEklqd+On5Ip4QNdVfFP3sh4/H9IT15KGiP/AuMBhYbbAP8LFAw=="
+        "signedPayloadSha256": "b766531b0fe3807141d4d94ff162b9ed1dd36eb743ef1e9ca68d0f867f2c0504",
+        "signatureBase64": "ox8dbPDpsMRB+5KBTj43T1QJVm5WMuXgvHRBHJmGK3bO/QrHXDb1yeV2GNDvU2EkYiUedOxwvKHo1VU6dJ6fCw=="
       }
     },
     {
@@ -192,7 +192,7 @@
       "scope": "db-principal-prepare-worker-ptwl",
       "kind": "forward",
       "actionId": "gate6-20260710-007",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -204,8 +204,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "fca1076f9848ab8f084b41278eaac1cb08ad7a43f200e86bb74d32c9ae6466bb",
-        "signatureBase64": "qVo2etNcx8og8iymI8m1JxfW3nvL79XscQ2Usav+Is6nyAzmWO0+uRnRuBbinM7CbBCHdrc1FrS5DuWXKV2qCQ=="
+        "signedPayloadSha256": "495b3ef7c5f28345ac01941c91bbdb1a8fcf6f82288c1660e4783cf8d47fdd13",
+        "signatureBase64": "m1S4Ussq8qxd8taOPf5t4C/2kw/uRYll0X5nYQG0NFSv7en2ZfV3FVZqDE/TvdJCTmuvnLGspx93nqqgxYgZAg=="
       }
     },
     {
@@ -213,7 +213,7 @@
       "scope": "db-principal-prepare-web",
       "kind": "forward",
       "actionId": "gate6-20260710-008",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -225,8 +225,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "86e6764f306d7e7562cf8ae84b7df8c7c2aba6c12efd38a85e777aed649a65e5",
-        "signatureBase64": "oTnh+3252ris3fpoyp+sJ8TYXTs4WVKY2Wx8PCdQrP1MsC+u1PIyUayGVdofUJJrCRuNLxLaCS8Kn6Hk6C0pDQ=="
+        "signedPayloadSha256": "2cce1f55324e3961eefd146dcd4d8dca362e4e2c5e3e00d3a08653a778d01fcf",
+        "signatureBase64": "4GvTWVsiS0Y21EIkUf3NcvuIpIrsfTfOT61ydtYEL3AeH/bl3rxMV5cUiBp+IPwVb9fbdRcYI1U5bhcOYv0FCw=="
       }
     },
     {
@@ -234,7 +234,7 @@
       "scope": "db-principal-prepare-phase3-control",
       "kind": "forward",
       "actionId": "gate6-20260710-009",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -246,8 +246,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "d3209e545d027053d2cc3e815606ee2862cdde6bc61013338dda11f823c500d5",
-        "signatureBase64": "3WW9IzC1O+JhXmCA+EY48u5QuPGOz+IGaRm3x7z6UDxejRVNk97ORDI6zAYd6fugeRRAeJOtiZ9PHOstdVDwAg=="
+        "signedPayloadSha256": "a456f97777f36dfe4c1f323ff56f15b5808e13de221ab624a13963fee2baaf9b",
+        "signatureBase64": "vxedShtU+8tiOb6GFmzYls+mhnUyXCZ+4nC73V0U4I6qJju8lnP1KQb4NNLgDDnSNy8yNBuCSYKhiFPXJAyICA=="
       }
     },
     {
@@ -255,7 +255,7 @@
       "scope": "db-principal-verify-migrator",
       "kind": "forward",
       "actionId": "gate6-20260710-010",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -267,8 +267,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "14574720048fded7534c2e7d184b6943ceba53784effa9c8f6c79d05f79ab9b0",
-        "signatureBase64": "+fMTywdKvLM8s1LEIUDgHSHZBqc7y5/eHsebtgJ3BbH0l61gYz3ToMB0JpycTvyGrL/glp8PYSpqhrHRqguuBA=="
+        "signedPayloadSha256": "1f8611d2a710670fa2ff712995712a15b6c2aafe25f0bf864c263b2ad0aacb14",
+        "signatureBase64": "zJaIlRmbBNJHtlT75Cc/gApUN6VjNrjfGYLQmsMrnwyuJm9yp7jIHeMG5ftOQ5lHBawtw7+NYcM2PDqXSRACDw=="
       }
     },
     {
@@ -276,7 +276,7 @@
       "scope": "db-principal-switch-realtime",
       "kind": "forward",
       "actionId": "gate6-20260710-011",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -288,8 +288,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "c403a87b98f4c2d7e141e79b52347d43f094a6e946decc225a36439c311a960c",
-        "signatureBase64": "xAZE78aRUEcpAnzlbzKJDgMrHZWZejoqVas5HQoSVL/M4lEvZ3iSWHHEz5vFKx1NR3zGVcpHzi6wQbNzmkIJCw=="
+        "signedPayloadSha256": "d08c89e42c45b7bf608adcb1c2bfa0517e1b0033d2ab1f27515cd7104424d84d",
+        "signatureBase64": "kAm5PHQCcaem2964mjT8DKGGJXNxWUPLSXUf0t0OKpNxmKdZcyRLf2SmU3DC11BeOx8Br3yZhWUxrVdtiQHMDQ=="
       }
     },
     {
@@ -297,7 +297,7 @@
       "scope": "db-principal-switch-line",
       "kind": "forward",
       "actionId": "gate6-20260710-012",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -309,8 +309,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "3ac6abd756c6e449ad801099ca45b66f91152562882d2e8f47c634706693fe5a",
-        "signatureBase64": "WYe4zOTEzYwQ8LJtN3tsUxdRoZZcQB5L5Dom04Ahkdpo6Qx1aVjyryLTXBOHWjT3/0woaoBEyIe6Pubm7OHJCg=="
+        "signedPayloadSha256": "efc92225a14273883f580748fff52a45e22db253bb8cf6402f4e3687ff91bebb",
+        "signatureBase64": "GSnr56qKbmt539/7ger/CxdRlzyH92DD3DbUjTyAoajY99Ex/f01+5bqLodHtG/lMdPpfMPO1UuJXKHddnQdBQ=="
       }
     },
     {
@@ -318,7 +318,7 @@
       "scope": "db-principal-switch-notification",
       "kind": "forward",
       "actionId": "gate6-20260710-013",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -330,8 +330,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "61265574c55e4d210efd6fd9cbb4e1fa2c0f13c12f6792bbb3f228a7a8f27abf",
-        "signatureBase64": "qD8l9ZdNYbr7ALyeWHq240qVvDmMTQjCiYe2cm0nJjHpTzCbSyQfIoUFokcwAY8cfQlS8ru6e1Wjcs+K9noXCA=="
+        "signedPayloadSha256": "57749d4f2b71d58851701a8e5b0050f15adab60982b5fc62b02dad1e5bd59c42",
+        "signatureBase64": "4/JVDlf8B7BxfzWFJGDnomEQgn0VtoNZsn5OQ6QBO/AOXa/rk9b+TsmxF1hlGq/eahPMt8qY2lyZs5Yhud3DBw=="
       }
     },
     {
@@ -339,7 +339,7 @@
       "scope": "db-principal-switch-worker-ifn",
       "kind": "forward",
       "actionId": "gate6-20260710-014",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -351,8 +351,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "0286dca18d94dd0e9dc11dfbd8204fbfb3416fb3e0e7ceb042b36817b771eb11",
-        "signatureBase64": "8Ihk/1T2nwuQEqQ+t3sQuC3ncpRmAzDJ4upgGWNi0kBZzCuyujaDflleNJ0GiGuBUQMWUB/BlvMfisuuEXwNCw=="
+        "signedPayloadSha256": "dfbc000dc13c00d125dde398269703fed4514a6411418277ac77cc9d18f95329",
+        "signatureBase64": "UOkyOO6ZEESnq6nKmKotHFuXjOL7QmLx8Wzz72mfZGyQmzH1hakShRq90JJSW7GbhZBJx48g3oK2woG1s2DnBA=="
       }
     },
     {
@@ -360,7 +360,7 @@
       "scope": "db-principal-switch-worker-ptwl",
       "kind": "forward",
       "actionId": "gate6-20260710-015",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -372,8 +372,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "ca195177ccbfa78d076a9ada8ae6309b6270b4233aaf49a0479dc58c1764d942",
-        "signatureBase64": "b1XpJ4xpErGkyURNPFmoFq38r7Jv/uLOnkDXjngU1cYffwhpXZg88DPDUIjovH1GNHDueIkmZPkB64xBriTlCw=="
+        "signedPayloadSha256": "caea74a623eac2ee8e339ddedf0095d385b629a5404d38d24f9afbebd422d263",
+        "signatureBase64": "6tUUYzI+CqJSM3+spN9iLN/b3TYGOEh2w9TahwqePphBmNdKp6TljNzR5b5Ydv3n29OlDz4RObxn5zDArjP7Cg=="
       }
     },
     {
@@ -381,7 +381,7 @@
       "scope": "db-principal-switch-web",
       "kind": "forward",
       "actionId": "gate6-20260710-016",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -393,8 +393,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "7e0e1b82b05a7f0f832e3f56b7034ea6a5dfb33dae41819a667f1c1861d4c8be",
-        "signatureBase64": "ftJtt/+bDxsaAlpp4+QEoynlKCDlHSZLm+41x2u5PZfjjWdcodm2lLwKIXg5QI3zx8NF/BS21zOhLURmapV8AQ=="
+        "signedPayloadSha256": "4fabcd0ff83dd798e86b7baf16252e52f3efe04db74c55e7dab0456fa64bce96",
+        "signatureBase64": "3BNbKPJ6zcdbhpGldt18LXnSMOUdimnsLJgvOPYCSshd5wOknncmZIpTeSMqJRjdktOl+2m92budVE77VhR0BQ=="
       }
     },
     {
@@ -402,7 +402,7 @@
       "scope": "stage-accept-task9",
       "kind": "forward",
       "actionId": "gate6-20260710-017",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -414,8 +414,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "e7ea1afca96a59c242af300e919a977abc6be1da784a825a7a9af2acba4f8a28",
-        "signatureBase64": "+Deo1CN+nujp9d7Abntsbfxa29Y81BNLYwjouK3/KezPJO0tQJzZWKCxjBAQ0NRR3Jh9uR2cvo8qWsJ7CtMqCw=="
+        "signedPayloadSha256": "9534d475d7c877a4dca12f3fda51f48530d882fdfb73d016e385dbfba8b394ea",
+        "signatureBase64": "2kbqGAH2YPXWmgKaO5ia1l5Xkom06dds7VhQVzIH93UAztLdPQeffY1tk56Xw3iy/EPpNdpPud/lRzKsuXQBAg=="
       }
     },
     {
@@ -423,7 +423,7 @@
       "scope": "task9-line-baseline",
       "kind": "forward",
       "actionId": "gate6-20260710-018",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -435,8 +435,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "5f66409aa759ddc0c3805b6fd69dc60bea0045f96b6c5fcbbb7c15a56385d4f7",
-        "signatureBase64": "TG1Ad2S0Pl0xsnlmlmsF4xEUKXNtadx42ZwwGe5IHZHEm1KONBxF2nR8eiqFqpPfox7LgLlNCOuQYSFO67+LCA=="
+        "signedPayloadSha256": "b8b408bdce7794dabdd921b7b75e7bd7c09da1cb4e235aab9aa4c577afaaf183",
+        "signatureBase64": "v1FttWXfFgJCwLOSnVSQNGjoXMp5UnuLg4pTULTn0HCB/gctEZYeQHTzUr6YpgZKB6ZSUE3Xw8BQ8TYUyzuAAA=="
       }
     },
     {
@@ -444,7 +444,7 @@
       "scope": "task9-line-boundary",
       "kind": "forward",
       "actionId": "gate6-20260710-019",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -466,8 +466,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "d4d34d909c426e6a7cb5ca5ff47fc88702f4b6f9564e919d15a183b5b5e0d03e",
-        "signatureBase64": "6moEOp7BsD+j7ZA8VFtBN19ps/LOKCq7SqkCW/OMbeIzK3dhfPdlN2qttj1l5clzyi+PhTTNVLfYEjw0/8PPCg=="
+        "signedPayloadSha256": "7978b7848de8a42d88f725c1b6c2d43fe77b7e0186abfef9590ccbb58d75988c",
+        "signatureBase64": "xXgzvAeTUF9SGxiev12mjz9qGaTNNWLU6z2aI7c0LVvJdItRusS2AV6go9xiS/RdOFmJv0+q1+faLMOqGvPnCA=="
       }
     },
     {
@@ -475,7 +475,7 @@
       "scope": "task9-ocr-boundary",
       "kind": "forward",
       "actionId": "gate6-20260710-020",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -497,8 +497,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "9883f49bb8d562b585f55a8fadb3ae5a8d71076d5d3f0297b1964c65d834550d",
-        "signatureBase64": "bRh1wDVxMo4KYzQ1vgodmMbflFHStufUEi2I2eTQCj+m8PMrylqRHcWZ45Fl/u/KottmnhXDNL8bj8dx7iSNDA=="
+        "signedPayloadSha256": "83bbbccb2a473c975b065e2205916adebdebc6921fcf414f0a7f814719c9e289",
+        "signatureBase64": "bqJSpLyRdxVGCOKnb9RcRn0n9BemKTqncl8o0pi7SrBe55zck7VRgdTMwyI7CDDYIUog4ytIbFNF9PK/w8haDQ=="
       }
     },
     {
@@ -506,7 +506,7 @@
       "scope": "stage-accept-worker",
       "kind": "forward",
       "actionId": "gate6-20260710-021",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -518,8 +518,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "9348fe3c1fa16cb1447ee2a248569c2a80445ad234f757fced28e585e37ccc9f",
-        "signatureBase64": "5vaEdfgTW45h26MYeZ7XOX0/TSahsfkoztYtaTD8TA0ofgh8uvGO25h8crDf0bcl/k1dNUt6L2U8NDeON2z1AQ=="
+        "signedPayloadSha256": "76cc99924c0370d0c3bc91b5ca7ef2bb632dc01639ba7ad1f93a089c7f78b6ad",
+        "signatureBase64": "GKLr32Zss3n71FjcUFpVmKEXQ6o9ZcL5sA5EUf2Wn2UekZeHqc7Fen3HkGiddL0NoM7NgqR/kFm846XFBqOFBQ=="
       }
     },
     {
@@ -527,7 +527,7 @@
       "scope": "worker-ifn-forward",
       "kind": "forward",
       "actionId": "gate6-20260710-022",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -539,8 +539,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "3088a5e33a4517c215d4d910a59733c5b130da129148b78d10efd9f4eea993e9",
-        "signatureBase64": "v2FTJNmckKlKmOOffKQD0Na53ZtBhVbkb2fbaEPvLDmeAM4TcUXFmIsr2c4Umb/4f/sApxPIgznlXzgxeGt4BA=="
+        "signedPayloadSha256": "9fe0dae8a27431b4ed21c497e093c7e6573b45336dd7832f7e471e35adf16807",
+        "signatureBase64": "tagE6Wp0if45vOAX++XqDL5Q1WvWoew/ITXXrQlEVL0KjgLBs2i4YPJClZ5Cv2ivNyQT8+q4UizVAjREaOVjDQ=="
       }
     },
     {
@@ -548,7 +548,7 @@
       "scope": "worker-ifn-reverse",
       "kind": "forward",
       "actionId": "gate6-20260710-023",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -560,8 +560,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "84a89a02841e2c873c9453843e42f9c43d2e9b786718f80de85525d108d08c5c",
-        "signatureBase64": "y7ROxRLHHwjV2B8mEi3l5gXh9QhEl/kJ1qall3K4mLjtr7PV9GfwkV+mONCb6C7Z5+xD/Vcw1Nq2QVg6n6nZAg=="
+        "signedPayloadSha256": "41c74073d87e2366bca34dfb6bb8f6819942dbe27c79987b98ff57eaf54eb38f",
+        "signatureBase64": "JpJOUMtcuUHssZPbfdovCBbRvtBTMUaDZrqh16SR44OQYWPEB/+oTgP5qO/xAJWu6c56VfRtmXRoKNd60E0ICg=="
       }
     },
     {
@@ -569,7 +569,7 @@
       "scope": "worker-ptwl-forward",
       "kind": "forward",
       "actionId": "gate6-20260710-024",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -581,8 +581,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "fe763c5ab8e26553244cc802194126e1bb3a96d894dea62672a87363432757b4",
-        "signatureBase64": "ZcGo+IBRUNSKFfelmdGIWjfUcAhoHXN8iQALuKfelBI6xLML5lXSZhrZ1XYK80ivaMSrXdeAE2LpavLeXzFJAg=="
+        "signedPayloadSha256": "b757fe1839c4c2db4a26dee8a57d25b9445509a80f1a36e31aad8772ff721cf3",
+        "signatureBase64": "M3baTO8+NI5J6yx7OU/amM+2TzcdnxtpFoYrVrPFZw94Brk0HdjkRYMqff6vOn+2BCldQ94uSRQwQSwZ5UBqBQ=="
       }
     },
     {
@@ -590,7 +590,7 @@
       "scope": "worker-ptwl-reverse",
       "kind": "forward",
       "actionId": "gate6-20260710-025",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -602,8 +602,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "78bee2daa8153cad0df0e81add6dc086aac132c37b47717e43fcb2e6e8b6d19c",
-        "signatureBase64": "ojWA2LnH0p0/tOQ4HCQCfUNRSVBmLWB9G7Q6b7hr1aV2RXaU9lI7wrTnnGAa12LCkahJO7CbXVRwhFjC4mTOBQ=="
+        "signedPayloadSha256": "7ae9414ef084acd8c5e01710c276821211d9973d8e6ca58776aa60847551f048",
+        "signatureBase64": "ImPfMyYSeWXY4sKYmPIQYKbusQIwRg7A4Wj99HKCp5mcP7h/XVCfeo8prxwfvwzOAd9/FKIZJAfaxhuA2ctODQ=="
       }
     },
     {
@@ -611,7 +611,7 @@
       "scope": "stage-accept-phase3",
       "kind": "forward",
       "actionId": "gate6-20260710-026",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -623,8 +623,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "3f994e09ab0f59ceacd6429b929d6b054707ad097042265164cd06f0a0375e43",
-        "signatureBase64": "NaX/LeofhuEJGnqBU920iTIq/Dj5T0Gs8ntRdNus7zoQtXLColZOSV/pnsCp0yzign4uJ6Wbj6xpkdSV9c0UDw=="
+        "signedPayloadSha256": "7cf5c1fa88d5222b9f8b4f51d2ceb2427f0209996ef3f12c20d911708d58b583",
+        "signatureBase64": "MUDSaKxGQHAIIrmKIR/4aOt2jIzjX7eVlThcsQVY03lWRjGMyFQni9NpqU80m8vT7ag438Fey0+DOMR9LVM5Dg=="
       }
     },
     {
@@ -632,7 +632,7 @@
       "scope": "phase3-consumer-start-disabled",
       "kind": "forward",
       "actionId": "gate6-20260710-027",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -644,8 +644,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "8d22068adfb0e6e0f5beed34e04083ad058858706f28c568f28d348f6e5ae03d",
-        "signatureBase64": "ByqCUHf9KeM3KaY3CjRrDgOyR/IZJC4SwDA2ZjLs+UgtBhLgJFzJTQ8TnZdBc6YQ/8Gh6RZOm1v8YrGdWSyyAg=="
+        "signedPayloadSha256": "c90f1f8ada9a296512848df17a1ec9f7ff76730634c93fc8e62ef36c326205be",
+        "signatureBase64": "PLdQpIbaRvN01MOGS3fmbMnO0dmuou47MgVGxpVuF4VoZDjPAXGDwEwKN1jewCS/cSYul1p28uLB07i/IOLpDA=="
       }
     },
     {
@@ -653,7 +653,7 @@
       "scope": "phase3-legacy-lease-release",
       "kind": "forward",
       "actionId": "gate6-20260710-028",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -665,8 +665,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "20ede09e7275d657f17c0ee435a7a4ed5797c39ca258be9b13219f1be530905f",
-        "signatureBase64": "LA3JxVfj5EJ0g78dpZmL1EnbREWwx9kkqEW+2X4oUMhNNCLHx+9VQQQYWdPiEVX64J59U+hDVP3LjR8jrHvHDA=="
+        "signedPayloadSha256": "586a568b64f62d49cd9b3ae1fec80576a173e48124e4eb1550a88f7853e44ee5",
+        "signatureBase64": "SJp9ul7iHcWRvGZ5panwjgDWaXyUm+rG8uhs3oEkz6+NOHYvjvpldyZg6BVt28I8LpbGWmZpzsY0JFzykif8Dw=="
       }
     },
     {
@@ -674,7 +674,7 @@
       "scope": "phase3-poller-start",
       "kind": "forward",
       "actionId": "gate6-20260710-029",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -686,8 +686,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "283de2c36e98b250a4c60a2aeb3ea0887f79852b1f72b6290553b22f5da5f441",
-        "signatureBase64": "It5Zm+wKpSAvIDHSyEcLO9ej6V7WRhUI5uQXpXD+BvG0/AgU6cEBex2h4Cd/EvrGoXKhGQKfEuBY7hAerW2KCg=="
+        "signedPayloadSha256": "4fc5b654d9de37bcea608b488c7339d1c49098baf444aae280c604628c6a1d5d",
+        "signatureBase64": "s3NAD3EtEif4V5UK4ZNSEywdvjJVWFV13Yre18aMDQEp3m9xrsR/zmRSeD4nnJzSXu6D6oTyt6VzTey7WLqEAA=="
       }
     },
     {
@@ -695,7 +695,7 @@
       "scope": "phase3-publication-enable",
       "kind": "forward",
       "actionId": "gate6-20260710-030",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -707,8 +707,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "e033afbd9fee8959eccce503321897cbfa41360dfd507e7bfb58c0c5f0888dce",
-        "signatureBase64": "9rFPoTMR9DOiEorJVkeRFSyXFnve/eaMtOWL4cU2JedzpkCe3KhuAI9dtJ5XbcCyegLOx0Dk9l05YF1B2v2ACg=="
+        "signedPayloadSha256": "29c1025f5ddd0829c325fd33d5e1c744696aad2dde49ba434ab8bea0a39457c8",
+        "signatureBase64": "eN9NO6+wn0xWwn2w7swWXEmnQJ4+qWXieWfRuYZDb7oOCLaeE8t6iGh8MRqMbdN2C4wvsJmD5dw5gAqy7irwDg=="
       }
     },
     {
@@ -716,7 +716,7 @@
       "scope": "phase3-execution-enable",
       "kind": "forward",
       "actionId": "gate6-20260710-031",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -728,8 +728,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "421e455861344485ccf9ed6a0e7f588b3d28ec9ef3c6b7c04c6e150d23841f5d",
-        "signatureBase64": "MaPbQepeIcbpGPArMk3qBAkjF08PA44YzM01w/OOtn6dvXnV1ROP9q5da1bMWjOoWiJGxL9Pmww9r+Re+5iRBQ=="
+        "signedPayloadSha256": "eae8b79d69f57d53d9d32fcca681f504121a45cf1cc2f8e27c6a0a7c0d547c24",
+        "signatureBase64": "KWitV6URCZkKB7TehRmCg8TEv6P5J9s4Mw5hk5wh7uSbrm5n8Fod2X5CsGDvhYpYmK5nZajKZXrZHhop/TxfDQ=="
       }
     },
     {
@@ -737,7 +737,7 @@
       "scope": "phase3-publication-fence",
       "kind": "forward",
       "actionId": "gate6-20260710-032",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -749,8 +749,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "6131b549911423f2851f781acf6d89cc6fa0d744431c39f19cdf002e5c75f53d",
-        "signatureBase64": "i3kK1ojbyWtxYJxLBpyHnc1e2SYYDRK4li5uLhapluTCT+4Boc942W5hSsgwFlRjAi8HA0mMx1ckH0hrfqjZCQ=="
+        "signedPayloadSha256": "314c71aeb86fc7048b178df19bfd0b2f6d2721b43457bcbd7628a8c5ff60e04a",
+        "signatureBase64": "98G97wr7VlZLwumDN9w3fOv1EUEajuxSsEdDl8DUYPMdKGb6Bd+Ka+bv1CGKLlivHTkgFCoelXZnPZT2MifuBw=="
       }
     },
     {
@@ -758,7 +758,7 @@
       "scope": "phase3-fence-ack-wait",
       "kind": "forward",
       "actionId": "gate6-20260710-033",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -770,8 +770,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "1e2adde992af44b83d3ef0b541c1fabe177770dccbbbc19ec535f0912ab5e6e6",
-        "signatureBase64": "jQ+pd3kfGK8CrUDi1KvaK67IDYhcgthE+jGX7egWSEfAigtVdh4iQZu74klQK5ZkVtO2oxauUU3cbux7EunlCQ=="
+        "signedPayloadSha256": "89a98cadde0fecd2f339f80a288bd2d6bca4bfaeec06b0cfd480e478f482813a",
+        "signatureBase64": "Oe5UdBbUwEDy6E0Z/VMSBZW4mpb9UKo6g62TgvktXQaU18ywBWsVOmdrB87HokoFerCrdl9QMQZJLsEYgqlxAw=="
       }
     },
     {
@@ -779,7 +779,7 @@
       "scope": "phase3-drain-or-quarantine",
       "kind": "forward",
       "actionId": "gate6-20260710-034",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -791,8 +791,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "3a498aeb6dd8cad1a5afe03b5bd50e26d5581dd34a725fe9adc6572289576fc4",
-        "signatureBase64": "fi3sRXiaAqkp8ZM031LlkOdynn1f8mgZDiNhSE4/GrZZs8HdUBmNvbwHO+FAB9grLI5Lyc35BX+ICjQ73Z/8Cw=="
+        "signedPayloadSha256": "3ed588f657c6cd907f731a1ad3745a4b1a156a97ffcb5d4f70c8714a7428093a",
+        "signatureBase64": "ZrwDX3wy9Ib4xUJAgII3IBcpcQb83F1/W3EkzJCxIeJ61/SOB3rTQxw/LD28EKh6qjJldkSV+7I9tvVjeOIaBw=="
       }
     },
     {
@@ -800,7 +800,7 @@
       "scope": "phase3-inline-owner-restore",
       "kind": "forward",
       "actionId": "gate6-20260710-035",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -812,8 +812,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "cbc5d8b2f3d6d611467fa68b0499ac3e8801d57a1db1f034ee5f4fd7c23a7525",
-        "signatureBase64": "0RzGMLXnfwS1zSv6uCr8eVqrEGfhgQduNyPJJExwgULn12dTnHu2zxHTfGXMAOZcg3+VRxdd7A+JkFA6rXv9CQ=="
+        "signedPayloadSha256": "ead861ed382048b6b50b78ad6894c6e0b30fe737b3d5d4571deb3c1a76d9e1ae",
+        "signatureBase64": "BxP75OSTGVePMbD4+wOzCOoOaQkzDJkxNnrAK5Wzl4nQXcFDrGBjjsG1OL513V+y80qxK6lwA76IFJfa0gRQCA=="
       }
     },
     {
@@ -821,7 +821,7 @@
       "scope": "stage-accept-phase4",
       "kind": "forward",
       "actionId": "gate6-20260710-036",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -833,8 +833,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "2b2b97a4551f018ac3a90e85bab8c642f955d2e6d324c508d086597331661fcb",
-        "signatureBase64": "1euAGpfUQDIL1eXNHmztHyihAat956WKU5RBKjtk8RsjwEoFQS8VMIM5beRFuFv2iSqvh+NtRLsZAdk1dmM5AQ=="
+        "signedPayloadSha256": "a14c90548bf13765217925320adada5b8feaa70a9b48d1241015eaa58e729f86",
+        "signatureBase64": "fCzr+mE8l3YY4g9QpDsjAGlcYaaEr/y9dqTL4HyM033wmQq9GJNrNrIWcc4HjFT9VPlf7fooraSAHLZ1Ly4jDQ=="
       }
     },
     {
@@ -842,7 +842,7 @@
       "scope": "phase4-verify-expand-install",
       "kind": "forward",
       "actionId": "gate6-20260710-037",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -854,8 +854,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "8dc86a76bc372aab6ee37948d3d8094cf9588de70a3652b8ec801ddc1154c142",
-        "signatureBase64": "UW2rUlYr0zOGk9RYXX7SG4uH1TfZAMRqdHsM4OjE//uXeUQ1ZeZoyAWNM3eRjwwDsljHWAaXlCEJIyyBIJnNCA=="
+        "signedPayloadSha256": "633050a5d11b1c337157673fc3c68d547a6aee6289cb75e9291f6391054122de",
+        "signatureBase64": "mXhoI+4+Mp/ChIKmK+z1ZY8JUhRcqp2WeNs9f/N8Zf/hUIU+4DTdw51hx38irPXS27BxbFn8kouR/l4zCjR5Bw=="
       }
     },
     {
@@ -863,7 +863,7 @@
       "scope": "phase4-realtime-start",
       "kind": "forward",
       "actionId": "gate6-20260710-038",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -875,8 +875,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "e6dcd3a56a877ed1571332824154c2fa4fb1a88ef5f6b0f9432447ebbe098d6d",
-        "signatureBase64": "cftU5rElH9Mclxi7bfnFwV0z3XiJ36n5EzJwwJncxdFg2y9DfkF7huR43+ABHkQIQFaujP6NGzJsKpuhsuDLCQ=="
+        "signedPayloadSha256": "b1b5cd2239d7e0baf3717d64a1bee9f6aa2d4c55995533c45121fa411ecc2084",
+        "signatureBase64": "4wnLDsR5XPBmJjTGRcPVQPLHl/0YWyA71c5l13xS4an3900dB8al7pfYLH/IxdLsN3fcH2FuFeuJweRpjWk+AA=="
       }
     },
     {
@@ -884,7 +884,7 @@
       "scope": "phase4-route-producer",
       "kind": "forward",
       "actionId": "gate6-20260710-039",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -896,8 +896,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "96135bbcecbbdf4436bd235a62373bf494610c74685b2ecb0d836021e42cc556",
-        "signatureBase64": "QxtsWhHMTi0ePEMPTbZM3RaZeJb5hEBElHvz2P4sSVDaYfebRo/Z9/3xfcyIYiJcfocmc5CzFjC2ANTYJvHRDw=="
+        "signedPayloadSha256": "e178b4351f4a2bf1b210b4065248f34d6109bdad7cac54b61eacbc6bda871c67",
+        "signatureBase64": "4rCqfWrhffllPuCOCD85Wq3vyT6cD2A3ARNvS6O7IDxQUiKzwLNbyrMjvpWDNoQ3oBMkcoLeak3wcJoiD/JZBg=="
       }
     },
     {
@@ -905,7 +905,7 @@
       "scope": "phase4-route-read",
       "kind": "forward",
       "actionId": "gate6-20260710-040",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -917,8 +917,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "55c56d89d7d5b9c72b6b595ee7019f8b216008720b039022aed6cdaccf717ece",
-        "signatureBase64": "5hl1SaVT8gSdJVzVmE1MRpfE/TXEPwxVSq8mgfLb7KGN1siajIR375ufT7Wjv8IgqnIq4McEoPp66WrQth9wAg=="
+        "signedPayloadSha256": "f302bb025a1c834cdb06b484c8ba04ee48b5f7bc3252fbb97861d0646975d127",
+        "signatureBase64": "MtE1I23VJ/mQyMt5g3ZXSZT+DEjqC94VIS4JWRZxCs+ndE1vk3klEZ0v2jd2jMbxuOpJvNHMouaszOdem4h/Bg=="
       }
     },
     {
@@ -926,7 +926,7 @@
       "scope": "phase4-route-stream",
       "kind": "forward",
       "actionId": "gate6-20260710-041",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -938,8 +938,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "c7be33fef39ea858e42971a172cee99a3d822c2af27d25abea79c65dd2f1bd7f",
-        "signatureBase64": "kUCIfPx13S2mbj6eSctMdfojMuYTbJZUgxposwF3CrHFd7gKykcSwJO5O886XdqWtvgbYqszQZ6NC0dyeObIBw=="
+        "signedPayloadSha256": "0a6b0538f26aee493fdc11baa4d76bdad4bb4563af5e6011a42f94de3e5b0756",
+        "signatureBase64": "SrkHn+VMY+HmJfQYhnYxgIiFaY9dkMs6iBU8tN0tu5ZMRL0P3rkOdg33AMQ/SB6XaBhckoYqzrsUTbXLbP8pAA=="
       }
     },
     {
@@ -947,7 +947,7 @@
       "scope": "phase4-route-local-rollback",
       "kind": "forward",
       "actionId": "gate6-20260710-042",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -959,8 +959,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "b1b65a30a1d2a24bfb8dc5b0f30ae91bc8ddf660673549c5d66f9faa1b0e5770",
-        "signatureBase64": "KWnZuPY6CqLsGzvymXR3wnT4ZXIxUFuCTdyq2bW9Oj/ZISsPmTHw54yVgROJfAHwE0bZApj/Y2PDbV9Oa60oDQ=="
+        "signedPayloadSha256": "72f07faf54f14dcc285acd80f4a33b259a86bc98db5f83d131cada4dba5157ab",
+        "signatureBase64": "xoQzDsQNlMGXFxV6ol+ruXg+KpzDyhuuwzreyFuQR9SzW0bC8UrkCV527HzjfAw4RoYWTcvxCKMfPMKUiTb+Cg=="
       }
     },
     {
@@ -968,7 +968,7 @@
       "scope": "phase4-route-approved-final",
       "kind": "forward",
       "actionId": "gate6-20260710-043",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -980,8 +980,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "7978a5d31a7970095f7f4d29c2811a7a16c45c9f639b1ecf753587b4e4dfab1a",
-        "signatureBase64": "0XPiV46MMqE013iLthwmu8b9Yv4JB+RLYa1dRz0aJPyfPRVsbLGdv2HJnC6tBklmYTr7pZ2bpF7xpeOAq5ySDw=="
+        "signedPayloadSha256": "a2fab8a4af2db0c60ee7e27b6b51aaa3c23f6eb813bd09e3033b5f8f560ab32a",
+        "signatureBase64": "17ArQRECwRn0sIjJcXoAZcsDgG+1xbn8ccTgYebLZtfRoJ/c/eUdTnf6sG50lvr+HaDy1i6z6cJ0toD9aAPjCw=="
       }
     },
     {
@@ -989,7 +989,7 @@
       "scope": "gate6-final-baseline",
       "kind": "forward",
       "actionId": "gate6-20260710-044",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1001,8 +1001,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "5ced42e17893278366fd4617aafa4d06d851e1e49ed43a3737a0d224a0a0967a",
-        "signatureBase64": "DMceU0AhrqbrRXA14AR4arkux2/7YUy/O+wJQFA03detBW4SfM0WoitCtXxVIdRoOJvImXGxxMAoCaQd0OvXDg=="
+        "signedPayloadSha256": "47b27b9c41ff118591a363cc2aef6d7c460018a25a1027d0407e502f382282b3",
+        "signatureBase64": "QygU0iJ8272iLN4RQ8pW8vP7Sjr9JQTGBaxGKfUVehfea2S/8vJXzK+WoMbXybo6yuXoyLrxGYYOdi6BbkZSBA=="
       }
     },
     {
@@ -1010,7 +1010,7 @@
       "scope": "stage-accept-pre-close",
       "kind": "forward",
       "actionId": "gate6-20260710-045",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1022,8 +1022,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "19965ba8a295496fb1cd64905c1519b9842a6ffa64d3b63db5c67ed98591de78",
-        "signatureBase64": "MT8ZV2qjELRobf6y4hxEjjwGk8AymNuMr9DsqZIFOiohenGMQCtwd31c0K0s5AtcyEN/Jt4PBwiKy1D+R996Aw=="
+        "signedPayloadSha256": "91dc4858f980126860efd3564903c7c5ec5f899221d5fb4394918a823a6112b1",
+        "signatureBase64": "J2DEXxcAbicx8LL/9VoA4UDhGUAG8oXq71LTpQiyV0IBxSoZqe+Q0ptM5JgJUVjllmq6EKPXhABYSOUUUfpgCQ=="
       }
     },
     {
@@ -1031,7 +1031,7 @@
       "scope": "gate6-seal-close",
       "kind": "forward",
       "actionId": "gate6-20260710-046",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1043,8 +1043,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "ce8f0004cd14771616d9889f33d501a0424acaee203204f8753aacc43ed7837d",
-        "signatureBase64": "NSfxCuy5SiV/2AbC+Y/kOL4uvFLMT3KWq/jpt9cg5Nj4IvMlJrqj4bJa9wE2rDJu/ihiBrxZf6YxUR0s7fbpDg=="
+        "signedPayloadSha256": "a89c509593694a22fcf9f3aa29dd175b240ac1fe0f12139b0d5ae4b112a59171",
+        "signatureBase64": "wzGEr81bmpaTvzB3/GeAZiSimHtbD4NSzz2WGbIPf3Ci7vcX0bPAB8a3o0cgYtFj9Fru7bIfcewRkwla3BsbBQ=="
       }
     },
     {
@@ -1052,7 +1052,7 @@
       "scope": "gate6-release",
       "kind": "forward",
       "actionId": "gate6-20260710-047",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1064,8 +1064,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "1da08e69c73bda526a845b72df808af6de86881c927273ecdcc4674e7117f4d1",
-        "signatureBase64": "kzhOSFVL/XzMRzZm3EzGiYVwBX5K0AgBeCitRCyOQsWiUw7yxmpXha9uTf3XsSOMnzEra/K0JgXncLeytcMJCA=="
+        "signedPayloadSha256": "d2c112e92071e86c2aa2e76564ed4775a4aeceff0ffed99f3eb97c825410833d",
+        "signatureBase64": "IVCgQoTLPvTp/E3G0TKJxB+SPcaxDrfyx0VhKrhAG2ZKt7XEa7rdvP2Sapu5CQi7SfE7HsmAJQ4+9latDxnHDQ=="
       }
     },
     {
@@ -1073,7 +1073,7 @@
       "scope": "db-principal-restore-realtime",
       "kind": "compensation",
       "actionId": "gate6-20260710-048",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1085,8 +1085,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "0ddd72b2f13adebb6e140e72ad73eb73a8b02570a8cdbfc3e4b5fde30bb369ca",
-        "signatureBase64": "+d5VQSheSwG7JiQx0NY0B1JEkzPAW9qp+s8xMIdVxwJxnQAhMm7zRbnUshMYQf8F+RLPcDENRYSg8dPvjCwpBw=="
+        "signedPayloadSha256": "4e3dbe03d0e16ceeca26976470897f5fd183efdc8205421fa52daeeee085b7cd",
+        "signatureBase64": "fFTyf2UOc08FwW4Td7Y0AQ+POPqedPLeyPGc2q/IA+Nam0AG9XulO5heS1fQ4p93ovthnVMJp+0kQv3UE5E1Cg=="
       }
     },
     {
@@ -1094,7 +1094,7 @@
       "scope": "db-principal-restore-line",
       "kind": "compensation",
       "actionId": "gate6-20260710-049",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1106,8 +1106,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "92412b8085f4b60d4925e30a75ad35b0a707599ace8cfd01dbe9d90abd7603ca",
-        "signatureBase64": "mVwIODMi5VGCA3797nGAk1ZidizLMIbP7Ymx87HBOefRoe5uMHNma66n5ZxfG/ZsNcVwslJF+xcGRALko8VXCw=="
+        "signedPayloadSha256": "93460a920279825218e27b9e6aa06cf912e7978cd9896e70b53242b446c757d2",
+        "signatureBase64": "3/BesOpL2nKbNzLgg8gZru25QhMugjQ7Jg1sw++UUVCEAkMQhb9Wzo9wRn+3r1spZFctkx/X8/0ZsohRsRjfCg=="
       }
     },
     {
@@ -1115,7 +1115,7 @@
       "scope": "db-principal-restore-notification",
       "kind": "compensation",
       "actionId": "gate6-20260710-050",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1127,8 +1127,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "7d5e351e2bf70ff3ff9ec821ed8966e38cf0bcc29508260e3888eb2be0c1d2f8",
-        "signatureBase64": "oQT7mblAgPwcY4bYnz4DyyGCo5gf7Yaa2lR1shnHDzNXWx6XsXEN2SP+xg43mrnuY1HhWS7zzG0Oj3OmhYjUCQ=="
+        "signedPayloadSha256": "f2169ce33990f4df092d6d97798c160c01a52d72ae2358cbdd8d3c70b9700096",
+        "signatureBase64": "DJjxRC5CFbNQZyzGuxU+VuIpM1++gmeyGxGH+rzqszANol/zl7Rt9wdhYzbds6IbwmKkP79LH+JGV34UPKOoCg=="
       }
     },
     {
@@ -1136,7 +1136,7 @@
       "scope": "db-principal-restore-worker-ifn",
       "kind": "compensation",
       "actionId": "gate6-20260710-051",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1148,8 +1148,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "005a27114bc3bb527312b19066ca31dfb4dc7717935612777e701dc3f91e5672",
-        "signatureBase64": "6cu4vRG7e+FG8Hzd8S2MIbZ57INDKXo6ZZZchWKdgBjRhkbBOodrmxZ59tQ1W8g/jqkipFkGmjqlt73dEOwXCw=="
+        "signedPayloadSha256": "f821bd23b41fc454312a36b8d58cd524083fe4f7c092b6681724e012ebd7b501",
+        "signatureBase64": "w/f9HpkE9HfDTGBznztx5mDsUP2raNQLhgLaeorfONVVmaHrfgHEZ9BqkdvXa8oPxqn1pQuWW7a5R1o67Q2YBg=="
       }
     },
     {
@@ -1157,7 +1157,7 @@
       "scope": "db-principal-restore-worker-ptwl",
       "kind": "compensation",
       "actionId": "gate6-20260710-052",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1169,8 +1169,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "1083e3d891afe61de7b1d8de5ffa09506f558458c75bb681fd0cf0633498b793",
-        "signatureBase64": "3qp1ZynPGsSoFE22iTatdY/cPq3JGtj1iHkAJF6kl9+G/1Bs7Mn4zZV6MmdcvDb5cZxwqP/3bmm4XUOwsX6IBg=="
+        "signedPayloadSha256": "85f0a3141982e11e9771470a18829821ba6a1a2763fe76913f2522e6a01b93c2",
+        "signatureBase64": "G/NH/VF9hNGOW3nMvoEyqBo5WY5jdfYMAIeBxbu7QNcA7BDQ94eQ6BbyBnv1TeqbkmC9GMSqMxzGFAQ/IfEqCg=="
       }
     },
     {
@@ -1178,7 +1178,7 @@
       "scope": "db-principal-restore-web",
       "kind": "compensation",
       "actionId": "gate6-20260710-053",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1190,8 +1190,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "41e29905541646ce4ab27637927cb6d4af59717ddba00af594d027582239c1d7",
-        "signatureBase64": "1m9q2WxB/bl0Hy8t8deKRcrKH/D0AqAYjI9eH56MGPNifn0sHYg+EeT4OH/c1NGNJI7/KjAI+tvNAkgtc+ddCA=="
+        "signedPayloadSha256": "a0256b2fcb47d7e22fd6576e18161e15ee407f8868288879c2ad32190f09269c",
+        "signatureBase64": "aRmbuCri2QKWQA9x5twE1Q8Yl9jsyW/iPeS33RVC0Q27bl5ZYTyJ99Q/RbliwIpaP5ek3uW6nk1fQwOuclMFDA=="
       }
     },
     {
@@ -1199,7 +1199,7 @@
       "scope": "db-principal-restore-phase3-control",
       "kind": "compensation",
       "actionId": "gate6-20260710-054",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1211,8 +1211,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "e98655be3378378ec73246ce739bfde453955e9685abe42eb5a4fcabaf57e91f",
-        "signatureBase64": "JqRNTV+MZfuQ+NZcsuQwYRlls+V4r22Hxu8AjcPpEzmIJNq2olWyHktjKYMTyU6VHVUGLFKzusQzDy/DlYAtDA=="
+        "signedPayloadSha256": "e269dee107dbef206c3a0b02f99185c6b70d3ae8419501c96f7b0312d62bca98",
+        "signatureBase64": "sWQsXkJe5FqHRXz6S1Se2ONpKoCtT9Sb8tv2JlhM73fTtPzwqTFw468q9pcN97yP0/V0FhUd9iJV9+OLzLehDQ=="
       }
     },
     {
@@ -1220,7 +1220,7 @@
       "scope": "worker-ifn-restore-prior",
       "kind": "compensation",
       "actionId": "gate6-20260710-055",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1232,8 +1232,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "339ba4f57bd496ff3d59b20c51d0765b5079d530f26f414c1b8b5376c537ab59",
-        "signatureBase64": "5lrGnUDbvyEtDHVFO7Fr2z++ImeVRnh5DWZXw3xmFHXpGEJj3cXkxmB9ZxBaW1XwkbbOoJk6ceAjdc/Xt24LBg=="
+        "signedPayloadSha256": "ebfc8b70f4353c14c00e3a1b7278ab205ea8cd233de1e2f6c150e13a9c5985bd",
+        "signatureBase64": "r4sM4xF+lGQ+6d1SffBnENYpxvbTLN41GvEONrES+XCCJRjtI5NSlsIKEpzxuFWPVZsmcGP+wvOuxA0fZFr9Aw=="
       }
     },
     {
@@ -1241,7 +1241,7 @@
       "scope": "worker-ptwl-restore-prior",
       "kind": "compensation",
       "actionId": "gate6-20260710-056",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1253,8 +1253,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "df08f51a4c6d7e7d40502e2a700f5ddc1356e3a342fe20263780b218f9fc1e1a",
-        "signatureBase64": "7jlbW1MgPMnM2g39/Yo7W04RH74P+clUTM37GzYtMj6MxoUEmb3p8Gh7AB7nEuQ5tto/Pcmm+qr0eWErbjaxCQ=="
+        "signedPayloadSha256": "9fd6ff5e688bca82b3fb70148b95049e878e164e708514380d4477670ac3bcac",
+        "signatureBase64": "6QV5ueNimxnh4OST5yzsgBn5sM/CX+DX4ZfUQy6cK+POrJ4TOSBgAaB4sf8y8nLAYh1Zl4MQEjKUhraSTNwoAw=="
       }
     },
     {
@@ -1262,7 +1262,7 @@
       "scope": "phase3-restore-inline-owner",
       "kind": "compensation",
       "actionId": "gate6-20260710-057",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1274,8 +1274,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "11d5987179c5e651f3f768d1df17b8559c4bcfa50e7907c6001b7852511a3f7c",
-        "signatureBase64": "QQQm+3RsmS+5RNDpTxBrsoImq2KWPtrOgkNm5aEydwk8Q/8S0B/BcHjpFzHAN2f5ZIb1iuiGE/32GiTaz4sqCg=="
+        "signedPayloadSha256": "526dc21887d385d82ed0a74da653e20796042f1e6a4c994e1d1cedbe129558ea",
+        "signatureBase64": "Kso5lqAU8aveDrN29UlDjfKtlMRevONOBJQc1BnXLuYHTPB2whTC5BoZ/pCp5oEabuVpjshYjHo3ON/O9W3eAQ=="
       }
     },
     {
@@ -1283,7 +1283,7 @@
       "scope": "phase4-restore-local-routing",
       "kind": "compensation",
       "actionId": "gate6-20260710-058",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1295,8 +1295,8 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "cf2edf857c260b5305cb6bc93bc39b2846ec653e0063c282a86eb26138023fdd",
-        "signatureBase64": "qbGh9lrVtbBB6K5gLLJdHg0Q3hg0Iw0Pj6tFU+VAAca3dRdMDJN6ySNs2RE48cBx7iLIl6mVn+G0wsEQFq5NAw=="
+        "signedPayloadSha256": "ff44b50d829174ff83bcabf290a14a9e347195876cadf779a09d7d36ebe7de47",
+        "signatureBase64": "4B0J0SaHZBPPygDeAffAgQeeqq8EdjzrchtbooR5vqRQgmZgG9pfQKA2xFN2ZuaC+yuf1bhhBUn1PYO26WeECw=="
       }
     },
     {
@@ -1304,7 +1304,7 @@
       "scope": "gate6-abort",
       "kind": "emergency",
       "actionId": "gate6-20260710-059",
-      "envelopeCoreSha256": "07b1bff311e2dd522aed20bad79a0dab11ce4f76bb7123791b765dd1cd5ea916",
+      "envelopeCoreSha256": "dfae1ee9c6068ad0aa9eaa650463be20e7d7cf1ec6fa714dd4ea300ea2e0e74c",
       "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "runtimeEnvironment": "production",
       "drillMode": "supervised-production",
@@ -1316,15 +1316,15 @@
       "signature": {
         "algorithm": "ed25519",
         "keyId": "gate6-production-test-fixture",
-        "signedPayloadSha256": "128c46200412d7badf2bf8b77bc3e242f13f9aabeb7fffd804333231c04f68c5",
-        "signatureBase64": "KW7gk91E9Mq8NtARLypomDh95JxcTQJ2HQI31zGb9Y80035DuK44EN1hsz1XCt3vsyjOcASS0HvRKrNSspmHCg=="
+        "signedPayloadSha256": "22b894b12fc8caffcb7dd668dcdc5e36bcbd0d1ef7a67ba8a4e4a4f2c8383f31",
+        "signatureBase64": "oNf6qWmnnQWaLp8LJ4fAyxt3PbQk5AnMrmO5jpQJXHvAavkCHs3maF4K0B8FWMwT/aWtRNVAc70DdQWOKwtyBA=="
       }
     }
   ],
   "signature": {
     "algorithm": "ed25519",
     "keyId": "gate6-production-test-fixture",
-    "signedPayloadSha256": "f65e282fb606d82bc7c9aed17b80821e16140ed81eeebd9dfb99241d0b89f06a",
-    "signatureBase64": "bJjgJSM3LM7CcJ1XngMBZTfg2/T94j7yW3JnD4a6qglPh9la8ogfeGAEHPtMk9uvj9gRtavAxgZQ4pnfpSwYBw=="
+    "signedPayloadSha256": "450df3ae10516ea4baf1cbf11f18459fa340fd9adfee8f8e54c33fe1f032f9de",
+    "signatureBase64": "qSi6O6zNyTaFKHufuBTzLFztP6+0EeV+8gZlQgx2Y/wAvyG2vHeHjuSdwQAuVanci/EOPiAB5SyoNs6Z1XcGCw=="
   }
 }

@@ -20,6 +20,35 @@ export interface AcceptBookingRequest {
   request_id_list: number[];
 }
 
+export interface AcceptAssignBookingRequest {
+  booking_id: number;
+  accept_all: boolean;
+  exclude_id_list: number[];
+  request_id_list: number[];
+  bundle_task_id_list: number[];
+  driver_id: number;
+  vehicle_plate_number: string;
+  warning_confirmed: boolean;
+}
+
+export interface SpxLinehaulDriver {
+  driver_id: number;
+  driver_name: string;
+  agency_name: string;
+  vehicle_type: number;
+  vehicle_type_name: string;
+}
+
+export interface SpxLinehaulDriverListResponse {
+  retcode: number;
+  message: string;
+  data: {
+    pageno: number;
+    count: number;
+    list: SpxLinehaulDriver[];
+  };
+}
+
 export interface AcceptBookingResponse {
   retcode: number;
   message: string;

@@ -11,7 +11,9 @@ import {
   type ProviderReadAdmissionGuard,
   type ProviderReadPriority,
 } from "./provider-read-scheduler.js";
+import { isMeaningfulVehicleTypeText } from "./team-driver-pool.js";
 import type {
+  AcceptAssignBookingRequest,
   AcceptBookingRequest,
   AcceptBookingResponse,
   ApiResponse,
@@ -20,6 +22,7 @@ import type {
   BookingRequestListRequest,
   BookingRequestListResponse,
   PollingResult,
+  SpxLinehaulDriver,
 } from "../models/types.js";
 
 const MAX_RETRIES = 3;
@@ -111,6 +114,53 @@ export interface ApiClientCredentials {
   accountName?: string;
 }
 
+export interface ResolvedAcceptDriver {
+  driverId: number;
+  driverName: string;
+}
+
+export interface AcceptDriverResolveInput {
+  bookingId: number;
+  vehicleTypeId?: number | null;
+  vehicleTypeName?: string | null;
+  preferredVehicleTypeId?: number | null;
+  excludeDriverIds?: Iterable<number>;
+  excludeDriverNames?: Iterable<string>;
+}
+
+export type AcceptDriverResolver = (input: AcceptDriverResolveInput) => ResolvedAcceptDriver | null;
+
+export interface AcceptBookingOptions {
+  driverId?: number;
+  driverName?: string;
+  vehicleTypeId?: number | null;
+  vehicleTypeName?: string | null;
+  vehiclePlateNumber?: string;
+  warningConfirmed?: boolean;
+  excludeIdList?: number[];
+  bundleTaskIdList?: number[];
+  excludeDriverIds?: Iterable<number>;
+  excludeDriverNames?: Iterable<string>;
+}
+
+export interface AcceptBookingSubmissionResult {
+  ok: boolean;
+  httpStatus: number;
+  response: AcceptBookingResponse | null;
+  error?: string;
+  assignedDriver?: ResolvedAcceptDriver;
+}
+
+export interface FetchLinehaulDriversResult {
+  ok: boolean;
+  httpStatus: number;
+  retcode: number | null;
+  message: string;
+  drivers: SpxLinehaulDriver[];
+  sessionExpired?: boolean;
+  error?: string;
+}
+
 export interface ApiClientOptions {
   metricsCollector?: MetricsCollector;
   credentials?: ApiClientCredentials;
@@ -120,6 +170,18 @@ export interface ApiClientOptions {
   pollIntervalMsProvider?: () => number;
   /** Per-team vehicle type filter. Overrides env.BIDDING_VEHICLE_TYPE. null = no filter. */
   biddingVehicleType?: number | null;
+  /** Optional hot-path in-memory resolver for non-duplicate SPX driver_id assignment. */
+  driverResolver?: AcceptDriverResolver;
+  /** Optional check whether the team currently has synced drivers available for accept_assign. */
+  hasAutoDrivers?: (input?: {
+    vehicleTypeId?: number | null;
+    vehicleTypeName?: string | null;
+    preferredVehicleTypeId?: number | null;
+  }) => boolean;
+  /** Optional callback when an accept_assign fails due to a driver error so the pool can cool that driver down. */
+  onDriverAcceptError?: (driverId: number, retcode: number | null, message: string) => void;
+  /** Optional callback when an accept_assign receives a definitive non-ok response so the booking assignment lock can be released. */
+  onDriverAcceptReleased?: (bookingId: number, driverId: number, driverName: string) => void;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -442,6 +504,16 @@ export class ApiClient {
    * number = filter by vehicle type. null/undefined = no filter (all types).
    */
   private readonly teamBiddingVehicleType: number | null | undefined;
+  private readonly driverResolver: AcceptDriverResolver | undefined;
+  private readonly hasAutoDriversFn:
+    | ((input?: {
+        vehicleTypeId?: number | null;
+        vehicleTypeName?: string | null;
+        preferredVehicleTypeId?: number | null;
+      }) => boolean)
+    | undefined;
+  private readonly onDriverAcceptError: ((driverId: number, retcode: number | null, message: string) => void) | undefined;
+  private readonly onDriverAcceptReleased: ((bookingId: number, driverId: number, driverName: string) => void) | undefined;
   private readonly readScheduler = new ProviderReadScheduler({
     maxConcurrency: READ_CONCURRENCY,
     criticalReserve: CRITICAL_READ_RESERVE,
@@ -463,6 +535,10 @@ export class ApiClient {
       this.onRateLimit = undefined;
       this.onSessionExpired = undefined;
       this.teamBiddingVehicleType = undefined;
+      this.driverResolver = undefined;
+      this.hasAutoDriversFn = undefined;
+      this.onDriverAcceptError = undefined;
+      this.onDriverAcceptReleased = undefined;
       return;
     }
 
@@ -477,6 +553,10 @@ export class ApiClient {
     this.teamBiddingVehicleType = "biddingVehicleType" in optionsOrPollIntervalMsProvider
       ? optionsOrPollIntervalMsProvider.biddingVehicleType
       : undefined;
+    this.driverResolver = optionsOrPollIntervalMsProvider.driverResolver;
+    this.hasAutoDriversFn = optionsOrPollIntervalMsProvider.hasAutoDrivers;
+    this.onDriverAcceptError = optionsOrPollIntervalMsProvider.onDriverAcceptError;
+    this.onDriverAcceptReleased = optionsOrPollIntervalMsProvider.onDriverAcceptReleased;
   }
 
   get currentCredentials(): ApiClientCredentials | null {
@@ -608,6 +688,247 @@ export class ApiClient {
 
   private get acceptUrl(): string {
     return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept");
+  }
+
+  private get acceptAssignUrl(): string {
+    return env.API_URL.replace("/booking/bidding/list", "/booking/bidding/accept_assign");
+  }
+
+  private get driverListUrl(): string {
+    try {
+      const origin = new URL(env.API_URL).origin;
+      return `${origin}/api/driverservice/agency/operation/linehaul/driver/list`;
+    } catch {
+      return "https://logistics.myagencyservice.in.th/api/driverservice/agency/operation/linehaul/driver/list";
+    }
+  }
+
+  hasAutoDriverAssignment(options?: {
+    vehicleTypeId?: number | null;
+    vehicleTypeName?: string | null;
+  }): boolean {
+    if (this.hasAutoDriversFn) {
+      if (!options) return this.hasAutoDriversFn();
+      const cleanVehicleTypeName = isMeaningfulVehicleTypeText(options.vehicleTypeName)
+        ? options.vehicleTypeName.trim()
+        : undefined;
+      const vehicleTypeId = options.vehicleTypeId !== undefined
+        ? options.vehicleTypeId
+        : (cleanVehicleTypeName ? undefined : this.teamBiddingVehicleType);
+      return this.hasAutoDriversFn({
+        vehicleTypeId,
+        vehicleTypeName: cleanVehicleTypeName,
+        preferredVehicleTypeId: this.teamBiddingVehicleType,
+      });
+    }
+    return typeof this.driverResolver === "function";
+  }
+
+  private async fetchLinehaulDriversPage(
+    count: number,
+    pageNo?: number,
+    vehicleType?: number,
+  ): Promise<
+    | {
+        ok: true;
+        httpStatus: number;
+        message: string;
+        total: number | null;
+        drivers: SpxLinehaulDriver[];
+      }
+    | (Omit<FetchLinehaulDriversResult, "ok"> & { ok: false })
+  > {
+    const body: Record<string, number> = { count };
+    if (typeof pageNo === "number" && Number.isInteger(pageNo) && pageNo > 1) {
+      body.pageno = pageNo;
+    }
+    if (typeof vehicleType === "number" && Number.isInteger(vehicleType) && vehicleType > 0) {
+      body.vehicle_type = vehicleType;
+    }
+
+    const { credentials, headers } = this.selectRequestAuth();
+    try {
+      const response = await this.fetchReadWithRetry(
+        this.driverListUrl,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        },
+        pageNo && pageNo > 1 ? `linehaul-driver-list:${pageNo}` : "linehaul-driver-list",
+        "normal",
+        undefined,
+        FETCH_TIMEOUT_MS,
+        undefined,
+        credentials,
+      );
+
+      if (!response.ok) {
+        const rawText = await response.text();
+        let errParsed: unknown = null;
+        if (rawText.trim()) {
+          try {
+            errParsed = JSON.parse(rawText) as unknown;
+          } catch {
+            // non-JSON error body
+          }
+        }
+        const retcode = getRetcode(errParsed);
+        const message = getMessage(errParsed);
+        const sessionExpired = response.status === 401
+          || response.status === 403
+          || (retcode !== null && SESSION_EXPIRED_CODES.has(retcode));
+        return {
+          ok: false,
+          httpStatus: response.status,
+          retcode,
+          message,
+          drivers: [],
+          sessionExpired,
+          error: `HTTP ${response.status}: ${message || rawText.slice(0, 200)}`,
+        };
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = await this.readResponseJson(response);
+      } catch (err) {
+        return {
+          ok: false,
+          httpStatus: response.status,
+          retcode: null,
+          message: "",
+          drivers: [],
+          error: `Unexpected driver list JSON response: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+
+      const retcode = getRetcode(parsed);
+      const message = getMessage(parsed);
+      if (retcode !== 0) {
+        return {
+          ok: false,
+          httpStatus: response.status,
+          retcode,
+          message,
+          drivers: [],
+          sessionExpired: retcode !== null && SESSION_EXPIRED_CODES.has(retcode),
+          error: message || `Driver list rejected (retcode=${retcode})`,
+        };
+      }
+
+      const data = isRecord(parsed) && isRecord(parsed.data) ? parsed.data : null;
+      // SPX Go backends return `list: null` for an empty list; treat null identically to [].
+      const rawList = data && (data.list === null || Array.isArray(data.list))
+        ? (data.list ?? [])
+        : null;
+      if (!rawList) {
+        return {
+          ok: false,
+          httpStatus: response.status,
+          retcode,
+          message,
+          drivers: [],
+          error: "Unexpected driver list response shape (missing data.list)",
+        };
+      }
+
+      const rawTotal = data ? safeTotal(data.total) : 0;
+      const total = rawTotal > 0 ? rawTotal : null;
+
+      const drivers: SpxLinehaulDriver[] = [];
+      for (const item of rawList) {
+        if (!isRecord(item)) continue;
+        const driverId = typeof item.driver_id === "number" ? item.driver_id : Number(item.driver_id);
+        const vehicleTypeNum = typeof item.vehicle_type === "number" ? item.vehicle_type : Number(item.vehicle_type);
+        const driverName = typeof item.driver_name === "string" ? item.driver_name.trim() : "";
+        if (!Number.isInteger(driverId) || driverId <= 0 || !Number.isInteger(vehicleTypeNum) || vehicleTypeNum <= 0 || !driverName) {
+          continue;
+        }
+        drivers.push({
+          driver_id: driverId,
+          driver_name: driverName,
+          agency_name: typeof item.agency_name === "string" ? item.agency_name.trim() : "",
+          vehicle_type: vehicleTypeNum,
+          vehicle_type_name: typeof item.vehicle_type_name === "string" ? item.vehicle_type_name.trim() : "",
+        });
+      }
+
+      return {
+        ok: true,
+        httpStatus: response.status,
+        message,
+        total,
+        drivers,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        httpStatus: 0,
+        retcode: null,
+        message: "",
+        drivers: [],
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  async fetchLinehaulDrivers(
+    options: { vehicleType?: number; count?: number } = {},
+  ): Promise<FetchLinehaulDriversResult> {
+    const count = options.count ?? 5000;
+    const firstPage = await this.fetchLinehaulDriversPage(count, undefined, options.vehicleType);
+    if (!firstPage.ok) {
+      return firstPage;
+    }
+
+    const byDriverId = new Map<number, SpxLinehaulDriver>();
+    for (const driver of firstPage.drivers) {
+      if (!byDriverId.has(driver.driver_id)) {
+        byDriverId.set(driver.driver_id, driver);
+      }
+    }
+
+    // Guard against silent upstream truncation: if SPX reports `total > received`, attempt bounded pagination
+    // and refuse partial sync (ok=false) if subsequent pages fail, repeat page 1, or still leave drivers missing.
+    if (firstPage.total !== null && firstPage.drivers.length > 0 && byDriverId.size < firstPage.total) {
+      const maxExtraPages = 10;
+      for (let pageNo = 2; pageNo <= maxExtraPages + 1 && byDriverId.size < firstPage.total; pageNo++) {
+        const nextPage = await this.fetchLinehaulDriversPage(count, pageNo, options.vehicleType);
+        if (!nextPage.ok) {
+          return nextPage;
+        }
+        let addedOnPage = 0;
+        for (const driver of nextPage.drivers) {
+          if (!byDriverId.has(driver.driver_id)) {
+            byDriverId.set(driver.driver_id, driver);
+            addedOnPage++;
+          }
+        }
+        if (addedOnPage === 0) {
+          break;
+        }
+      }
+
+      if (byDriverId.size < firstPage.total) {
+        return {
+          ok: false,
+          httpStatus: firstPage.httpStatus,
+          retcode: 0,
+          message: firstPage.message,
+          drivers: [],
+          error: `Driver list truncated upstream (received ${byDriverId.size} of ${firstPage.total} drivers); refusing partial sync`,
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      httpStatus: firstPage.httpStatus,
+      retcode: 0,
+      message: firstPage.message,
+      drivers: [...byDriverId.values()],
+    };
   }
 
   async fetch(requestNumber: number, options: BiddingListFetchOptions = {}): Promise<PollingResult> {
@@ -985,23 +1306,92 @@ export class ApiClient {
     }
   }
 
-  async acceptBookingRequests(bookingId: number, requestIds: number[]): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
+  private resolveAcceptDriver(
+    bookingId: number,
+    options?: AcceptBookingOptions,
+  ): ResolvedAcceptDriver | null {
+    if (typeof options?.driverId === "number" && Number.isInteger(options.driverId) && options.driverId > 0) {
+      return {
+        driverId: options.driverId,
+        driverName: options.driverName?.trim() || `driver#${options.driverId}`,
+      };
+    }
+    if (!this.driverResolver) return null;
+
+    const cleanVehicleTypeName = isMeaningfulVehicleTypeText(options?.vehicleTypeName)
+      ? options.vehicleTypeName.trim()
+      : undefined;
+    const vehicleTypeId = options?.vehicleTypeId !== undefined
+      ? options.vehicleTypeId
+      : (cleanVehicleTypeName ? undefined : this.teamBiddingVehicleType);
+    return this.driverResolver({
+      bookingId,
+      vehicleTypeId,
+      vehicleTypeName: cleanVehicleTypeName,
+      preferredVehicleTypeId: this.teamBiddingVehicleType,
+      excludeDriverIds: options?.excludeDriverIds,
+      excludeDriverNames: options?.excludeDriverNames,
+    });
+  }
+
+  async acceptBookingRequests(
+    bookingId: number,
+    requestIds: number[],
+    options?: AcceptBookingOptions,
+  ): Promise<AcceptBookingSubmissionResult> {
+    const resolvedDriver = this.resolveAcceptDriver(bookingId, options);
+    if (resolvedDriver) {
+      const body: AcceptAssignBookingRequest = {
+        booking_id: bookingId,
+        accept_all: false,
+        exclude_id_list: options?.excludeIdList ?? [],
+        request_id_list: requestIds,
+        bundle_task_id_list: options?.bundleTaskIdList ?? [],
+        driver_id: resolvedDriver.driverId,
+        vehicle_plate_number: options?.vehiclePlateNumber ?? "",
+        warning_confirmed: options?.warningConfirmed ?? false,
+      };
+      return this.submitAcceptBookingRequest(body, this.acceptAssignUrl, resolvedDriver);
+    }
+
     return this.submitAcceptBookingRequest({
       booking_id: bookingId,
       accept_all: false,
       request_id_list: requestIds,
-    });
+    }, this.acceptUrl);
   }
 
-  async acceptAllBookingRequests(bookingId: number): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
+  async acceptAllBookingRequests(
+    bookingId: number,
+    options?: AcceptBookingOptions,
+  ): Promise<AcceptBookingSubmissionResult> {
+    const resolvedDriver = this.resolveAcceptDriver(bookingId, options);
+    if (resolvedDriver) {
+      const body: AcceptAssignBookingRequest = {
+        booking_id: bookingId,
+        accept_all: true,
+        exclude_id_list: options?.excludeIdList ?? [],
+        request_id_list: [],
+        bundle_task_id_list: options?.bundleTaskIdList ?? [],
+        driver_id: resolvedDriver.driverId,
+        vehicle_plate_number: options?.vehiclePlateNumber ?? "",
+        warning_confirmed: options?.warningConfirmed ?? false,
+      };
+      return this.submitAcceptBookingRequest(body, this.acceptAssignUrl, resolvedDriver);
+    }
+
     return this.submitAcceptBookingRequest({
       booking_id: bookingId,
       accept_all: true,
       request_id_list: [],
-    });
+    }, this.acceptUrl);
   }
 
-  private async submitAcceptBookingRequest(body: AcceptBookingRequest): Promise<{ ok: boolean; httpStatus: number; response: AcceptBookingResponse | null; error?: string }> {
+  private async submitAcceptBookingRequest(
+    body: AcceptBookingRequest | AcceptAssignBookingRequest,
+    targetUrl: string,
+    assignedDriver?: ResolvedAcceptDriver,
+  ): Promise<AcceptBookingSubmissionResult> {
     // Bracket only the upstream POST so we measure the decisive accept round-trip
     // in isolation (the rest — parsing/normalization — is local CPU). This is the
     // competitive number that was previously never timed on its own.
@@ -1013,7 +1403,7 @@ export class ApiClient {
       // Do not retry it: `idempotent=false` makes both response-error and
       // thrown-error retries no-ops, and the notifier reconciles the true state
       // against the pending + confirmed tabs afterwards.
-      const response = await fetchWithRetry(this.acceptUrl, {
+      const response = await fetchWithRetry(targetUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -1025,13 +1415,20 @@ export class ApiClient {
       this.metricsCollector.recordOperation("acceptRtt", Date.now() - acceptStart);
       acceptRttRecorded = true;
 
+      const releaseAssignedDriver = (): void => {
+        if (assignedDriver) {
+          this.onDriverAcceptReleased?.(body.booking_id, assignedDriver.driverId, assignedDriver.driverName);
+        }
+      };
+
       const rawText = await response.text();
       let parsed: unknown = null;
       if (rawText.trim()) {
         try {
           parsed = JSON.parse(rawText) as unknown;
         } catch {
-          return { ok: false, httpStatus: response.status, response: null, error: `Unexpected accept response: ${rawText.slice(0, 200)}` };
+          releaseAssignedDriver();
+          return { ok: false, httpStatus: response.status, response: null, error: `Unexpected accept response: ${rawText.slice(0, 200)}`, ...(assignedDriver ? { assignedDriver } : {}) };
         }
       }
 
@@ -1046,36 +1443,47 @@ export class ApiClient {
         if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode) && response.status !== 401 && response.status !== 403) {
           this.onSessionExpired?.(credentials.accountId);
         }
-        return { ok: false, httpStatus: response.status, response: normalized, error: `HTTP ${response.status}: ${rawText.slice(0, 200)}` };
+        releaseAssignedDriver();
+        return { ok: false, httpStatus: response.status, response: normalized, error: `HTTP ${response.status}: ${rawText.slice(0, 200)}`, ...(assignedDriver ? { assignedDriver } : {}) };
       }
 
       if (retcode !== null && SESSION_EXPIRED_CODES.has(retcode)) {
         this.onSessionExpired?.(credentials.accountId);
-        return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}` };
+        releaseAssignedDriver();
+        return { ok: false, httpStatus: response.status, response: normalized, error: `Session expired (retcode=${retcode}): ${message}`, ...(assignedDriver ? { assignedDriver } : {}) };
       }
 
       if (retcode === null) {
-        return { ok: false, httpStatus: response.status, response: normalized, error: `Accept response is missing retcode: ${rawText.slice(0, 200)}` };
+        releaseAssignedDriver();
+        return { ok: false, httpStatus: response.status, response: normalized, error: `Accept response is missing retcode: ${rawText.slice(0, 200)}`, ...(assignedDriver ? { assignedDriver } : {}) };
       }
 
       if (retcode !== 0) {
-        return { ok: false, httpStatus: response.status, response: normalized, error: message || `Accept failed with retcode ${retcode}` };
+        if (assignedDriver && /driver|พนักงานขับรถ|คนขับ/i.test(message)) {
+          this.onDriverAcceptError?.(assignedDriver.driverId, retcode, message);
+        }
+        releaseAssignedDriver();
+        return { ok: false, httpStatus: response.status, response: normalized, error: message || `Accept failed with retcode ${retcode}`, ...(assignedDriver ? { assignedDriver } : {}) };
       }
 
       const parsedRecord = isRecord(parsed) ? parsed : null;
       const dataRecord = parsedRecord && isRecord(parsedRecord.data) ? parsedRecord.data : null;
       if (dataRecord && dataRecord.success_count === 0) {
-        return { ok: false, httpStatus: response.status, response: normalized, error: message || "No requests were successfully accepted (success_count = 0)" };
+        if (assignedDriver && /driver|พนักงานขับรถ|คนขับ/i.test(message)) {
+          this.onDriverAcceptError?.(assignedDriver.driverId, retcode, message);
+        }
+        releaseAssignedDriver();
+        return { ok: false, httpStatus: response.status, response: normalized, error: message || "No requests were successfully accepted (success_count = 0)", ...(assignedDriver ? { assignedDriver } : {}) };
       }
 
-      return { ok: true, httpStatus: response.status, response: normalized };
+      return { ok: true, httpStatus: response.status, response: normalized, ...(assignedDriver ? { assignedDriver } : {}) };
     } catch (err) {
       // Record the time-to-failure too (timeout/network) so the accept latency
       // bucket reflects failed attempts — but only if the upstream POST itself
       // failed. A post-response parse error has already recorded the real RTT,
       // so guard against double-counting (which would also inflate the value).
       if (!acceptRttRecorded) this.metricsCollector.recordOperation("acceptRtt", Date.now() - acceptStart);
-      return { ok: false, httpStatus: 0, response: null, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, httpStatus: 0, response: null, error: err instanceof Error ? err.message : String(err), ...(assignedDriver ? { assignedDriver } : {}) };
     }
   }
 

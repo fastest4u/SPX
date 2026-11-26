@@ -10,6 +10,7 @@ import {
   type AutoAcceptResultStatus,
 } from "../repositories/auto-accept-result-repository.js";
 import type { ApiClient } from "./api-client.js";
+import { isMeaningfulVehicleTypeText } from "./team-driver-pool.js";
 import { isLineBotEnabled, sendMessage as sendLineBotMessage, formatError as lineBotFormatError, LineBotQrRequiredError } from "./line-bot.js";
 import { buildAutoAcceptFailureAlertText, buildAutoAcceptTraceId, summarizeAutoAcceptEvidence, type AutoAcceptFailureReason } from "./auto-accept-diagnostics.js";
 import type { AutoAcceptVerificationJob, AutoAcceptVerificationOutcome } from "./auto-accept-verifier.js";
@@ -1015,7 +1016,9 @@ async function publishDurableVerificationOutcome(outcome: AutoAcceptVerification
 }
 
 export async function submitDurableAutoAccept(
-  apiClient: ApiClient, job: AutoAcceptVerificationJob, options: RecoveryOptions & Pick<AutoAcceptOptions, "firstMatchedAtMs" | "onAcceptDispatch">,
+  apiClient: ApiClient,
+  job: AutoAcceptVerificationJob,
+  options: RecoveryOptions & Pick<AutoAcceptOptions, "firstMatchedAtMs" | "onAcceptDispatch"> & { fallbackVehicleTypeName?: string },
 ): Promise<Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>> {
   const runner = getAutoAcceptVerificationRunner(apiClient, options);
   const reservationCount = job.reservationCount ?? Math.max(job.requestIds.length, 1);
@@ -1043,9 +1046,16 @@ export async function submitDurableAutoAccept(
     .recordInterval("firstMatchToAcceptStart", options.firstMatchedAtMs, dispatchedAt);
   options.onAcceptDispatch?.();
   let result: Awaited<ReturnType<ApiClient["acceptBookingRequests"]>>;
+  const extractedVehicle = extractTripVehicleType(job.trips[0]);
+  const vehicleOpts = {
+    ...extractedVehicle,
+    ...(!extractedVehicle.vehicleTypeName && isMeaningfulVehicleTypeText(options.fallbackVehicleTypeName)
+      ? { vehicleTypeName: options.fallbackVehicleTypeName.trim() }
+      : {}),
+  };
   try {
-    result = job.acceptAll ? await apiClient.acceptAllBookingRequests(job.bookingId)
-      : await apiClient.acceptBookingRequests(job.bookingId, job.requestIds);
+    result = job.acceptAll ? await apiClient.acceptAllBookingRequests(job.bookingId, vehicleOpts)
+      : await apiClient.acceptBookingRequests(job.bookingId, job.requestIds, vehicleOpts);
   } catch {
     // A thrown POST may have committed upstream; recovery only reads its result.
     result = { ok: false, httpStatus: 0, response: null, error: "Accept transport outcome unknown" };
@@ -1072,6 +1082,19 @@ function firstTripListAgeMs(trips: TripLike[]): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.round(value))
     : undefined;
+}
+
+function extractTripVehicleType(trip: TripLike | undefined): { vehicleTypeId?: number; vehicleTypeName?: string } {
+  if (!trip) return {};
+  const record = trip as Record<string, unknown>;
+  const rawId = record.vehicle_type_id;
+  const vehicleTypeId = typeof rawId === "number" && Number.isInteger(rawId) && rawId > 0 ? rawId : undefined;
+  const rawName = trip["ประเภทรถ"] ?? trip.vehicle_type;
+  const vehicleTypeName = isMeaningfulVehicleTypeText(rawName) ? rawName.trim() : undefined;
+  return {
+    ...(vehicleTypeId !== undefined ? { vehicleTypeId } : {}),
+    ...(vehicleTypeName !== undefined ? { vehicleTypeName } : {}),
+  };
 }
 
 function acceptedTripsForOutcome(outcome: AutoAcceptVerificationOutcome): AcceptedTrip[] {
@@ -1273,6 +1296,27 @@ async function acceptAutoAcceptMatch(
     entry.trips.push(trip);
   }
 
+  const dispatchEntries: Array<{ bookingId: number; entry: AutoAcceptBookingEntry }> = [];
+  for (const [bookingId, entry] of byBooking) {
+    const canSplitBookingForUniqueDrivers =
+      !match.acceptAll &&
+      entry.requestIds.size > 1 &&
+      typeof apiClient.hasAutoDriverAssignment === "function" &&
+      apiClient.hasAutoDriverAssignment(extractTripVehicleType(entry.trips[0]));
+    if (canSplitBookingForUniqueDrivers) {
+      for (const trip of entry.trips) {
+        const requestId = Number(trip.request_id);
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) continue;
+        dispatchEntries.push({
+          bookingId,
+          entry: { requestIds: new Set([requestId]), trips: [trip], ruleId: match.ruleId, ruleName: match.ruleName },
+        });
+      }
+    } else {
+      dispatchEntries.push({ bookingId, entry });
+    }
+  }
+
   const accepted: AcceptedTrip[] = [];
   const failed: AutoAcceptResult["failed"] = [];
   let deferredRequests = 0;
@@ -1280,7 +1324,7 @@ async function acceptAutoAcceptMatch(
   const acceptedProgress: Array<{ ruleId: string; acceptedCount: number }> = [];
   const historyWrites: Array<() => Promise<unknown>> = [];
 
-  const acceptResults = await Promise.all([...byBooking].map(async ([bookingId, entry]) => {
+  const acceptResults = await Promise.all(dispatchEntries.map(async ({ bookingId, entry }) => {
     const requestIds = [...entry.requestIds];
 
     logger.info("auto-accept-calling", { bookingId, requestIds, ruleId: match.ruleId, ruleName: match.ruleName, acceptAll: match.acceptAll });
@@ -1301,10 +1345,22 @@ async function acceptAutoAcceptMatch(
       (options.metricsCollector ?? apiClient.metricsCollector ?? metrics).recordInterval("firstMatchToAcceptStart", firstMatchedAtMs);
       options.onAcceptDispatch?.();
     }
+    const vehicleOpts = extractTripVehicleType(entry.trips[0]);
     const result = options.verificationMode === "detached"
       ? await submitDurableAutoAccept(apiClient, intent, { ...options, firstMatchedAtMs })
-      : match.acceptAll ? await apiClient.acceptAllBookingRequests(bookingId)
-        : await apiClient.acceptBookingRequests(bookingId, requestIds);
+      : match.acceptAll ? await apiClient.acceptAllBookingRequests(bookingId, vehicleOpts)
+        : await apiClient.acceptBookingRequests(bookingId, requestIds, vehicleOpts);
+    if (result.assignedDriver) {
+      logger.info("auto-accept-driver-assigned", {
+        teamId,
+        bookingId,
+        requestIds,
+        ruleId: match.ruleId,
+        driverId: result.assignedDriver.driverId,
+        driverName: result.assignedDriver.driverName,
+        ok: result.ok,
+      });
+    }
     const acceptFinishedAt = Date.now();
     const ambiguousAccept = result.httpStatus === 0;
 

@@ -1,6 +1,6 @@
 import { teamMetricsCollector } from "./metrics.js";
 import { ApiClient } from "./api-client.js";
-import { resolveTeamPollIntervalMs } from "../config/env.js";
+import { env, resolveTeamPollIntervalMs } from "../config/env.js";
 import { Poller } from "../controllers/poller.js";
 import type { TeamPollerContext } from "../controllers/poller.js";
 import type { TeamRuntimeConfig } from "../repositories/team-repository.js";
@@ -9,6 +9,7 @@ import { isTeamPaused, pauseTeam, resumeTeam } from "./poller-control.js";
 import { acquireLiveSettingsSync, reloadSettingsLive } from "./settings.js";
 import { createTeamRuntimeSession, type TeamRuntimeSession } from "./provider-auth/runtime-session.js";
 import { TeamCredentialPool, getOrCreateTeamCredentialPool } from "./team-credential-pool.js";
+import { TeamDriverPool, getOrCreateTeamDriverPool } from "./team-driver-pool.js";
 
 export type TeamRuntimeStatusValue = "stopped" | "running" | "paused" | "misconfigured" | "session_expired" | "error";
 
@@ -49,6 +50,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
   private poller: Poller | null = null;
   private providerSession: TeamRuntimeSession | null = null;
   private credentialPool: TeamCredentialPool | null = null;
+  private driverPool: TeamDriverPool | null = null;
   private lastAccountReloadAt = 0;
   private refreshInFlight: Promise<void> | null = null;
   private releaseLiveSettingsSync: (() => Promise<void>) | null = null;
@@ -78,6 +80,9 @@ export class TeamRuntime implements TeamRuntimeHandle {
       : null;
 
     this.credentialPool = await getOrCreateTeamCredentialPool(this.teamId, fallbackCredentials);
+    this.driverPool = env.SPX_ROLE === "poller-service"
+      ? null
+      : await getOrCreateTeamDriverPool(this.teamId);
     this.lastAccountReloadAt = Date.now();
 
     if (!this.credentialPool.hasCredentials()) {
@@ -111,6 +116,16 @@ export class TeamRuntime implements TeamRuntimeHandle {
             this.intervalSec !== undefined ? this.intervalSec * 1000 : null,
           ),
         biddingVehicleType: this.config.biddingVehicleType,
+        driverResolver: (input) => this.driverPool?.nextDriver(input) ?? null,
+        hasAutoDrivers: (input) => (input
+          ? (this.driverPool?.canResolveDriver(input) ?? false)
+          : (this.driverPool?.hasDrivers() ?? false)),
+        onDriverAcceptError: (driverId) => {
+          this.driverPool?.recordDriverFailure(driverId);
+        },
+        onDriverAcceptReleased: (bookingId, driverId, driverName) => {
+          this.driverPool?.releaseBookingDriver(bookingId, driverId, driverName);
+        },
       });
       const context: TeamPollerContext = {
         metricsCollector,
@@ -151,6 +166,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
       this.providerSession?.dispose();
       this.providerSession = null;
       this.credentialPool = null;
+      this.driverPool = null;
       this.statusValue = "error";
       this.lastError = error instanceof Error ? error.message : String(error);
       throw error;
@@ -185,8 +201,10 @@ export class TeamRuntime implements TeamRuntimeHandle {
     }
     this.lastAccountReloadAt = now;
     const pool = this.credentialPool;
+    const drivers = this.driverPool;
     this.refreshInFlight = Promise.all([
       pool ? pool.reloadAccounts() : Promise.resolve(),
+      drivers ? drivers.reloadDrivers() : Promise.resolve(),
       !this.releaseLiveSettingsSync && process.env.NODE_ENV === "production"
         ? reloadSettingsLive().catch(() => undefined)
         : Promise.resolve(),
@@ -210,6 +228,7 @@ export class TeamRuntime implements TeamRuntimeHandle {
     this.providerSession?.dispose();
     this.providerSession = null;
     this.credentialPool = null;
+    this.driverPool = null;
     this.statusValue = "stopped";
   }
 
