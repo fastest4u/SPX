@@ -94,6 +94,27 @@ const EXPECTED_SCHEMA = {
       { name: "team_spx_accounts_team_enabled_idx", unique: false, columns: ["team_id", "enabled"] },
     ],
   },
+  team_spx_drivers: {
+    columns: {
+      id: { type: "int", nullable: false, extraIncludes: ["auto_increment"] },
+      team_id: { type: "int", nullable: false },
+      driver_id: { type: "int", nullable: false },
+      driver_name: { type: "varchar(255)", nullable: false },
+      agency_name: { type: "varchar(255)", nullable: false, defaultIncludes: "" },
+      vehicle_type: { type: "int", nullable: false },
+      vehicle_type_name: { type: "varchar(100)", nullable: false, defaultIncludes: "" },
+      enabled: { type: "int", nullable: false, defaultIncludes: "1" },
+      synced_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      created_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+      updated_at: { type: "datetime", nullable: false, defaultIncludes: "current_timestamp" },
+    },
+    indexes: [
+      { name: "PRIMARY", unique: true, columns: ["id"] },
+      { name: "team_spx_drivers_team_driver_uidx", unique: true, columns: ["team_id", "driver_id"] },
+      { name: "team_spx_drivers_team_id_idx", unique: false, columns: ["team_id"] },
+      { name: "team_spx_drivers_team_vehicle_enabled_idx", unique: false, columns: ["team_id", "vehicle_type", "enabled"] },
+    ],
+  },
   spx_booking_history: {
     columns: {
       id: { type: "bigint unsigned", nullable: false, extraIncludes: ["auto_increment"] },
@@ -675,6 +696,7 @@ const APP_TABLE_PREFIXES = ["spx_", "line_", "auto_", "metrics_", "realtime_"];
 const APP_TABLE_NAMES = new Set([
   "teams",
   "team_spx_accounts",
+  "team_spx_drivers",
   "users",
   "audit_logs",
   "notify_rules",

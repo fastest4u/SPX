@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { listTeamRuntimeDesiredStates, listTeamRuntimeLeases, type TeamRuntimeDesiredStateValue } from "../repositories/runtime-repository.js";
-import { createTeam, disableTeam, getTeamById, listTeams, updateTeam, type TeamInput, type TeamPatch } from "../repositories/team-repository.js";
+import { createTeam, disableTeam, getTeamById, getTeamRuntimeConfig, listTeams, updateTeam, type TeamInput, type TeamPatch } from "../repositories/team-repository.js";
 import {
   createAccount,
   deleteAccount,
@@ -9,7 +9,18 @@ import {
   updateAccount,
   type UpdateTeamSpxAccountInput,
 } from "../repositories/team-spx-account-repository.js";
+import {
+  getDriverCountsByTeam,
+  getDriverSummaryByTeam,
+  listDriversByTeam,
+  setAllTeamDriversEnabled,
+  setTeamDriverEnabled,
+  summarizeDriverRecords,
+  syncTeamDrivers,
+} from "../repositories/team-spx-driver-repository.js";
+import { ApiClient } from "../services/api-client.js";
 import { getOrCreateTeamCredentialPool } from "../services/team-credential-pool.js";
+import { reloadTeamDriverPool } from "../services/team-driver-pool.js";
 import { insertAuditLog } from "../repositories/audit-repository.js";
 import type { AuthUser } from "../services/authz.js";
 import type { TeamRuntimeStatusValue } from "../services/team-runtime.js";
@@ -74,8 +85,116 @@ interface OwnTeamAccountParams {
   accountId: string;
 }
 
+interface TeamDriverParams {
+  id: string;
+  driverId: string;
+}
+
+interface OwnTeamDriverParams {
+  driverId: string;
+}
+
+interface BulkDriverEnabledBody {
+  enabled: boolean;
+  vehicleType?: number;
+}
+
 interface EnabledBody {
   enabled: boolean;
+}
+
+async function listTeamDriversPayload(teamId: number) {
+  const drivers = await listDriversByTeam(teamId);
+  return { drivers, summary: summarizeDriverRecords(drivers) };
+}
+
+type SyncTeamDriversOutcome =
+  | {
+      ok: true;
+      data: Awaited<ReturnType<typeof syncTeamDrivers>>;
+    }
+  | { ok: false; statusCode: number; errorCode: string; message: string };
+
+const driverSyncInFlightByTeam = new Map<number, Promise<SyncTeamDriversOutcome>>();
+
+async function executeSyncTeamDriversFromSpx(teamId: number): Promise<SyncTeamDriversOutcome> {
+  const team = await getTeamRuntimeConfig(teamId);
+  if (!team) {
+    return { ok: false, statusCode: 404, errorCode: "NOT_FOUND", message: "Team not found" };
+  }
+  const fallback = team.spxCookie && team.spxDeviceId
+    ? { spxCookie: team.spxCookie, spxDeviceId: team.spxDeviceId }
+    : null;
+  const pool = await getOrCreateTeamCredentialPool(teamId, fallback);
+  if (!pool.hasCredentials()) {
+    return {
+      ok: false,
+      statusCode: 400,
+      errorCode: "TEAM_CREDENTIALS_REQUIRED",
+      message: "ยังไม่ได้เชื่อมต่อบัญชี SPX ของทีมนี้ กรุณาเชื่อมต่อบัญชีก่อนดึงรายชื่อคนขับ",
+    };
+  }
+
+  const apiClient = new ApiClient({
+    credentialsProvider: () => pool.nextCredentials(),
+    onRateLimit: (accountId, retryAfterMs) => {
+      pool.recordRateLimit(accountId, retryAfterMs);
+    },
+    onSessionExpired: (accountId) => {
+      pool.recordSessionExpired(accountId);
+    },
+  });
+
+  const fetched = await apiClient.fetchLinehaulDrivers({ count: 5000 });
+  if (!fetched.ok) {
+    // Never return HTTP 401 for upstream SPX auth failures: the frontend treats 401 as dashboard JWT expiry and forces logout.
+    if (fetched.sessionExpired || fetched.httpStatus === 401 || fetched.httpStatus === 403) {
+      return {
+        ok: false,
+        statusCode: 502,
+        errorCode: "SPX_SESSION_EXPIRED",
+        message: "เซสชันบัญชี SPX ของทีมนี้หมดอายุหรือถูกปฏิเสธ กรุณาเชื่อมต่อบัญชี SPX ใหม่แล้วลองดึงรายชื่อคนขับอีกครั้ง",
+      };
+    }
+    if (fetched.httpStatus === 429 || fetched.retcode === 130008001) {
+      return {
+        ok: false,
+        statusCode: 429,
+        errorCode: "SPX_RATE_LIMITED",
+        message: fetched.error || fetched.message || "SPX จำกัดความถี่คำขอชั่วคราว กรุณารอสักครู่แล้วลองใหม่",
+      };
+    }
+    return {
+      ok: false,
+      statusCode: 502,
+      errorCode: "SPX_DRIVER_SYNC_FAILED",
+      message: fetched.error || fetched.message || "ดึงรายชื่อคนขับจาก SPX ไม่สำเร็จ",
+    };
+  }
+
+  const syncResult = await syncTeamDrivers(
+    teamId,
+    fetched.drivers.map((d) => ({
+      driverId: d.driver_id,
+      driverName: d.driver_name,
+      agencyName: d.agency_name,
+      vehicleType: d.vehicle_type,
+      vehicleTypeName: d.vehicle_type_name,
+    })),
+  );
+  await reloadTeamDriverPool(teamId);
+  return { ok: true, data: syncResult };
+}
+
+function syncTeamDriversFromSpx(teamId: number): Promise<SyncTeamDriversOutcome> {
+  const existing = driverSyncInFlightByTeam.get(teamId);
+  if (existing) return existing;
+
+  const task = executeSyncTeamDriversFromSpx(teamId).finally(() => {
+    driverSyncInFlightByTeam.delete(teamId);
+  });
+  driverSyncInFlightByTeam.set(teamId, task);
+  return task;
 }
 
 async function listTeamAccountsWithStatus(teamId: number) {
@@ -262,15 +381,45 @@ export function patchTouchesRuntime(patch: TeamPatch): boolean {
 }
 
 async function listTeamsWithRuntimeStatus() {
-  const teams = await listTeams();
-  const snapshot = await loadRuntimeStateSnapshot();
-  return Promise.all(teams.map((team) => withRuntimeStatus(team, snapshot)));
+  const [teams, snapshot, driverCounts] = await Promise.all([
+    listTeams(),
+    loadRuntimeStateSnapshot(),
+    getDriverCountsByTeam(),
+  ]);
+  return Promise.all(
+    teams.map(async (team) => {
+      const counts = driverCounts.get(team.id);
+      return {
+        ...(await withRuntimeStatus(team, snapshot)),
+        driversCount: counts?.total ?? 0,
+        enabledDriversCount: counts?.enabled ?? 0,
+      };
+    }),
+  );
 }
 
 async function getCurrentUserTeam(teamId: number) {
-  const team = await getTeamById(teamId);
-  return team ? withRuntimeStatus(team) : null;
+  const [team, summary] = await Promise.all([
+    getTeamById(teamId),
+    getDriverSummaryByTeam(teamId),
+  ]);
+  if (!team) return null;
+  return {
+    ...(await withRuntimeStatus(team)),
+    driversCount: summary.total,
+    enabledDriversCount: summary.enabled,
+  };
 }
+
+const bulkDriverEnabledBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["enabled"],
+  properties: {
+    enabled: { type: "boolean" },
+    vehicleType: { type: "integer", minimum: 1 },
+  },
+} as const;
 
 const enabledBodySchema = {
   type: "object",
@@ -432,7 +581,7 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
       `${req.body.enabled ? "Enabled" : "Disabled"} team ${teamId}: ${team.name}`,
       { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
     );
-    return sendSuccess(reply, await withRuntimeStatus(team), "Team enabled state updated");
+    return sendSuccess(reply, (await getCurrentUserTeam(teamId)) ?? (await withRuntimeStatus(team)), "Team enabled state updated");
   });
 
   app.get("/spx-accounts", async (req, reply) => {
@@ -566,6 +715,73 @@ export const currentTeamController: FastifyPluginAsync = async (app) => {
 
     return sendSuccess(reply, null, "Account rate limit reset");
   });
+
+  app.get("/spx-drivers", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    return sendSuccess(reply, await listTeamDriversPayload(teamId));
+  });
+
+  app.post("/spx-drivers/sync", async (req, reply) => {
+    const teamId = requireTeamUser(req);
+    const result = await syncTeamDriversFromSpx(teamId);
+    if (!result.ok) {
+      return sendError(reply, result.statusCode, result.errorCode, result.message);
+    }
+
+    const user = currentUser(req);
+    await insertAuditLog(
+      user.username,
+      "Sync Team SPX Drivers",
+      `Synced ${result.data.synced} SPX drivers (inserted=${result.data.inserted}, updated=${result.data.updated}, removed=${result.data.removed}) for own team ${teamId}`,
+      { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, result.data, "SPX drivers synced");
+  });
+
+  app.put<{ Body: BulkDriverEnabledBody }>(
+    "/spx-drivers/bulk-enabled",
+    { schema: { body: bulkDriverEnabledBodySchema } },
+    async (req, reply) => {
+      const teamId = requireTeamUser(req);
+      const updatedCount = await setAllTeamDriversEnabled(teamId, req.body.enabled, req.body.vehicleType);
+      await reloadTeamDriverPool(teamId);
+
+      const user = currentUser(req);
+      await insertAuditLog(
+        user.username,
+        "Bulk Update Team SPX Drivers",
+        `Set enabled=${req.body.enabled} for ${updatedCount} drivers (vehicleType=${req.body.vehicleType ?? "all"}) in own team ${teamId}`,
+        { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+      );
+
+      return sendSuccess(reply, { updatedCount, ...(await listTeamDriversPayload(teamId)) }, "SPX drivers updated");
+    },
+  );
+
+  app.put<{ Params: OwnTeamDriverParams; Body: EnabledBody }>(
+    "/spx-drivers/:driverId",
+    { schema: { body: enabledBodySchema } },
+    async (req, reply) => {
+      const teamId = requireTeamUser(req);
+      const driverId = parseId(req.params.driverId);
+      if (!driverId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid driver id");
+
+      const updated = await setTeamDriverEnabled(teamId, driverId, req.body.enabled);
+      if (!updated) return sendError(reply, 404, "NOT_FOUND", "SPX driver not found");
+      await reloadTeamDriverPool(teamId);
+
+      const user = currentUser(req);
+      await insertAuditLog(
+        user.username,
+        "Update Team SPX Driver",
+        `Set driver ${driverId} (${updated.driverName}) enabled=${req.body.enabled} for own team ${teamId}`,
+        { actorUserId: user.id, actorTeamId: user.teamId, targetTeamId: teamId },
+      );
+
+      return sendSuccess(reply, updated, "SPX driver updated");
+    },
+  );
 };
 
 export const teamsController: FastifyPluginAsync = async (app) => {
@@ -797,4 +1013,76 @@ export const teamsController: FastifyPluginAsync = async (app) => {
 
     return sendSuccess(reply, null, "Account rate limit reset");
   });
+
+  app.get<{ Params: IdParams }>("/:id/spx-drivers", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    if (!teamId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+    const team = await getTeamById(teamId);
+    if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+    return sendSuccess(reply, await listTeamDriversPayload(teamId));
+  });
+
+  app.post<{ Params: IdParams }>("/:id/spx-drivers/sync", async (req, reply) => {
+    const teamId = parseId(req.params.id);
+    if (!teamId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+    const result = await syncTeamDriversFromSpx(teamId);
+    if (!result.ok) {
+      return sendError(reply, result.statusCode, result.errorCode, result.message);
+    }
+
+    await insertAuditLog(
+      currentUser(req).username,
+      "Sync Team SPX Drivers",
+      `Synced ${result.data.synced} SPX drivers (inserted=${result.data.inserted}, updated=${result.data.updated}, removed=${result.data.removed}) for team ${teamId}`,
+      { targetTeamId: teamId },
+    );
+
+    return sendSuccess(reply, result.data, "SPX drivers synced");
+  });
+
+  app.put<{ Params: IdParams; Body: BulkDriverEnabledBody }>(
+    "/:id/spx-drivers/bulk-enabled",
+    { schema: { body: bulkDriverEnabledBodySchema } },
+    async (req, reply) => {
+      const teamId = parseId(req.params.id);
+      if (!teamId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team id");
+      const team = await getTeamById(teamId);
+      if (!team) return sendError(reply, 404, "NOT_FOUND", "Team not found");
+
+      const updatedCount = await setAllTeamDriversEnabled(teamId, req.body.enabled, req.body.vehicleType);
+      await reloadTeamDriverPool(teamId);
+
+      await insertAuditLog(
+        currentUser(req).username,
+        "Bulk Update Team SPX Drivers",
+        `Set enabled=${req.body.enabled} for ${updatedCount} drivers (vehicleType=${req.body.vehicleType ?? "all"}) in team ${teamId}`,
+        { targetTeamId: teamId },
+      );
+
+      return sendSuccess(reply, { updatedCount, ...(await listTeamDriversPayload(teamId)) }, "SPX drivers updated");
+    },
+  );
+
+  app.put<{ Params: TeamDriverParams; Body: EnabledBody }>(
+    "/:id/spx-drivers/:driverId",
+    { schema: { body: enabledBodySchema } },
+    async (req, reply) => {
+      const teamId = parseId(req.params.id);
+      const driverId = parseId(req.params.driverId);
+      if (!teamId || !driverId) return sendError(reply, 400, "VALIDATION_ERROR", "Invalid team or driver id");
+
+      const updated = await setTeamDriverEnabled(teamId, driverId, req.body.enabled);
+      if (!updated) return sendError(reply, 404, "NOT_FOUND", "SPX driver not found");
+      await reloadTeamDriverPool(teamId);
+
+      await insertAuditLog(
+        currentUser(req).username,
+        "Update Team SPX Driver",
+        `Set driver ${driverId} (${updated.driverName}) enabled=${req.body.enabled} for team ${teamId}`,
+        { targetTeamId: teamId },
+      );
+
+      return sendSuccess(reply, updated, "SPX driver updated");
+    },
+  );
 };

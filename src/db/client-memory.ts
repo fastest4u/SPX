@@ -105,6 +105,24 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS team_spx_accounts_team_id_idx ON team_spx_accounts(team_id);
     CREATE INDEX IF NOT EXISTS team_spx_accounts_team_enabled_idx ON team_spx_accounts(team_id, enabled);
 
+    CREATE TABLE IF NOT EXISTS team_spx_drivers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      team_id INTEGER NOT NULL,
+      driver_id INTEGER NOT NULL,
+      driver_name TEXT NOT NULL,
+      agency_name TEXT NOT NULL DEFAULT '',
+      vehicle_type INTEGER NOT NULL,
+      vehicle_type_name TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS team_spx_drivers_team_driver_uidx ON team_spx_drivers(team_id, driver_id);
+    CREATE INDEX IF NOT EXISTS team_spx_drivers_team_id_idx ON team_spx_drivers(team_id);
+    CREATE INDEX IF NOT EXISTS team_spx_drivers_team_vehicle_enabled_idx ON team_spx_drivers(team_id, vehicle_type, enabled);
+
     CREATE TABLE IF NOT EXISTS spx_booking_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       team_id INTEGER NOT NULL DEFAULT 1,

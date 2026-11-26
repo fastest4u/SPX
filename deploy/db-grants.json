@@ -124,6 +124,9 @@
           "INSERT",
           "UPDATE"
         ],
+        "team_spx_drivers": [
+          "SELECT"
+        ],
         "teams": [
           "SELECT"
         ]
@@ -243,6 +246,9 @@
           "SELECT",
           "INSERT",
           "UPDATE"
+        ],
+        "team_spx_drivers": [
+          "SELECT"
         ],
         "teams": [
           "SELECT"
@@ -1008,6 +1014,12 @@
         "team_runtime_leases": [
           "SELECT"
         ],
+        "team_spx_drivers": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ],
         "teams": [
           "SELECT",
           "INSERT",
@@ -1123,6 +1135,9 @@
           "UPDATE",
           "DELETE"
         ],
+        "team_spx_drivers": [
+          "SELECT"
+        ],
         "teams": [
           "SELECT"
         ]
@@ -1229,6 +1244,9 @@
           "INSERT",
           "UPDATE",
           "DELETE"
+        ],
+        "team_spx_drivers": [
+          "SELECT"
         ],
         "teams": [
           "SELECT"

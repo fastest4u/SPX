@@ -6,6 +6,7 @@ import {
   type AutoAcceptJobExecutionMode,
   type AutoAcceptJobRow,
 } from "../repositories/auto-accept-job-repository.js";
+import { isMeaningfulVehicleTypeText } from "./team-driver-pool.js";
 
 export type AutoAcceptJobSource =
   | "pending_tab"
@@ -26,6 +27,7 @@ export interface SafeAutoAcceptJobTrip {
   origin?: string;
   destination?: string;
   vehicle_type?: string;
+  vehicle_type_id?: number;
   acceptance_status?: number;
   listAgeMs?: number;
 }
@@ -90,13 +92,18 @@ export function sanitizeAutoAcceptJobTrip(
 
   const origin = firstText([trip.origin, trip["ต้นทาง"]]);
   const destination = firstText([trip.destination, trip["ปลายทาง"]]);
-  const vehicleType = firstText([trip.vehicle_type, trip.vehicleType, trip["ประเภทรถ"]]);
+  const rawVehicleType = firstText([trip.vehicle_type, trip.vehicleType, trip["ประเภทรถ"]]);
+  const vehicleType = isMeaningfulVehicleTypeText(rawVehicleType) ? rawVehicleType : undefined;
+  const vehicleTypeId = finiteNumber(trip.vehicle_type_id);
   const acceptanceStatus = finiteNumber(trip.acceptance_status) ?? finiteNumber(trip.request_acceptance_status);
   const listAgeMs = finiteNumber(trip.listAgeMs);
 
   if (origin) safe.origin = origin;
   if (destination) safe.destination = destination;
   if (vehicleType) safe.vehicle_type = vehicleType;
+  if (vehicleTypeId !== undefined && Number.isInteger(vehicleTypeId) && vehicleTypeId > 0) {
+    safe.vehicle_type_id = vehicleTypeId;
+  }
   if (acceptanceStatus !== undefined) safe.acceptance_status = acceptanceStatus;
   if (listAgeMs !== undefined && listAgeMs >= 0) safe.listAgeMs = Math.floor(listAgeMs);
 

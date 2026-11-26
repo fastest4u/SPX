@@ -27,6 +27,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Truck,
   Users,
   X,
 } from 'lucide-react'
@@ -38,6 +39,7 @@ import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog'
 import { CreateRuleDialog } from '../components/CreateRuleDialog'
 import { RulePreviewDialog } from '../components/RulePreviewDialog'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
+import { TeamSpxDriversDialog } from '../components/TeamSpxDriversDialog'
 import {
   DASHBOARD_STATUS_CLOCK_INTERVAL_MS,
   DASHBOARD_TEAM_RUNTIME_REFRESH_MS,
@@ -115,6 +117,7 @@ export function DashboardComponent() {
   const [ruleTeamFilter, setRuleTeamFilter] = useState('all')
   const [ruleVehicleFilter, setRuleVehicleFilter] = useState('all')
   const [showProviderAuth, setShowProviderAuth] = useState(false)
+  const [driversDialogOpen, setDriversDialogOpen] = useState(false)
   const [, setStatusClockTick] = useState(0)
 
   // Stable per-row handlers so memoized RuleRow does not re-render on every SSE
@@ -428,16 +431,28 @@ export function DashboardComponent() {
               </>
             ) : null}
             {shouldLoadCurrentTeam ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowProviderAuth((prev) => !prev)}
-                className="-mx-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground sm:mx-0"
-                aria-expanded={showProviderAuth}
-              >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDriversDialogOpen(true)}
+                  className="-mx-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground sm:mx-0"
+                  title="ดึงและจัดการรายชื่อคนขับ SPX ของทีม"
+                >
+                  <Truck className={`h-3.5 w-3.5 ${(currentTeam?.enabledDriversCount ?? 0) > 0 ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <span>คนขับ SPX ({currentTeam?.enabledDriversCount ?? 0})</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowProviderAuth((prev) => !prev)}
+                  className="-mx-2 gap-1.5 text-xs text-muted-foreground hover:text-foreground sm:mx-0"
+                  aria-expanded={showProviderAuth}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>{showProviderAuth ? 'ซ่อนบัญชีผู้ให้บริการ' : 'บัญชีผู้ให้บริการ'}</span>
+                </Button>
+              </>
             ) : isAdmin ? (
               <a
                 href="/teams"
@@ -604,6 +619,14 @@ export function DashboardComponent() {
       <EditRuleDialog rule={editingRule} open={editingRule !== null} onOpenChange={(open) => { if (!open) setEditingRule(null) }} />
       <DeleteConfirmDialog rule={deletingRule} open={deletingRule !== null} onOpenChange={(open) => { if (!open) setDeletingRule(null) }} />
       <RulePreviewDialog rule={previewingRule} open={previewingRule !== null} onOpenChange={(open) => { if (!open) setPreviewingRule(null) }} />
+      {shouldLoadCurrentTeam ? (
+        <TeamSpxDriversDialog
+          ownTeam
+          teamName={currentTeam?.name}
+          open={driversDialogOpen}
+          onOpenChange={setDriversDialogOpen}
+        />
+      ) : null}
     </PageShell>
   )
 }

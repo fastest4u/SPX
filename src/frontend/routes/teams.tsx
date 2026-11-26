@@ -51,6 +51,7 @@ import { formatLineChatOptionLabel, getSelectableLineGroupChats, isRedactedSecre
 import { formatDateTime } from '../lib/utils'
 import type { LineBotChat, Team, TeamInput, TeamSpxAccount } from '../types'
 import { ProviderAuthPanel } from '../components/ProviderAuthPanel'
+import { TeamSpxDriversDialog } from '../components/TeamSpxDriversDialog'
 
 export const Route = createFileRoute('/teams')({
   component: TeamsComponent,
@@ -210,6 +211,7 @@ function LineGroupField({
 function TeamsComponent() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [accountsTeam, setAccountsTeam] = useState<Team | null>(null)
+  const [driversTeam, setDriversTeam] = useState<Team | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<TeamFilter>('all')
@@ -431,6 +433,7 @@ function TeamsComponent() {
                 team={team}
                 onEdit={() => setEditingTeam(team)}
                 onManageAccounts={() => setAccountsTeam(team)}
+                onManageDrivers={() => setDriversTeam(team)}
               />
             ))}
           </div>
@@ -457,6 +460,7 @@ function TeamsComponent() {
                       team={team}
                       onEdit={() => setEditingTeam(team)}
                       onManageAccounts={() => setAccountsTeam(team)}
+                      onManageDrivers={() => setDriversTeam(team)}
                     />
                   ))}
                 </tbody>
@@ -484,6 +488,12 @@ function TeamsComponent() {
         team={accountsTeam}
         open={accountsTeam !== null}
         onOpenChange={(open) => { if (!open) setAccountsTeam(null) }}
+      />
+      <TeamSpxDriversDialog
+        teamId={driversTeam?.id}
+        teamName={driversTeam?.name}
+        open={driversTeam !== null}
+        onOpenChange={(open) => { if (!open) setDriversTeam(null) }}
       />
     </PageShell>
   )
@@ -635,10 +645,12 @@ function TeamGridCard({
   team,
   onEdit,
   onManageAccounts,
+  onManageDrivers,
 }: {
   team: Team
   onEdit: () => void
   onManageAccounts: () => void
+  onManageDrivers: () => void
 }) {
   const queryClient = useQueryClient()
   const status = getRuntimeStatus(team)
@@ -738,22 +750,39 @@ function TeamGridCard({
 
         {/* Middle Section 1: SPX Credentials & Multi-Account */}
         <div className="mt-4 rounded-xl border border-white/[0.06] bg-black/25 p-3.5 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
               <Cookie className="h-3.5 w-3.5 text-primary" />
               <span>การเชื่อมต่อ SPX</span>
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onManageAccounts}
-              className="h-7 px-2.5 text-xs font-medium border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 transition-all flex items-center gap-1.5 shrink-0"
-              title={`จัดการบัญชี SPX หมุนเวียน ${team.name}`}
-            >
-              <Users className="h-3 w-3" />
-              <span>บัญชีหมุนเวียน</span>
-            </Button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onManageDrivers}
+                className={`h-7 px-2.5 text-xs font-medium transition-all flex items-center gap-1.5 shrink-0 ${
+                  (team.enabledDriversCount ?? 0) > 0
+                    ? 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/50'
+                    : 'border-amber-500/30 text-amber-300 hover:bg-amber-500/10 hover:border-amber-500/50'
+                }`}
+                title={`ดึงและจัดการรายชื่อคนขับ SPX ของทีม ${team.name}`}
+              >
+                <Truck className="h-3 w-3" />
+                <span>คนขับ ({team.enabledDriversCount ?? 0})</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onManageAccounts}
+                className="h-7 px-2.5 text-xs font-medium border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 transition-all flex items-center gap-1.5 shrink-0"
+                title={`จัดการบัญชี SPX หมุนเวียน ${team.name}`}
+              >
+                <Users className="h-3 w-3" />
+                <span>บัญชีหมุนเวียน</span>
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1.5 border-t border-white/[0.04]">
@@ -881,10 +910,12 @@ function TeamTableRow({
   team,
   onEdit,
   onManageAccounts,
+  onManageDrivers,
 }: {
   team: Team
   onEdit: () => void
   onManageAccounts: () => void
+  onManageDrivers: () => void
 }) {
   return (
     <tr key={team.id} className="hover:bg-white/[0.02] transition-colors">
@@ -905,17 +936,34 @@ function TeamTableRow({
       </td>
       <td>
         <div className="grid gap-1.5 py-1 text-xs">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onManageAccounts}
-            className="h-7 w-fit text-xs font-medium border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1.5"
-            title={`จัดการบัญชี SPX หมุนเวียน ${team.name}`}
-          >
-            <Users className="h-3 w-3 shrink-0" />
-            <span>บัญชีหมุนเวียน</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onManageDrivers}
+              className={`h-7 w-fit text-xs font-medium flex items-center gap-1.5 ${
+                (team.enabledDriversCount ?? 0) > 0
+                  ? 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'
+                  : 'border-amber-500/30 text-amber-300 hover:bg-amber-500/10'
+              }`}
+              title={`ดึงและจัดการรายชื่อคนขับ SPX ของทีม ${team.name}`}
+            >
+              <Truck className="h-3 w-3 shrink-0" />
+              <span>คนขับ ({team.enabledDriversCount ?? 0})</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onManageAccounts}
+              className="h-7 w-fit text-xs font-medium border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1.5"
+              title={`จัดการบัญชี SPX หมุนเวียน ${team.name}`}
+            >
+              <Users className="h-3 w-3 shrink-0" />
+              <span>บัญชีหมุนเวียน</span>
+            </Button>
+          </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="truncate">Cookie: <span className="font-mono text-foreground">{team.spxCookiePreview || 'ไม่มี'}</span></span>
             <span className="truncate">Device: <span className="font-mono text-foreground">{team.spxDeviceIdPreview || 'ไม่มี'}</span></span>
@@ -949,6 +997,7 @@ function TeamTableRow({
           team={team}
           onEdit={onEdit}
           onManageAccounts={onManageAccounts}
+          onManageDrivers={onManageDrivers}
         />
       </td>
     </tr>
@@ -987,11 +1036,13 @@ function TeamActions({
   team,
   onEdit,
   onManageAccounts,
+  onManageDrivers,
   compact = false,
 }: {
   team: Team
   onEdit: () => void
   onManageAccounts?: () => void
+  onManageDrivers?: () => void
   compact?: boolean
 }) {
   const queryClient = useQueryClient()
@@ -1028,7 +1079,22 @@ function TeamActions({
       onClick: onEdit,
       disabled: false,
       danger: false,
+      isRuntimeAction: false,
     },
+    ...(onManageDrivers
+      ? [
+          {
+            key: 'drivers',
+            label: 'คนขับ SPX',
+            title: `ดึงและจัดการรายชื่อคนขับ SPX ของทีม ${team.name}`,
+            icon: <Truck className="h-3.5 w-3.5 text-emerald-400" />,
+            onClick: onManageDrivers,
+            disabled: false,
+            danger: false,
+            isRuntimeAction: false,
+          },
+        ]
+      : []),
     ...(onManageAccounts
       ? [
           {
@@ -1039,6 +1105,7 @@ function TeamActions({
             onClick: onManageAccounts,
             disabled: false,
             danger: false,
+            isRuntimeAction: false,
           },
         ]
       : []),
@@ -1050,6 +1117,7 @@ function TeamActions({
       onClick: () => actionMutation.mutate('restart'),
       disabled: actionMutation.isPending || !team.enabled,
       danger: false,
+      isRuntimeAction: true,
     },
     {
       key: runtimeToggleAction.command,
@@ -1059,6 +1127,7 @@ function TeamActions({
       onClick: () => actionMutation.mutate(runtimeToggleAction.command),
       disabled: actionMutation.isPending || runtimeToggleAction.disabled,
       danger: false,
+      isRuntimeAction: true,
     },
     {
       key: enableToggleAction.command,
@@ -1069,17 +1138,21 @@ function TeamActions({
       disabled: actionMutation.isPending,
       danger: enableToggleAction.danger,
       success: !enableToggleAction.danger,
+      isRuntimeAction: true,
     },
   ]
+
+  const compactGridColsClass =
+    actionItems.length >= 6 ? 'grid-cols-6' : actionItems.length === 5 ? 'grid-cols-5' : 'grid-cols-4'
 
   return (
     <div
       className={compact
-        ? `grid ${onManageAccounts ? 'grid-cols-5' : 'grid-cols-4'} overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.025]`
+        ? `grid ${compactGridColsClass} overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.025]`
         : 'inline-flex overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.025]'}
       aria-label={`จัดการทีม ${team.name}`}
     >
-      {actionItems.map((item, index) => (
+      {actionItems.map((item) => (
         <Button
           key={item.key}
           type="button"
@@ -1096,7 +1169,7 @@ function TeamActions({
           title={item.title}
           aria-label={item.title}
         >
-          {actionMutation.isPending && index > 0 ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : item.icon}
+          {actionMutation.isPending && item.isRuntimeAction ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : item.icon}
           <span className="sr-only">{item.label}</span>
         </Button>
       ))}

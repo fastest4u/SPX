@@ -2,6 +2,7 @@ import { env, resolveTeamPollIntervalMs } from "../config/env.js";
 import { onLiveSettingsReloaded } from "../services/settings.js";
 import { closePool } from "../db/client.js";
 import { ApiClient } from "../services/api-client.js";
+import { isMeaningfulVehicleTypeText } from "../services/team-driver-pool.js";
 import { DataProcessor } from "../services/data-processor.js";
 import { BookingHistorySaveQueue } from "../services/booking-history-save-queue.js";
 import { saveBookingRequests } from "../services/db-service.js";
@@ -1423,6 +1424,20 @@ export class Poller {
           results.push(false);
           continue;
         }
+        const parentVehicleTypeId = typeof trip.vehicle_type_id === "number" && Number.isInteger(trip.vehicle_type_id) && trip.vehicle_type_id > 0
+          ? trip.vehicle_type_id
+          : undefined;
+        const parentRawVehicleName = trip["ประเภทรถ"];
+        const parentVehicleTypeName = isMeaningfulVehicleTypeText(parentRawVehicleName)
+          ? parentRawVehicleName.trim()
+          : (rule.vehicle_types.length === 1 && isMeaningfulVehicleTypeText(rule.vehicle_types[0]) ? rule.vehicle_types[0].trim() : undefined);
+        const parentTripHint = parentVehicleTypeId !== undefined || parentVehicleTypeName !== undefined
+          ? {
+              booking_id: bookingId,
+              ...(parentVehicleTypeId !== undefined ? { vehicle_type_id: parentVehicleTypeId } : {}),
+              ...(parentVehicleTypeName !== undefined ? { vehicle_type: parentVehicleTypeName } : {}),
+            }
+          : undefined;
         results.push(await this.publishJob({
           firstMatchedAtMs,
           executionMode: this.isJobOnlyPoller() || (kind === "pending_request" && this.isAutoAcceptKindJobCutoverEnabled(parent))
@@ -1432,7 +1447,7 @@ export class Poller {
           acceptAll: parent,
           source: parent ? "booking_name" : kind === "pending_request" ? "pending_tab"
             : kind === "own_status_reconcile" ? "reconciliation" : "non_pending_tab",
-          ...(parent ? {} : { trip: trip as unknown as Record<string, unknown> }),
+          ...(parent ? (parentTripHint ? { trip: parentTripHint } : {}) : { trip: trip as unknown as Record<string, unknown> }),
           ...(trip.booking_name ? { bookingName: trip.booking_name } : {}),
           ruleSnapshot: this.jobRuleSnapshot(rule),
         }));
@@ -1465,12 +1480,16 @@ export class Poller {
     if (cutover || env.AUTO_ACCEPT_JOB_SHADOW_ENABLED) {
       const match = matches[0];
       const rule = this.tickAutoAcceptRules.find((item) => item.id === match.ruleId)!;
+      const singleVehicleType = rule.vehicle_types.length === 1 && isMeaningfulVehicleTypeText(rule.vehicle_types[0])
+        ? rule.vehicle_types[0].trim()
+        : undefined;
       const published = await this.publishJob({
         firstMatchedAtMs,
         executionMode: cutover ? "cutover" : "shadow",
         bookingId: booking.booking_id, requestId: 0, ruleId: rule.id, ruleName: rule.name,
         attemptKind: "fast_accept_all", acceptAll: true, source: "booking_name",
         bookingName: booking.booking_name,
+        ...(singleVehicleType ? { trip: { booking_id: booking.booking_id, vehicle_type: singleVehicleType } } : {}),
         ...(booking.ctime > 0 ? { bookingCreatedAtMs: booking.ctime * 1000 } : {}),
         ruleSnapshot: this.jobRuleSnapshot(rule),
       });
@@ -1490,6 +1509,10 @@ export class Poller {
         this.tickNeedBudget.release(match.ruleId, token, granted);
         continue;
       }
+      const matchedRule = this.tickAutoAcceptRules.find((item) => item.id === match.ruleId);
+      const fallbackVehicleTypeName = matchedRule && matchedRule.vehicle_types.length === 1 && isMeaningfulVehicleTypeText(matchedRule.vehicle_types[0])
+        ? matchedRule.vehicle_types[0].trim()
+        : undefined;
       const startedAt = Date.now();
       try {
         const result = await submitDurableAutoAccept(this.apiClient, {
@@ -1501,7 +1524,7 @@ export class Poller {
           traceId: buildAutoAcceptTraceId({ teamId: this.teamId, bookingId: booking.booking_id,
             requestIds: [], acceptStartedAt: startedAt }),
           discovery: { bookingName: booking.booking_name, agencyName: booking.agency_name, expectedAcceptedCount: 1 },
-        }, { ...options, firstMatchedAtMs });
+        }, { ...options, firstMatchedAtMs, ...(fallbackVehicleTypeName ? { fallbackVehicleTypeName } : {}) });
         logger.info("auto-accept-list-name-submitted", { bookingId: booking.booking_id, ruleId: match.ruleId,
           httpStatus: result.httpStatus, verificationStatus: "indeterminate" });
         return result.ok || result.httpStatus === 200 || result.httpStatus === 0;

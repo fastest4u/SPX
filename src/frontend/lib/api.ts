@@ -48,6 +48,9 @@ import type {
   TeamInput,
   TeamSpxAccount,
   TeamSpxAccountInput,
+  TeamSpxDriver,
+  TeamSpxDriversResponse,
+  TeamSpxDriversSyncResponse,
   User,
 } from '../types'
 import {
@@ -597,6 +600,31 @@ export const teamsApi = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+
+  listDrivers: (teamId: number): Promise<TeamSpxDriversResponse> =>
+    fetchJson<TeamSpxDriversResponse>(`${API_BASE}/teams/${teamId}/spx-drivers`),
+
+  syncDrivers: (teamId: number): Promise<TeamSpxDriversSyncResponse> =>
+    fetchJson<TeamSpxDriversSyncResponse>(`${API_BASE}/teams/${teamId}/spx-drivers/sync`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  updateDriverEnabled: (teamId: number, driverId: number, enabled: boolean): Promise<TeamSpxDriver> =>
+    fetchJson<TeamSpxDriver>(`${API_BASE}/teams/${teamId}/spx-drivers/${driverId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  setAllDriversEnabled: (
+    teamId: number,
+    enabled: boolean,
+    vehicleType?: number,
+  ): Promise<TeamSpxDriversResponse & { updatedCount: number }> =>
+    fetchJson<TeamSpxDriversResponse & { updatedCount: number }>(`${API_BASE}/teams/${teamId}/spx-drivers/bulk-enabled`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled, ...(vehicleType !== undefined ? { vehicleType } : {}) }),
+    }),
 }
 
 export const currentTeamApi = {
@@ -633,6 +661,30 @@ export const currentTeamApi = {
     fetchJson<null>(`${API_BASE}/team/spx-accounts/${accountId}/reset-rate-limit`, {
       method: 'POST',
       body: JSON.stringify({}),
+    }),
+
+  listDrivers: (): Promise<TeamSpxDriversResponse> =>
+    fetchJson<TeamSpxDriversResponse>(`${API_BASE}/team/spx-drivers`),
+
+  syncDrivers: (): Promise<TeamSpxDriversSyncResponse> =>
+    fetchJson<TeamSpxDriversSyncResponse>(`${API_BASE}/team/spx-drivers/sync`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  updateDriverEnabled: (driverId: number, enabled: boolean): Promise<TeamSpxDriver> =>
+    fetchJson<TeamSpxDriver>(`${API_BASE}/team/spx-drivers/${driverId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  setAllDriversEnabled: (
+    enabled: boolean,
+    vehicleType?: number,
+  ): Promise<TeamSpxDriversResponse & { updatedCount: number }> =>
+    fetchJson<TeamSpxDriversResponse & { updatedCount: number }>(`${API_BASE}/team/spx-drivers/bulk-enabled`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled, ...(vehicleType !== undefined ? { vehicleType } : {}) }),
     }),
 }
 
@@ -806,7 +858,7 @@ export const healthApi = {
 // Bidding API
 export const biddingApi = {
   accept: (input: AcceptBookingInput): Promise<AcceptBookingResponse> =>
-    fetchJson<AcceptBookingResponse>(`${API_BASE}/bidding/accept`, {
+    fetchJsonWithoutAuthRecovery<AcceptBookingResponse>(`${API_BASE}/bidding/accept`, {
       method: 'POST',
       body: JSON.stringify(input),
     }),

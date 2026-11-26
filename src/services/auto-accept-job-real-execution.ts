@@ -1,5 +1,5 @@
 import { metrics, type MetricsCollector } from "./metrics.js";
-import type { ApiClient } from "./api-client.js";
+import type { AcceptBookingOptions, ApiClient } from "./api-client.js";
 import { rejectUnadmittedAutoAcceptJob } from "./auto-accept-job-admission.js";
 import {
   buildAutoAcceptTraceId,
@@ -51,6 +51,8 @@ import {
 } from "../repositories/auto-accept-job-settlement-repository.js";
 import type { BookingRequestListData } from "../models/types.js";
 import { extractAllRequestListTrips } from "../utils/booking-extractor.js";
+import { logger } from "../utils/logger.js";
+import { isMeaningfulVehicleTypeText } from "./team-driver-pool.js";
 
 type FastAcceptAllRequestListItem = BookingRequestListData["request_list"][number] | Record<string, unknown>;
 
@@ -58,10 +60,24 @@ export interface AutoAcceptJobRealExecutionApi {
   acceptBookingRequests(
     bookingId: number,
     requestIds: number[],
-  ): Promise<{ ok: boolean; httpStatus: number; response: { retcode?: number; message?: string } | null; error?: string }>;
+    options?: AcceptBookingOptions,
+  ): Promise<{
+    ok: boolean;
+    httpStatus: number;
+    response: { retcode?: number; message?: string } | null;
+    error?: string;
+    assignedDriver?: { driverId: number; driverName: string };
+  }>;
   acceptAllBookingRequests?(
     bookingId: number,
-  ): Promise<{ ok: boolean; httpStatus: number; response: { retcode?: number; message?: string; data?: unknown } | null; error?: string }>;
+    options?: AcceptBookingOptions,
+  ): Promise<{
+    ok: boolean;
+    httpStatus: number;
+    response: { retcode?: number; message?: string; data?: unknown } | null;
+    error?: string;
+    assignedDriver?: { driverId: number; driverName: string };
+  }>;
   fetchBookingRequestList(
     bookingId: number,
     options?: { tabPendingConfirmation?: boolean },
@@ -1023,14 +1039,35 @@ async function executeFastAcceptAllParent(
         (options.metricsCollector ?? metrics).recordInterval("firstMatchToAcceptStart", payload.firstMatchedAtMs, wallStartedAt);
       }
       let acceptResult: Awaited<ReturnType<NonNullable<AutoAcceptJobRealExecutionApi["acceptAllBookingRequests"]>>>;
+      const tripRecord = payload.trip as Record<string, unknown> | undefined;
+      const acceptOptions: AcceptBookingOptions = {
+        ...(typeof tripRecord?.vehicle_type_id === "number" && Number.isInteger(tripRecord.vehicle_type_id) && tripRecord.vehicle_type_id > 0
+          ? { vehicleTypeId: tripRecord.vehicle_type_id }
+          : {}),
+        ...(isMeaningfulVehicleTypeText(tripRecord?.vehicle_type)
+          ? { vehicleTypeName: tripRecord.vehicle_type.trim() }
+          : {}),
+      };
       try {
-        acceptResult = await options.apiClient.acceptAllBookingRequests(payload.bookingId);
+        acceptResult = await options.apiClient.acceptAllBookingRequests(payload.bookingId, acceptOptions);
       } catch {
         return externalAttemptRetry(
           "external_attempt_post_uncertain",
           retryDelayMs,
           "external accept request outcome is uncertain",
         );
+      }
+      if (acceptResult.assignedDriver) {
+        logger.info("auto-accept-driver-assigned", {
+          teamId: payload.teamId,
+          bookingId: payload.bookingId,
+          requestIds: [],
+          ruleId: payload.ruleId,
+          acceptAll: true,
+          driverId: acceptResult.assignedDriver.driverId,
+          driverName: acceptResult.assignedDriver.driverName,
+          ok: acceptResult.ok,
+        });
       }
 
       const acceptRttMs = Math.max(0, Date.now() - wallStartedAt);
@@ -1388,10 +1425,20 @@ export async function executeAutoAcceptJobRealRequest(
         (options.metricsCollector ?? metrics).recordInterval("firstMatchToAcceptStart", payload.firstMatchedAtMs, wallStartedAt);
       }
       let acceptResult: Awaited<ReturnType<AutoAcceptJobRealExecutionApi["acceptBookingRequests"]>>;
+      const tripRecord = payload.trip as Record<string, unknown> | undefined;
+      const acceptOptions: AcceptBookingOptions = {
+        ...(typeof tripRecord?.vehicle_type_id === "number" && Number.isInteger(tripRecord.vehicle_type_id) && tripRecord.vehicle_type_id > 0
+          ? { vehicleTypeId: tripRecord.vehicle_type_id }
+          : {}),
+        ...(isMeaningfulVehicleTypeText(tripRecord?.vehicle_type)
+          ? { vehicleTypeName: tripRecord.vehicle_type.trim() }
+          : {}),
+      };
       try {
         acceptResult = await options.apiClient.acceptBookingRequests(
           payload.bookingId,
           [payload.requestId],
+          acceptOptions,
         );
       } catch {
         return externalAttemptRetry(
@@ -1399,6 +1446,18 @@ export async function executeAutoAcceptJobRealRequest(
           retryDelayMs,
           "external accept request outcome is uncertain",
         );
+      }
+      if (acceptResult.assignedDriver) {
+        logger.info("auto-accept-driver-assigned", {
+          teamId: payload.teamId,
+          bookingId: payload.bookingId,
+          requestIds: [payload.requestId],
+          ruleId: payload.ruleId,
+          acceptAll: false,
+          driverId: acceptResult.assignedDriver.driverId,
+          driverName: acceptResult.assignedDriver.driverName,
+          ok: acceptResult.ok,
+        });
       }
 
       const acceptRttMs = Math.max(0, Date.now() - wallStartedAt);

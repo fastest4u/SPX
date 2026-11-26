@@ -9,6 +9,7 @@ import { getTeamRuntimeConfig } from "../repositories/team-repository.js";
 import { logger } from "../utils/logger.js";
 import { ApiClient } from "./api-client.js";
 import { getOrCreateTeamCredentialPool } from "./team-credential-pool.js";
+import { getOrCreateTeamDriverPool } from "./team-driver-pool.js";
 import type {
   AutoAcceptDryRunPayloadV1,
   AutoAcceptDryRunRuleState,
@@ -157,6 +158,8 @@ export async function loadAutoAcceptJobRealApiClientForTeam(
     logger.debug("auto-accept-job-real-worker-team-skipped", { teamId, reason: "missing_credentials" });
     return null;
   }
+  const driverPool = await getOrCreateTeamDriverPool(teamId);
+  driverPool.triggerBackgroundReloadIfStale();
 
   return new ApiClient({
     metricsCollector: teamMetricsCollector(teamId, team.name),
@@ -168,6 +171,15 @@ export async function loadAutoAcceptJobRealApiClientForTeam(
       pool.recordSessionExpired(accountId);
     },
     pollIntervalMsProvider: () => env.POLL_INTERVAL_MS,
+    biddingVehicleType: team.biddingVehicleType,
+    driverResolver: (input) => driverPool.nextDriver(input),
+    hasAutoDrivers: () => driverPool.hasDrivers(),
+    onDriverAcceptError: (driverId) => {
+      driverPool.recordDriverFailure(driverId);
+    },
+    onDriverAcceptReleased: (bookingId, driverId, driverName) => {
+      driverPool.releaseBookingDriver(bookingId, driverId, driverName);
+    },
   });
 }
 

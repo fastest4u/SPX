@@ -273,6 +273,8 @@ export interface Team {
   biddingVehicleType?: number | null;
   runtimeStatus?: 'stopped' | 'running' | 'paused' | 'misconfigured' | 'session_expired' | 'error';
   usersCount?: number;
+  driversCount?: number;
+  enabledDriversCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -316,6 +318,46 @@ export interface TeamSpxAccountInput {
   spxAppName?: string;
   spxReferer?: string;
   enabled?: boolean;
+}
+
+export interface TeamSpxDriver {
+  id: number;
+  teamId: number;
+  driverId: number;
+  driverName: string;
+  agencyName: string;
+  vehicleType: number;
+  vehicleTypeName: string;
+  enabled: boolean;
+  syncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamSpxDriverVehicleSummary {
+  vehicleType: number;
+  vehicleTypeName: string;
+  total: number;
+  enabled: number;
+}
+
+export interface TeamSpxDriverSummary {
+  total: number;
+  enabled: number;
+  lastSyncedAt: string | null;
+  byVehicleType: TeamSpxDriverVehicleSummary[];
+}
+
+export interface TeamSpxDriversResponse {
+  drivers: TeamSpxDriver[];
+  summary: TeamSpxDriverSummary;
+}
+
+export interface TeamSpxDriversSyncResponse extends TeamSpxDriversResponse {
+  synced: number;
+  inserted: number;
+  updated: number;
+  removed: number;
 }
 
 export type ProviderAuthState = 'manual' | 'connected' | 'connecting' | 'attention' | 'retry_wait';

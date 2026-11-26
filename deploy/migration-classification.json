@@ -172,6 +172,10 @@
     "046_reconcile_team_spx_accounts_columns.sql": {
       "sha256": "c4c4a3304c664522c8f19c8851a55c125aec6c322c1ca9e634a8cb8f9cdc28a9",
       "class": "expand"
+    },
+    "047_create_team_spx_drivers.sql": {
+      "sha256": "670b5f58fe9d418ca87cfe58b898a22221f1ab5445ef9e6031e73c4294d9b3e7",
+      "class": "expand"
     }
   }
 }
